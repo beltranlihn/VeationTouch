@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<title>VEATION Touch</title>
+<link rel="icon" href="brand/veation-marca-pequena.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand"><img src="brand/veation-marca-pequena.svg" alt=""><span class="brand-name">VEATION <b>Touch</b></span></div>
+    <div class="sep"></div>
+    <label class="profile-pick" title="Room profile">
+      <span class="lbl">Room</span>
+      <select id="profileSelect"></select>
+    </label>
+    <div class="grow"></div>
+    <div class="chips" id="chips"></div>
+    <div class="seg" id="projSeg" title="What the projection shows">
+      <button data-mode="off">Off</button><button data-mode="identify">Identify</button><button data-mode="debug">Debug</button>
+    </div>
+    <button class="btn" id="connectBtn" title="Open this interface on a phone or tablet">Connect device</button>
+  </header>
+
+  <div class="body">
+    <nav class="nav" id="nav">
+      <button data-view="live"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span>Live</span></button>
+      <button data-view="room"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="5" height="12"/><rect x="10" y="6" width="5" height="12"/><rect x="17" y="6" width="4" height="12"/></svg><span>Room</span></button>
+      <button data-view="sensors"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5 12a7 7 0 0 1 14 0M2 12a10 10 0 0 1 20 0"/></svg><span>Sensors</span></button>
+      <button data-view="calibrate"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg><span>Calibrate</span></button>
+      <button data-view="zones"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" stroke-dasharray="3 2"/><rect x="8" y="8" width="8" height="8"/></svg><span>Zones</span></button>
+      <button data-view="outputs"><svg viewBox="0 0 24 24"><path d="M4 12h12M12 7l5 5-5 5"/><path d="M20 4v16"/></svg><span>Outputs</span></button>
+      <button data-view="system"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>System</span></button>
+    </nav>
+
+    <main class="stage">
+      <div class="view-wrap">
+        <canvas id="roomCanvas"></canvas>
+        <div class="stage-hint" id="stageHint"></div>
+        <div class="stage-tools">
+          <button class="ibtn" id="fitBtn" title="Fit walls to view">Fit</button>
+          <button class="ibtn tog" id="pointsBtn" title="Show raw LiDAR points">Points</button>
+        </div>
+      </div>
+    </main>
+
+    <aside class="panel" id="panel"></aside>
+  </div>
+
+  <footer class="status" id="statusBar"></footer>
+</div>
+
+<div class="overlay" id="overlay" hidden></div>
+<div class="toasts" id="toasts"></div>
+<div class="conn-lost" id="connLost" hidden><div><b>Connection to the engine lost</b><span>Reconnecting…</span></div></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

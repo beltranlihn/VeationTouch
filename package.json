@@ -1,0 +1,55 @@
+{
+  "name": "veation-touch",
+  "productName": "VEATION Touch",
+  "version": "0.1.0",
+  "description": "VEATION Touch — LiDAR touch-wall tracking, calibration and OSC/TUIO/WebSocket output · Alma Digital Studio",
+  "author": "Alma Digital Studio",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "app/main.js",
+  "scripts": {
+    "start": "electron .",
+    "engine": "node engine/main.js --data ./.data --port 8770",
+    "test": "node --test --test-force-exit \"tests/*.test.mjs\"",
+    "check": "node scripts/check-syntax.mjs",
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "qrcode-generator": "1.4.4",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.2"
+  },
+  "build": {
+    "appId": "com.almadigitalstudio.veation-touch",
+    "productName": "VEATION Touch",
+    "copyright": "Copyright © 2026 Alma Digital Studio",
+    "publish": null,
+    "npmRebuild": false,
+    "directories": { "output": "dist" },
+    "files": [
+      "app/**",
+      "engine/**",
+      "ui/**",
+      "sdk/**",
+      "profiles/**",
+      "build/icon.png",
+      "package.json",
+      "node_modules/ws/**",
+      "node_modules/qrcode-generator/**"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "VEATION Touch Setup ${version}.${ext}"
+    }
+  }
+}
