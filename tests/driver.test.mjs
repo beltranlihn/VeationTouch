@@ -59,6 +59,27 @@ for (const [label, scanMode] of [['Sensitivity (HQ)', 'sensitivity'], ['DenseBoo
   });
 }
 
+test('discovery finds an S2E and reads its serial; static IP command is sent and acknowledged', async () => {
+  const { discover, setStaticIp } = await import('../engine/discover.js');
+  const world = new SimWall(wall, pose, { seed: 9 });
+  const emu = new S2EEmulator(world);
+  const port = await emu.start();
+  try {
+    const found = await discover({ hosts: ['127.0.0.1', '127.0.0.2'], port, timeoutMs: 600 });
+    assert.equal(found.length, 1);
+    assert.equal(found[0].host, '127.0.0.1');
+    assert.equal(found[0].health.status, 0);
+    assert.ok(found[0].info?.serial, 'serial read with GET_INFO');
+    assert.equal((await discover({ hosts: ['127.0.0.1'], port, skip: ['127.0.0.1'], timeoutMs: 300 })).length, 0, 'running sensors are skipped');
+    const r = await setStaticIp({ host: '127.0.0.1', port, ip: '192.168.11.13', mask: '255.255.255.0' });
+    assert.equal(r.gw, '192.168.11.1');
+    assert.deepEqual(emu.staticIp, { ip: '192.168.11.13', mask: '255.255.255.0', gw: '192.168.11.1' });
+    await assert.rejects(setStaticIp({ host: '127.0.0.1', port, ip: '300.1.1.1' }), /invalid/);
+  } finally {
+    emu.stop();
+  }
+});
+
 test('driver: watchdog notices a cut cable and recovers when it comes back', async () => {
   const world = new SimWall(wall, pose, { seed: 5 });
   const emu = new S2EEmulator(world);

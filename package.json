@@ -30,6 +30,7 @@
     "publish": null,
     "npmRebuild": false,
     "directories": { "output": "dist" },
+    "asarUnpack": ["native/**"],
     "files": [
       "app/**",
       "engine/**",
@@ -37,6 +38,8 @@
       "sdk/**",
       "profiles/**",
       "build/icon.png",
+      "native/**",
+      "licenses/**",
       "package.json",
       "node_modules/ws/**",
       "node_modules/qrcode-generator/**"

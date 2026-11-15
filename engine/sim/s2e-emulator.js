@@ -81,6 +81,16 @@ export class S2EEmulator {
         this._reply(P.ANS.DEVINFO, d); break;
       }
       case C.GET_LIDAR_CONF: this._conf(payload); break;
+      case C.SET_LIDAR_CONF: {
+        const type = payload.readUInt32LE(0);
+        const d = Buffer.alloc(8); d.writeUInt32LE(type, 0);
+        if (type === P.CONF.STATIC_IP && payload.length >= 16) {
+          const q = (o) => [...payload.subarray(o, o + 4)].join('.');
+          this.staticIp = { ip: q(4), mask: q(8), gw: q(12) };
+        } else d.writeUInt32LE(1, 4); // unsupported entry
+        this._reply(P.ANS.SET_CONF, d);
+        break;
+      }
       case C.EXPRESS_SCAN: this._startStream(payload[0]); break;
       case C.SCAN: this._startStream(0); break;
       default: break; // MOTOR_SPEED_CTRL etc. are accepted silently

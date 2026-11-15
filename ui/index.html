@@ -22,6 +22,7 @@
     <div class="seg" id="projSeg" title="What the projection shows">
       <button data-mode="off">Off</button><button data-mode="identify">Identify</button><button data-mode="debug">Debug</button>
     </div>
+    <button class="btn" id="lockBtn" title="Show mode: lock the room against accidental edits">Show</button>
     <button class="btn" id="connectBtn" title="Open this interface on a phone or tablet">Connect device</button>
   </header>
 
@@ -29,6 +30,7 @@
     <nav class="nav" id="nav">
       <button data-view="live"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span>Live</span></button>
       <button data-view="room"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="5" height="12"/><rect x="10" y="6" width="5" height="12"/><rect x="17" y="6" width="4" height="12"/></svg><span>Room</span></button>
+      <button data-view="mapping"><svg viewBox="0 0 24 24"><path d="M4 6l16-2-1 16-14-2z"/><circle cx="4" cy="6" r="1.6"/><circle cx="20" cy="4" r="1.6"/><circle cx="19" cy="20" r="1.6"/><circle cx="5" cy="18" r="1.6"/></svg><span>Mapping</span></button>
       <button data-view="sensors"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5 12a7 7 0 0 1 14 0M2 12a10 10 0 0 1 20 0"/></svg><span>Sensors</span></button>
       <button data-view="calibrate"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg><span>Calibrate</span></button>
       <button data-view="zones"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" stroke-dasharray="3 2"/><rect x="8" y="8" width="8" height="8"/></svg><span>Zones</span></button>
@@ -39,10 +41,14 @@
     <main class="stage">
       <div class="view-wrap">
         <canvas id="roomCanvas"></canvas>
+        <div class="ws-bar" id="wsBar"></div>
         <div class="stage-hint" id="stageHint"></div>
         <div class="stage-tools">
-          <button class="ibtn" id="fitBtn" title="Fit walls to view">Fit</button>
+          <button class="ibtn" id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
+          <button class="ibtn" id="redoBtn" title="Redo (Ctrl+Shift+Z)">↷</button>
+          <button class="ibtn" id="fitBtn" title="Fit to view (double-click)">Fit</button>
           <button class="ibtn tog" id="pointsBtn" title="Show raw LiDAR points">Points</button>
+          <button class="ibtn tog" id="contentBtn" title="Show the content image under the walls (upload it in Mapping)" hidden>Content</button>
         </div>
       </div>
     </main>

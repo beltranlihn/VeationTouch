@@ -32,7 +32,13 @@ function log(msg) {
 function startEngine() {
   startedAt = Date.now();
   engineReady = false;
-  engine = utilityProcess.fork(ENGINE, ['--data', dataDir], { serviceName: 'VEATION Touch Engine', stdio: 'inherit' });
+  // The engine's live heap is ~10 MB (measured with forced GC); without a cap V8 keeps growing its spaces
+  // lazily for hours. The cap makes it collect instead of reserving more. A utilityProcess ignores bare
+  // V8 flags in execArgv (measured: limit stays 4 GB); they only apply wrapped in --js-flags.
+  engine = utilityProcess.fork(ENGINE, ['--data', dataDir], {
+    serviceName: 'VEATION Touch Engine', stdio: 'inherit',
+    execArgv: ['--js-flags=--max-old-space-size=256 --max-semi-space-size=8'],
+  });
   engine.on('message', onEngineMessage);
   engine.on('exit', (code) => {
     engine = null; engineReady = false;
@@ -75,6 +81,18 @@ function sendDisplays() {
   }));
   engine.postMessage({ type: 'displays', list });
 }
+
+// Safety net for 24/7 operation: if the engine ever holds > 1.5 GB for 3 minutes, restart it
+// (the supervisor brings it back in ~1 s; the profile and calibration are on disk).
+const MEM_LIMIT_KB = 1.5 * 1024 * 1024;
+let memStrikes = 0;
+setInterval(() => {
+  if (!engine?.pid) return;
+  const m = app.getAppMetrics().find((x) => x.pid === engine.pid);
+  const kb = m?.memory?.workingSetSize || 0;
+  memStrikes = kb > MEM_LIMIT_KB ? memStrikes + 1 : 0;
+  if (memStrikes >= 3) { log(`engine using ${Math.round(kb / 1024)} MB for 3 minutes — restarting it`); memStrikes = 0; engine.kill(); }
+}, 60000);
 
 // ------------------------------------------------------------------ windows
 

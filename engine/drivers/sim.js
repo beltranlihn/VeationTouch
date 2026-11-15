@@ -16,7 +16,7 @@ export class SimDriver extends EventEmitter {
     const truth = { ...cfg.pose };
     const e = cfg.poseError || {};
     truth.x += e.x || 0; truth.y += e.y || 0; truth.rotation += e.rotation || 0;
-    this.world = new SimWall(cfg.wall, truth, { wanderers: this.cfg.wanderers, seed: hash(cfg.id) });
+    this.world = new SimWall(cfg.wall, truth, { wanderers: this.cfg.wanderers, seed: hash(cfg.id), plane: cfg.plane });
     this.status = {
       state: 'stopped', info: { model: 0, firmware: 'sim', hardware: 0, serial: `SIM-${cfg.id}` },
       health: { status: 0, errorCode: 0 }, modes: [], mode: null, modeName: 'Simulated',
@@ -63,6 +63,7 @@ export class SimDriver extends EventEmitter {
   }
 
   setWanderers(n) { this.world.setWanderers(n); }
+  setPlane(plane) { this.world.setPlane(plane); }
 }
 
 function hash(s) {

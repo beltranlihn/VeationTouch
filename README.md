@@ -1,7 +1,7 @@
 # VEATION Touch
 
 LiDAR touch-wall tracking for immersive rooms — Alma Digital Studio.
-2D LiDARs (Slamtec RPLIDAR S2E over Ethernet) → calibrated touches → OSC · TUIO · WebSocket.
+2D LiDARs (Slamtec RPLIDAR S2E over Ethernet) → calibrated touches → OSC · TUIO · WebSocket · Spout · Webhook · Art-Net.
 
 ## Run
 
@@ -25,8 +25,8 @@ touch the walls in the view.
 | `app/main.js` | Electron main: engine supervisor, windows (operator + projection), tray, autostart |
 | `engine/` | Tracking engine (runs in a utilityProcess or standalone with Node) |
 | `engine/drivers/` | `s2e.js` UDP driver · `s2e-protocol.js` wire format · `sim.js` simulated sensor |
-| `engine/core/` | geometry · pipeline (per sensor) · tracker (per wall) · zones · calibration · filters |
-| `engine/outputs/` | OSC encoder · output routing (OSC / TUIO) |
+| `engine/core/` | geometry · pipeline (per sensor) · tracker (per wall) · zones · calibration · auto-align · level check · filters |
+| `engine/outputs/` | OSC encoder · output routing (OSC, Triggers, TUIO, Webhook, Art-Net) · Spout texture |
 | `engine/sim/` | synthetic wall scene + a software S2E (UDP) used by tests |
 | `engine/server.js` | HTTP + WebSocket: serves the UI to the window and to tablets, `/ws/data` for apps |
 | `ui/` | operator UI (vanilla JS, no build step) and `projection.html` |
@@ -34,6 +34,9 @@ touch the walls in the view.
 | `profiles/` | bundled room profiles (seeded into the data folder on first run) |
 | `tests/` | `node --test` suites |
 | `docs/OSC.md` | output protocol reference (public API) |
+| `docs/MANUAL-OPERACION.md` | operator manual (Spanish) |
+| `docs/ux/` | UX proposal, reference-product analysis, phone screenshots |
+| `native/spout-send/` | prebuilt Spout sender (studio's own addon, from VEATION) |
 | `docs/research/` | research reports, notes and the official Slamtec S2E documents |
 | `ARCHITECTURE.md` | how it works and why |
 

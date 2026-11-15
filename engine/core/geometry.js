@@ -183,3 +183,69 @@ export function pointInRect(x, y, r) {
 }
 
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+// ---------------------------------------------------------------- grid warp (mesh mapping)
+// A grid is { us:[0..1], vs:[0..1], points:[[x,y]] } — node lines at the given UV positions
+// (strictly increasing, first 0, last 1), points row-major (row j = vs[j], column i = us[i]).
+// Inside each cell the map is bilinear, so lines of constant u or v are straight within a cell.
+
+function cellOf(ts, t) {
+  let k = 0;
+  while (k < ts.length - 2 && t > ts[k + 1]) k++;
+  return [k, (t - ts[k]) / (ts[k + 1] - ts[k])];
+}
+
+/** Wall UV → canvas px through a grid. */
+export function gridMap(g, u, v) {
+  const nx = g.us.length;
+  const [i, s] = cellOf(g.us, u);
+  const [j, t] = cellOf(g.vs, v);
+  const P = g.points;
+  const a = P[j * nx + i], b = P[j * nx + i + 1], c = P[(j + 1) * nx + i + 1], d = P[(j + 1) * nx + i];
+  return [
+    (1 - s) * (1 - t) * a[0] + s * (1 - t) * b[0] + s * t * c[0] + (1 - s) * t * d[0],
+    (1 - s) * (1 - t) * a[1] + s * (1 - t) * b[1] + s * t * c[1] + (1 - s) * t * d[1],
+  ];
+}
+
+/** Uniform nx × ny grid sampled from any UV → px function (keeps the current look). */
+export function gridFrom(map, nx, ny) {
+  const us = Array.from({ length: nx }, (_, i) => i / (nx - 1));
+  const vs = Array.from({ length: ny }, (_, j) => j / (ny - 1));
+  const points = [];
+  for (const v of vs) for (const u of us) points.push(map(u, v).map((x) => Math.round(x * 10) / 10));
+  return { us, vs, points };
+}
+
+/** Insert a column (axis 'u') or a row (axis 'v') at parameter t without changing the map. */
+export function gridInsert(g, axis, t) {
+  const ts = axis === 'u' ? g.us : g.vs;
+  if (t <= 0.001 || t >= 0.999 || ts.some((x) => Math.abs(x - t) < 0.01) || ts.length >= 33) return g;
+  const us = axis === 'u' ? [...g.us, t].sort((a, b) => a - b) : g.us.slice();
+  const vs = axis === 'v' ? [...g.vs, t].sort((a, b) => a - b) : g.vs.slice();
+  const points = [];
+  for (const v of vs) for (const u of us) {
+    const i = g.us.indexOf(u), j = g.vs.indexOf(v);
+    points.push(i >= 0 && j >= 0 ? g.points[j * g.us.length + i].slice() : gridMap(g, u, v).map((x) => Math.round(x * 10) / 10));
+  }
+  return { us, vs, points };
+}
+
+/** Approximate inverse of any UV → px map (coarse search + refinement). Returns [u, v] or null. */
+export function invertMap(map, x, y) {
+  let best = null, bd = Infinity, step = 1 / 32;
+  for (let v = 0; v <= 1 + 1e-9; v += step) for (let u = 0; u <= 1 + 1e-9; u += step) {
+    const [px, py] = map(u, v); const d = (px - x) ** 2 + (py - y) ** 2;
+    if (d < bd) { bd = d; best = [u, v]; }
+  }
+  for (let it = 0; it < 4; it++) {
+    step /= 4;
+    const [cu, cv] = best;
+    for (let dv = -4; dv <= 4; dv++) for (let du = -4; du <= 4; du++) {
+      const u = clamp(cu + du * step, 0, 1), v = clamp(cv + dv * step, 0, 1);
+      const [px, py] = map(u, v); const d = (px - x) ** 2 + (py - y) ** 2;
+      if (d < bd) { bd = d; best = [u, v]; }
+    }
+  }
+  return best;
+}

@@ -12,9 +12,10 @@ export class SimWall {
    * @param {{width:number, height:number}} wall
    * @param {{x:number,y:number,rotation:number,mirror?:boolean}} pose  true sensor pose
    */
-  constructor(wall, pose, { wanderers = 0, noiseMm = 4, seed = 1 } = {}) {
+  constructor(wall, pose, { wanderers = 0, noiseMm = 4, seed = 1, plane = null } = {}) {
     this.wall = wall;
     this.setPose(pose);
+    this.setPlane(plane);
     this.noiseMm = noiseMm;
     this.injected = new Map(); // id → {x, y}
     this.wanderers = [];
@@ -28,6 +29,15 @@ export class SimWall {
     this.m = poseMatrix(pose);
     this.inv = invert(this.m);
     this.origin = [pose.x, pose.y];
+  }
+
+  /**
+   * Scan plane not exactly parallel to the wall: `gapMm` from the wall at the sensor, leaning towards it by
+   * `tiltDeg` along the wall-frame direction `towardsDeg` (0 = +x, -90 = down). Rays reach the wall where the gap
+   * closes (grazing) and see nothing beyond. null = perfectly parallel.
+   */
+  setPlane(plane) {
+    this.plane = plane && plane.tiltDeg > 0 ? { gapMm: 20, towardsDeg: -90, ...plane } : null;
   }
 
   rand() {
@@ -101,6 +111,11 @@ export class SimWall {
     const top = this.wall.height + 0.3;
     if (dx < -1e-9) { const t = -ox / dx; const y = oy + dy * t; if (y >= 0 && y <= top) best = Math.min(best, t); }
     if (dx > 1e-9) { const t = (this.wall.width - ox) / dx; const y = oy + dy * t; if (y >= 0 && y <= top) best = Math.min(best, t); }
+    if (this.plane) {
+      const u = (this.plane.towardsDeg * Math.PI) / 180;
+      const k = dx * Math.cos(u) + dy * Math.sin(u);
+      if (k > 1e-6) best = Math.min(best, this.plane.gapMm / 1000 / (Math.tan((this.plane.tiltDeg * Math.PI) / 180) * k));
+    }
     for (const h of hands.concat(this.obstacles)) {
       const r = h.r ?? HAND_R;
       const fx = ox - h.x, fy = oy - h.y;

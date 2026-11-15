@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import v8 from 'node:v8';
 import { WebSocketServer } from 'ws';
 
 const require = createRequire(import.meta.url);
@@ -23,14 +24,31 @@ const MIME = {
 
 const isLocal = (addr) => addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 
-export function lanUrls(port, token) {
+/**
+ * Addresses a phone/tablet could use. Link-local (169.254.x) and virtual adapters are skipped;
+ * Wi-Fi first, because a tablet joins over Wi-Fi when the server has one (in the room the server
+ * is usually wired and the tablet reaches it through an access point on the same LAN).
+ */
+const ip4 = (s) => s.split('.').reduce((a, n) => ((a << 8) | (Number(n) & 255)) >>> 0, 0);
+
+/**
+ * …and the interface that reaches the LiDARs (same subnet as a sensor IP) is marked `sensors`
+ * and listed last: a tablet should not be put on the sensor network.
+ */
+export function lanUrls(port, token, sensorHosts = []) {
   const out = [];
   for (const [name, list] of Object.entries(os.networkInterfaces())) {
+    if (/vethernet|virtual|vmware|vbox|hyper-v|wsl|docker|loopback|bluetooth/i.test(name)) continue;
     for (const a of list || []) {
-      if (a.family === 'IPv4' && !a.internal) out.push({ iface: name, url: `http://${a.address}:${port}/?k=${token}` });
+      if (a.family !== 'IPv4' || a.internal || a.address.startsWith('169.254.')) continue;
+      const kind = /wi-?fi|wlan|wireless/i.test(name) ? 'wifi' : /ethernet|^eth|^en/i.test(name) ? 'ethernet' : 'other';
+      const mask = ip4(a.netmask || '255.255.255.0');
+      const sensors = sensorHosts.some((h) => /^(\d{1,3}\.){3}\d{1,3}$/.test(h) && (ip4(h) & mask) === (ip4(a.address) & mask));
+      out.push({ iface: name, kind, ip: a.address, sensors, url: `http://${a.address}:${port}/?k=${token}` });
     }
   }
-  return out;
+  const rank = { wifi: 0, ethernet: 1, other: 2 };
+  return out.sort((a, b) => (a.sensors - b.sensors) || rank[a.kind] - rank[b.kind]);
 }
 
 /**
@@ -59,9 +77,15 @@ export function createServer(engine, { port, root, log }) {
     const p = decodeURIComponent(url.pathname);
     if (p === '/' || p === '/index.html') return serveFile(res, path.join(uiDir, 'index.html'));
     if (p === '/projection') return serveFile(res, path.join(uiDir, 'projection.html'));
+    // the browser uses the very same geometry code as the engine (one implementation of the mapping)
+    if (p === '/shared/geometry.js') return serveFile(res, path.join(root, 'engine', 'core', 'geometry.js'));
     if (p === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, version: engine.version, profile: engine.profile?.id }));
+      const mem = process.memoryUsage(), mb = (b) => Math.round(b / 1048576);
+      return res.end(JSON.stringify({
+        ok: true, version: engine.version, profile: engine.profile?.id, uptimeS: Math.round(process.uptime()),
+        memory: { rssMb: mb(mem.rss), heapUsedMb: mb(mem.heapUsed), heapLimitMb: mb(v8.getHeapStatistics().heap_size_limit) },
+      }));
     }
     if (p === '/api/qr.svg') {
       const text = url.searchParams.get('t') || '';
@@ -70,6 +94,31 @@ export function createServer(engine, { port, root, log }) {
       qr.make();
       res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' });
       return res.end(qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }));
+    }
+    if (p === '/api/underlay') {
+      const pid = url.searchParams.get('p') || engine.profile.id;
+      if (req.method === 'GET') {
+        const u = /^[A-Za-z0-9_-]{1,40}$/.test(pid) ? engine.store.underlayInfo(pid) : null;
+        if (!u) { res.writeHead(404); return res.end(); }
+        res.writeHead(200, { 'Content-Type': { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' }[u.ext], 'Cache-Control': 'max-age=31536000' });
+        return fs.createReadStream(u.file).pipe(res);
+      }
+      if (req.method === 'POST') {
+        // same rule as the UI channel: localhost, or the access key
+        if (!isLocal(req.socket.remoteAddress) && url.searchParams.get('k') !== engine.settings.token) { res.writeHead(401); return res.end(); }
+        if (engine.settings.locked) { res.writeHead(423, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'the room is locked (Show mode)' })); }
+        const chunks = []; let size = 0;
+        req.on('data', (c) => { size += c.length; if (size > 25 * 1048576) { req.destroy(); return; } chunks.push(c); });
+        req.on('end', () => {
+          try {
+            if (url.searchParams.get('remove')) engine.store.deleteUnderlay(engine.profile.id);
+            else engine.store.saveUnderlay(engine.profile.id, Buffer.concat(chunks));
+            engine.emit('state');
+            res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}');
+          } catch (e) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: e.message })); }
+        });
+        return undefined;
+      }
     }
     if (p.startsWith('/sdk/')) { const f = safeJoin(sdkDir, p.slice(5)); return f ? serveFile(res, f) : (res.writeHead(400), res.end()); }
     const f = safeJoin(uiDir, p.slice(1));
@@ -89,7 +138,7 @@ export function createServer(engine, { port, root, log }) {
         log.warn(`UI connection refused from ${addr} (missing/wrong access key)`);
         return;
       }
-      wssUi.handleUpgrade(req, socket, head, (ws) => onUi(ws, addr, url));
+      wssUi.handleUpgrade(req, socket, head, (ws) => onUi(ws, addr, url, String(req.headers['user-agent'] || '')));
     } else if (url.pathname === '/ws/data') {
       wssData.handleUpgrade(req, socket, head, (ws) => onData(ws));
     } else socket.destroy();
@@ -100,11 +149,12 @@ export function createServer(engine, { port, root, log }) {
   const uiClients = new Set();
   const send = (ws, obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
-  function onUi(ws, addr, url) {
-    const client = { ws, addr, role: url.searchParams.get('role') || 'ui', viz: false, vizEvery: 1, vizN: 0, local: isLocal(addr) };
+  function onUi(ws, addr, url, ua = '') {
+    const client = { ws, addr, role: url.searchParams.get('role') || 'ui', viz: false, vizEvery: 1, vizN: 0, local: isLocal(addr), ua, since: Date.now() };
+    if (!client.local) log.info(`device connected from ${addr.replace('::ffff:', '')} (${deviceName(ua)})`);
     uiClients.add(client);
     updateVizListener();
-    send(ws, { ...engine.state(), lan: lanUrls(port, engine.settings.token), token: engine.settings.token, local: client.local });
+    send(ws, { ...engine.state(), lan: lanUrls(port, engine.settings.token, engine.profile.sensors.filter((s) => s.driver === 's2e').map((s) => s.host)), token: engine.settings.token, local: client.local });
     send(ws, engine.status());
     ws.on('message', async (raw) => {
       let m;
@@ -116,7 +166,8 @@ export function createServer(engine, { port, root, log }) {
         updateVizListener();
       } else if (m.type === 'cmd') {
         try {
-          const result = await engine.command(m.op, m.args || {});
+          // __local is set here, never trusted from the client: some commands only make sense at the server
+          const result = await engine.command(m.op, { ...(m.args || {}), __local: client.local });
           send(ws, { type: 'ack', id: m.id, ok: true, result });
         } catch (e) {
           send(ws, { type: 'ack', id: m.id, ok: false, error: e.message });
@@ -126,6 +177,11 @@ export function createServer(engine, { port, root, log }) {
     });
     ws.on('close', () => { uiClients.delete(client); updateVizListener(); });
     ws.on('error', () => {});
+  }
+
+  /** Devices currently connected to the UI (for the live "device reached" confirmation). */
+  function clientList() {
+    return [...uiClients].filter((c) => c.role === 'ui').map((c) => ({ addr: c.addr.replace('::ffff:', ''), local: c.local, device: deviceName(c.ua), since: c.since }));
   }
 
   // The engine only builds point clouds while somebody looks at them.
@@ -143,7 +199,7 @@ export function createServer(engine, { port, root, log }) {
   };
 
   engine.on('state', () => {
-    const st = { ...engine.state(), lan: lanUrls(port, engine.settings.token), token: engine.settings.token };
+    const st = { ...engine.state(), lan: lanUrls(port, engine.settings.token, engine.profile.sensors.filter((s) => s.driver === 's2e').map((s) => s.host)), token: engine.settings.token };
     for (const c of uiClients) send(c.ws, { ...st, local: c.local });
   });
   const unsubLog = log.onEntry?.((entry) => broadcast({ type: 'log', entry }, (c) => c.role === 'ui'));
@@ -160,10 +216,11 @@ export function createServer(engine, { port, root, log }) {
         zones: frame.zoneCounts,
         events: frame.events.length ? frame.events.map((e) => ({ type: e.type, id: e.id, wallId: e.wallId, x: r3(e.x), y: r3(e.y) })) : undefined,
         calib: engine.calib ? engine.calib.snapshot(frame.t) : null, // smooth progress ring on the tablet
+        verify: engine.verify ? engine.verify.snapshot(frame.t) : null,
       };
       broadcast(live);
     }
-    if (liveN % 30 === 0) broadcast(engine.status());
+    if (liveN % 30 === 0) broadcast({ ...engine.status(), clients: clientList() });
     if (liveN % 6 === 0) sendViz();
   });
 
@@ -206,7 +263,7 @@ export function createServer(engine, { port, root, log }) {
     });
     ws.on('close', () => dataClients.delete(c));
     ws.on('error', () => {});
-    send(ws, { type: 'hello', version: engine.version, profile: { id: engine.profile.id, name: engine.profile.name, canvas: engine.profile.canvas, walls: engine.profile.walls.map((w) => ({ id: w.id, name: w.name, width: w.width, height: w.height, pixelRect: w.pixelRect })) } });
+    send(ws, { type: 'hello', version: engine.version, profile: { id: engine.profile.id, name: engine.profile.name, canvas: engine.profile.canvas, walls: engine.profile.walls.map((w) => ({ id: w.id, name: w.name, width: w.width, height: w.height, pixelRect: w.pixelRect, mapping: w.mapping })) } });
   }
   engine.on('frame', (frame) => {
     if (!dataClients.size) return;
@@ -224,9 +281,10 @@ export function createServer(engine, { port, root, log }) {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '0.0.0.0', () => {
-      log.info(`server listening on :${port}`);
+      const bound = server.address().port; // port 0 = any free port (tests)
+      log.info(`server listening on :${bound}`);
       resolve({
-        port,
+        port: bound,
         close: () => { unsubLog?.(); for (const c of uiClients) c.ws.terminate(); for (const c of dataClients) c.ws.terminate(); server.close(); },
       });
     });
@@ -234,3 +292,13 @@ export function createServer(engine, { port, root, log }) {
 }
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
+
+function deviceName(ua) {
+  if (/iPad/.test(ua)) return 'iPad';
+  if (/iPhone/.test(ua)) return 'iPhone';
+  if (/Android/.test(ua)) return /Mobile/.test(ua) ? 'Android phone' : 'Android tablet';
+  if (/Electron/.test(ua)) return 'desktop app';
+  if (/Windows/.test(ua)) return 'Windows browser';
+  if (/Macintosh/.test(ua)) return 'Mac browser';
+  return 'browser';
+}

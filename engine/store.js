@@ -62,6 +62,7 @@ export class Store {
       token: typeof s.token === 'string' && s.token.length >= 8 ? s.token : crypto.randomBytes(9).toString('base64url'),
       projection: { displayId: s.projection?.displayId ?? null, mode: ['off', 'identify', 'debug'].includes(s.projection?.mode) ? s.projection.mode : 'off', open: !!s.projection?.open },
       autostart: !!s.autostart,
+      locked: !!s.locked,
     };
     if (JSON.stringify(out) !== JSON.stringify(s)) this.saveSettings(out);
     return out;
@@ -126,11 +127,62 @@ export class Store {
     for (const f of all.slice(0, Math.max(0, all.length - BACKUPS_KEPT))) fs.rmSync(path.join(dir, f));
   }
 
+  /** Saved versions of a profile, newest first: [{version, at, walls, sensors, zones}] */
+  listVersions(id) {
+    const dir = path.join(this.backupDir, id);
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort().reverse().map((f) => {
+      let info = {};
+      try { const p = readJson(path.join(dir, f)); info = { name: p.name, walls: p.walls?.length || 0, sensors: p.sensors?.length || 0, zones: p.zones?.length || 0 }; } catch { /* unreadable */ }
+      const at = f.replace(/\.json$/, '').replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/, 'T$1:$2:$3.$4Z');
+      return { version: f, at, ...info };
+    });
+  }
+
+  /** Make an old version current again (the current one is backed up first). */
+  restoreVersion(id, version) {
+    if (!/^[\w.-]+\.json$/.test(version)) throw new Error('invalid version');
+    const file = path.join(this.backupDir, id, version);
+    if (!fs.existsSync(file)) throw new Error('version not found');
+    const p = normalizeProfile(readJson(file));
+    p.id = id;
+    return this.saveProfile(p);
+  }
+
   _latestBackup(id) {
     const dir = path.join(this.backupDir, id);
     if (!fs.existsSync(dir)) return null;
     const all = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
     return all.length ? path.join(dir, all[all.length - 1]) : null;
+  }
+
+  // ---------------------------------------------------------------- content underlay (one image per profile)
+
+  underlayInfo(profileId) {
+    const dir = path.join(this.profilesDir, profileId);
+    for (const ext of ['png', 'jpg', 'webp']) {
+      const f = path.join(dir, `underlay.${ext}`);
+      if (fs.existsSync(f)) return { file: f, ext, v: Math.round(fs.statSync(f).mtimeMs) };
+    }
+    return null;
+  }
+
+  saveUnderlay(profileId, buf) {
+    const ext = buf[0] === 0x89 && buf.toString('ascii', 1, 4) === 'PNG' ? 'png'
+      : buf[0] === 0xff && buf[1] === 0xd8 ? 'jpg'
+        : buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP' ? 'webp' : null;
+    if (!ext) throw new Error('use a PNG, JPEG or WebP image');
+    this.deleteUnderlay(profileId);
+    const dir = path.join(this.profilesDir, profileId);
+    fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, `underlay.${ext}`);
+    fs.writeFileSync(`${f}.tmp`, buf);
+    fs.renameSync(`${f}.tmp`, f);
+    return ext;
+  }
+
+  deleteUnderlay(profileId) {
+    for (const ext of ['png', 'jpg', 'webp']) { try { fs.rmSync(path.join(this.profilesDir, profileId, `underlay.${ext}`)); } catch { /* none */ } }
   }
 
   // ---------------------------------------------------------------- backgrounds

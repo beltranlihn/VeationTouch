@@ -100,7 +100,7 @@ export function promptBox(title, value = '', okLabel = 'OK') {
     let done = false;
     const input = h('input', { type: 'text', value, style: { width: '100%' }, spellcheck: 'false' });
     const ok = () => { const v = input.value.trim(); if (!v) return; done = true; close(); resolve(v); };
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); else if (e.key === 'Escape') close(); });
     const close = modal(title, h('div', {}, input, h('div', { class: 'actions', style: { marginTop: '12px' } },
       h('button', { class: 'btn primary', onclick: ok }, okLabel),
       h('button', { class: 'btn', onclick: () => close() }, 'Cancel'))), { onClose: () => { if (!done) resolve(null); } });

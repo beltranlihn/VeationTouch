@@ -6,6 +6,7 @@
 // through it, gets defaults, gets clamped, and old schema versions are migrated.
 
 import { PROCESSING_DEFAULTS } from './core/pipeline.js';
+import { fitHomography, apply as applyH, gridMap } from './core/geometry.js';
 import { TRACKER_DEFAULTS } from './core/tracker.js';
 
 export const SCHEMA = 1;
@@ -38,20 +39,53 @@ function uniqueIds(list, prefix) {
   return list;
 }
 
+/** Corners TL, TR, BR, BL of a pixel rect. */
+export const rectCorners = (r) => [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]];
+
+function normGrid(m, canvas) {
+  const okTs = (ts) => Array.isArray(ts) && ts.length >= 2 && ts.length <= 33 && ts[0] === 0 && ts.at(-1) === 1 &&
+    ts.every((t, k) => Number.isFinite(t) && (k === 0 || t > ts[k - 1]));
+  if (!okTs(m.us) || !okTs(m.vs)) return null;
+  if (!Array.isArray(m.points) || m.points.length !== m.us.length * m.vs.length) return null;
+  if (!m.points.every((c) => Array.isArray(c) && c.length === 2 && c.every(Number.isFinite))) return null;
+  const cl = (v, max) => Math.round(Math.min(max * 2, Math.max(-max, v)) * 10) / 10;
+  return { mode: 'grid', us: m.us.map(Number), vs: m.vs.map(Number), points: m.points.map(([x, y]) => [cl(x, canvas.width), cl(y, canvas.height)]) };
+}
+
+function normMapping(m, pixelRect, canvas) {
+  if (m?.mode === 'grid') { const g = normGrid(m, canvas); if (g) return g; }
+  const mode = m?.mode === 'corners' ? 'corners' : 'rect';
+  const ok = mode === 'corners' && Array.isArray(m.corners) && m.corners.length === 4 &&
+    m.corners.every((c) => Array.isArray(c) && c.length === 2 && c.every(Number.isFinite));
+  if (!ok) return { mode: 'rect', corners: rectCorners(pixelRect) };
+  const cl = (v, max) => Math.round(Math.min(max * 2, Math.max(-max, v)) * 10) / 10;
+  return { mode, corners: m.corners.map(([x, y]) => [cl(x, canvas.width), cl(y, canvas.height)]) };
+}
+
 function normWall(w, i, canvas) {
   const width = num(w?.width, 6, 0.2, 100);
   const height = num(w?.height, 3, 0.2, 30);
   const pr = w?.pixelRect || {};
+  let pixelRect = {
+    x: int(pr.x, 0, 0, canvas.width), y: int(pr.y, 0, 0, canvas.height),
+    w: int(pr.w, Math.min(1920, canvas.width), 1, canvas.width), h: int(pr.h, Math.min(1080, canvas.height), 1, canvas.height),
+  };
+  // Mapping wall → output canvas: `rect` (axis-aligned, = pixelRect) or `corners` (corner pin,
+  // a homography). In corners mode pixelRect becomes the bounding box (overview, old clients).
+  const mapping = normMapping(w?.mapping, pixelRect, canvas);
+  if (mapping.mode !== 'rect') {
+    const pts = mapping.mode === 'grid' ? mapping.points : mapping.corners;
+    const xs = pts.map((c) => c[0]), ys = pts.map((c) => c[1]);
+    const x = Math.floor(Math.min(...xs)), y = Math.floor(Math.min(...ys));
+    pixelRect = { x, y, w: Math.max(1, Math.ceil(Math.max(...xs)) - x), h: Math.max(1, Math.ceil(Math.max(...ys)) - y) };
+  }
   return {
     id: id(w?.id, `W${i + 1}`),
     name: str(w?.name, `Wall ${i + 1}`),
     width, height,
     enabled: bool(w?.enabled, true),
-    // where this wall lands in the output canvas (pixels)
-    pixelRect: {
-      x: int(pr.x, 0, 0, canvas.width), y: int(pr.y, 0, 0, canvas.height),
-      w: int(pr.w, Math.min(1920, canvas.width), 1, canvas.width), h: int(pr.h, Math.min(1080, canvas.height), 1, canvas.height),
-    },
+    pixelRect,
+    mapping,
     planeOffset: num(w?.planeOffset, 0.02, 0, 1), // informational: distance scan plane ↔ wall
     masks: (Array.isArray(w?.masks) ? w.masks : []).slice(0, 64).map((m, k) => ({
       id: id(m?.id, `M${k + 1}`), name: str(m?.name, `Mask ${k + 1}`), type: 'rect',
@@ -91,9 +125,12 @@ function normSensor(s, i, walls) {
 
 function normZone(z, i, walls) {
   const wallId = walls.some((w) => w.id === z?.wallId) ? z.wallId : walls[0]?.id ?? null;
+  const name = str(z?.name, `Zone ${i + 1}`);
   return {
     id: id(z?.id, `Z${i + 1}`),
-    name: str(z?.name, `Zone ${i + 1}`),
+    name,
+    // address used by "Triggers" outputs; empty = derived from the name
+    address: typeof z?.address === 'string' && /^\/[A-Za-z0-9_\-/]{1,120}$/.test(z.address) ? z.address : '',
     wallId,
     enabled: bool(z?.enabled, true),
     rect: rect(z?.rect, { x0: 0.5, y0: 0.5, x1: 1.5, y1: 1.5 }),
@@ -103,17 +140,28 @@ function normZone(z, i, walls) {
 }
 
 function normOutput(o, i) {
-  const type = ['osc', 'tuio'].includes(o?.type) ? o.type : 'osc';
+  const type = ['osc', 'tuio', 'triggers', 'texture', 'webhook', 'artnet'].includes(o?.type) ? o.type : 'osc';
   return {
     id: id(o?.id, `O${i + 1}`),
-    name: str(o?.name, type === 'tuio' ? 'TUIO' : 'OSC'),
+    name: str(o?.name, { tuio: 'TUIO', triggers: 'Triggers', texture: 'Touch texture', webhook: 'Webhook', artnet: 'Art-Net' }[type] || 'OSC'),
+    // texture (Spout) options
+    senderName: str(o?.senderName, 'VEATION Touch').replace(/[^\w .-]/g, '').slice(0, 60) || 'VEATION Touch',
+    scale: [0.125, 0.25, 0.5, 1].includes(o?.scale) ? o.scale : 0.25,
+    radius: num(o?.radius, 0.08, 0.01, 1),
+    softness: num(o?.softness, 0.5, 0, 1),
+    trailMs: int(o?.trailMs, 0, 0, 10000),
+    // webhook: zone events POSTed as JSON
+    url: typeof o?.url === 'string' && /^https?:\/\/[^\s]{1,490}$/i.test(o.url.trim()) ? o.url.trim() : '',
+    // artnet: one DMX channel per zone from `channel`, on a 15-bit Port-Address
+    universe: int(o?.universe, 0, 0, 32767),
+    channel: int(o?.channel, 1, 1, 512),
     type,
     enabled: bool(o?.enabled, true),
-    host: str(o?.host, '127.0.0.1') || '127.0.0.1',
-    port: int(o?.port, type === 'tuio' ? 3333 : 9000, 1, 65535),
+    host: str(o?.host, type === 'artnet' ? '255.255.255.255' : '127.0.0.1') || '127.0.0.1',
+    port: int(o?.port, { tuio: 3333, triggers: 7000, artnet: 6454 }[type] || 9000, 1, 65535),
     coords: ['wall', 'canvas'].includes(o?.coords) ? o.coords : 'wall',
     prefix: typeof o?.prefix === 'string' && /^\/[A-Za-z0-9_/-]*$/.test(o.prefix) ? o.prefix.replace(/\/$/, '') : '/vt',
-    rateHz: int(o?.rateHz, 60, 1, 120),
+    rateHz: int(o?.rateHz, type === 'texture' || type === 'artnet' ? 30 : 60, 1, 120),
     walls: Array.isArray(o?.walls) ? o.walls.filter((w) => typeof w === 'string') : [], // [] = all walls
     tuioPortPerWall: bool(o?.tuioPortPerWall, false),
   };
@@ -165,6 +213,9 @@ export function normalizeProfile(input) {
     },
     simulation: {
       wanderers: int(p.simulation?.wanderers, 0, 0, 30),
+      // simulated mounting error per sensor id (tests and Level check demos): { gapMm, tiltDeg, towardsDeg }
+      planes: Object.fromEntries(Object.entries(p.simulation?.planes || {}).filter(([k]) => ID_RE.test(k)).slice(0, 64)
+        .map(([k, v]) => [k, { gapMm: num(v?.gapMm, 20, 0, 200), tiltDeg: num(v?.tiltDeg, 0, 0, 10), towardsDeg: num(v?.towardsDeg, -90, -180, 180) }])),
     },
   };
 }
@@ -175,11 +226,32 @@ function migrate(p) {
   return p;
 }
 
+const hCache = new WeakMap();
+/** Homography wall-UV (0..1, top-left) → canvas pixels for a corners mapping. */
+export function mappingMatrix(mapping) {
+  let H = hCache.get(mapping);
+  if (!H) {
+    H = fitHomography([[0, 0], [1, 0], [1, 1], [0, 1]], mapping.corners) || [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    hCache.set(mapping, H);
+  }
+  return H;
+}
+
+/** Canvas pixel of a wall UV (0..1, origin top-left), honouring the wall mapping. */
+export function wallUvToCanvas(wall, u, v) {
+  if (wall.mapping?.mode === 'grid') return gridMap(wall.mapping, u, v);
+  if (wall.mapping?.mode === 'corners') return applyH(mappingMatrix(wall.mapping), u, v);
+  const r = wall.pixelRect;
+  return [r.x + u * r.w, r.y + v * r.h];
+}
+
 /** Pixel position of a wall point (metres) in the output canvas. */
 export function wallToCanvas(wall, x, y) {
-  const r = wall.pixelRect;
-  return [r.x + (x / wall.width) * r.w, r.y + (1 - y / wall.height) * r.h];
+  return wallUvToCanvas(wall, x / wall.width, 1 - y / wall.height);
 }
+
+/** Address a zone uses on "Triggers" outputs. */
+export const zoneAddress = (z) => z.address || `/${slug(z.name)}`;
 
 /** Wall UV (0..1, origin top-left) of a wall point (metres). */
 export function wallToUv(wall, x, y) {

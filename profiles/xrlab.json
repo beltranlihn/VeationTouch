@@ -2,23 +2,152 @@
   "schema": 1,
   "id": "xrlab",
   "name": "Barcelona XR Lab",
-  "notes": "First prototype room. Walls 3.80 m tall, projection 3.50 m (rider). Pixel rects assume the Datapath Fx4 quadrants P1 top-left, P2 top-right, P3 bottom-left, P4 bottom-right with content anchored top-left — confirm on site. Sensor IPs are the suggested static addresses (192.168.11.11-14). P1 sensor is 279.1 cm from a corner (speaker at centre) — confirm which corner. P3 is the access wall: sensor on the light bar at 3.50 m, scan plane ~10 cm from the wall.",
-  "canvas": { "width": 3840, "height": 2400 },
+  "notes": "Output for content: one continuous 7196×912 px canvas, walls in order P4 · P1 · P2 · P3 (as used by the studio content). First prototype room. Walls 3.80 m tall, projection 3.50 m (rider). Sensor IPs are the suggested static addresses (192.168.11.11-14). P1 sensor is 279.1 cm from a corner (speaker at centre) — confirm which corner. P3 is the access wall: sensor on the light bar at 3.50 m, scan plane ~10 cm from the wall.",
+  "canvas": {
+    "width": 7196,
+    "height": 912
+  },
   "walls": [
-    { "id": "P1", "name": "Pantalla 1", "width": 6.483, "height": 3.5, "planeOffset": 0.02, "pixelRect": { "x": 0, "y": 0, "w": 1692, "h": 912 } },
-    { "id": "P2", "name": "Pantalla 2", "width": 7.353, "height": 3.5, "planeOffset": 0.02, "pixelRect": { "x": 1920, "y": 0, "w": 1920, "h": 912 } },
-    { "id": "P3", "name": "Pantalla 3", "width": 6.411, "height": 3.5, "planeOffset": 0.10, "pixelRect": { "x": 0, "y": 1200, "w": 1672, "h": 912 }, "notes": "Access wall with door. Add a mask over the door once its position is measured." },
-    { "id": "P4", "name": "Pantalla 4", "width": 7.330, "height": 3.5, "planeOffset": 0.02, "pixelRect": { "x": 1920, "y": 1200, "w": 1912, "h": 912 } }
+    {
+      "id": "P4",
+      "name": "Pantalla 4",
+      "width": 7.33,
+      "height": 3.5,
+      "planeOffset": 0.02,
+      "pixelRect": {
+        "x": 0,
+        "y": 0,
+        "w": 1912,
+        "h": 912
+      },
+      "mapping": {
+        "mode": "rect"
+      }
+    },
+    {
+      "id": "P1",
+      "name": "Pantalla 1",
+      "width": 6.483,
+      "height": 3.5,
+      "planeOffset": 0.02,
+      "pixelRect": {
+        "x": 1912,
+        "y": 0,
+        "w": 1692,
+        "h": 912
+      },
+      "mapping": {
+        "mode": "rect"
+      }
+    },
+    {
+      "id": "P2",
+      "name": "Pantalla 2",
+      "width": 7.353,
+      "height": 3.5,
+      "planeOffset": 0.02,
+      "pixelRect": {
+        "x": 3604,
+        "y": 0,
+        "w": 1920,
+        "h": 912
+      },
+      "mapping": {
+        "mode": "rect"
+      }
+    },
+    {
+      "id": "P3",
+      "name": "Pantalla 3",
+      "width": 6.411,
+      "height": 3.5,
+      "planeOffset": 0.1,
+      "pixelRect": {
+        "x": 5524,
+        "y": 0,
+        "w": 1672,
+        "h": 912
+      },
+      "notes": "Access wall with door. Add a mask over the door once its position is measured.",
+      "mapping": {
+        "mode": "rect"
+      }
+    }
   ],
   "sensors": [
-    { "id": "S1", "name": "LiDAR P1", "wallId": "P1", "driver": "s2e", "host": "192.168.11.11", "port": 8089, "pose": { "x": 2.791, "y": 3.80, "rotation": -90 } },
-    { "id": "S2", "name": "LiDAR P2", "wallId": "P2", "driver": "s2e", "host": "192.168.11.12", "port": 8089, "pose": { "x": 3.6765, "y": 3.80, "rotation": -90 } },
-    { "id": "S3", "name": "LiDAR P3", "wallId": "P3", "driver": "s2e", "host": "192.168.11.13", "port": 8089, "pose": { "x": 3.205, "y": 3.50, "rotation": -90 } },
-    { "id": "S4", "name": "LiDAR P4", "wallId": "P4", "driver": "s2e", "host": "192.168.11.14", "port": 8089, "pose": { "x": 3.665, "y": 3.80, "rotation": -90 } }
+    {
+      "id": "S1",
+      "name": "LiDAR P1",
+      "wallId": "P1",
+      "driver": "s2e",
+      "host": "192.168.11.11",
+      "port": 8089,
+      "pose": {
+        "x": 2.791,
+        "y": 3.8,
+        "rotation": -90
+      }
+    },
+    {
+      "id": "S2",
+      "name": "LiDAR P2",
+      "wallId": "P2",
+      "driver": "s2e",
+      "host": "192.168.11.12",
+      "port": 8089,
+      "pose": {
+        "x": 3.6765,
+        "y": 3.8,
+        "rotation": -90
+      }
+    },
+    {
+      "id": "S3",
+      "name": "LiDAR P3",
+      "wallId": "P3",
+      "driver": "s2e",
+      "host": "192.168.11.13",
+      "port": 8089,
+      "pose": {
+        "x": 3.205,
+        "y": 3.5,
+        "rotation": -90
+      }
+    },
+    {
+      "id": "S4",
+      "name": "LiDAR P4",
+      "wallId": "P4",
+      "driver": "s2e",
+      "host": "192.168.11.14",
+      "port": 8089,
+      "pose": {
+        "x": 3.665,
+        "y": 3.8,
+        "rotation": -90
+      }
+    }
   ],
   "zones": [],
   "outputs": [
-    { "id": "O1", "name": "TouchDesigner", "type": "osc", "host": "127.0.0.1", "port": 9000, "coords": "wall", "rateHz": 60 },
-    { "id": "O2", "name": "TUIO", "type": "tuio", "host": "127.0.0.1", "port": 3333, "coords": "wall", "rateHz": 60, "enabled": false }
+    {
+      "id": "O1",
+      "name": "TouchDesigner",
+      "type": "osc",
+      "host": "127.0.0.1",
+      "port": 9000,
+      "coords": "wall",
+      "rateHz": 60
+    },
+    {
+      "id": "O2",
+      "name": "TUIO",
+      "type": "tuio",
+      "host": "127.0.0.1",
+      "port": 3333,
+      "coords": "wall",
+      "rateHz": 60,
+      "enabled": false
+    }
   ]
 }

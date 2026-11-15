@@ -12,6 +12,8 @@
 // u, v are 0..1 with the origin at the TOP-LEFT of the wall. x, y are metres from the
 // bottom-left corner of the wall. The connection retries forever.
 
+import { fitHomography, apply } from '../shared/geometry.js'; // served by the engine next to this file
+
 export class VeationTouch {
   constructor(url, { rateHz = 60 } = {}) {
     this.url = url;
@@ -68,6 +70,11 @@ export class VeationTouch {
   toCanvas(wallId, u, v) {
     const w = this.profile?.walls.find((x) => x.id === wallId);
     if (!w) return null;
+    if (w.mapping?.mode === 'corners') {
+      // corner-pin: bilinear-free projective map of the unit square onto the 4 corners
+      w._H ??= fitHomography([[0, 0], [1, 0], [1, 1], [0, 1]], w.mapping.corners);
+      return apply(w._H, u, v);
+    }
     return [w.pixelRect.x + u * w.pixelRect.w, w.pixelRect.y + v * w.pixelRect.h];
   }
 

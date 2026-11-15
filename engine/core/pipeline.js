@@ -9,6 +9,25 @@
 
 import { apply, poseMatrix, pointInRect } from './geometry.js';
 
+const MIN_RUN = 4; // bins (0.25° each): shorter changed runs are edge flicker, not an object
+
+/** Runs of set flags on a circular bin array: { bins: total in runs ≥ minRun, spans: [[firstBin, lastBin]…] }. */
+export function changedRuns(flags, minRun = MIN_RUN) {
+  const n = flags.length;
+  const start = flags.indexOf(0);
+  if (start < 0) return { bins: n, spans: [[0, n - 1]] };
+  const spans = [];
+  let bins = 0, run = 0, b0 = -1;
+  for (let k = 1; k <= n; k++) {
+    const b = (start + k) % n;
+    if (flags[b]) { if (!run) b0 = b; run++; } else if (run) {
+      if (run >= minRun) { spans.push([b0, (b0 + run - 1) % n]); bins += run; }
+      run = 0;
+    }
+  }
+  return { bins, spans };
+}
+
 /** Defaults; every value can be overridden per room profile (`processing`). */
 export const PROCESSING_DEFAULTS = Object.freeze({
   minQuality: 10,          // 0..255, Sensitivity mode only
@@ -64,6 +83,7 @@ export class SensorPipeline {
     L.samples.push(mins);
     if (L.samples.length < L.frames) return;
     const out = new Float32Array(L.nb);
+    const moved = new Uint8Array(L.nb), nearest = new Float32Array(L.nb);
     const col = [];
     for (let b = 0; b < L.nb; b++) {
       col.length = 0;
@@ -72,10 +92,61 @@ export class SensorPipeline {
         col.sort((a, c) => a - c);
         out[b] = col[Math.floor(col.length / 2)];
       }
+      // something moved in this direction during the capture (sensor noise is a few cm)
+      if (col.length >= 2 && col[col.length - 1] - col[0] > Math.max(2.5 * this.p.bgThresholdMm, 0.03 * col[0])) { moved[b] = 1; nearest[b] = col[0]; }
     }
+    const runs = changedRuns(moved, MIN_RUN);
+    const motion = runs.bins ? {
+      bins: runs.bins,
+      where: runs.spans.slice(0, 6).map(([b0, b1]) => {
+        const mid = (b0 + (((b1 - b0) + L.nb) % L.nb) / 2) % L.nb, b = Math.floor(mid), d = nearest[b] / 1000; // where the mover was
+        const a = ((b + 0.5) * this.p.binDeg * Math.PI) / 180;
+        const [x, y] = apply(this.matrix, d * Math.cos(a), d * Math.sin(a));
+        return { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 };
+      }),
+    } : null;
     this.learning = null;
     this.bg = out;
-    L.onDone?.(Array.from(out, (v) => Math.round(v)));
+    L.onDone?.(Array.from(out, (v) => Math.round(v)), motion);
+  }
+
+  /**
+   * Activity = directions whose nearest return changed since the previous revolution, in runs of ≥ MIN_RUN bins
+   * (a hand ≈ 10 bins at 2 m; edge flicker is 1–2). Max over the last ~0.5 s so the UI, refreshed at 2 Hz, sees it.
+   * Independent of pose, calibration and background: it identifies which physical sensor sees a waving hand.
+   */
+  _updateActivity(mins) {
+    const recent = (this._recent ||= []);
+    recent.push(mins);
+    if (recent.length > 5) recent.shift();
+    const prev = this._prevMins;
+    this._prevMins = mins;
+    if (!prev || prev.length !== mins.length) return;
+    const flags = new Uint8Array(mins.length);
+    for (let b = 0; b < mins.length; b++) {
+      const a0 = prev[b], a1 = mins[b];
+      if (a0 > 0 && a1 > 0 && Math.abs(a0 - a1) > Math.max(2 * this.p.bgThresholdMm, 0.03 * Math.min(a0, a1))) flags[b] = 1;
+    }
+    const hist = (this._activityHist ||= []);
+    hist.push(changedRuns(flags, MIN_RUN).bins);
+    if (hist.length > 5) hist.shift();
+    this.activity = Math.max(...hist);
+  }
+
+  /**
+   * What the sensor sees right now, steadied: per-bin median of the last 5 revolutions' minima (≈ 0.5 s; a bin
+   * needs a return in ≥ 3 of them). Same format as the background. null until 3 revolutions have arrived.
+   */
+  recentStatic() {
+    const R = this._recent;
+    if (!R || R.length < 3) return null;
+    const nb = R[0].length, out = new Float32Array(nb), col = [];
+    for (let b = 0; b < nb; b++) {
+      col.length = 0;
+      for (const m of R) if (m.length === nb && m[b] > 0) col.push(m[b]);
+      if (col.length >= 3) { col.sort((a, c) => a - c); out[b] = col[col.length >> 1]; }
+    }
+    return out;
   }
 
   _bgRef(b, nb) {
@@ -101,6 +172,7 @@ export class SensorPipeline {
     const viz = opt.viz ? [] : null;
     const vizStep = opt.viz ? Math.max(1, Math.floor(scan.count / 1200)) : 0;
     const DEG = Math.PI / 180;
+    const mins = new Float32Array(nb); // per-bin nearest return of this revolution (activity)
 
     for (let i = 0; i < scan.count; i++) {
       const d = scan.dist[i];
@@ -112,6 +184,7 @@ export class SensorPipeline {
       const [x, y] = apply(M, sx, sy);
       let cls = 0; // 0 background, 1 foreground, 2 outside ROI
       const b = Math.floor(a / p.binDeg) % nb;
+      if (mins[b] === 0 || d < mins[b]) mins[b] = d;
       const isBg = useBg && (() => { const r = this._bgRef(b, nb); return r > 0 && d >= r - p.bgThresholdMm; })();
       if (!isBg) {
         const inRoi = opt.raw || (x >= p.edgeMargin && x <= W - p.edgeMargin && y >= p.floorMargin && y <= H &&
@@ -122,6 +195,7 @@ export class SensorPipeline {
       if (viz && (cls === 1 || i % vizStep === 0)) viz.push(x, y, cls);
     }
 
+    this._updateActivity(mins);
     const { detections, rejected } = this._segment(fgX, fgY, fgA, fgSx, fgSy);
     return {
       sensorId: scan.sensorId, wallId: this.wall.id, t: scan.t, detections, rejected,

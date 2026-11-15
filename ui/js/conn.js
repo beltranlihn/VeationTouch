@@ -28,6 +28,16 @@ try {
 if (params.has('k')) history.replaceState(null, '', location.pathname); // keep the key out of screenshots
 
 export const isCoarse = matchMedia('(pointer:coarse)').matches;
+
+/** Upload a file to an engine endpoint with this device's access key. */
+export async function upload(pathname, body, extra = '') {
+  const q = new URLSearchParams(extra);
+  if (key) q.set('k', key);
+  const r = await fetch(`${pathname}?${q}`, { method: 'POST', body });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `upload failed (${r.status})`);
+  return j;
+}
 let ws = null, nextId = 1, retry = 0;
 let serverProfile = null;
 const pending = new Map();
@@ -62,14 +72,17 @@ export function connect() {
     if (typeof ev.data !== 'string') return onViz(ev.data);
     const m = JSON.parse(ev.data);
     switch (m.type) {
-      case 'state': store.state = m; serverProfile = m.profile; emit('state', m); break;
-      case 'status': store.status = m; emit('status', m); break;
+      case 'state':
+        if (serverProfile && serverProfile.id !== m.profile.id) history.clear();
+        store.state = m; serverProfile = m.profile; emit('state', m);
+        break;
+      case 'status': store.status = { ...m, clients: m.clients ?? store.status?.clients }; emit('status', m); break;
       case 'live':
         store.live = m;
-        if ('calib' in m) {
-          const had = !!store.status?.calib;
-          store.status = { ...(store.status || {}), calib: m.calib };
-          if (m.calib || had) emit('calib');
+        if ('calib' in m || 'verify' in m) {
+          const had = !!(store.status?.calib || store.status?.verify);
+          store.status = { ...(store.status || {}), calib: m.calib ?? null, verify: m.verify ?? null };
+          if (m.calib || m.verify || had) emit('calib');
         }
         if (m.events) { store.events.unshift(...m.events.map((e) => ({ ...e, at: Date.now() }))); store.events.length = Math.min(store.events.length, 40); emit('events', m.events); }
         emit('live', m);
@@ -107,6 +120,7 @@ function onViz(buf) {
 
 /** Send a command; resolves with the result or rejects with the engine's error. */
 export function cmd(op, args = {}) {
+  if (CLEARS_HISTORY.has(op)) history.clear();
   return new Promise((resolve, reject) => {
     if (ws?.readyState !== 1) return reject(new Error('not connected'));
     const id = nextId++;
@@ -116,12 +130,45 @@ export function cmd(op, args = {}) {
   });
 }
 
+// ------------------------------------------------------------------ undo / redo
+// Snapshots of the profile the engine confirmed before each edit. Cleared by operations whose
+// effects must never be undone by accident (load another room, apply a calibration…).
+const undoStack = [], redoStack = [];
+export const history = {
+  undoLabel: () => undoStack.at(-1)?.label || null,
+  redoLabel: () => redoStack.at(-1)?.label || null,
+  clear() { undoStack.length = 0; redoStack.length = 0; emit('history'); },
+};
+const CLEARS_HISTORY = new Set(['profile.load', 'profile.create', 'profile.import', 'calib.apply', 'calib.clear']);
+
+export function undo() { swap(undoStack, redoStack); }
+export function redo() { swap(redoStack, undoStack); }
+function swap(from, to) {
+  const e = from.pop();
+  if (!e || !serverProfile) return;
+  to.push({ label: e.label, profile: structuredClone(serverProfile) });
+  const snap = e.profile;
+  queueEdit((q) => { for (const k of Object.keys(q)) delete q[k]; Object.assign(q, structuredClone(snap)); })
+    .catch((e) => emit('error', e)); // e.g. the room is locked: the engine refuses and the old state comes back
+  emit('history');
+}
+
 /**
  * Edit the active profile: mutate a copy, apply locally at once, persist on the engine.
  * Edits are serialised so fast consecutive changes never race each other's revision.
  */
+export function editProfile(mutate, label = 'edit') {
+  if (serverProfile) {
+    undoStack.push({ label, profile: structuredClone(serverProfile) });
+    if (undoStack.length > 80) undoStack.shift();
+    redoStack.length = 0;
+    emit('history');
+  }
+  return queueEdit(mutate);
+}
+
 let editChain = Promise.resolve();
-export function editProfile(mutate) {
+function queueEdit(mutate) {
   const p = structuredClone(store.state.profile);
   mutate(p);
   store.state = { ...store.state, profile: p };

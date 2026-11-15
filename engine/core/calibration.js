@@ -80,11 +80,36 @@ export class CalibrationSession {
   }
 
   _next() {
-    this.index++;
     this.cand = {};
     this.firstCaptureAt = 0;
+    if (this.returnToDone) { // a single target was redone: straight back to the result
+      this.returnToDone = false;
+      this.index = this.targets.length;
+    } else this.index++;
     this.phase = this.index >= this.targets.length ? 'done' : 'waiting';
     if (this.phase === 'done') this.result = this.solve();
+  }
+
+  /** Redo one target (e.g. the worst one) and come back to the result. */
+  redoTarget(i) {
+    if (i < 0 || i >= this.targets.length) return;
+    this.targets[i].captured = {};
+    this.targets[i].skipped = false;
+    this.index = i;
+    this.cand = {};
+    this.firstCaptureAt = 0;
+    this.result = null;
+    this.returnToDone = true;
+    this.phase = 'waiting';
+  }
+
+  /** Index of the target with the largest residual over all sensors (or -1). */
+  worstTarget() {
+    let worst = -1, err = -1;
+    for (const r of Object.values(this.result || {})) {
+      for (const p of r.pairs || []) if (p.errMm > err) { err = p.errMm; worst = p.index; }
+    }
+    return worst;
   }
 
   skip() {
@@ -115,8 +140,8 @@ export class CalibrationSession {
   solve() {
     const out = {};
     for (const sid of this.sensorIds) {
-      const src = [], dst = [];
-      for (const t of this.targets) if (t.captured[sid]) { src.push(t.captured[sid]); dst.push([t.x, t.y]); }
+      const src = [], dst = [], idx = [];
+      this.targets.forEach((t, k) => { if (t.captured[sid]) { src.push(t.captured[sid]); dst.push([t.x, t.y]); idx.push(k); } });
       let matrix = null, kind = null;
       if (src.length >= 4) { matrix = fitHomography(src, dst); kind = 'homography'; }
       if ((!matrix || !isWellConditioned(matrix)) && src.length >= 3) { matrix = fitAffine(src, dst); kind = 'affine'; }
@@ -125,7 +150,7 @@ export class CalibrationSession {
       out[sid] = {
         ok: true, kind, matrix, points: src.length,
         rmsMm: Math.round(r.rms * 10000) / 10, maxMm: Math.round(r.max * 10000) / 10,
-        pairs: src.map((s, i) => ({ sensor: s, wall: dst[i], errMm: Math.round(r.errors[i] * 10000) / 10 })),
+        pairs: src.map((s, i) => ({ index: idx[i], sensor: s, wall: dst[i], errMm: Math.round(r.errors[i] * 10000) / 10 })),
       };
     }
     return out;
@@ -134,9 +159,81 @@ export class CalibrationSession {
   snapshot(tMs) {
     return {
       wallId: this.wall.id, sensorIds: this.sensorIds, index: this.index, phase: this.phase,
-      progress: this.progress(tMs),
+      progress: this.progress(tMs), redoing: !!this.returnToDone,
       targets: this.targets.map((t) => ({ x: t.x, y: t.y, skipped: t.skipped, captured: Object.keys(t.captured) })),
       result: this.result,
+      worst: this.phase === 'done' ? this.worstTarget() : -1,
+    };
+  }
+}
+
+/**
+ * Verification after calibration: targets the calibration did NOT use (between the grid points)
+ * are touched and the TRACKED touch (full pipeline + tracker, i.e. what the outputs send) is
+ * compared with the target. This measures the real end-to-end error, not the fit residual.
+ */
+export function verifyTargets(wall, { top = 1.9, bottom = 0.45, inset = 0.12 } = {}) {
+  const W = wall.width, H = wall.height;
+  const yTop = Math.min(top, H - 0.1), yBot = Math.min(bottom, yTop);
+  const xs = [W * (inset + (1 - 2 * inset) * 0.25), W * 0.5, W * (inset + (1 - 2 * inset) * 0.75)];
+  const ys = [yTop - (yTop - yBot) * 0.25, yBot + (yTop - yBot) * 0.25];
+  return [
+    { x: round(xs[0]), y: round(ys[0]) }, { x: round(xs[2]), y: round(ys[0]) }, { x: round(xs[1]), y: round((yTop + yBot) / 2) },
+    { x: round(xs[2]), y: round(ys[1]) }, { x: round(xs[0]), y: round(ys[1]) },
+  ];
+}
+
+export class VerifySession {
+  constructor(wall, targets, { holdMs = 600, radius = 0.3, releaseMs = 400 } = {}) {
+    this.wall = wall;
+    this.targets = targets.map((t) => ({ ...t, measured: null, errMm: null }));
+    this.opt = { holdMs, radius, releaseMs };
+    this.index = 0;
+    this.phase = 'waiting';
+    this.cand = null;
+    this.lastSeen = 0;
+  }
+
+  /** Feed the wall's tracked touches every tick. */
+  feed(touches, tMs) {
+    if (this.phase === 'done') return;
+    if (touches.length) this.lastSeen = tMs;
+    if (this.phase === 'release') {
+      if (tMs - this.lastSeen >= this.opt.releaseMs) {
+        this.index++;
+        this.phase = this.index >= this.targets.length ? 'done' : 'waiting';
+      }
+      return;
+    }
+    const t = this.targets[this.index];
+    const near = touches.filter((q) => Math.hypot(q.x - t.x, q.y - t.y) <= this.opt.radius);
+    if (near.length !== 1) { this.cand = null; this.phase = 'waiting'; return; }
+    const q = near[0];
+    if (!this.cand || this.cand.id !== q.id) this.cand = { id: q.id, t0: tMs, xs: [], ys: [] };
+    this.cand.xs.push(q.x); this.cand.ys.push(q.y);
+    this.phase = 'holding';
+    if (tMs - this.cand.t0 >= this.opt.holdMs) {
+      const mx = median(this.cand.xs.map((x) => [x, 0]))[0], my = median(this.cand.ys.map((y) => [y, 0]))[0];
+      t.measured = [round(mx), round(my)];
+      t.errMm = Math.round(Math.hypot(mx - t.x, my - t.y) * 10000) / 10;
+      this.cand = null;
+      this.phase = 'release';
+    }
+  }
+
+  progress(tMs) { return this.cand ? Math.min(1, (tMs - this.cand.t0) / this.opt.holdMs) : 0; }
+
+  summary() {
+    const e = this.targets.filter((t) => t.errMm !== null).map((t) => t.errMm);
+    if (!e.length) return null;
+    return { n: e.length, meanMm: Math.round((e.reduce((a, b) => a + b, 0) / e.length) * 10) / 10, maxMm: Math.max(...e) };
+  }
+
+  snapshot(tMs) {
+    return {
+      kind: 'verify', wallId: this.wall.id, index: this.index, phase: this.phase, progress: this.progress(tMs),
+      targets: this.targets.map((t) => ({ x: t.x, y: t.y, measured: t.measured, errMm: t.errMm })),
+      summary: this.phase === 'done' ? this.summary() : null,
     };
   }
 }

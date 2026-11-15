@@ -17,6 +17,10 @@ Apps (TouchDesigner, Unreal, web) ← OSC / TUIO / ws://<server>:<port>/ws/data
   and the engine can run headless (`node engine/main.js`).
 - Supervisor: exit → restart after 1, 2, 4… 30 s; the backoff resets after a minute of healthy running.
   Uncaught exceptions in the engine are logged and the process exits on purpose (clean restart > limping on).
+- Memory: the engine's live heap is ~10 MB (flat over hours with forced GC), but V8 grows its spaces lazily, so
+  the engine runs with `--js-flags=--max-old-space-size=256 --max-semi-space-size=8` (a utilityProcess ignores bare
+  V8 flags in `execArgv`). Safety net: the supervisor restarts the engine if it holds > 1.5 GB for 3 minutes.
+  `GET /api/health` reports uptime, RSS, heap used and the heap limit (for external monitoring).
 - Closing the operator window hides it to the tray; *Quit* is in the tray menu. Display sleep is blocked.
 - Security: localhost is trusted; LAN UI clients need the access key (random, in `settings.json`, embedded in
   the pairing QR). `/ws/data` is read-only and open (apps on other machines must be able to read touches).
@@ -39,12 +43,16 @@ is the video processor's job).
 1. Drop invalid samples, low quality (Sensitivity mode) and returns < 8 cm (bracket).
 2. **Background** per 0.25° bin, learned with the room empty (median of per-revolution minima). A sample is
    foreground when it is closer than background − 40 mm (min over the bin and its neighbours, so object edges
-   do not flicker).
+   do not flicker). If a bin's minima spread more than max(100 mm, 3 %) during the capture, in runs of ≥ 4 bins
+   (1°), something moved: the capture is flagged with where it happened (wall metres) and the UI asks to repeat it.
+   The UI starts every capture with a 5 s countdown.
 3. Map to the wall; keep only the **ROI**: the wall rectangle minus edge (3 cm) and floor (5 cm) bands and
    the wall's masks (door, lamp…). Calibration runs in *raw* mode (no ROI) because the pose may be wrong.
 4. **Segment** in scan order: a gap > 5 cm or > 2° starts a new object (handles the 0/360° seam).
 5. **Size gate**: 1.5 cm < size < 30 cm. Bigger objects (a body leaning on the wall) are reported as *rejected*.
-6. **Contact correction**: the LiDAR sees the near half of a hand; the centroid of that arc sits ≈ 2r/π in front
+6. **Activity** (pose-independent): directions whose nearest return changed since the previous revolution, in
+   runs of ≥ 4 bins, max over 0.5 s. The Sensors list shows *moving* — wave a hand to find which unit is which.
+7. **Contact correction**: the LiDAR sees the near half of a hand; the centroid of that arc sits ≈ 2r/π in front
    of the centre. It is pushed back along the ray in the sensor frame (≈ 35 mm error → < 15 mm in tests).
 
 ## Tracking (per wall) — `engine/core/tracker.js`
@@ -65,6 +73,62 @@ is the video processor's job).
    the wizard (it advances 1.5 s after the first sensor captured).
 4. Per sensor: **homography** (≥ 4 points, normalised DLT) or affine (3). Residual RMS and worst point are
    shown; *Back* redoes a target. *Apply* stores the matrix in the profile.
+
+After the fit: **Redo worst point** re-captures the target with the largest residual and comes straight back to
+the result. **Verify** (`VerifySession`) then shows 5 check points the calibration did NOT use and measures the
+*tracked* touch (pipeline + tracker = what the outputs send) against each one: mean / worst error in mm.
+
+## Auto-align — `engine/core/autoalign.js`
+
+With the room empty the scan plane cuts the floor and both neighbouring walls along three straight lines.
+Sequential RANSAC + total least squares finds them (from the learned background, or a live revolution); the
+configured approximate pose only labels them (floor / left / right) and fixes which way is right. Result: sensor
+height, distance to the left wall, rotation, mirror flag — and the wall width measured between the neighbours,
+flagged when it differs from the plans by > 3 cm. Tested at < 1.5 cm / < 0.4° (normal and upside-down mounts).
+
+## Level check — `engine/core/levelcheck.js`
+
+Mounting aid (`sensor.levelCheck`). A 2D LiDAR cannot measure its own tilt, but with the room empty two symptoms
+show in its static returns (live: median of the last 5 revolutions, so it can be re-run right after adjusting the
+bracket), mapped to the wall with the current pose or calibration: **grazing** — returns inside the wall rectangle
+that are neither floor (±8 cm), a neighbouring wall (±8 cm) nor inside a mask: the plane reaches the wall there and
+hides everything beyond; and **floor coverage** — the floor must be seen corner to corner (10 cm cells), the
+missing stretches are listed. Result: verdict, the grazing region in words ("lower left") and metres, its distance
+from the sensor, advice, and marks drawn in red on the Sensors canvas. If the live data no longer matches the
+stored background (≥ 2° of the scan off by > 10 cm) it also asks to recapture the background. It cannot see a plane
+that is too far from the wall (ruler check). The simulator can lean a sensor's plane (`simulation.planes[sensorId]
+= {gapMm, tiltDeg, towardsDeg}`) to test and demo it.
+
+## Operation
+
+- **Show mode** (`app.lock`): the engine refuses every editing command (profile, background, calibration,
+  auto-align) until unlocked; projection, outputs tests and virtual hands keep working.
+- **Health** (Live): sensors not scanning (with the last error), no background, not calibrated, output errors,
+  engine below 50 fps.
+- **Versions**: every save keeps the previous file (last 30); System › Versions lists and restores them.
+- **Pairing**: network picker (the LiDAR subnet is detected and listed last), firewall check of the app's own
+  rules with an elevated "Fix" offered only at the server, and live confirmation of connected devices.
+
+## Recording and replay — `engine/record.js`
+
+Raw revolutions of every sensor (before any processing) go to a gzip stream: a JSON header (profile snapshot,
+sensor ids) then frames of u16 angle·64, u16 distance mm, u8 quality — ~16 kB per revolution, 10 min max.
+`ReplaySource` plays a file in real time with fresh host timestamps; while replaying, every sensor of the active
+profile is a `ReplayDriver` fed by it (matched by sensor id), so background, tracking, zones, calibration and
+outputs behave exactly as in the room. Recording is refused during a replay and vice versa.
+
+## Discovery — `engine/discover.js`
+
+Sweeps every local IPv4 network up to /22 plus the factory address 192.168.11.2 with GET_HEALTH on UDP 8089
+(paced), then GET_INFO for serial and firmware. Sensors that are streaming are never probed: any request stops
+an S2E's stream. `setStaticIp` (SET_LIDAR_CONF 0x0001CCC0 + RESET) works against the emulator and is marked
+experimental until verified on a real unit.
+
+## Content underlay
+
+One image per profile (`profiles/<id>/underlay.png|jpg|webp`, magic-byte checked, 25 MB max, POST
+`/api/underlay` with the same auth as the UI). Drawn under the canvas in Mapping and, per wall, from that wall's
+pixel region in the strip/focus views — corner and grid mappings use the bounding box (approximation).
 
 ## RPLIDAR S2E driver — `engine/drivers/s2e.js`
 
@@ -87,10 +151,32 @@ One JSON per room: `canvas`, `walls` (size, `pixelRect`, masks), `sensors` (driv
 clamping, id sanitising, schema migration). Writes are atomic (temp + fsync + rename) and the previous version
 goes to `backups/` (last 30); an unreadable profile is restored from the newest backup.
 
+## Mapping (wall → output canvas)
+
+`wall.mapping` is `rect` (= `pixelRect`, axis-aligned) or `corners` (corner pin: a homography from the wall's
+UV square onto 4 canvas points; `pixelRect` then holds the bounding box for old clients). One implementation in
+`engine/core/geometry.js`, served to the browser as `/shared/geometry.js`, so the engine (canvas-coordinate
+outputs), the projection page and the UI agree to the pixel. The projection's *Identify* mode draws each wall's
+grid through its mapping with amber corner markers: the operator drags corners until they sit on the physical
+corners. The third level is `grid`: an N×M mesh (`us`, `vs` node positions in wall UV + canvas points),
+bilinear inside each cell; it starts from the current mapping (nothing jumps), rows/columns are inserted where the
+operator clicks without changing the map (`gridInsert`), and nodes are dragged on the canvas or nudged 1/5/20 px
+from the tablet pad.
+
+## Texture output
+
+`engine/outputs/texture.js` rasterises the touches (CPU, Uint8 mask → RGBA, smoothstep edge, exponential trail)
+in canvas pixels through the mapping and sends it with the studio's own prebuilt Spout addon
+(`native/spout-send/dsp_spout.node`, Node-API, unpacked from the asar). ~1.5 ms per frame at 960×600.
+
 ## UI
 
-Same SPA for the Electron window and the tablet (`ui/`, vanilla ES modules, no build step). The canvas shows the
-room **unrolled** (walls side by side at one metric scale). The server is authoritative: edits send the whole
+Same SPA for the Electron window and the tablet (`ui/`, vanilla ES modules, no build step). **Each tool turns the
+central canvas into its own workspace** (`ui/js/workspace.js`): Live/Room show all walls (Room: drag edges to
+resize walls), Mapping shows the output canvas in pixels (move regions, drag corners), Sensors/Calibrate/Zones
+focus one wall (drag/rotate sensors; draw, move, resize zones and masks with handles and snapping). Drags are
+previewed locally and committed once; every edit goes into a client-side undo history (Ctrl+Z / Ctrl+Shift+Z),
+cleared by operations that must not be undone by accident (load room, apply calibration). Keys 1–8 switch tools. The server is authoritative: edits send the whole
 profile with its revision; stale revisions are refused and the client reloads. Point clouds are binary
 WebSocket frames (Float32), ≤ 10 Hz (5 Hz on touch devices) and only built while someone views them.
 
@@ -99,6 +185,8 @@ WebSocket frames (Float32), ≤ 10 Hz (5 Hz on touch devices) and only built whi
 | Item | Why it matters |
 |---|---|
 | Plane-to-wall distance and the ±1.5° plane tilt | the bracket must allow 2-axis levelling |
+| Level check bands (±8 cm floor / side walls) on real skirting boards and corners | false grazing alarms |
+| Background-movement (100 mm / 3 %) and activity (80 mm / 3 %) thresholds vs real S2E noise | false "movement" / "moving" |
 | Noise on skin / dark clothes at 1–5 m | `bgThresholdMm`, `minSize`, One Euro tuning |
 | Default scan mode, max motor rpm | latency vs points |
 | Disconnect/reconnect behaviour, multiple units on one subnet | watchdog timings |

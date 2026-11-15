@@ -98,6 +98,36 @@ input:focus,select:focus{border-color:var(--line-strong);outline:none;}
 #roomCanvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;}
 .stage-hint{position:absolute;left:var(--sp-12);bottom:var(--sp-12);color:var(--ink-3);font-size:var(--fs-s);pointer-events:none;max-width:70%;}
 .stage-tools{position:absolute;right:var(--sp-12);top:var(--sp-12);display:flex;gap:var(--sp-6);}
+/* workspace bar: wall navigator + the tools of the current mode */
+.ws-bar{position:absolute;left:var(--sp-12);top:var(--sp-12);right:180px;display:flex;flex-wrap:wrap;gap:var(--sp-8);align-items:center;pointer-events:none;}
+.ws-bar>*{pointer-events:auto;}
+.ws-bar .seg button{min-width:30px;}
+.ws-bar .seg button svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;vertical-align:-2px;margin-right:4px;}
+.ws-bar .seg .tool.on{background:var(--state-on);color:var(--ink);}
+.ws-label{color:var(--ink-3);font-size:var(--fs-s);text-transform:uppercase;letter-spacing:.08em;margin-right:-2px;}
+/* calibration focus mode on touch devices: the panel takes the whole screen */
+.app.calib-focus .panel{position:fixed;inset:0;z-index:15;width:auto;border:0;padding-top:env(safe-area-inset-top);}
+.app.calib-focus .calib-big .ring{width:180px;height:180px;}
+.app.calib-focus .calib-big .ring svg{width:180px;height:180px;}
+.app.calib-focus .calib-big .step{font-size:30px;}
+.app.calib-focus .calib-big .msg{font-size:18px;}
+.app.calib-focus .actions .btn{height:56px;padding:0 22px;font-size:16px;}
+.target-map{width:100%;max-width:420px;margin:0 auto;display:block;}
+/* Show mode: the room is locked */
+#lockBtn.on{background:var(--attn);color:#111;border-color:transparent;}
+.locked .ws-bar .tool,.locked .ws-bar .seg button:not(.wallnav),.locked .ws-bar>.btn{opacity:.35;pointer-events:none;}
+.health{display:flex;flex-direction:column;gap:4px;}
+.health .ok{color:var(--ok-ink);} .health .warn{color:var(--attn);} .health .bad{color:var(--danger);}
+@media (max-width: 900px){
+  #lockBtn{padding:0 var(--sp-8);}
+  /* phone: the tools are one scrollable row at the top, view controls at the bottom-right */
+  .ws-bar{right:var(--sp-8);left:var(--sp-8);top:var(--sp-8);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;gap:var(--sp-6);}
+  .ws-bar::-webkit-scrollbar{display:none;}
+  .ws-bar>*{flex:0 0 auto;}
+  .ws-label{display:none;}
+  .stage-tools{top:auto;bottom:var(--sp-8);right:var(--sp-8);}
+  .stage-hint{display:none;}
+}
 .panel{width:var(--panel-w);flex:0 0 auto;overflow-y:auto;background:var(--s1);border-left:.5px solid var(--line);padding-bottom:var(--sp-32);}
 .status{height:var(--status-h);flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-16);padding:0 var(--sp-12);
   background:var(--s1);border-top:.5px solid var(--line);color:var(--ink-3);font-size:var(--fs-s);white-space:nowrap;overflow:hidden;}
@@ -203,3 +233,14 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:.95em;color:var(--ink
   .nav{order:-1;flex-direction:column;width:var(--nav-w);border-top:0;border-right:.5px solid var(--line);}
   .nav button{flex:0 0 auto;min-width:0;}
 }
+
+/* keyboard shortcuts sheet */
+kbd{font:500 11px/1 Geist, system-ui;color:var(--ink);background:var(--s2);border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:3px 6px;white-space:nowrap;}
+.kv.shortcuts{grid-template-columns:minmax(150px,auto) 1fr;row-gap:10px;align-items:center;}
+.linkish{background:none;border:0;padding:0;font:inherit;cursor:pointer;} .linkish:hover{color:var(--ink-2);}
+
+/* background capture countdown */
+.countdown-box{text-align:center;}
+.countdown{font:600 64px/1.1 Geist, system-ui;color:var(--attn);font-variant-numeric:tabular-nums;margin:8px 0 14px;}
+.countdown-box .actions{justify-content:center;}
+.modal .item small{white-space:normal;}

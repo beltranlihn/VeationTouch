@@ -27,6 +27,54 @@ Sent at the destination rate (default 60 Hz), packed in bundles below 1400 bytes
 `/vt/wall/*/touch`, or use an OSC In CHOP for counts. **Unreal:** OSC plugin → OSC Server, bind
 `/vt/wall/*/touch` and the `down`/`up` addresses.
 
+## Triggers (OSC, UDP, default port 7000)
+
+Zones only, in the simplest form show controllers understand (Resolume, MadMapper, QLab, lighting desks).
+Each zone has a trigger address (editable in *Zones*; default `/<zone-name-slug>`):
+
+| Address | Arguments | When |
+|---|---|---|
+| `<address>` | `i 1` | first touch enters the zone |
+| `<address>` | `i 0` | the zone empties (after its release time) |
+| `<address>/hold` | `i 1` | once, after the zone's hold time |
+| `<address>/count` | `i n` | when the number of touches in the zone changes |
+
+## Webhook (HTTP POST, JSON)
+
+Zone events as one `POST` each to the configured `http://` or `https://` URL, `Content-Type: application/json`,
+in order (one request at a time per destination, 3 s timeout, at most 64 queued; overflow and failures are
+counted as errors, never block tracking). Body:
+
+```json
+{ "event": "enter", "zone": { "id": "Z1", "name": "Big Door", "wallId": "P1", "address": "/big-door" },
+  "count": 1, "room": 3, "time": "2026-11-15T18:04:05.123Z" }
+```
+
+`event` is `enter`, `hold` or `exit` (`exit` adds `"duration"` in seconds); *Send test* posts `{ "event": "test" }`.
+Any 2xx answer counts as delivered.
+
+## Art-Net (DMX over UDP, default port 6454)
+
+One DMX channel per zone in scope (zones of the selected walls, in profile order), starting at *First channel*:
+`255` while the zone is active (between its enter and exit), `0` otherwise. ArtDmx (protocol 14) on the 15-bit
+Port-Address *Universe*, sent on every change and at least once a second (keep-alive), sequence 1–255. Default
+host `255.255.255.255` (local broadcast); use the node's IP to unicast. *Send test* sets every mapped channel to
+255 for up to a second. Art-Net™ Designed by and Copyright Artistic Licence Holdings Ltd.
+
+## Texture (Spout, same machine)
+
+A greyscale mask of the touches — white discs on black — rendered in output-canvas pixels through each wall's
+Mapping, shared as a Spout sender (default name `VEATION Touch`). Options: resolution (1/8 … full canvas),
+disc radius (m), soft edge, trail (ms), rate (default 30 Hz). Receive it with TouchDesigner's *Syphon Spout In
+TOP*, Resolume/MadMapper Spout sources, or a Spout plugin in Unreal. One Texture output per installation.
+
+## Canvas coordinates and Mapping
+
+With *Coordinates: Canvas*, u/v are relative to the whole output canvas and follow each wall's **Mapping**:
+`rect` (axis-aligned region), `corners` (corner pin = homography onto 4 canvas points) or `grid` (N×M mesh,
+bilinear per cell: `{us, vs, points}`). The WebSocket `hello` includes each wall's `mapping`; the SDK's
+`toCanvas()` applies it.
+
 ## TUIO 1.1 (UDP, default port 3333)
 
 Standard `/tuio/2Dcur` (`source`, `alive`, `set s x y X Y m`, `fseq`), one source per wall (`vt-<wallId>@veation`).

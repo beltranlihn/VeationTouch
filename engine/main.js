@@ -44,6 +44,7 @@ for (let p = wantPort; p < wantPort + 20 && !server; p++) {
 }
 if (!server) { log.error('no free port for the server'); process.exit(71); }
 
+engine.port = server.port;
 engine.on('projection', (pr) => toParent({ type: 'projection', projection: pr, port: server.port }));
 engine.on('autostart', (enabled) => toParent({ type: 'autostart', enabled }));
 parent?.on('message', (e) => {

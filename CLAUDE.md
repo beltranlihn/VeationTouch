@@ -2,14 +2,14 @@
 
 Software de tracking táctil con LiDAR 2D para muros interactivos de salas inmersivas, de Alma Digital
 Studio (director creativo: Beltrán; developer: Claude). Recibe N sensores **Slamtec RPLIDAR S2E** por
-Ethernet/UDP, calibra la sala, define zonas y envía toques por **OSC, TUIO y WebSocket** a TouchDesigner,
-Unreal y apps propias. Se opera desde el escritorio **y desde un teléfono/tablet dentro de la sala**.
+Ethernet/UDP, calibra la sala, define zonas y envía toques por **OSC, TUIO, WebSocket y Spout** (y zonas por
+Webhook y Art-Net) a TouchDesigner, Unreal y apps propias. Se opera desde el escritorio **y desde un teléfono/tablet dentro de la sala**.
 Producto reutilizable: **nada de una sala concreta va en el código** — todo vive en perfiles de sala
 (`profiles/*.json`). Barcelona XR Lab (`profiles/xrlab.json`) es sólo el primer prototipo.
 
 ## Mapa
 - **`ARCHITECTURE.md`** = cómo funciona (procesos, coordenadas, pipeline, protocolo S2E, robustez). Leer antes de tocar el motor.
-- **`docs/OSC.md`** = contrato de salida (direcciones OSC, TUIO, WebSocket, SDK) — es API pública: cambiarla rompe proyectos de clientes.
+- **`docs/OSC.md`** = contrato de salida (OSC, Triggers, TUIO, WebSocket, Webhook, Art-Net, Spout, SDK) — es API pública: cambiarla rompe proyectos de clientes.
 - **`docs/research/`** = investigación previa (informes + notas, incluida la documentación oficial del S2E con los PDFs de Slamtec).
 - **`README.md`** = índice del repositorio y cómo arrancar.
 
