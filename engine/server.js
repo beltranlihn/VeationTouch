@@ -35,19 +35,20 @@ const ip4 = (s) => s.split('.').reduce((a, n) => ((a << 8) | (Number(n) & 255)) 
  * …and the interface that reaches the LiDARs (same subnet as a sensor IP) is marked `sensors`
  * and listed last: a tablet should not be put on the sensor network.
  */
-export function lanUrls(port, token, sensorHosts = []) {
+export function lanUrls(port, token, sensorHosts = [], ifaces = os.networkInterfaces()) {
   const out = [];
-  for (const [name, list] of Object.entries(os.networkInterfaces())) {
+  for (const [name, list] of Object.entries(ifaces)) {
     if (/vethernet|virtual|vmware|vbox|hyper-v|wsl|docker|loopback|bluetooth/i.test(name)) continue;
     for (const a of list || []) {
       if (a.family !== 'IPv4' || a.internal || a.address.startsWith('169.254.')) continue;
-      const kind = /wi-?fi|wlan|wireless/i.test(name) ? 'wifi' : /ethernet|^eth|^en/i.test(name) ? 'ethernet' : 'other';
+      // Windows "Mobile hotspot" (this PC as the access point) always uses 192.168.137.1: the most robust option
+      const kind = a.address.startsWith('192.168.137.') ? 'hotspot' : /wi-?fi|wlan|wireless/i.test(name) ? 'wifi' : /ethernet|^eth|^en/i.test(name) ? 'ethernet' : 'other';
       const mask = ip4(a.netmask || '255.255.255.0');
       const sensors = sensorHosts.some((h) => /^(\d{1,3}\.){3}\d{1,3}$/.test(h) && (ip4(h) & mask) === (ip4(a.address) & mask));
       out.push({ iface: name, kind, ip: a.address, sensors, url: `http://${a.address}:${port}/?k=${token}` });
     }
   }
-  const rank = { wifi: 0, ethernet: 1, other: 2 };
+  const rank = { hotspot: -1, wifi: 0, ethernet: 1, other: 2 };
   return out.sort((a, b) => (a.sensors - b.sensors) || rank[a.kind] - rank[b.kind]);
 }
 
@@ -149,12 +150,13 @@ export function createServer(engine, { port, root, log }) {
   const uiClients = new Set();
   const send = (ws, obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
+  let clientSeq = 0;
   function onUi(ws, addr, url, ua = '') {
-    const client = { ws, addr, role: url.searchParams.get('role') || 'ui', viz: false, vizEvery: 1, vizN: 0, local: isLocal(addr), ua, since: Date.now() };
+    const client = { ws, addr, id: `d${++clientSeq}`, role: url.searchParams.get('role') || 'ui', viz: false, vizEvery: 1, vizN: 0, local: isLocal(addr), ua, since: Date.now() };
     if (!client.local) log.info(`device connected from ${addr.replace('::ffff:', '')} (${deviceName(ua)})`);
     uiClients.add(client);
     updateVizListener();
-    send(ws, { ...engine.state(), lan: lanUrls(port, engine.settings.token, engine.profile.sensors.filter((s) => s.driver === 's2e').map((s) => s.host)), token: engine.settings.token, local: client.local });
+    send(ws, { ...engine.state(), lan: lanUrls(port, engine.settings.token, engine.profile.sensors.filter((s) => s.driver === 's2e').map((s) => s.host)), token: engine.settings.token, local: client.local, you: client.id });
     send(ws, engine.status());
     ws.on('message', async (raw) => {
       let m;
@@ -166,8 +168,10 @@ export function createServer(engine, { port, root, log }) {
         updateVizListener();
       } else if (m.type === 'cmd') {
         try {
-          // __local is set here, never trusted from the client: some commands only make sense at the server
-          const result = await engine.command(m.op, { ...(m.args || {}), __local: client.local });
+          // __local / __client are set here, never trusted from the client: some commands only make sense at the
+          // server, and while a calibration runs only the device driving it may change things
+          const who = { id: client.id, device: client.local ? 'the desktop' : `${deviceName(client.ua)} (${client.addr.replace('::ffff:', '')})`, addr: client.addr.replace('::ffff:', '') };
+          const result = await engine.command(m.op, { ...(m.args || {}), __local: client.local, __client: who });
           send(ws, { type: 'ack', id: m.id, ok: true, result });
         } catch (e) {
           send(ws, { type: 'ack', id: m.id, ok: false, error: e.message });
@@ -175,7 +179,7 @@ export function createServer(engine, { port, root, log }) {
         }
       }
     });
-    ws.on('close', () => { uiClients.delete(client); updateVizListener(); });
+    ws.on('close', () => { uiClients.delete(client); updateVizListener(); engine.clientGone?.(client.id); });
     ws.on('error', () => {});
   }
 
@@ -200,21 +204,24 @@ export function createServer(engine, { port, root, log }) {
 
   engine.on('state', () => {
     const st = { ...engine.state(), lan: lanUrls(port, engine.settings.token, engine.profile.sensors.filter((s) => s.driver === 's2e').map((s) => s.host)), token: engine.settings.token };
-    for (const c of uiClients) send(c.ws, { ...st, local: c.local });
+    for (const c of uiClients) send(c.ws, { ...st, local: c.local, you: c.id });
   });
   const unsubLog = log.onEntry?.((entry) => broadcast({ type: 'log', entry }, (c) => c.role === 'ui'));
 
   // live touches at 30 Hz, status at 2 Hz, point clouds at ≤10 Hz (binary)
-  let liveN = 0;
+  let liveN = 0, pendingEvents = [];
   engine.on('frame', (frame) => {
     if (!uiClients.size) return;
     liveN++;
+    // touches go out at 30 Hz, but no event may be lost in the frames between
+    if (frame.events.length) pendingEvents.push(...frame.events);
     if (liveN % 2 === 0) {
+      const evs = pendingEvents; pendingEvents = [];
       const live = {
         type: 'live', t: Math.round(frame.t), roomCount: frame.roomCount, burst: frame.burst,
         walls: Object.fromEntries(frame.walls.map((w) => [w.wall.id, w.touches.map((t) => [t.id, r3(t.x), r3(t.y), r3(t.size), t.coasting ? 1 : 0])])),
         zones: frame.zoneCounts,
-        events: frame.events.length ? frame.events.map((e) => ({ type: e.type, id: e.id, wallId: e.wallId, x: r3(e.x), y: r3(e.y) })) : undefined,
+        events: evs.length ? evs.slice(-50).map((e) => ({ type: e.type, id: e.id, wallId: e.wallId, x: r3(e.x), y: r3(e.y), ...(e.from ? { from: e.from } : {}) })) : undefined,
         calib: engine.calib ? engine.calib.snapshot(frame.t) : null, // smooth progress ring on the tablet
         verify: engine.verify ? engine.verify.snapshot(frame.t) : null,
       };

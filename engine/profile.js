@@ -6,7 +6,7 @@
 // through it, gets defaults, gets clamped, and old schema versions are migrated.
 
 import { PROCESSING_DEFAULTS } from './core/pipeline.js';
-import { fitHomography, apply as applyH, gridMap } from './core/geometry.js';
+import { fitHomography, apply as applyH, gridMap, boundsOf, polygonArea, polygonsOverlap, shapeOutline, mappingOutline } from './core/geometry.js';
 import { TRACKER_DEFAULTS } from './core/tracker.js';
 
 export const SCHEMA = 1;
@@ -87,10 +87,15 @@ function normWall(w, i, canvas) {
     pixelRect,
     mapping,
     planeOffset: num(w?.planeOffset, 0.02, 0, 1), // informational: distance scan plane ↔ wall
-    masks: (Array.isArray(w?.masks) ? w.masks : []).slice(0, 64).map((m, k) => ({
-      id: id(m?.id, `M${k + 1}`), name: str(m?.name, `Mask ${k + 1}`), type: 'rect',
-      ...rect(m, { x0: 0, y0: 0, x1: 0.5, y1: 0.5 }),
-    })),
+    turn: num(w?.turn, 90, -180, 180), // floor plan (3D view): corner to the NEXT wall, degrees clockwise seen from above
+    joinNext: bool(w?.joinNext, true), // a hand crossing the corner to the next wall stays ONE touch (same id)
+    masks: (Array.isArray(w?.masks) ? w.masks : []).slice(0, 64).map((m, k) => {
+      const base = { id: id(m?.id, `M${k + 1}`), name: str(m?.name, `Mask ${k + 1}`) };
+      const pts = m?.type === 'polygon' ? polyPoints(m.points) : null;
+      // a polygon mask keeps its bounds in x0…y1 too (lists, older readers)
+      if (pts) return { ...base, type: 'polygon', points: pts, ...boundsOf(pts) };
+      return { ...base, type: 'rect', ...rect(m, { x0: 0, y0: 0, x1: 0.5, y1: 0.5 }) };
+    }),
     notes: str(w?.notes),
   };
 }
@@ -123,27 +128,66 @@ function normSensor(s, i, walls) {
   };
 }
 
-function normZone(z, i, walls) {
-  const wallId = walls.some((w) => w.id === z?.wallId) ? z.wallId : walls[0]?.id ?? null;
+const r4 = (v) => Math.round(v * 10000) / 10000;
+
+/** 3–64 finite points with a non-zero area, else null. */
+function polyPoints(list) {
+  if (!Array.isArray(list)) return null;
+  const pts = list.filter((p) => Array.isArray(p) && p.length === 2 && p.every((v) => Number.isFinite(Number(v))))
+    .slice(0, 64).map(([x, y]) => [r4(Number(x)), r4(Number(y))]);
+  return pts.length >= 3 && Math.abs(polygonArea(pts)) > 1e-6 ? pts : null;
+}
+
+/**
+ * Zone geometry. `space: 'wall'` (default) = wall metres on `wallId`; `space: 'canvas'` = output-canvas pixels,
+ * so one zone can span several walls and is drawn on the content itself. Shapes: rect (`rect`), polygon
+ * (`points`) or circle (`circle: {x, y, r}`); non-rect shapes keep their bounds in `rect` (lists, older readers).
+ */
+function normZoneShape(z, space, canvas) {
+  const def = space === 'canvas'
+    ? { x0: Math.round(canvas.width * 0.45), y0: Math.round(canvas.height * 0.35), x1: Math.round(canvas.width * 0.55), y1: Math.round(canvas.height * 0.65) }
+    : { x0: 0.5, y0: 0.5, x1: 1.5, y1: 1.5 };
+  if (z?.shape === 'polygon') {
+    const pts = polyPoints(z.points);
+    if (pts) return { shape: 'polygon', points: pts, rect: boundsOf(pts) };
+  }
+  if (z?.shape === 'circle' && z.circle) {
+    const x = num(z.circle.x, NaN), y = num(z.circle.y, NaN), r = num(z.circle.r, NaN, 0, 1e5);
+    if (Number.isFinite(x) && Number.isFinite(y) && r > 0) return { shape: 'circle', circle: { x: r4(x), y: r4(y), r: r4(r) }, rect: { x0: r4(x - r), y0: r4(y - r), x1: r4(x + r), y1: r4(y + r) } };
+  }
+  return { shape: 'rect', rect: rect(z?.rect, def) };
+}
+
+function normZone(z, i, walls, canvas) {
+  const space = z?.space === 'canvas' ? 'canvas' : 'wall';
+  const wallId = space === 'canvas' ? null : walls.some((w) => w.id === z?.wallId) ? z.wallId : walls[0]?.id ?? null;
   const name = str(z?.name, `Zone ${i + 1}`);
+  const geo = normZoneShape(z, space, canvas);
+  // walls the zone covers (derived): its own wall, or every wall whose canvas region overlaps it
+  const outline = shapeOutline(geo, 24);
+  const covers = space === 'canvas' ? walls.filter((w) => polygonsOverlap(outline, mappingOutline(w.mapping, w.pixelRect))).map((w) => w.id)
+    : wallId ? [wallId] : [];
   return {
     id: id(z?.id, `Z${i + 1}`),
     name,
     // address used by "Triggers" outputs; empty = derived from the name
     address: typeof z?.address === 'string' && /^\/[A-Za-z0-9_\-/]{1,120}$/.test(z.address) ? z.address : '',
+    space,
     wallId,
+    walls: covers,
     enabled: bool(z?.enabled, true),
-    rect: rect(z?.rect, { x0: 0.5, y0: 0.5, x1: 1.5, y1: 1.5 }),
+    ...geo,
     holdMs: int(z?.holdMs, 1000, 0, 60000),
     releaseMs: int(z?.releaseMs, 150, 0, 5000),
+    minHands: int(z?.minHands, 1, 1, 20), // the zone is active only with at least this many touches inside
   };
 }
 
 function normOutput(o, i) {
-  const type = ['osc', 'tuio', 'triggers', 'texture', 'webhook', 'artnet'].includes(o?.type) ? o.type : 'osc';
+  const type = ['osc', 'tuio', 'triggers', 'texture', 'webhook', 'artnet', 'sacn'].includes(o?.type) ? o.type : 'osc';
   return {
     id: id(o?.id, `O${i + 1}`),
-    name: str(o?.name, { tuio: 'TUIO', triggers: 'Triggers', texture: 'Touch texture', webhook: 'Webhook', artnet: 'Art-Net' }[type] || 'OSC'),
+    name: str(o?.name, { tuio: 'TUIO', triggers: 'Triggers', texture: 'Touch texture', webhook: 'Webhook', artnet: 'Art-Net', sacn: 'sACN' }[type] || 'OSC'),
     // texture (Spout) options
     senderName: str(o?.senderName, 'VEATION Touch').replace(/[^\w .-]/g, '').slice(0, 60) || 'VEATION Touch',
     scale: [0.125, 0.25, 0.5, 1].includes(o?.scale) ? o.scale : 0.25,
@@ -152,16 +196,18 @@ function normOutput(o, i) {
     trailMs: int(o?.trailMs, 0, 0, 10000),
     // webhook: zone events POSTed as JSON
     url: typeof o?.url === 'string' && /^https?:\/\/[^\s]{1,490}$/i.test(o.url.trim()) ? o.url.trim() : '',
-    // artnet: one DMX channel per zone from `channel`, on a 15-bit Port-Address
-    universe: int(o?.universe, 0, 0, 32767),
+    // artnet / sacn: one DMX channel per zone from `channel` — Art-Net 15-bit Port-Address, sACN universe 1–63999
+    universe: type === 'sacn' ? int(o?.universe, 1, 1, 63999) : int(o?.universe, 0, 0, 32767),
     channel: int(o?.channel, 1, 1, 512),
+    priority: int(o?.priority, 100, 0, 200), // sACN: the highest-priority source wins at the receiver
     type,
     enabled: bool(o?.enabled, true),
-    host: str(o?.host, type === 'artnet' ? '255.255.255.255' : '127.0.0.1') || '127.0.0.1',
-    port: int(o?.port, { tuio: 3333, triggers: 7000, artnet: 6454 }[type] || 9000, 1, 65535),
+    // sacn 'multicast' = the universe's group 239.255.x.y
+    host: str(o?.host, { artnet: '255.255.255.255', sacn: 'multicast' }[type] || '127.0.0.1') || (type === 'sacn' ? 'multicast' : '127.0.0.1'),
+    port: int(o?.port, { tuio: 3333, triggers: 7000, artnet: 6454, sacn: 5568 }[type] || 9000, 1, 65535),
     coords: ['wall', 'canvas'].includes(o?.coords) ? o.coords : 'wall',
     prefix: typeof o?.prefix === 'string' && /^\/[A-Za-z0-9_/-]*$/.test(o.prefix) ? o.prefix.replace(/\/$/, '') : '/vt',
-    rateHz: int(o?.rateHz, type === 'texture' || type === 'artnet' ? 30 : 60, 1, 120),
+    rateHz: int(o?.rateHz, ['texture', 'artnet', 'sacn'].includes(type) ? 30 : 60, 1, 120),
     walls: Array.isArray(o?.walls) ? o.walls.filter((w) => typeof w === 'string') : [], // [] = all walls
     tuioPortPerWall: bool(o?.tuioPortPerWall, false),
   };
@@ -172,7 +218,7 @@ export function normalizeProfile(input) {
   const canvas = { width: int(p.canvas?.width, 3840, 16, 32768), height: int(p.canvas?.height, 2400, 16, 32768) };
   const walls = uniqueIds((Array.isArray(p.walls) ? p.walls : []).slice(0, 32).map((w, i) => normWall(w, i, canvas)), 'W');
   const sensors = uniqueIds((Array.isArray(p.sensors) ? p.sensors : []).slice(0, 64).map((s, i) => normSensor(s, i, walls)), 'S');
-  const zones = uniqueIds((Array.isArray(p.zones) ? p.zones : []).slice(0, 256).map((z, i) => normZone(z, i, walls)), 'Z');
+  const zones = uniqueIds((Array.isArray(p.zones) ? p.zones : []).slice(0, 256).map((z, i) => normZone(z, i, walls, canvas)), 'Z');
   const outputs = uniqueIds((Array.isArray(p.outputs) ? p.outputs : []).slice(0, 32).map(normOutput), 'O');
   const pr = p.processing || {};
   const tr = p.tracking || {};
@@ -205,6 +251,7 @@ export function normalizeProfile(input) {
       tentativeMs: int(tr.tentativeMs, T.tentativeMs, 50, 3000),
       coastMs: int(tr.coastMs, T.coastMs, 0, 3000),
       predictMs: int(tr.predictMs, T.predictMs, 0, 300),
+      cornerZone: num(tr.cornerZone, 0.25, 0, 1), // m each side of a joined corner where touches are linked (0 = off)
       oneEuro: {
         minCutoff: num(tr.oneEuro?.minCutoff, T.oneEuro.minCutoff, 0.01, 30),
         beta: num(tr.oneEuro?.beta, T.oneEuro.beta, 0, 50),

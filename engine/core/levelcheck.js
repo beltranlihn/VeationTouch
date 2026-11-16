@@ -6,7 +6,7 @@
 //      entered the wall (or something stands on the floor) before reaching it.
 // Pure function: sensor-frame points in, verdict + marks in wall metres out.
 
-import { apply, pointInRect } from './geometry.js';
+import { apply, pointInShape } from './geometry.js';
 
 /**
  * @param {[number,number][]} pts       sensor-frame points (metres), e.g. backgroundPoints()
@@ -23,7 +23,7 @@ export function levelCheck(pts, matrix, wall, o = {}) {
   const minGrazing = o.minGrazing ?? 3;  // fewer isolated points are noise
   const minCoverage = o.minCoverage ?? 0.95;
   const W = wall.width, H = wall.height;
-  const masks = (wall.masks || []).filter((m) => !m.type || m.type === 'rect');
+  const masks = wall.masks || [];
   const origin = apply(matrix, 0, 0);
 
   const nCells = Math.max(1, Math.round(W / cell));
@@ -34,7 +34,7 @@ export function levelCheck(pts, matrix, wall, o = {}) {
   for (const [sx, sy] of pts) {
     const [x, y] = apply(matrix, sx, sy);
     if (x < -sideTol || x > W + sideTol || y < -floorTol || y > H + 0.3) { counts.outside++; continue; }
-    if (masks.some((m) => pointInRect(x, y, m))) { counts.masked++; continue; }
+    if (masks.some((m) => pointInShape(x, y, m))) { counts.masked++; continue; }
     if (Math.abs(y) <= floorTol) {
       counts.floor++;
       const c = Math.floor((x / W) * nCells);

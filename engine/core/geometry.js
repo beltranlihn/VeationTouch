@@ -184,6 +184,125 @@ export function pointInRect(x, y, r) {
 
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
+// ---------------------------------------------------------------- zone and mask shapes
+// A shape is `{shape:'rect', rect}`, `{shape:'polygon', points:[[x,y]…]}` or `{shape:'circle', circle:{x,y,r}}`
+// (zones), or a mask `{type:'rect', x0,y0,x1,y1}` / `{type:'polygon', points}`. Units are those of the space the
+// shape lives in (wall metres or canvas pixels); the maths does not care.
+
+const shapeKind = (z) => z.shape || z.type || 'rect';
+
+/** Is (x, y) inside a zone or mask shape? */
+export function pointInShape(x, y, z) {
+  const k = shapeKind(z);
+  if (k === 'polygon') return pointInPolygon(x, y, z.points);
+  if (k === 'circle') { const c = z.circle; return (x - c.x) ** 2 + (y - c.y) ** 2 <= c.r * c.r; }
+  return pointInRect(x, y, z.rect || z);
+}
+
+/** Axis-aligned bounds {x0,y0,x1,y1} of points. */
+export function boundsOf(points) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of points) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  return { x0, y0, x1, y1 };
+}
+
+/** Closed outline of a shape as a polygon (circles as `n` points). */
+export function shapeOutline(z, n = 32) {
+  const k = shapeKind(z);
+  if (k === 'polygon') return z.points;
+  if (k === 'circle') { const c = z.circle; return Array.from({ length: n }, (_, i) => [c.x + c.r * Math.cos((2 * Math.PI * i) / n), c.y + c.r * Math.sin((2 * Math.PI * i) / n)]); }
+  const r = z.rect || z;
+  return [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+}
+
+/** Closed polygon with every edge split into pieces no longer than `step` (to draw it through a curved map). */
+export function densify(points, step) {
+  const out = [];
+  for (let i = 0; i < points.length; i++) {
+    const [x0, y0] = points[i], [x1, y1] = points[(i + 1) % points.length];
+    const n = Math.min(64, Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step)));
+    for (let k = 0; k < n; k++) out.push([x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n]);
+  }
+  return out;
+}
+
+/** Signed area of a polygon (shoelace). */
+export function polygonArea(points) {
+  let a = 0;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) a += (points[j][0] + points[i][0]) * (points[j][1] - points[i][1]);
+  return a / 2;
+}
+
+function segmentsCross(a, b, c, d) {
+  const o = (p, q, r) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+  const on = (p, q, r) => Math.min(p[0], r[0]) <= q[0] && q[0] <= Math.max(p[0], r[0]) && Math.min(p[1], r[1]) <= q[1] && q[1] <= Math.max(p[1], r[1]);
+  const o1 = o(a, b, c), o2 = o(a, b, d), o3 = o(c, d, a), o4 = o(c, d, b);
+  if (o1 !== o2 && o3 !== o4) return true;
+  return (o1 === 0 && on(a, c, b)) || (o2 === 0 && on(a, d, b)) || (o3 === 0 && on(c, a, d)) || (o4 === 0 && on(c, b, d));
+}
+
+/** Do two polygons share any area (or touch)? */
+export function polygonsOverlap(a, b) {
+  if (a.some(([x, y]) => pointInPolygon(x, y, b)) || b.some(([x, y]) => pointInPolygon(x, y, a))) return true;
+  for (let i = 0, j = a.length - 1; i < a.length; j = i++) {
+    for (let k = 0, l = b.length - 1; k < b.length; l = k++) if (segmentsCross(a[j], a[i], b[l], b[k])) return true;
+  }
+  return false;
+}
+
+/**
+ * Floor plan of the walls (metres, seen from above, y = north). Wall i starts where wall i−1 ends and the corner
+ * between them turns `wall.turn` degrees CLOCKWISE (an ordinary inside corner = 90, 0 = the wall continues
+ * straight), so the content strip wraps around the room as seen from inside. Centred on its bounds.
+ * With `close`, a room whose loop ends within `closeTol` of its start (measured widths never match exactly: XR Lab's
+ * opposite walls differ by 2–7 cm) is drawn closed: the mismatch is spread along the walls, so every corner meets.
+ * @returns {{id:string, p0:[number,number], dir:[number,number], normal:[number,number], width:number, height:number}[]}
+ *          `normal` points into the room (the side the wall is seen from). p0 + dir · x (x in the wall's own metres,
+ *          0…width) is the point on the plan; |dir| is 1 unless the loop was closed (then within a few per mille).
+ */
+export function roomPlan(walls, { close = false, closeTol = 0.3 } = {}) {
+  const out = [];
+  let x = 0, y = 0, a = 0; // the first wall runs east
+  for (const w of walls) {
+    const dir = [Math.cos(a), Math.sin(a)];
+    out.push({ id: w.id, p0: [x, y], dir, normal: [dir[1], -dir[0]], width: w.width, height: w.height });
+    x += dir[0] * w.width; y += dir[1] * w.width;
+    a -= ((w.turn ?? 90) * Math.PI) / 180;
+  }
+  const gap = [x - (out[0]?.p0[0] ?? 0), y - (out[0]?.p0[1] ?? 0)];
+  if (close && out.length > 2 && Math.hypot(...gap) > 1e-9 && Math.hypot(...gap) < closeTol) {
+    // move each corner back by its share of the gap (proportional to the length walked so far)
+    const total = out.reduce((s, o) => s + o.width, 0);
+    let walked = 0;
+    const corners = out.map((o) => { const k = walked / total; walked += o.width; return [o.p0[0] - gap[0] * k, o.p0[1] - gap[1] * k]; });
+    out.forEach((o, i) => {
+      const p0 = corners[i], p1 = corners[(i + 1) % out.length];
+      const d = [(p1[0] - p0[0]) / o.width, (p1[1] - p0[1]) / o.width], len = Math.hypot(...d);
+      o.p0 = p0; o.dir = d; o.normal = [d[1] / len, -d[0] / len];
+    });
+  }
+  const pts = out.flatMap((o) => [o.p0, [o.p0[0] + o.dir[0] * o.width, o.p0[1] + o.dir[1] * o.width]]);
+  const b = boundsOf(pts.length ? pts : [[0, 0]]);
+  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+  for (const o of out) o.p0 = [o.p0[0] - cx, o.p0[1] - cy];
+  return out;
+}
+
+/** Outline of a wall's region in the output canvas, for any mapping mode (grid edges sampled). */
+export function mappingOutline(mapping, pixelRect, n = 12) {
+  if (mapping?.mode === 'corners') return mapping.corners;
+  if (mapping?.mode === 'grid') {
+    const pts = [];
+    for (let k = 0; k < n; k++) pts.push(gridMap(mapping, k / n, 0));
+    for (let k = 0; k < n; k++) pts.push(gridMap(mapping, 1, k / n));
+    for (let k = 0; k < n; k++) pts.push(gridMap(mapping, 1 - k / n, 1));
+    for (let k = 0; k < n; k++) pts.push(gridMap(mapping, 0, 1 - k / n));
+    return pts;
+  }
+  const r = pixelRect;
+  return [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]];
+}
+
 // ---------------------------------------------------------------- grid warp (mesh mapping)
 // A grid is { us:[0..1], vs:[0..1], points:[[x,y]] } — node lines at the given UV positions
 // (strictly increasing, first 0, last 1), points row-major (row j = vs[j], column i = us[i]).

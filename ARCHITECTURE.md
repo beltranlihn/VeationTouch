@@ -5,11 +5,12 @@
 ```
 Electron main (app/main.js) ── thin: windows, tray, autostart, supervisor
   ├─ utilityProcess: ENGINE (engine/main.js) ── restarted with backoff if it dies
-  │     sensors (UDP) → pipelines → trackers → zones → outputs (OSC/TUIO UDP)
+  │     sensors (UDP) → pipelines → trackers → zones → outputs (OSC/TUIO/Art-Net/sACN UDP, Webhook, Spout)
   │     HTTP + WebSocket server on :8770 (falls back to the next free port)
+  │     mDNS responder on UDP 5353: <local name>.local → this server (engine/mdns.js)
   ├─ BrowserWindow: operator UI  → http://127.0.0.1:<port>/
   └─ BrowserWindow: projection   → http://127.0.0.1:<port>/projection (frameless, fullscreen on a chosen display)
-Phones / tablets on the LAN → http://<server-ip>:<port>/?k=<access key>
+Phones / tablets on the LAN → http://<server-ip>:<port>/?k=<access key>  (or http://veation-touch.local:<port>/…)
 Apps (TouchDesigner, Unreal, web) ← OSC / TUIO / ws://<server>:<port>/ws/data
 ```
 
@@ -64,6 +65,22 @@ is the video processor's job).
 - **One Euro** filter per axis; output at 60 Hz with up to 60 ms of constant-velocity extrapolation to hide the
   10 Hz steps. All values are per-profile (`tracking`) and editable in *System › Processing*.
 
+## Continuous corners — `engine/core/corners.js`
+
+The point of one content canvas around the room: a hand sliding from one wall onto the next must stay ONE touch.
+Walls keep their own trackers; `CornerLinker` sits on top. Consecutive walls with `joinNext` (default on; the last
+joins the first when the room plan closes) share a corner; near it (`tracking.cornerZone`, 25 cm each side) touches
+are followed in corner coordinates — u = signed distance from the corner along the strip, so both sides are one line.
+A new track there joins the touch at its height (same public id, no down) and is confirmed at once with that hand's
+velocity (no `confirmFrames` wait, no start from rest). When both sensors see the hand the position is their
+recency-weighted average; through the blind stretch at the corner (edge margins, two scan planes — no sensor sees
+the hand there) a hand heading into the corner is carried at its own speed until the other wall sees it, at most
+until it is past the far wall's corner zone (≤ 1.2 s). The reported wall follows u (`cross` event when it changes);
+up only when the hand is really gone. Measured with simulated 10 Hz sensors and a 24 cm blind stretch: one down, one
+cross, one up at 0.5–1.5 m/s, and at the corner the lag and the frame-to-frame steps are no larger than anywhere
+else on the wall (tests). Limits: two people touching the two sides of a corner within 25 cm, at the same height,
+become one touch; a hand lifted while heading into a corner ends a moment later than elsewhere.
+
 ## Calibration — `engine/core/calibration.js`
 
 1. Capture the background with the room empty (per sensor).
@@ -106,8 +123,22 @@ that is too far from the wall (ruler check). The simulator can lean a sensor's p
 - **Health** (Live): sensors not scanning (with the last error), no background, not calibrated, output errors,
   engine below 50 fps.
 - **Versions**: every save keeps the previous file (last 30); System › Versions lists and restores them.
-- **Pairing**: network picker (the LiDAR subnet is detected and listed last), firewall check of the app's own
-  rules with an elevated "Fix" offered only at the server, and live confirmation of connected devices.
+- **Pairing**: network picker (this PC's Windows hotspot — 192.168.137.x — first, the LiDAR subnet last), firewall
+  check of the app's own rules with an elevated "Fix" offered only at the server, and live confirmation of
+  connected devices.
+- **Local name** (`engine/mdns.js`, RFC 6762, own code): the engine answers A questions for `<name>.local`
+  (System › Network, default `veation-touch`) with the address of the interface on the querier's subnet, announces
+  itself on start and says goodbye on stop. QU questions and plain DNS clients (source port ≠ 5353) get a unicast
+  answer (legacy: id echoed, TTL ≤ 10 s). No probing: another host answering for the same name is shown as a
+  conflict. A busy/blocked UDP 5353 only loses the name. Windows does not resolve the name on the server itself
+  (it ignores its own answer) — use `localhost` there. Resolution on Android depends on the version; the QR always
+  works.
+- **One device drives a calibration** (`engine.control`): `calib.start` / `verify.start` record the UI device that
+  sent them (the server stamps `__client` on every command — never trusted from the client). While the session
+  runs, editing and session commands (`CONTROL_OPS`) from other devices are refused with "calibration in progress
+  on <device>"; they see a view-only banner and can **Take control** (`control.take`, with confirmation). If the
+  driving device disconnects, the next device that acts takes over. Commands without a device (tests, the engine
+  itself) are never restricted. Released when the session ends.
 
 ## Recording and replay — `engine/record.js`
 
@@ -163,6 +194,34 @@ bilinear inside each cell; it starts from the current mapping (nothing jumps), r
 operator clicks without changing the map (`gridInsert`), and nodes are dragged on the canvas or nudged 1/5/20 px
 from the tablet pad.
 
+## Zones — `engine/core/zones.js`
+
+A zone is a shape — `rect`, `polygon` (3–64 points) or `circle` — in one of two spaces:
+- `space: 'wall'`: wall metres on `wallId` (y up), tested against that wall's touches.
+- `space: 'canvas'`: output-canvas pixels (y down). Every touch is taken through its wall's Mapping
+  (`wallToCanvas`) before the test, so a zone drawn on the content can span walls (a door painted across a
+  corner) and always matches what is projected. `wallId` is `null`; `walls` (derived on normalisation: walls whose
+  canvas region overlaps the shape, `polygonsOverlap`) decides which outputs with a wall filter carry it.
+Non-rect shapes keep their bounds in `rect` (lists, older readers). A zone is active while at least `minHands`
+touches are inside (enter / hold after `holdMs` / exit debounced by `releaseMs`). `zone.fire` forces a zone
+active for 0.4 s through the same path (events flagged `test: true`) to check a receiver without touching the
+wall. Masks can be `rect` or `polygon` (pipeline and Level check use `pointInShape`). The editor
+(`ui/js/workspace.js` + `ui/js/shapes.js`) draws rect / polygon / circle in either space; canvas zones are drawn
+dashed on each wall they reach (inverse mapping: linear, inverse homography, or `invertMap` for grids).
+
+## 3D room view — `ui/js/room3d.js`
+
+Live › 3D: the walls stand on the floor following `roomPlan()` (shared geometry: wall i starts where wall i−1 ends,
+`wall.turn` degrees clockwise, 90 = an ordinary inside corner), each textured with its part of the content image,
+its zones (filled while active, canvas zones dashed) and masks — a per-wall canvas texture redrawn only when that
+changes. Touches, sensors and the LiDAR points are drawn as geometry every frame. Own WebGL2 (two small programs),
+no dependency. A room whose wall loop almost closes (measured widths never match: XR Lab misses by 7.6 cm) is drawn
+closed (`roomPlan(walls, {close:true})` spreads the mismatch), because the data treats it as one continuous surface;
+the Live 2D strip likewise draws joined walls touching, with "↻" at both ends of a closed room. Walls are
+one-sided, so from outside the near walls hide and you look in (outlines stay); *Inside*
+stands at eye height in the middle. The virtual hand picks the wall under the pointer (ray against the wall
+planes) and touches it — across corners too.
+
 ## Texture output
 
 `engine/outputs/texture.js` rasterises the touches (CPU, Uint8 mask → RGBA, smoothstep edge, exponential trail)
@@ -174,7 +233,8 @@ in canvas pixels through the mapping and sends it with the studio's own prebuilt
 Same SPA for the Electron window and the tablet (`ui/`, vanilla ES modules, no build step). **Each tool turns the
 central canvas into its own workspace** (`ui/js/workspace.js`): Live/Room show all walls (Room: drag edges to
 resize walls), Mapping shows the output canvas in pixels (move regions, drag corners), Sensors/Calibrate/Zones
-focus one wall (drag/rotate sensors; draw, move, resize zones and masks with handles and snapping). Drags are
+focus one wall (drag/rotate sensors; draw, move, reshape zones and masks — rect, polygon, circle — with handles
+and snapping); Zones › Canvas edits canvas zones on the output canvas, over the content. Drags are
 previewed locally and committed once; every edit goes into a client-side undo history (Ctrl+Z / Ctrl+Shift+Z),
 cleared by operations that must not be undone by accident (load room, apply calibration). Keys 1–8 switch tools. The server is authoritative: edits send the whole
 profile with its revision; stale revisions are refused and the client reloads. Point clouds are binary

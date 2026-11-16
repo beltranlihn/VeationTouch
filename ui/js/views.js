@@ -1,7 +1,7 @@
 // Panel views. Each returns DOM for the right-hand panel (bottom sheet on phones).
 // They read from `store` and write through `editProfile` / `cmd` only.
 
-import { store, cmd, editProfile, upload } from './conn.js';
+import { store, cmd, editProfile, upload, otherControl } from './conn.js';
 import { h, sec, field, selectField, toggle, nudgeField, badge, dot, toast, confirmBox, promptBox, stateKind, round, modal } from './dom.js';
 import { gridMap, gridFrom, gridInsert } from '/shared/geometry.js';
 import { uvToCanvas } from './workspace.js';
@@ -24,6 +24,7 @@ function captureBackground(args, what) {
   timer = setInterval(() => { n -= 1; if (n <= 0) go(); else num.textContent = String(n); }, 1000);
 }
 const wallName = (id) => P().walls.find((w) => w.id === id)?.name || id;
+const zoneWhere = (z) => (z.space === 'canvas' ? `canvas · ${(z.walls || []).join(' + ') || 'no wall'}` : z.wallId);
 const nextId = (list, prefix) => { let k = list.length + 1; while (list.some((x) => x.id === `${prefix}${k}`)) k++; return `${prefix}${k}`; };
 const fmtTime = (t) => new Date(t).toLocaleTimeString([], { hour12: false });
 
@@ -53,7 +54,7 @@ export function live(ctx) {
     out.push(sec('Zones', h('div', { class: 'list' }, prof.zones.map((z) => {
       const zs = L.zones?.[z.id];
       return h('div', { class: 'item', onclick: () => ctx.select('zone', z.id) },
-        h('div', { class: 't' }, z.name, h('small', {}, wallName(z.wallId))),
+        h('div', { class: 't' }, z.name, h('small', {}, zoneWhere(z))),
         badge(zs?.active ? `active · ${zs.count}` : 'idle', zs?.active ? 'warn' : ''));
     }))));
   }
@@ -100,7 +101,8 @@ function health() {
 export function feedLines() {
   if (!store.events.length) return [h('div', { class: 'muted' }, 'No touches yet.')];
   return store.events.slice(0, 30).map((e) => h('div', {},
-    `${fmtTime(e.at)}  ${e.type === 'down' ? '▼ down' : '▲ up  '}  #${e.id}  ${e.wallId}  (${e.x.toFixed(2)}, ${e.y.toFixed(2)}) m`));
+    e.type === 'cross' ? `${fmtTime(e.at)}  ↔ cross #${e.id}  ${e.from} → ${e.wallId}  (${e.x.toFixed(2)}, ${e.y.toFixed(2)}) m`
+      : `${fmtTime(e.at)}  ${e.type === 'down' ? '▼ down' : '▲ up  '}  #${e.id}  ${e.wallId}  (${e.x.toFixed(2)}, ${e.y.toFixed(2)}) m`));
 }
 
 function bigNum(n, label) {
@@ -139,6 +141,12 @@ export function addWall(ctx) {
   setTimeout(() => ctx.select('wall', id));
 }
 
+/** "→ P1" (or "→ P4, closing the room" for the last wall). */
+function nextWallName(w) {
+  const walls = P().walls, i = walls.findIndex((x) => x.id === w.id);
+  return i < walls.length - 1 ? `→ ${walls[i + 1].id}` : walls.length > 2 ? `→ ${walls[0].id} (if the room closes)` : '—';
+}
+
 function wallEditor(w, ctx) {
   const set = (fn, label = 'edit wall') => editProfile((p) => fn(p.walls.find((x) => x.id === w.id)), label);
   const idx = P().walls.findIndex((x) => x.id === w.id);
@@ -149,6 +157,11 @@ function wallEditor(w, ctx) {
       field('Height', w.height, (v) => set((x) => { x.height = v; }), { unit: 'm', step: 0.001 }),
       h('p', { class: 'muted' }, 'Height = the touch surface (usually the projected image height).'),
       field('Scan plane', w.planeOffset, (v) => set((x) => { x.planeOffset = v; }), { unit: 'm', step: 0.005 }),
+      h('h2', { style: { marginTop: '12px' } }, 'Corner with the next wall'),
+      toggle('Continuous', w.joinNext !== false, (on) => set((x) => { x.joinNext = on; }, 'continuous corner'), nextWallName(w)),
+      h('p', { class: 'muted' }, 'A hand that slides across this corner stays ONE touch: same id, no up / down — it moves on in the content as one. Turn it off for walls that do not meet.'),
+      field('Angle', w.turn ?? 90, (v) => set((x) => { x.turn = Math.max(-180, Math.min(180, v)); }, 'corner angle'), { unit: '°', step: 5 }),
+      h('p', { class: 'muted' }, 'Shapes the room in Live › 3D: 90 = an ordinary inside corner, 0 = the next wall continues straight on.'),
       toggle('Enabled', w.enabled, (on) => set((x) => { x.enabled = on; })),
       h('div', { class: 'actions' },
         h('button', { class: 'btn small', onclick: () => { ctx.go('mapping'); ctx.select('wall', w.id); } }, 'Map to pixels…'),
@@ -159,7 +172,7 @@ function wallEditor(w, ctx) {
         h('button', { class: 'btn small', disabled: idx >= P().walls.length - 1, onclick: () => editProfile((p) => { const a = p.walls; [a[idx + 1], a[idx]] = [a[idx], a[idx + 1]]; }) }, 'Move right →'),
         h('button', { class: 'btn small danger', onclick: async () => {
           if (!await confirmBox(`Delete wall ${w.id} "${w.name}"? Its sensors move to another wall and its zones are deleted.`, 'Delete', true)) return;
-          editProfile((p) => { p.walls = p.walls.filter((x) => x.id !== w.id); p.zones = p.zones.filter((z) => z.wallId !== w.id); });
+          editProfile((p) => { p.walls = p.walls.filter((x) => x.id !== w.id); p.zones = p.zones.filter((z) => z.space === 'canvas' || z.wallId !== w.id); });
           ctx.select(null);
         } }, 'Delete wall'))),
   ];
@@ -527,8 +540,17 @@ function levelCheckBox(s, t) {
 
 export function calibrate(ctx) {
   const c = store.status?.calib;
-  if (c) return calibSession(c, ctx);
   const vs = store.status?.verify;
+  const other = otherControl();
+  if ((c || vs) && other) {
+    // view-only: follow the session, but its controls belong to the device that drives it
+    const view = c ? calibSession(c, ctx) : verifySession(vs);
+    for (const s of view) s.querySelectorAll?.('.actions .btn').forEach((b) => { b.disabled = true; });
+    return [sec(null, h('p', {}, h('b', { style: { color: 'var(--attn)' } }, `${c ? 'Calibration' : 'Verification'} driven by ${other.device}.`),
+      ' You can follow it here; to drive it from this device, take control.'),
+      h('div', { class: 'actions' }, h('button', { class: 'btn attn', onclick: () => ctx.takeControl() }, 'Take control'))), ...view];
+  }
+  if (c) return calibSession(c, ctx);
   if (vs) return verifySession(vs);
   const prof = P();
   const st = store.status?.sensors || {};
@@ -658,47 +680,93 @@ export function ringSvg(p, done) {
 
 const slugAddr = (s) => `/${String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'item'}`;
 
+const SHAPE_NAME = { rect: 'Rect', polygon: 'Polygon', circle: 'Circle' };
+
+/** One line describing a zone's place and size, for the lists. */
+function zoneLine(x) {
+  const unit = x.space === 'canvas' ? 'px' : 'm';
+  const f = unit === 'px' ? (v) => String(Math.round(v)) : (v) => v.toFixed(2);
+  const size = x.shape === 'circle' ? `Ø ${f(x.circle.r * 2)} ${unit}` : `${f(Math.abs(x.rect.x1 - x.rect.x0))} × ${f(Math.abs(x.rect.y1 - x.rect.y0))} ${unit}`;
+  const where = x.space === 'canvas' ? `canvas${x.walls?.length ? ` · ${x.walls.join(' + ')}` : ' · off every wall'}` : x.wallId;
+  return `${x.id} · ${SHAPE_NAME[x.shape] || 'Rect'} · ${size} · ${where}`;
+}
+
 export function zones(ctx) {
   const prof = P();
+  const onCanvas = ctx.ws.space === 'canvas';
   const wallId = ctx.ws.focus || prof.walls[0]?.id;
   const wall = prof.walls.find((w) => w.id === wallId);
   const z = ctx.sel?.kind === 'zone' ? prof.zones.find((x) => x.id === ctx.sel.id) : null;
-  const m = ctx.sel?.kind === 'mask' ? wall?.masks.find((x) => x.id === ctx.sel.id) : null;
+  const m = ctx.sel?.kind === 'mask' && !onCanvas ? wall?.masks.find((x) => x.id === ctx.sel.id) : null;
   const tool = (t, label) => h('button', { class: `btn small${ctx.ws.tool === t ? ' attn' : ''}`, onclick: () => { ctx.ws.tool = t; ctx.rerender(); } }, label);
-  const zl = prof.zones.filter((x) => x.wallId === wallId);
-  const out = [
-    sec([`Zones on ${wallId || '—'}`, h('span', { class: 'grow' }), tool('zone', '+ Draw zone')],
-      h('p', { class: 'muted' }, 'Each zone sends enter / hold / exit and a live count. Drag on the wall to draw; drag to move; handles resize.'),
-      zl.length ? h('div', { class: 'list' }, zl.map((x) => h('div', { class: `item${z?.id === x.id ? ' on' : ''}`, onclick: () => ctx.select('zone', x.id, x.wallId) },
-        h('div', { class: 't' }, x.name, h('small', {}, `${x.id} · ${(Math.abs(x.rect.x1 - x.rect.x0)).toFixed(2)} × ${(Math.abs(x.rect.y1 - x.rect.y0)).toFixed(2)} m`)),
-        store.live?.zones?.[x.id]?.active ? badge(`active · ${store.live.zones[x.id].count}`, 'warn') : null,
-        !x.enabled ? badge('off') : null))) : h('p', { class: 'muted' }, 'No zones on this wall yet.')),
+  const item = (x) => h('div', { class: `item${z?.id === x.id ? ' on' : ''}`, onclick: () => ctx.select('zone', x.id, x.wallId) },
+    h('div', { class: 't' }, x.name, h('small', {}, zoneLine(x))),
+    store.live?.zones?.[x.id]?.active ? badge(`active · ${store.live.zones[x.id].count}`, 'warn') : null,
+    x.space === 'canvas' && !onCanvas ? badge('canvas') : null,
+    !x.enabled ? badge('off') : null);
+  const out = [];
+  if (onCanvas) {
+    const zl = prof.zones.filter((x) => x.space === 'canvas');
+    out.push(sec(['Canvas zones', h('span', { class: 'grow' }), tool('zone', '+ Draw zone')],
+      h('p', { class: 'muted' }, `Drawn in output-canvas pixels (${prof.canvas.width} × ${prof.canvas.height}), over the content: a zone can span walls (a door painted across a corner). Touches reach it through each wall's Mapping.`),
+      zl.length ? h('div', { class: 'list' }, zl.map(item)) : h('p', { class: 'muted' }, 'No canvas zones yet. Dashed outlines are wall zones — edit those in Wall.')));
+  } else {
+    const zl = prof.zones.filter((x) => (x.space === 'canvas' ? (x.walls || []).includes(wallId) : x.wallId === wallId));
+    out.push(sec([`Zones on ${wallId || '—'}`, h('span', { class: 'grow' }), tool('zone', '+ Draw zone')],
+      h('p', { class: 'muted' }, 'Each zone sends enter / hold / exit and a live count. Rect, polygon or circle; drag to move, handles reshape. Canvas zones (dashed) are edited in Canvas.'),
+      zl.length ? h('div', { class: 'list' }, zl.map(item)) : h('p', { class: 'muted' }, 'No zones on this wall yet.')),
     sec([`Masks on ${wallId || '—'}`, h('span', { class: 'grow' }), tool('mask', '+ Draw mask')],
-      h('p', { class: 'muted' }, 'Ignored areas: a door, a lamp crossing the scan plane, a speaker…'),
+      h('p', { class: 'muted' }, 'Ignored areas: a door, a lamp crossing the scan plane, a speaker… (rect or polygon)'),
       wall?.masks.length ? h('div', { class: 'list' }, wall.masks.map((x) => h('div', { class: `item${m?.id === x.id ? ' on' : ''}`, onclick: () => ctx.select('mask', x.id, wallId) },
-        h('div', { class: 't' }, x.name, h('small', {}, `${x.id} · ${(Math.abs(x.x1 - x.x0)).toFixed(2)} × ${(Math.abs(x.y1 - x.y0)).toFixed(2)} m`))))) : h('p', { class: 'muted' }, 'No masks.')),
-  ];
-  if (z) {
-    const set = (fn, label = 'edit zone') => editProfile((p) => fn(p.zones.find((x) => x.id === z.id)), label);
-    out.push(sec(`Zone ${z.id}`,
-      field('Name', z.name, (v) => set((x) => { x.name = v; }, 'rename zone')),
-      selectField('Wall', z.wallId, prof.walls.map((w) => [w.id, `${w.id} · ${w.name}`]), (v) => set((x) => { x.wallId = v; }, 'move zone to wall')),
-      h('div', { class: 'grid4' }, ...['x0', 'y0', 'x1', 'y1'].map((k) => field(k, z.rect[k], (v) => set((x) => { x.rect[k] = v; }), { inline: true, step: 0.01 }))),
-      field('Hold after', z.holdMs, (v) => set((x) => { x.holdMs = Math.round(v); }), { unit: 'ms', step: 100 }),
-      field('Release after', z.releaseMs, (v) => set((x) => { x.releaseMs = Math.round(v); }), { unit: 'ms', step: 50 }),
-      field('Trigger address', z.address, (v) => set((x) => { x.address = v.trim(); }, 'trigger address'), { placeholder: slugAddr(z.name) }),
-      toggle('Enabled', z.enabled, (on) => set((x) => { x.enabled = on; })),
-      h('p', { class: 'muted' }, 'Touches OSC: ', h('code', {}, `/vt/zone/${z.id}/enter|hold|exit`), ' · Triggers output: ', h('code', {}, `${z.address || slugAddr(z.name)} 1|0`)),
-      h('div', { class: 'actions' }, h('button', { class: 'btn small danger', onclick: () => { editProfile((p) => { p.zones = p.zones.filter((x) => x.id !== z.id); }, 'delete zone'); ctx.select(null); } }, 'Delete zone'))));
+        h('div', { class: 't' }, x.name, h('small', {}, `${x.id} · ${x.type === 'polygon' ? `polygon, ${x.points.length} points · ` : ''}${(Math.abs(x.x1 - x.x0)).toFixed(2)} × ${(Math.abs(x.y1 - x.y0)).toFixed(2)} m`))))) : h('p', { class: 'muted' }, 'No masks.')));
   }
+  if (z) out.push(zoneEditor(z, ctx));
   if (m) {
     const set = (fn, label = 'edit mask') => editProfile((p) => fn(p.walls.find((w) => w.id === wallId).masks.find((x) => x.id === m.id)), label);
     out.push(sec(`Mask ${m.id}`,
       field('Name', m.name, (v) => set((x) => { x.name = v; }, 'rename mask')),
-      h('div', { class: 'grid4' }, ...['x0', 'y0', 'x1', 'y1'].map((k) => field(k, m[k], (v) => set((x) => { x[k] = v; }), { inline: true, step: 0.01 }))),
+      m.type === 'polygon'
+        ? h('p', { class: 'muted' }, `Polygon · ${m.points.length} points. Drag a point to move it, drag a midpoint to add one, double-click a point (or select it and press Delete) to remove it.`)
+        : h('div', { class: 'grid4' }, ...['x0', 'y0', 'x1', 'y1'].map((k) => field(k, m[k], (v) => set((x) => { x[k] = v; }), { inline: true, step: 0.01 }))),
       h('div', { class: 'actions' }, h('button', { class: 'btn small danger', onclick: () => { editProfile((p) => { const w = p.walls.find((q) => q.id === wallId); w.masks = w.masks.filter((x) => x.id !== m.id); }, 'delete mask'); ctx.select(null); } }, 'Delete mask'))));
   }
   return out;
+}
+
+function zoneEditor(z, ctx) {
+  const prof = P();
+  const set = (fn, label = 'edit zone') => editProfile((p) => fn(p.zones.find((x) => x.id === z.id)), label);
+  const canvasZ = z.space === 'canvas';
+  const unit = canvasZ ? 'px' : 'm', step = canvasZ ? 1 : 0.01;
+  let geo;
+  if (z.shape === 'circle') {
+    geo = h('div', { class: 'grid4' },
+      field('x', z.circle.x, (v) => set((x) => { x.circle.x = v; }), { inline: true, step }),
+      field('y', z.circle.y, (v) => set((x) => { x.circle.y = v; }), { inline: true, step }),
+      field('radius', z.circle.r, (v) => set((x) => { x.circle.r = Math.max(canvasZ ? 1 : 0.01, v); }), { inline: true, step }));
+  } else if (z.shape === 'polygon') {
+    geo = h('p', { class: 'muted' }, `Polygon · ${z.points.length} points (${unit}). Drag a point to move it, drag a midpoint to add one, double-click a point (or select it and press Delete) to remove it.`);
+  } else {
+    geo = h('div', { class: 'grid4' }, ...['x0', 'y0', 'x1', 'y1'].map((k) => field(k, z.rect[k], (v) => set((x) => { x.rect[k] = v; }), { inline: true, step })));
+  }
+  const fire = () => cmd('zone.fire', { id: z.id }).then(() => toast(`${z.name}: enter … exit sent to every output (marked as a test)`, 'ok')).catch((e) => toast(e.message, 'bad'));
+  return sec(`Zone ${z.id}`,
+    field('Name', z.name, (v) => set((x) => { x.name = v; }, 'rename zone')),
+    canvasZ
+      ? h('p', { class: 'muted' }, `On the output canvas (${SHAPE_NAME[z.shape]}, pixels) · covers ${z.walls?.length ? z.walls.join(', ') : 'no wall — move it onto a wall region'}`)
+      : selectField('Wall', z.wallId, prof.walls.map((w) => [w.id, `${w.id} · ${w.name}`]), (v) => set((x) => { x.wallId = v; }, 'move zone to wall')),
+    geo,
+    field('Hold after', z.holdMs, (v) => set((x) => { x.holdMs = Math.round(v); }), { unit: 'ms', step: 100 }),
+    field('Release after', z.releaseMs, (v) => set((x) => { x.releaseMs = Math.round(v); }), { unit: 'ms', step: 50 }),
+    field('Min hands', z.minHands ?? 1, (v) => set((x) => { x.minHands = Math.max(1, Math.min(20, Math.round(v))); }, 'min hands'), { step: 1 }),
+    h('p', { class: 'muted' }, 'Active only while at least this many touches are inside (2 = "two people together").'),
+    field('Trigger address', z.address, (v) => set((x) => { x.address = v.trim(); }, 'trigger address'), { placeholder: slugAddr(z.name) }),
+    toggle('Enabled', z.enabled, (on) => set((x) => { x.enabled = on; })),
+    h('p', { class: 'muted' }, 'Touches OSC: ', h('code', {}, `/vt/zone/${z.id}/enter|hold|exit`), ' · Triggers output: ', h('code', {}, `${z.address || slugAddr(z.name)} 1|0`)),
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn small', onclick: fire, title: 'Make the zone active for a moment: enter … exit through every output, without touching the wall' }, 'Fire (test)'),
+      h('span', { class: 'grow' }),
+      h('button', { class: 'btn small danger', onclick: () => { editProfile((p) => { p.zones = p.zones.filter((x) => x.id !== z.id); }, 'delete zone'); ctx.select(null); } }, 'Delete zone')));
 }
 
 // ======================================================================= OUTPUTS
@@ -711,8 +779,9 @@ export function outputs(ctx) {
     if (type === 'texture' && prof.outputs.some((x) => x.type === 'texture' && x.enabled)) return toast('There is already an active Texture output (one Spout sender per installation).', 'bad');
     const id = nextId(prof.outputs, 'O');
     editProfile((p) => {
-      p.outputs.push({ id, name: { tuio: 'TUIO', triggers: 'Triggers', texture: 'Touch texture', webhook: 'Webhook', artnet: 'Art-Net' }[type] || 'OSC', type,
-        host: type === 'artnet' ? '255.255.255.255' : '127.0.0.1', port: { tuio: 3333, triggers: 7000, artnet: 6454 }[type] || 9000 });
+      p.outputs.push({ id, name: { tuio: 'TUIO', triggers: 'Triggers', texture: 'Touch texture', webhook: 'Webhook', artnet: 'Art-Net', sacn: 'sACN' }[type] || 'OSC', type,
+        host: { artnet: '255.255.255.255', sacn: 'multicast' }[type] || '127.0.0.1', port: { tuio: 3333, triggers: 7000, artnet: 6454, sacn: 5568 }[type] || 9000,
+        ...(type === 'sacn' ? { universe: 1 } : {}) });
     }, `add ${type} output`);
     setTimeout(() => ctx.select('output', id));
   };
@@ -732,7 +801,7 @@ export function outputs(ctx) {
       })) : h('p', { class: 'muted' }, 'No destinations.')),
   ];
   if (o?.type === 'texture') out.push(...textureEditor(o, stats[o.id], ctx));
-  else if (o?.type === 'webhook' || o?.type === 'artnet') out.push(zoneOutputEditor(o, stats[o.id], ctx));
+  else if (o?.type === 'webhook' || o?.type === 'artnet' || o?.type === 'sacn') out.push(zoneOutputEditor(o, stats[o.id], ctx));
   else if (o) {
     const set = (fn) => editProfile((p) => fn(p.outputs.find((x) => x.id === o.id)));
     const s = stats[o.id];
@@ -745,7 +814,7 @@ export function outputs(ctx) {
         : [selectField('Coordinates', o.coords, [['wall', 'Per wall (0–1 of each wall)'], ['canvas', 'Canvas (0–1 of the whole output, follows Mapping)']], (v) => set((x) => { x.coords = v; })),
           field('Rate', o.rateHz, (v) => set((x) => { x.rateHz = Math.round(v); }), { unit: 'Hz', step: 1 })],
       o.type === 'osc' ? field('Address prefix', o.prefix, (v) => set((x) => { x.prefix = v; })) : o.type === 'tuio' ? toggle('One port per wall', o.tuioPortPerWall, (on) => set((x) => { x.tuioPortPerWall = on; }), on ? '' : `${o.port}, ${o.port + 1}…`) : null,
-      trig ? h('div', { class: 'feed', style: { maxHeight: 'none' } }, prof.zones.length ? prof.zones.map((z) => h('div', {}, `${z.address || slugAddr(z.name)}   ← ${z.name} (${z.wallId})`)) : h('div', { class: 'muted' }, 'No zones yet — draw them in Zones.')) : null,
+      trig ? h('div', { class: 'feed', style: { maxHeight: 'none' } }, prof.zones.length ? prof.zones.map((z) => h('div', {}, `${z.address || slugAddr(z.name)}   ← ${z.name} (${zoneWhere(z)})`)) : h('div', { class: 'muted' }, 'No zones yet — draw them in Zones.')) : null,
       wallsPicker(o, set),
       toggle('Enabled', o.enabled, (on) => set((x) => { x.enabled = on; })),
       s ? h('p', { class: 'muted' }, `${s.sent} packets sent · ${s.errors} errors${s.lastError ? ` · ${s.lastError}` : ''}`) : null,
@@ -778,12 +847,14 @@ const OUTPUT_TYPES = [
   ['tuio', 'TUIO', 'The multitouch standard (TUIO 1.1 cursors)'],
   ['webhook', 'Webhook', 'Zone events as HTTP POST (JSON) — show control, home automation, your own server'],
   ['artnet', 'Art-Net (DMX)', 'One DMX channel per zone, 255 while active — lighting consoles and nodes'],
+  ['sacn', 'sACN (E1.31)', 'The same DMX channels over the ANSI standard (multicast) — consoles, media servers, gateways'],
 ];
 
 function outputSummary(x) {
   if (x.type === 'triggers') return `TRIGGERS → ${x.host}:${x.port} · zones on/off`;
   if (x.type === 'webhook') return `WEBHOOK → ${x.url || 'no URL yet'} · zone events`;
   if (x.type === 'artnet') return `ART-NET → ${x.host} · universe ${x.universe} · from channel ${x.channel}`;
+  if (x.type === 'sacn') return `sACN → ${x.host === 'multicast' ? `multicast ${sacnGroupOf(x.universe)}` : x.host} · universe ${x.universe} · from channel ${x.channel}`;
   if (x.type === 'texture') return `TEXTURE → Spout “${x.senderName}” · ${x.rateHz} Hz`;
   return `${x.type.toUpperCase()} → ${x.host}:${x.port} · ${x.coords === 'canvas' ? 'canvas' : 'wall'} UV · ${x.rateHz} Hz`;
 }
@@ -803,35 +874,45 @@ function wallsPicker(o, set) {
 }
 
 /** Webhook and Art-Net: zone-driven destinations (no touch coordinates). */
+const sacnGroupOf = (u) => `239.255.${(u >> 8) & 255}.${u & 255}`;
+
 function zoneOutputEditor(o, s, ctx) {
   const prof = P();
   const set = (fn) => editProfile((p) => fn(p.outputs.find((x) => x.id === o.id)));
-  const zones = prof.zones.filter((z) => z.enabled !== false && (!o.walls.length || o.walls.includes(z.wallId)));
+  const zones = prof.zones.filter((z) => z.enabled !== false && (!o.walls.length || (z.walls || [z.wallId]).some((w) => o.walls.includes(w))));
   const hook = o.type === 'webhook';
   const body = hook ? [
     field('URL', o.url, (v) => set((x) => { x.url = v.trim(); }), { placeholder: 'http://192.168.1.50:8000/hook' }),
     o.url ? null : h('div', { class: 'callout attn' }, 'Enter an http:// or https:// address.'),
     h('p', { class: 'muted' }, 'One POST per zone event (enter, hold, exit), in order, JSON body:'),
     h('div', { class: 'feed', style: { maxHeight: 'none' } }, h('div', {}, '{ "event": "enter", "zone": { "id", "name", "wallId", "address" },'), h('div', {}, '  "count": 1, "duration": 1.5 (exit), "room": 3, "time": "…" }')),
+  ] : o.type === 'sacn' ? [
+    field('Destination', o.host, (v) => set((x) => { x.host = v.trim() || 'multicast'; }), { placeholder: 'multicast' }),
+    h('p', { class: 'muted' }, `“multicast” sends to the universe group (${sacnGroupOf(o.universe)}), which every sACN receiver on the network can join; or type a receiver’s IP (unicast).`),
+    field('Universe', o.universe, (v) => set((x) => { x.universe = Math.round(v); }), { step: 1 }),
+    h('p', { class: 'muted' }, '1–63999.'),
+    field('Priority', o.priority, (v) => set((x) => { x.priority = Math.round(v); }), { step: 1 }),
+    h('p', { class: 'muted' }, '0–200 (100 is the default): with two sources on one universe, the receiver follows the higher priority.'),
   ] : [
     field('Host', o.host, (v) => set((x) => { x.host = v.trim(); })),
     h('p', { class: 'muted' }, 'The node’s IP, or a broadcast address (255.255.255.255, 2.255.255.255…).'),
     field('Port', o.port, (v) => set((x) => { x.port = Math.round(v); }), { step: 1 }),
     field('Universe', o.universe, (v) => set((x) => { x.universe = Math.round(v); }), { step: 1 }),
     h('p', { class: 'muted' }, '15-bit Port-Address (Net · Sub-Net · Universe), 0–32767.'),
+  ];
+  if (!hook) body.push(
     field('First channel', o.channel, (v) => set((x) => { x.channel = Math.round(v); }), { step: 1 }),
     h('p', { class: 'muted' }, 'One channel per zone: 255 while the zone is active, 0 otherwise. Sent on change and every second.'),
     h('div', { class: 'feed', style: { maxHeight: 'none' } }, zones.length
-      ? zones.slice(0, 513 - o.channel).map((z, k) => h('div', {}, `ch ${o.channel + k}   ← ${z.name} (${z.wallId})`))
-      : h('div', { class: 'muted' }, 'No zones yet — draw them in Zones.')),
-  ];
-  return sec(`${hook ? 'Webhook' : 'Art-Net (DMX)'} · ${o.id}`,
+      ? zones.slice(0, 513 - o.channel).map((z, k) => h('div', {}, `ch ${o.channel + k}   ← ${z.name} (${zoneWhere(z)})`))
+      : h('div', { class: 'muted' }, 'No zones yet — draw them in Zones.')));
+  return sec(`${hook ? 'Webhook' : o.type === 'sacn' ? 'sACN (E1.31)' : 'Art-Net (DMX)'} · ${o.id}`,
     field('Name', o.name, (v) => set((x) => { x.name = v; })),
     ...body,
     wallsPicker(o, set),
     toggle('Enabled', o.enabled, (on) => set((x) => { x.enabled = on; })),
     s ? h('p', { class: 'muted' }, `${s.sent} ${hook ? 'requests' : 'packets'} sent · ${s.errors} errors${s.lastError ? ` · ${s.lastError}` : ''}`) : null,
-    hook ? null : h('p', { class: 'muted' }, 'Art-Net™ Designed by and Copyright Artistic Licence Holdings Ltd.'),
+    o.type === 'artnet' ? h('p', { class: 'muted' }, 'Art-Net™ Designed by and Copyright Artistic Licence Holdings Ltd.') : null,
     h('div', { class: 'actions' },
       h('button', { class: 'btn small', disabled: hook && !o.url, onclick: () => run(cmd('output.test', { id: o.id }), hook ? 'Test event posted' : 'All mapped channels at 255 for a second') }, 'Send test'),
       h('button', { class: 'btn small danger', onclick: () => { editProfile((p) => { p.outputs = p.outputs.filter((x) => x.id !== o.id); }); ctx.select(null); } }, 'Delete')));
@@ -882,6 +963,7 @@ export function system(ctx) {
         h('button', { class: 'btn small', onclick: () => exportProfile(p.id) }, 'Export'),
         h('button', { class: 'btn small', onclick: () => duplicate(p) }, 'Duplicate'),
         p.id !== S.profile.id ? h('button', { class: 'btn small danger', onclick: async () => { if (await confirmBox(`Delete the room profile "${p.name}"? A backup is kept in the data folder.`, 'Delete', true)) run(cmd('profile.delete', { id: p.id })); } }, '✕') : null)))),
+    sec('Network', ...networkBox()),
     sec('Recordings', recordingsBox()),
     sec('Processing (advanced)', ...processingFields()),
     sec('Application',
@@ -1010,21 +1092,24 @@ export function connectContent() {
   const timer = setInterval(() => { if (!box.isConnected) clearInterval(timer); else drawDevices(); }, 1000);
   const draw = () => {
     const c = lan.find((l) => l.iface === pairIface) || lan[0];
-    box.replaceChildren(
+    box.replaceChildren(...[
       lan.length > 1 ? h('div', { class: 'row' }, h('span', { class: 'k' }, 'Network'),
         h('div', { class: 'seg', style: { flexWrap: 'wrap', height: 'auto' } }, lan.map((l) => h('button', { class: l === c ? 'on' : '', style: { height: 'var(--ctl-h)' }, title: l.sensors ? 'This is the LiDAR network' : '', onclick: () => {
           pairIface = l.iface; try { localStorage.setItem('vt-pair-iface', l.iface); } catch { /* ignore */ } draw();
-        } }, `${l.iface} · ${l.ip}${l.sensors ? ' (sensors)' : ''}`)))) : null,
+        } }, `${l.kind === 'hotspot' ? 'This PC’s hotspot' : l.iface} · ${l.ip}${l.sensors ? ' (sensors)' : ''}`)))) : null,
+      c.kind === 'hotspot' ? h('div', { class: 'callout' }, 'This PC is the access point (Windows Mobile hotspot): join its Wi-Fi on the tablet first, then scan.') : null,
       c.sensors ? h('div', { class: 'callout attn' }, 'This network reaches the LiDARs. Prefer the room Wi-Fi / access point for tablets.') : null,
       h('div', { class: 'qr' }, h('img', { src: `/api/qr.svg?t=${encodeURIComponent(c.url)}`, alt: 'QR code' })),
       h('p', { style: { textAlign: 'center' } }, `Scan with the tablet camera. The tablet must be on the same network as "${c.iface}".`),
       h('p', {}, h('code', {}, c.url)),
+      localNameLine(S),
       h('div', { class: 'checklist', style: { margin: '12px 0' } }, fw, devices),
       h('div', { class: 'callout' },
         h('b', {}, 'Still not opening?'), h('br'),
         '1. Pick the network the tablet is on (above). ', h('br'),
         '2. Some Wi-Fi networks isolate devices from each other (“client isolation”) — use the room access point with isolation off.'),
-      h('p', { class: 'muted' }, 'The link contains the access key of this installation — share it only with operators.'));
+      h('p', { class: 'muted' }, 'The link contains the access key of this installation — share it only with operators.'),
+    ].filter(Boolean)); // replaceChildren would print a null as text
     drawDevices();
   };
   draw();
@@ -1032,6 +1117,28 @@ export function connectContent() {
 }
 
 export function openConnectModal() { modal('Connect a device', connectContent()); }
+
+/** The same link by name (mDNS) — easier to type than an address, and it survives a DHCP change. */
+function localNameLine(S) {
+  const n = S.localName;
+  if (!n) return null;
+  const url = `http://${n.host}:${n.port || location.port}/?k=${S.token}`;
+  if (!n.running) return h('p', { class: 'muted' }, `Local name ${n.host} is off: ${n.error || 'not started'}.`);
+  return h('div', {},
+    h('p', {}, 'Or type it by name: ', h('code', {}, url)),
+    n.conflict ? h('div', { class: 'callout attn' }, `Another device (${n.conflict}) also answers for ${n.host}. Give this server another name in System › Network.`) : null,
+    h('p', { class: 'muted' }, 'Names ending in .local work on iPad, iPhone, Mac and Windows; on Android it depends on the version — the QR always works.'));
+}
+
+function networkBox() {
+  const S = store.state, n = S.localName;
+  return [
+    field('Local name', n ? n.host.replace(/\.local$/, '') : '', (v) => run(cmd('net.localName', { name: v }), 'Local name changed'), { unit: '.local', placeholder: 'veation-touch' }),
+    h('p', { class: 'muted' }, n?.running
+      ? `Tablets on the same network can open http://${n.host}:${n.port || location.port}/ — answered over mDNS (UDP 5353)${n.answered ? `, ${n.answered} lookups so far` : ''}. One name per server: two rooms on one network need two names.`
+      : `mDNS is not running${n?.error ? ` (${n.error})` : ''}: use the QR or the address.`),
+  ];
+}
 
 function processingFields() {
   const pr = P().processing, tr = P().tracking;
@@ -1056,6 +1163,8 @@ function processingFields() {
     f('Max hand speed', tr.maxSpeed, (v) => set((p) => { p.tracking.maxSpeed = v; }), 'm/s', 0.5),
     f('Smoothing (min cutoff)', tr.oneEuro.minCutoff, (v) => set((p) => { p.tracking.oneEuro.minCutoff = v; }), 'Hz', 0.1),
     f('Smoothing (speed β)', tr.oneEuro.beta, (v) => set((p) => { p.tracking.oneEuro.beta = v; }), '', 0.1),
+    f('Corner zone', tr.cornerZone ?? 0.25, (v) => set((p) => { p.tracking.cornerZone = v; }), 'm', 0.05),
+    h('p', { class: 'muted' }, 'A hand within this distance of a continuous corner, on either wall, stays the same touch when it crosses (0 = off).'),
   ];
 }
 

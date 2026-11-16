@@ -6,6 +6,7 @@
 
 import { store, on, connect } from './conn.js';
 import { uvToCanvas } from './workspace.js';
+import { shapeOutline, densify } from '/shared/geometry.js';
 
 const c = document.getElementById('c');
 const g = c.getContext('2d');
@@ -24,6 +25,13 @@ requestAnimationFrame(frame);
 
 function poly(pts) { g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); }
 function line([x0, y0], [x1, y1]) { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }
+
+/** A zone outline (already in canvas px): amber, filled while the zone is active. */
+function drawZone(z, pts) {
+  poly(pts);
+  if (store.live?.zones?.[z.id]?.active) { g.fillStyle = 'rgba(229,181,103,0.28)'; g.fill(); }
+  g.strokeStyle = AMBER; g.lineWidth = 3; g.stroke();
+}
 
 function draw() {
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -66,12 +74,18 @@ function draw() {
       g.fillStyle = 'rgba(255,255,255,0.7)';
       g.fillText(`${w.name} · ${w.width} × ${w.height} m${w.mapping?.mode === 'corners' ? ' · corner pin' : ''}`, cx, cy + pxPerM * 0.2);
       g.textAlign = 'left'; g.textBaseline = 'alphabetic';
-      for (const z of P.zones.filter((q) => q.wallId === w.id)) {
-        const r = z.rect;
-        g.strokeStyle = AMBER; g.lineWidth = 3;
-        poly([Pt(r.x0, r.y1), Pt(r.x1, r.y1), Pt(r.x1, r.y0), Pt(r.x0, r.y0)]); g.stroke();
+      for (const z of P.zones.filter((q) => q.space !== 'canvas' && q.wallId === w.id)) {
+        // the outline is split into short pieces so it bends with a grid mapping
+        drawZone(z, densify(shapeOutline(z, 48), 0.1).map(([x, y]) => Pt(x, y)));
       }
     }
+  }
+  // canvas zones live in output pixels already (they may span walls)
+  if (mode === 'identify') for (const z of P.zones.filter((q) => q.space === 'canvas')) drawZone(z, shapeOutline(z, 64));
+
+  for (const w of P.walls) {
+    const Pt = (x, y) => uvToCanvas(w, x / w.width, 1 - y / w.height);
+    const pxPerM = w.pixelRect.h / w.height;
 
     if (mode === 'debug' || mode === 'identify') {
       for (const [id, x, y, size, coast] of store.live?.walls?.[w.id] || []) {

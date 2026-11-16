@@ -2,17 +2,31 @@
 // Each tool turns the central canvas into its own workspace (see workspace.js); the right
 // panel is the inspector of what is selected there.
 
-import { store, on, connect, cmd, editProfile, setViz, isCoarse, undo, redo, history } from './conn.js';
+import { store, on, connect, cmd, editProfile, setViz, isCoarse, undo, redo, history, otherControl, editBlocked } from './conn.js';
 import { h, toast, confirmBox, modal } from './dom.js';
 import { Workspace } from './workspace.js';
+import { Room3D } from './room3d.js';
+import { withGeom, geomOf, translateGeom, boundsOfGeom } from './shapes.js';
 import * as V from './views.js';
 
 const $ = (id) => document.getElementById(id);
 const panel = $('panel');
 const app = $('app');
 
+/** Virtual hands → simulated sensors (moves throttled to ~30 Hz). Shared by the 2D and the 3D view. */
+const handHook = (() => {
+  let last = 0;
+  return (wallId, x, y, phase, id) => {
+    const now = performance.now();
+    if (phase === 'move' && now - last < 30) return;
+    last = now;
+    cmd('sim.touch', { wallId, x, y, id, down: phase !== 'up' }).catch(() => {});
+  };
+})();
+
 const ctx = {
   view: 'live',
+  live3d: (() => { try { return localStorage.getItem('vt-live-3d') === '1'; } catch { return false; } })(),
   sel: null,
   calibWall: null,
   calibFocus: false,
@@ -22,8 +36,11 @@ const ctx = {
     if (kind && !wallId) wallId = kind === 'wall' ? id : (kind === 'sensor' ? P?.sensors.find((s) => s.id === id)?.wallId : kind === 'zone' ? P?.zones.find((z) => z.id === id)?.wallId : undefined);
     ctx.sel = kind ? { kind, id, wallId } : null;
     ws.selection = ctx.sel;
+    ws.vertex = null;
+    // a canvas zone is edited on the output canvas, everything else on its wall
+    if (ctx.view === 'zones' && (kind === 'zone' || kind === 'mask')) ws.setZoneSpace(kind === 'zone' && P?.zones.find((z) => z.id === id)?.space === 'canvas' ? 'canvas' : 'wall');
     if (wallId && ws.focus && ws.focus !== wallId && ws.space === 'wall') ws.setFocus(wallId);
-    render(); renderBar();
+    render(); renderBar(); hint();
   },
   go(view) { setView(view); },
   rerender: () => { render(); renderBar(); },
@@ -31,7 +48,8 @@ const ctx = {
 
 const ws = new Workspace($('roomCanvas'), {
   edit: (mutate, label) => {
-    if (store.state?.locked) { toast('The room is locked (Show mode). Unlock it to edit.', 'bad'); return Promise.resolve(); }
+    const why = editBlocked();
+    if (why) { toast(why, 'bad'); return Promise.resolve(); }
     return editProfile(mutate, label).catch((e) => toast(e.message, 'bad'));
   },
   pick: (sel) => {
@@ -39,36 +57,48 @@ const ws = new Workspace($('roomCanvas'), {
     if (sel?.kind === 'wall' && ctx.view === 'calibrate') ctx.calibWall = sel.id;
     render(); renderBar();
   },
-  hand: (() => {
-    let last = 0;
-    return (wallId, x, y, phase, id) => {
-      const now = performance.now();
-      if (phase === 'move' && now - last < 30) return;
-      last = now;
-      cmd('sim.touch', { wallId, x, y, id, down: phase !== 'up' }).catch(() => {});
-    };
-  })(),
-  draw: (kind, wallId, rect) => {
+  hand: handHook,
+  draw: (kind, { space, wallId, geom }) => {
     const P = store.state.profile;
+    const why = editBlocked();
+    if (why) { toast(why, 'bad'); return; }
     if (kind === 'mask') {
       const w = P.walls.find((q) => q.id === wallId);
       let k = w.masks.length + 1; while (w.masks.some((m) => m.id === `M${k}`)) k++;
       const id = `M${k}`;
-      editProfile((Q) => { Q.walls.find((q) => q.id === wallId).masks.push({ id, name: `Mask ${k}`, type: 'rect', ...rect }); }, 'add mask');
+      editProfile((Q) => { Q.walls.find((q) => q.id === wallId).masks.push(withGeom({ id, name: `Mask ${k}` }, geom, false)); }, 'add mask');
       ws.tool = 'select';
       setTimeout(() => ctx.select('mask', id, wallId));
     } else {
       let k = P.zones.length + 1; while (P.zones.some((z) => z.id === `Z${k}`)) k++;
       const id = `Z${k}`;
-      editProfile((Q) => { Q.zones.push({ id, name: `Zone ${k}`, wallId, rect, holdMs: 1000, releaseMs: 150 }); }, 'add zone');
+      const zone = withGeom({ id, name: `Zone ${k}`, space, wallId: space === 'canvas' ? null : wallId, holdMs: 1000, releaseMs: 150, minHands: 1 }, geom, true);
+      editProfile((Q) => { Q.zones.push(zone); }, 'add zone');
       ws.tool = 'select';
-      setTimeout(() => ctx.select('zone', id, wallId));
+      setTimeout(() => ctx.select('zone', id, zone.wallId));
     }
     hint(); renderBar();
   },
-  changed: () => { render(); renderBar(); },
+  changed: () => { render(); renderBar(); hint(); },
 });
 ctx.ws = ws;
+const r3d = new Room3D($('room3d'), { hand: handHook, ws, changed: () => renderBar() });
+ctx.r3d = r3d;
+
+/** Live › 3D: the WebGL view replaces the 2D strip (which stops drawing meanwhile). */
+function update3d() {
+  const want = ctx.view === 'live' && ctx.live3d;
+  if (want && !r3d.ok) { ctx.live3d = false; toast('The 3D view needs WebGL 2, which this browser does not offer.', 'bad'); }
+  const on = ctx.view === 'live' && ctx.live3d;
+  r3d.setActive(on);
+  ws.suspended = on;
+}
+function setLive3d(on) {
+  ctx.live3d = on;
+  try { localStorage.setItem('vt-live-3d', on ? '1' : '0'); } catch { /* ignore */ }
+  update3d(); hint(); renderBar();
+}
+try { ws.zoneSpace = localStorage.getItem('vt-zone-space') === 'canvas' ? 'canvas' : 'wall'; } catch { /* ignore */ }
 ctx.rv = ws; // views use ctx.rv for the hand tool
 window.__vt = ctx; // debugging aid (DevTools / automated UI checks)
 ctx.views = V;
@@ -84,6 +114,7 @@ function setView(view) {
   ctx.view = view;
   for (const b of $('nav').querySelectorAll('button')) b.classList.toggle('on', b.dataset.view === view);
   ws.setMode(view);
+  update3d();
   const keep = { room: ['wall'], mapping: ['wall'], sensors: ['sensor', 'wall'], zones: ['zone', 'mask', 'wall'], outputs: ['output'], live: ['wall'], calibrate: ['wall'] }[view] || [];
   if (ctx.sel && !keep.includes(ctx.sel.kind)) { ctx.sel = null; ws.selection = null; }
   if (view === 'calibrate' && ws.focus) ctx.calibWall = ws.focus;
@@ -112,14 +143,34 @@ function maybeRender(ev, minGapMs = 0) {
   render();
 }
 
+function zoneHint() {
+  const where = ws.space === 'canvas' ? 'on the canvas' : 'on the wall';
+  if (ws.tool === 'zone' || ws.tool === 'mask') {
+    const what = ws.tool === 'mask' ? 'a mask (ignored area)' : 'a zone';
+    if (ws.shape === 'polygon') {
+      if (!ws.poly) return `Click ${where} to place the first point of ${what}`;
+      const n = ws.poly.pts.length;
+      return `${n} point${n === 1 ? '' : 's'} · click to add · click the first point, double-click or Enter to close · Backspace undoes a point`;
+    }
+    if (ws.shape === 'circle') return `Drag ${where} from the centre outwards to draw a circular zone`;
+    return `Drag ${where} to draw ${what}`;
+  }
+  if (ws.tool === 'hand') return ws.space === 'canvas' ? 'Virtual hand on the canvas: it lands on the wall under the pointer (through the Mapping)' : 'Virtual hand: touch or click the wall';
+  return ws.space === 'canvas'
+    ? 'Canvas zones: drawn on the content, free to span walls · dashed = wall zones (edit them in Wall)'
+    : 'Drag a zone to move it · handles reshape · polygon: drag a point, drag a midpoint to add one, double-click a point to remove it · Ctrl+D duplicates';
+}
+
 function hint() {
   const t = {
-    live: ws.tool === 'hand' ? 'Virtual hands: touch or click a wall · two fingers to zoom' : 'Read-only view of the whole room · drag to pan · wheel or pinch to zoom',
+    live: ctx.live3d
+      ? (ws.tool === 'hand' ? 'Virtual hand: touch a wall in 3D · two fingers to zoom' : 'Drag to orbit · right-drag or Shift-drag to pan · wheel or pinch to zoom · double-click resets · walls facing away hide so you see inside')
+      : ws.tool === 'hand' ? 'Virtual hands: touch or click a wall · two fingers to zoom' : 'Read-only view of the whole room · drag to pan · wheel or pinch to zoom',
     room: 'Drag the amber handles to resize a wall · tap a wall to edit it',
     mapping: 'The output canvas in pixels · drag a wall to move it · drag its corners · arrows nudge 1 px (Shift 10 px)',
     sensors: 'Drag a sensor to move it · drag the amber dot to rotate · the floor line should lie on the bottom edge',
     calibrate: 'Amber target = the one to touch now',
-    zones: ws.tool === 'zone' ? 'Drag on the wall to draw a zone' : ws.tool === 'mask' ? 'Drag on the wall to draw a mask (ignored area)' : 'Drag a zone to move it · handles resize · Delete removes · Ctrl+D duplicates',
+    zones: zoneHint(),
     outputs: '', system: '',
   }[ctx.view];
   $('stageHint').textContent = t || '';
@@ -143,7 +194,7 @@ function renderBar() {
   if (!P) return;
   const bar = [];
   const sims = P.sensors.some((s) => s.driver === 'sim' && s.enabled);
-  const wallSpace = ctx.view !== 'mapping' && ctx.view !== 'outputs' && ctx.view !== 'system';
+  const wallSpace = ctx.view !== 'mapping' && ctx.view !== 'outputs' && ctx.view !== 'system' && ws.space === 'wall';
 
   // wall navigator
   if (wallSpace && P.walls.length > 1) {
@@ -153,18 +204,42 @@ function renderBar() {
       P.walls.map((w) => h('button', { class: `wallnav${ws.focus === w.id ? ' on' : ''}`, title: w.name, onclick: () => { ws.setFocus(w.id); if (ctx.view === 'calibrate') { ctx.calibWall = w.id; render(); } } }, w.id))));
   }
 
+  if (ctx.view === 'live') {
+    bar.push(h('div', { class: 'seg', title: 'The room as a strip of walls (2D) or standing around the floor (3D)' },
+      h('button', { class: ctx.live3d ? '' : 'on', onclick: () => setLive3d(false) }, '2D'),
+      h('button', { class: ctx.live3d ? 'on' : '', onclick: () => setLive3d(true) }, '3D')));
+    if (ctx.live3d) bar.push(h('div', { class: 'seg' },
+      h('button', { class: r3d.cam?.inside ? 'on' : '', title: 'Stand in the middle of the room and look around', onclick: () => { if (r3d.cam?.inside) r3d.reset(); else r3d.inside(); } }, 'Inside')));
+  }
   if (ctx.view === 'live' || ctx.view === 'sensors') {
-    if (sims) bar.push(h('div', { class: 'seg' }, toolBtn('select', 'View', 'Pan and select'), toolBtn('hand', 'Virtual hand', 'Touch the wall with a simulated hand')));
+    if (sims) bar.push(h('div', { class: 'seg' }, toolBtn('select', 'View', ctx.live3d && ctx.view === 'live' ? 'Orbit, pan and zoom' : 'Pan and select'), toolBtn('hand', 'Virtual hand', 'Touch the wall with a simulated hand')));
   }
   if (ctx.view === 'zones') {
-    bar.push(h('div', { class: 'seg' }, toolBtn('select', 'Select', 'Select, move and resize (Esc)'), toolBtn('zone', 'Zone', 'Draw a trigger zone'), toolBtn('mask', 'Mask', 'Draw an ignored area'), sims ? toolBtn('hand', 'Hand', 'Test with a virtual hand') : null));
-    const zsel = ctx.sel?.kind === 'zone' || ctx.sel?.kind === 'mask';
-    bar.push(h('div', { class: 'seg' },
-      h('button', { disabled: ctx.sel?.kind !== 'zone', onclick: duplicateSel, title: 'Duplicate (Ctrl+D)' }, 'Duplicate'),
-      h('button', { disabled: !zsel, onclick: deleteSel, title: 'Delete (Del)' }, 'Delete')));
+    const onCanvas = ws.space === 'canvas';
+    bar.push(h('div', { class: 'seg', title: 'Where zones are drawn: on one wall (metres) or on the output canvas (pixels, over the content — a zone can span walls)' },
+      [['wall', 'Wall'], ['canvas', 'Canvas']].map(([v, t]) => h('button', { class: ws.zoneSpace === v ? 'on' : '', onclick: () => setZoneSpace(v) }, t))));
+    bar.push(h('div', { class: 'seg' }, toolBtn('select', 'Select', 'Select, move and reshape (Esc)'), toolBtn('zone', 'Zone', 'Draw a trigger zone'),
+      onCanvas ? null : toolBtn('mask', 'Mask', 'Draw an ignored area (LiDAR returns there are dropped)'), sims ? toolBtn('hand', 'Hand', 'Test with a virtual hand') : null));
+    if (ws.tool === 'zone' || ws.tool === 'mask') {
+      const shapes = ws.tool === 'mask' ? [['rect', 'Rect'], ['polygon', 'Polygon']] : [['rect', 'Rect'], ['polygon', 'Polygon'], ['circle', 'Circle']];
+      if (ws.tool === 'mask' && ws.shape === 'circle') ws.shape = 'rect';
+      bar.push(h('div', { class: 'seg' }, shapes.map(([v, t]) => h('button', { class: ws.shape === v ? 'on' : '', onclick: () => { ws.shape = v; ws.cancelPoly(); hint(); renderBar(); } }, t))));
+    }
+    if (ws.poly) {
+      bar.push(h('div', { class: 'seg' },
+        h('button', { class: 'on', disabled: ws.poly.pts.length < 3, onclick: () => ws.finishPoly(), title: 'Close the polygon (Enter, double-click or the first point)' }, `Finish · ${ws.poly.pts.length}`),
+        h('button', { onclick: () => ws.undoPolyPoint(), title: 'Remove the last point (Backspace)' }, 'Undo point'),
+        h('button', { onclick: () => ws.cancelPoly(), title: 'Cancel (Esc)' }, 'Cancel')));
+    } else {
+      const zsel = ctx.sel?.kind === 'zone' || ctx.sel?.kind === 'mask';
+      bar.push(h('div', { class: 'seg' },
+        h('button', { disabled: ctx.sel?.kind !== 'zone', onclick: duplicateSel, title: 'Duplicate (Ctrl+D)' }, 'Duplicate'),
+        h('button', { disabled: !zsel, onclick: deleteSel, title: 'Delete (Del) — with a polygon point selected, deletes the point' }, 'Delete')));
+    }
   }
   if (['zones', 'sensors', 'room'].includes(ctx.view)) {
-    bar.push(h('span', { class: 'ws-label' }, 'Snap'), h('div', { class: 'seg' }, [[0, 'Off'], [0.01, '1 cm'], [0.05, '5 cm'], [0.1, '10 cm']].map(([v, t]) =>
+    const px = ws.space === 'canvas';
+    bar.push(h('span', { class: 'ws-label' }, 'Snap'), h('div', { class: 'seg' }, [[0, 'Off'], [0.01, px ? '1 px' : '1 cm'], [0.05, px ? '5 px' : '5 cm'], [0.1, px ? '10 px' : '10 cm']].map(([v, t]) =>
       h('button', { class: ws.snap === v ? 'on' : '', onclick: () => { ws.snap = v; renderBar(); } }, t))));
   }
   if (ctx.view === 'room') {
@@ -194,14 +269,30 @@ function renderBar() {
   $('redoBtn').title = history.redoLabel() ? `Redo ${history.redoLabel()} (Ctrl+Shift+Z)` : 'Nothing to redo';
 }
 
+/** Zones: draw on a wall (metres) or on the output canvas (pixels). */
+function setZoneSpace(v) {
+  ws.setZoneSpace(v);
+  if (v === 'canvas' && ws.tool === 'mask') ws.tool = 'select';
+  if (v === 'canvas' && ctx.sel?.kind === 'mask') ctx.sel = null;
+  if (v === 'canvas' && ctx.sel?.kind === 'zone' && store.state.profile.zones.find((z) => z.id === ctx.sel.id)?.space !== 'canvas') { ctx.sel = null; ws.selection = null; }
+  if (v === 'wall' && ctx.sel?.kind === 'zone' && store.state.profile.zones.find((z) => z.id === ctx.sel.id)?.space === 'canvas') { ctx.sel = null; ws.selection = null; }
+  try { localStorage.setItem('vt-zone-space', v); } catch { /* ignore */ }
+  hint(); render(); renderBar();
+}
+ctx.setZoneSpace = setZoneSpace;
+
 function duplicateSel() {
   const z = store.state.profile.zones.find((q) => q.id === ctx.sel?.id);
-  if (!z) return;
+  if (!z || ctx.sel?.kind !== 'zone') return;
   const P = store.state.profile;
   let k = P.zones.length + 1; while (P.zones.some((q) => q.id === `Z${k}`)) k++;
   const id = `Z${k}`;
-  const dx = Math.min(0.2, P.walls.find((w) => w.id === z.wallId).width - Math.max(z.rect.x0, z.rect.x1));
-  editProfile((Q) => { Q.zones.push({ ...structuredClone(z), id, name: `${z.name} copy`, address: '', rect: { ...z.rect, x0: z.rect.x0 + dx, x1: z.rect.x1 + dx } }); }, 'duplicate zone');
+  // the copy sits a little to the right (20 cm on a wall, 40 px on the canvas), kept inside
+  const g = geomOf(z), b = boundsOfGeom(g);
+  const right = z.space === 'canvas' ? P.canvas.width : P.walls.find((w) => w.id === z.wallId).width;
+  const dx = Math.max(0, Math.min(z.space === 'canvas' ? 40 : 0.2, right - b.x1));
+  const round = z.space === 'canvas' ? (v) => Math.round(v * 10) / 10 : (v) => Math.round(v * 1000) / 1000;
+  editProfile((Q) => { Q.zones.push(withGeom({ ...structuredClone(z), id, name: `${z.name} copy`, address: '' }, translateGeom(g, dx, 0, round), true)); }, 'duplicate zone');
   setTimeout(() => ctx.select('zone', id, z.wallId));
 }
 
@@ -227,9 +318,15 @@ addEventListener('keydown', (e) => {
   if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
   if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSel(); return; }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && ctx.view === 'zones') { e.preventDefault(); deleteSel(); return; }
+  if (ctx.view === 'zones' && ws.poly) {
+    // polygon being drawn: Enter closes it, Backspace removes the last point, Esc cancels
+    if (e.key === 'Enter') { e.preventDefault(); ws.finishPoly(); return; }
+    if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); ws.undoPolyPoint(); return; }
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && ctx.view === 'zones') { e.preventDefault(); if (!ws.deleteVertex()) deleteSel(); return; }
   if (e.key === 'Escape') {
     if (!$('overlay').hidden) { $('overlay').querySelector('header .ibtn')?.click(); return; } // close the open dialog
+    if (ws.cancelPoly()) return;
     ws.tool = 'select'; ctx.select(null); hint(); return;
   }
   if (e.key === '?') { shortcuts(); return; }
@@ -248,8 +345,10 @@ function shortcuts() {
     ['Arrows', 'Nudge the selection: 1 px in Mapping, one snap step (1 cm by default) on walls'],
     ['Shift + arrows', '10 px · ten snap steps'],
     ['Ctrl+D', 'Duplicate the selected zone'],
-    ['Delete', 'Delete the selected zone or mask (Zones)'],
-    ['Esc', 'Close the dialog · back to Select · clear the selection'],
+    ['Delete', 'Delete the selected zone or mask — or the selected polygon point (Zones)'],
+    ['Enter · Backspace', 'Polygon tool: close the polygon · remove the last point'],
+    ['Double-click a point', 'Remove that polygon point'],
+    ['Esc', 'Close the dialog · cancel the polygon · back to Select · clear the selection'],
     ['Double-click · Fit', 'Frame the view'],
     ['Wheel · pinch', 'Zoom'],
     ['Drag on empty space', 'Pan'],
@@ -290,6 +389,28 @@ function renderChips() {
   ].filter(Boolean));
 }
 
+/** Another device drives the calibration: say so, and offer to take over (a tablet can die mid-session). */
+function renderControl() {
+  const c = otherControl();
+  app.classList.toggle('viewonly', !!c);
+  const b = $('ctlBanner');
+  const key = c ? `${c.id}|${!!store.status?.calib}` : '';
+  if (b.dataset.key === key) return;
+  b.dataset.key = key;
+  b.hidden = !c;
+  if (c) b.replaceChildren(
+    h('span', {}, h('b', {}, `${store.status?.calib ? 'Calibration' : 'Verification'} in progress on ${c.device}`), ' — this device is view-only until it finishes.'),
+    h('span', { class: 'grow' }),
+    h('button', { class: 'btn small', onclick: takeControl }, 'Take control'));
+}
+
+async function takeControl() {
+  const c = otherControl();
+  if (c && !await confirmBox(`Take control from ${c.device}? The session continues on this device and ${c.device} becomes view-only.`, 'Take control')) return;
+  cmd('control.take').then(() => toast('You have control of the session', 'ok')).catch((e) => toast(e.message, 'bad'));
+}
+ctx.takeControl = takeControl;
+
 function renderStatusBar() {
   const S = store.state, e = store.status?.engine || {};
   $('statusBar').replaceChildren(...[
@@ -311,7 +432,7 @@ $('lockBtn').addEventListener('click', async () => {
   if (locked && !await confirmBox('Unlock the room? Zones, sensors and mapping become editable again.', 'Unlock')) return;
   cmd('app.lock', { locked: !locked }).then(() => { if (!locked) setView('live'); }).catch((e) => toast(e.message, 'bad'));
 });
-$('fitBtn').addEventListener('click', () => { ws.fitKey = ''; });
+$('fitBtn').addEventListener('click', () => { if (r3d.active) { r3d.reset(); renderBar(); } else ws.fitKey = ''; });
 $('undoBtn').addEventListener('click', () => undo());
 $('redoBtn').addEventListener('click', () => redo());
 const contentBtn = $('contentBtn');
@@ -334,12 +455,15 @@ on('state', () => {
   }
   if (ctx.sel && !exists(ctx.sel)) { ctx.sel = null; ws.selection = null; }
   if (ws.focus && !store.state.profile.walls.some((w) => w.id === ws.focus)) ws.setFocus(['sensors', 'calibrate', 'zones'].includes(ctx.view) ? store.state.profile.walls[0]?.id ?? null : null);
-  renderTop(); renderChips(); renderStatusBar(); renderBar();
+  renderTop(); renderChips(); renderStatusBar(); renderControl(); renderBar();
   maybeRender('state');
 });
 let recKey = '';
 on('status', () => {
-  renderChips(); renderStatusBar(); maybeRender('status');
+  renderChips(); renderStatusBar(); renderControl(); maybeRender('status');
+  // follow the wall being calibrated / verified (a view-only device did not choose it)
+  const cw = (store.status?.calib || store.status?.verify)?.wallId;
+  if (ctx.view === 'calibrate' && cw && ws.focus !== cw) { ctx.calibWall = cw; ws.setFocus(cw); }
   // the System view only needs a refresh when recording/replay starts or stops
   const k = `${!!store.status?.recording}|${store.status?.replay?.file || ''}`;
   if (k !== recKey) { recKey = k; maybeRender('recording'); }

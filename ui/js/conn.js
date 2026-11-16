@@ -144,6 +144,8 @@ const CLEARS_HISTORY = new Set(['profile.load', 'profile.create', 'profile.impor
 export function undo() { swap(undoStack, redoStack); }
 export function redo() { swap(redoStack, undoStack); }
 function swap(from, to) {
+  const why = editBlocked();
+  if (why) { emit('error', new Error(why)); return; }
   const e = from.pop();
   if (!e || !serverProfile) return;
   to.push({ label: e.label, profile: structuredClone(serverProfile) });
@@ -157,7 +159,22 @@ function swap(from, to) {
  * Edit the active profile: mutate a copy, apply locally at once, persist on the engine.
  * Edits are serialised so fast consecutive changes never race each other's revision.
  */
+/** Who drives the running calibration, if it is ANOTHER device (this one is then view-only). */
+export function otherControl() {
+  const c = store.status?.control;
+  return c && !c.gone && c.id !== store.state?.you ? c : null;
+}
+
+/** Why this device cannot edit the room right now (null = it can). */
+export function editBlocked() {
+  if (store.state?.locked) return 'The room is locked (Show mode). Unlock it to edit.';
+  const c = otherControl();
+  return c ? `Calibration in progress on ${c.device} — take control to edit.` : null;
+}
+
 export function editProfile(mutate, label = 'edit') {
+  const why = editBlocked();
+  if (why) { emit('error', new Error(why)); return Promise.resolve(); }
   if (serverProfile) {
     undoStack.push({ label, profile: structuredClone(serverProfile) });
     if (undoStack.length > 80) undoStack.shift();

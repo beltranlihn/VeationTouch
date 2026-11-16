@@ -7,7 +7,7 @@
 //   6. size gating + contact-point correction
 // See ARCHITECTURE.md › Pipeline for the reasoning behind each default.
 
-import { apply, poseMatrix, pointInRect } from './geometry.js';
+import { apply, poseMatrix, pointInShape } from './geometry.js';
 
 const MIN_RUN = 4; // bins (0.25° each): shorter changed runs are edge flicker, not an object
 
@@ -57,7 +57,7 @@ export class SensorPipeline {
     this.matrix = sensor.calibration?.matrix?.length === 9 ? sensor.calibration.matrix : poseMatrix(sensor.pose);
     this.calibrated = !!(sensor.calibration?.matrix?.length === 9);
     this.origin = apply(this.matrix, 0, 0);
-    this.masks = (wall.masks || []).filter((m) => m.type === 'rect');
+    this.masks = (wall.masks || []).filter((m) => m.type === 'rect' || m.type === 'polygon');
     const nb = Math.ceil(360 / this.p.binDeg);
     if (!this.bg || this.bg.length !== nb) this.bg = sensor.background?.dist?.length === nb ? Float32Array.from(sensor.background.dist) : null;
   }
@@ -188,7 +188,7 @@ export class SensorPipeline {
       const isBg = useBg && (() => { const r = this._bgRef(b, nb); return r > 0 && d >= r - p.bgThresholdMm; })();
       if (!isBg) {
         const inRoi = opt.raw || (x >= p.edgeMargin && x <= W - p.edgeMargin && y >= p.floorMargin && y <= H &&
-          !this.masks.some((m) => pointInRect(x, y, m)));
+          !this.masks.some((m) => pointInShape(x, y, m)));
         cls = inRoi ? 1 : 2;
         if (inRoi) { fgX.push(x); fgY.push(y); fgA.push(a); fgSx.push(sx); fgSy.push(sy); }
       }

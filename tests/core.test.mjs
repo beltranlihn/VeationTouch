@@ -318,6 +318,210 @@ test('zones: enter / hold / debounced exit', () => {
   assert.deepEqual(ev([], 1000), ['exit']);
 });
 
+test('zones: polygon and circle shapes, min hands', () => {
+  const z = new ZoneEngine();
+  z.configure([
+    // an L-shaped polygon: the notch (1.5, 1.5) is outside
+    { id: 'L', wallId: 'W', shape: 'polygon', points: [[0, 0], [2, 0], [2, 1], [1, 1], [1, 2], [0, 2]], holdMs: 0, releaseMs: 0 },
+    { id: 'C', wallId: 'W', shape: 'circle', circle: { x: 4, y: 1, r: 0.5 }, holdMs: 0, releaseMs: 0 },
+    { id: 'TWO', wallId: 'W', rect: { x0: 6, y0: 0, x1: 8, y1: 2 }, holdMs: 0, releaseMs: 0, minHands: 2 },
+  ]);
+  const at = (pts, t) => z.update({ W: pts.map(([x, y], k) => ({ id: k + 1, x, y })) }, t);
+  let r = at([[0.5, 1.5], [1.5, 1.5], [4.3, 1.3], [4.45, 1.45], [7, 1]], 0);
+  assert.equal(r.counts.L.count, 1, 'notch of the L is outside');
+  assert.equal(r.counts.C.count, 1, '(4.45, 1.45) is outside the circle (corner of its box)');
+  assert.equal(r.counts.TWO.active, false, 'one hand is not enough');
+  assert.deepEqual(r.events.map((e) => e.zoneId).sort(), ['C', 'L']);
+  r = at([[7, 1], [7.5, 1.5]], 16);
+  assert.deepEqual(r.events.filter((e) => e.zoneId === 'TWO').map((e) => [e.type, e.count]), [['enter', 2]]);
+  r = at([[7, 1]], 32);
+  assert.deepEqual(r.events.filter((e) => e.zoneId === 'TWO').map((e) => e.type), ['exit'], 'below min hands = exit');
+});
+
+test('zones: a canvas zone spans two walls through their mapping', () => {
+  const prof = normalizeProfile({
+    canvas: { width: 2000, height: 500 },
+    walls: [{ id: 'A', width: 4, height: 2, pixelRect: { x: 0, y: 0, w: 1000, h: 500 } },
+      { id: 'B', width: 4, height: 2, pixelRect: { x: 1000, y: 0, w: 1000, h: 500 } }],
+    zones: [{ id: 'Z', space: 'canvas', wallId: 'A', rect: { x0: 900, y0: 0, x1: 1100, y1: 500 }, holdMs: 0, releaseMs: 0 }],
+  });
+  const zone = prof.zones[0];
+  assert.equal(zone.wallId, null);
+  assert.deepEqual(zone.walls, ['A', 'B'], 'covers both walls');
+  const z = new ZoneEngine();
+  z.configure(prof.zones, prof.walls);
+  // A x = 3.8 m → 950 px (inside) · B x = 0.2 m → 1050 px (inside) · A x = 3 m → 750 px (outside)
+  const r = z.update({ A: [{ id: 1, x: 3.8, y: 1 }, { id: 3, x: 3, y: 1 }], B: [{ id: 2, x: 0.2, y: 1 }] }, 0);
+  assert.deepEqual(r.counts.Z.ids.sort(), [1, 2]);
+  assert.equal(r.events[0].wallId, null);
+  // without the canvas mapping the same touches would not be inside a wall-metre zone
+  const corner = normalizeProfile({ ...prof, walls: prof.walls.map((w) => (w.id === 'B' ? { ...w, mapping: { mode: 'corners', corners: [[1200, 0], [2000, 0], [2000, 500], [1200, 500]] } } : w)) });
+  assert.deepEqual(corner.zones[0].walls, ['A'], 'B moved away on the canvas: no longer covered');
+});
+
+test('zones: Fire forces enter … exit once, marked as a test', () => {
+  const z = new ZoneEngine();
+  z.configure([{ id: 'Z', wallId: 'W', rect: { x0: 0, y0: 0, x1: 1, y1: 1 }, holdMs: 0, releaseMs: 100, minHands: 3 }]);
+  z.fire('Z', 0, 300);
+  const types = [];
+  for (let t = 0; t <= 600; t += 50) for (const e of z.update({ W: [] }, t).events) types.push([e.type, e.test === true]);
+  assert.deepEqual(types, [['enter', true], ['exit', false]]);
+  assert.throws(() => z.fire('nope', 0), /unknown zone/);
+});
+
+test('profile: zone and mask shapes are normalised (bounds kept, bad polygons fall back)', () => {
+  const p = normalizeProfile({
+    walls: [{ id: 'W', width: 6, height: 3, masks: [{ type: 'polygon', points: [[1, 1], [2, 1], [1.5, 2]] }, { type: 'polygon', points: [[0, 0], [1, 1]] }] }],
+    zones: [
+      { id: 'P', wallId: 'W', shape: 'polygon', points: [[1, 1], [3, 1], [2, 2.5]] },
+      { id: 'D', wallId: 'W', shape: 'polygon', points: [[0, 0], [1, 1], [2, 2]] }, // zero area
+      { id: 'C', wallId: 'W', shape: 'circle', circle: { x: 2, y: 1, r: 0.25 } },
+      { id: 'N', wallId: 'W', minHands: 99 },
+    ],
+  });
+  const [P, D, C, N] = p.zones;
+  assert.equal(P.shape, 'polygon');
+  assert.deepEqual(P.rect, { x0: 1, y0: 1, x1: 3, y1: 2.5 });
+  assert.equal(D.shape, 'rect');
+  assert.deepEqual(C.rect, { x0: 1.75, y0: 0.75, x1: 2.25, y1: 1.25 });
+  assert.equal(N.minHands, 20);
+  assert.equal(N.space, 'wall');
+  const [m0, m1] = p.walls[0].masks;
+  assert.equal(m0.type, 'polygon');
+  assert.equal(m0.x1, 2);
+  assert.equal(m1.type, 'rect', 'two points are not a polygon');
+});
+
+test('pipeline: a polygon mask drops hands inside it, and only those', () => {
+  const { world, pipe, wall } = wallSetup();
+  // triangle over the right half: (3, 0) – (6, 0) – (6, 3); (5, 1) is inside, (4, 2.5) and (1, 1) are not
+  wall.masks = normalizeProfile({ walls: [{ id: 'W', width: 6, height: 3.5, masks: [{ type: 'polygon', points: [[3, 0], [6, 0], [6, 3]] }] }] }).walls[0].masks;
+  pipe.configure(pipe.sensor, wall, {});
+  const scanOf = (t) => { const s = world.scan(3200, 0.03); return { sensorId: 'S', t, deviceTs: 0, count: 3200, ...s, hasQuality: true }; };
+  const seen = (x, y) => { world.injected.set('h', { x, y }); const n = pipe.process(scanOf(2100)).detections.length; world.injected.clear(); return n; };
+  assert.equal(seen(5, 1), 0, 'inside the triangle → masked');
+  assert.equal(seen(4, 2.5), 1, 'inside the bounding box but outside the triangle → kept');
+  assert.equal(seen(1, 1), 1);
+});
+
+test('room plan: walls in strip order wrap clockwise around the room, facing inwards', async () => {
+  const { roomPlan } = await import('../engine/core/geometry.js');
+  const end = (o) => [o.p0[0] + o.dir[0] * o.width, o.p0[1] + o.dir[1] * o.width];
+  const near = (a, b, tol = 1e-9) => Math.hypot(a[0] - b[0], a[1] - b[1]) < tol;
+  // XR Lab: P4 · P1 · P2 · P3, ordinary 90° corners → a closed rectangle (opposite walls differ by a few cm)
+  const prof = normalizeProfile({ walls: [{ id: 'P4', width: 7.33 }, { id: 'P1', width: 6.483 }, { id: 'P2', width: 7.353 }, { id: 'P3', width: 6.411 }] });
+  assert.equal(prof.walls[0].turn, 90);
+  const plan = roomPlan(prof.walls);
+  for (let i = 0; i < 3; i++) assert.ok(near(end(plan[i]), plan[i + 1].p0), `wall ${i + 1} starts where wall ${i} ends`);
+  assert.ok(Math.hypot(...end(plan[3]).map((v, k) => v - plan[0].p0[k])) < 0.1, 'the loop closes within a few cm');
+  // clockwise seen from above: east, south, west, north
+  assert.deepEqual(plan.map((o) => o.dir.map((v) => Math.round(v) + 0)), [[1, 0], [0, -1], [-1, 0], [0, 1]]);
+  // every inward normal points at the room centre (the plan is centred on its bounds)
+  for (const o of plan) { const mid = [o.p0[0] + o.dir[0] * o.width / 2, o.p0[1] + o.dir[1] * o.width / 2]; assert.ok(-(mid[0] * o.normal[0] + mid[1] * o.normal[1]) > 0, o.id); }
+  // drawn closed: the 7 cm mismatch of the measured widths is spread over the walls, every corner meets
+  const closed = roomPlan(prof.walls, { close: true });
+  for (let i = 0; i < 4; i++) assert.ok(near(end(closed[i]), closed[(i + 1) % 4].p0, 1e-9), `corner ${closed[i].id}→${closed[(i + 1) % 4].id} meets`);
+  for (let i = 0; i < 4; i++) assert.ok(Math.hypot(closed[i].p0[0] - plan[i].p0[0], closed[i].p0[1] - plan[i].p0[1]) < 0.08, 'nothing moves more than the mismatch');
+  assert.ok(closed.every((o) => Math.abs(Math.hypot(...o.dir) - 1) < 0.01), 'lengths change by less than 1 %');
+  const u = roomPlan([{ id: 'A', width: 4 }, { id: 'B', width: 4 }, { id: 'C', width: 4 }], { close: true });
+  assert.ok(Math.hypot(...end(u[2]).map((v, k) => v - u[0].p0[k])) > 1, 'a U-shaped set of walls is not forced shut');
+  // a 0° corner continues the wall straight on; a 45° corner turns half as much
+  const straight = roomPlan([{ id: 'A', width: 2, turn: 0 }, { id: 'B', width: 3 }]);
+  assert.deepEqual(straight[1].dir.map((v) => Math.round(v * 1000) / 1000 + 0), [1, 0]);
+  const bent = roomPlan([{ id: 'A', width: 2, turn: 45 }, { id: 'B', width: 3 }]);
+  assert.ok(near(bent[1].dir, [Math.SQRT1_2, -Math.SQRT1_2], 1e-12));
+});
+
+// A hand sliding along wall A, through the corner, along wall B (strip position s, metres), seen by one sensor
+// per wall at 10 Hz (unsynchronised); returns everything the room reported, tick by tick (60 Hz).
+async function slideAcrossCorner({ walls, speed = 1, y = 1.2, yB = y, useLinker = true, from = 3, to = 7, blind = 0.12 }) {
+  const { CornerLinker } = await import('../engine/core/corners.js');
+  const prof = normalizeProfile({ walls });
+  const [A, B] = prof.walls;
+  const ids = { next: 1 };
+  const trA = new WallTracker(A, prof.tracking, ids), trB = new WallTracker(B, prof.tracking, ids);
+  const linker = new CornerLinker();
+  linker.configure(prof.walls);
+  if (useLinker) for (const tr of [trA, trB]) tr.confirmNow = (w, t) => linker.shouldConfirm(w, t);
+  const W = A.width, seen = { down: [], up: [], cross: [], frames: [] };
+  const sAt = (t) => from + speed * (t / 1000);
+  const end = ((to - from) / speed) * 1000 + 600;
+  for (let t = 0; t <= end; t += 1000 / 60) {
+    const s = sAt(t), moving = s <= to;
+    // sensor A every 100 ms, sensor B every 100 ms shifted by 37 ms; each sees the part of the hand on its wall
+    // `blind` m each side of the corner neither sensor sees the hand (edge margins, the two scan planes)
+    if (Math.floor(t / 100) !== Math.floor((t - 1000 / 60) / 100)) trA.ingest(moving && s <= W - blind ? [{ x: s, y, size: 0.08, n: 6 }] : [], t);
+    if (Math.floor((t - 37) / 100) !== Math.floor((t - 37 - 1000 / 60) / 100)) trB.ingest(moving && s >= W + blind ? [{ x: s - W, y: yB, size: 0.08, n: 6 }] : [], t);
+    const ra = trA.tick(t), rb = trB.tick(t);
+    const raw = [...ra.touches, ...rb.touches], ev = [...ra.events, ...rb.events];
+    const r = useLinker ? linker.update(raw, ev, t) : { touches: raw, events: ev };
+    for (const e of r.events) seen[e.type].push(e);
+    seen.frames.push(r.touches.map((q) => ({ id: q.id, wallId: q.wallId, s: q.wallId === A.id ? q.x : W + q.x, truth: moving ? s : null })));
+  }
+  return seen;
+}
+
+for (const [speed, blind] of [[1, 0.12], [0.5, 0.12], [1.5, 0.12], [1, 0]]) test(`corners: a hand sliding across a joined corner stays ONE touch (${speed} m/s, ${blind * 200} cm blind)`, async () => {
+  const walls = [{ id: 'A', width: 6, height: 3 }, { id: 'B', width: 6, height: 3 }];
+  const r = await slideAcrossCorner({ walls, speed, blind });
+  assert.equal(r.down.length, 1, `downs: ${r.down.length}`);
+  assert.equal(r.up.length, 1, `ups: ${r.up.length}`);
+  assert.deepEqual(r.cross.map((e) => [e.from, e.to, e.fromX]), [['A', 'B', 6]], JSON.stringify(r.cross));
+  const ids = new Set(r.frames.flat().map((q) => q.id));
+  assert.deepEqual([...ids], [r.down[0].id], 'one id from start to end');
+  assert.ok(r.frames.every((f) => f.length <= 1), 'never two touches for one hand');
+  // at the corner it must behave like anywhere else on a wall: same lag (± 3 cm), steps no bigger than twice the
+  // normal 10 Hz steps, never a frame without the touch
+  const m = { stepFar: 0, stepCorner: 0, lagFar: 0, lagCorner: 0, holes: 0 };
+  for (let k = 1; k < r.frames.length; k++) {
+    const a = r.frames[k - 1][0], b = r.frames[k][0];
+    const truth = b?.truth ?? null;
+    if (!b) { if (a?.truth != null) m.holes++; continue; }
+    if (truth == null || !a) continue;
+    const near = Math.abs(truth - 6) < 0.4, far = truth > 4 && truth < 5.5;
+    const step = Math.abs(b.s - a.s), lag = Math.abs(truth - b.s);
+    if (near) { m.stepCorner = Math.max(m.stepCorner, step); m.lagCorner = Math.max(m.lagCorner, lag); }
+    if (far) { m.stepFar = Math.max(m.stepFar, step); m.lagFar = Math.max(m.lagFar, lag); }
+  }
+  const cm = (v) => `${(v * 100).toFixed(1)} cm`;
+  assert.equal(m.holes, 0, 'no frame without the touch while the hand moves');
+  assert.ok(m.lagCorner <= m.lagFar + 0.03, `lag at the corner ${cm(m.lagCorner)} vs ${cm(m.lagFar)} on the wall`);
+  assert.ok(m.stepCorner <= Math.max(0.09, 2 * m.stepFar), `step at the corner ${cm(m.stepCorner)} vs ${cm(m.stepFar)} on the wall`);
+  // the linker is what makes it continuous: without it the same slide is two touches
+  const plain = await slideAcrossCorner({ walls, speed, blind, useLinker: false });
+  assert.equal(plain.down.length, 2);
+});
+
+test('corners: a hand lifted near a corner (still) ends at once; one heading into it ends after the bridge', async () => {
+  const { CornerLinker } = await import('../engine/core/corners.js');
+  const L = new CornerLinker();
+  L.configure(normalizeProfile({ walls: [{ id: 'A', width: 6 }, { id: 'B', width: 6 }] }).walls);
+  const touch = (vx, seenMs) => ({ id: 1, wallId: 'A', x: 5.9, y: 1, vx, vy: 0, size: 0.08, seenMs, coasting: seenMs > 150 });
+  // still hand near the corner: up the tick its track ends
+  L.update([touch(0, 0)], [{ type: 'down', id: 1, wallId: 'A', x: 5.9, y: 1, t: 0 }], 0);
+  let r = L.update([], [{ type: 'up', id: 1 }], 300);
+  assert.deepEqual(r.events.map((e) => e.type), ['up']);
+  // moving into the corner at 1 m/s: carried across (a cross), then up when the bridge runs out
+  L.update([{ ...touch(1, 0), id: 2 }], [{ type: 'down', id: 2, wallId: 'A', x: 5.9, y: 1, t: 1000 }], 1000);
+  const types = [];
+  for (let t = 1100; t <= 1700; t += 50) for (const e of L.update(t < 1250 ? [{ ...touch(1, t - 1000), id: 2 }] : [], [], t).events) types.push(e.type);
+  assert.deepEqual(types, ['cross', 'up']);
+});
+
+test('corners: not linked when the walls are not joined, or the hands are at different heights', async () => {
+  const sep = await slideAcrossCorner({ walls: [{ id: 'A', width: 6, height: 3, joinNext: false }, { id: 'B', width: 6, height: 3 }] });
+  assert.equal(sep.down.length, 2);
+  assert.equal(sep.cross.length, 0);
+  const other = await slideAcrossCorner({ walls: [{ id: 'A', width: 6, height: 3 }, { id: 'B', width: 6, height: 3 }], y: 0.8, yB: 1.9 });
+  assert.equal(other.down.length, 2, 'two people at different heights are two touches');
+  const { CornerLinker } = await import('../engine/core/corners.js');
+  const L = new CornerLinker();
+  L.configure(normalizeProfile({ walls: [{ id: 'P4', width: 7.33 }, { id: 'P1', width: 6.483 }, { id: 'P2', width: 7.353 }, { id: 'P3', width: 6.411 }] }).walls);
+  assert.deepEqual(L.joins(), [['P4', 'P1'], ['P1', 'P2'], ['P2', 'P3'], ['P3', 'P4']], 'a closed room also joins the last corner');
+  L.configure(normalizeProfile({ walls: [{ id: 'A', width: 4 }, { id: 'B', width: 4 }, { id: 'C', width: 4 }] }).walls);
+  assert.deepEqual(L.joins(), [['A', 'B'], ['B', 'C']], 'a U-shaped set of walls does not close');
+});
+
 test('osc: encode/decode round trip, bundles stay below the MTU', () => {
   const m = message('/vt/wall/P1/touch', [i(7), 0.25, 0.5, -0.1, 0, 0.08, 1.5]);
   const [d] = decode(m);
@@ -452,6 +656,72 @@ test('outputs: Art-Net puts each zone on its DMX channel (255 while active), on 
   assert.deepEqual(got.map((p) => p.sequence), [1, 2, 3, 4]);
 });
 
+test('outputs: a corner crossing is /vt/cross where both walls are carried, up / down where only one is', async () => {
+  const dgram = await import('node:dgram');
+  const { OutputManager } = await import('../engine/outputs/outputs.js');
+  const rx = dgram.createSocket('udp4');
+  await new Promise((r) => rx.bind(0, '127.0.0.1', r));
+  const got = [];
+  rx.on('message', (m) => { for (const d of decode(m)) got.push(d); });
+  const port = rx.address().port;
+  const prof = normalizeProfile({
+    walls: [{ id: 'A', width: 4, height: 2 }, { id: 'B', width: 4, height: 2 }],
+    outputs: [{ id: 'all', type: 'osc', host: '127.0.0.1', port }, { id: 'onlyA', type: 'osc', host: '127.0.0.1', port, prefix: '/a', walls: ['A'] }, { id: 'onlyB', type: 'osc', host: '127.0.0.1', port, prefix: '/b', walls: ['B'] }],
+  });
+  const om = new OutputManager({ warn() {} });
+  om.configure(prof);
+  const [A, B] = prof.walls;
+  om.send({ seq: 1, t: 0, walls: [{ wall: A, touches: [] }, { wall: B, touches: [] }], zoneEvents: [], zoneCounts: {}, roomCount: 1, burst: 0,
+    events: [{ type: 'cross', id: 7, from: 'A', to: 'B', wallId: 'B', x: 0.05, y: 1, fromX: 4, duration: 2.5, t: 0 }] }, 5000);
+  await new Promise((r) => setTimeout(r, 120));
+  om.close(); rx.close();
+  const find = (a) => got.find((d) => d.address === a);
+  assert.deepEqual(find('/vt/cross')?.args, [7, 'A', 'B']);
+  const up = find('/a/wall/A/up'), down = find('/b/wall/B/down');
+  assert.ok(up && down, got.map((d) => d.address).join(' '));
+  assert.equal(up.args[0], 7); assert.ok(Math.abs(up.args[1] - 1) < 1e-6, 'left at the right edge of A (u = 1)'); assert.ok(Math.abs(up.args[3] - 2.5) < 1e-6);
+  assert.equal(down.args[0], 7); assert.ok(Math.abs(down.args[1] - 0.0125) < 1e-6);
+  assert.equal(got.filter((d) => /\/(up|down)$/.test(d.address) && d.address.startsWith('/vt/')).length, 0, 'the room-wide output sees no up / down');
+});
+
+test('outputs: sACN (E1.31) sends the zone channels with valid layer lengths, a stable CID and a wrapping sequence', async () => {
+  const dgram = await import('node:dgram');
+  const { OutputManager } = await import('../engine/outputs/outputs.js');
+  const { parseSacn, sacnPacket, sacnGroup } = await import('../engine/outputs/sacn.js');
+  // the packet layout itself: 126-byte header, flags 0x7 + lengths that count to the end of the packet
+  const raw = sacnPacket({ universe: 7, sequence: 255, cid: Buffer.alloc(16, 0xab), priority: 150 }, new Uint8Array([1, 2, 3, 4]));
+  assert.equal(raw.length, 130);
+  assert.equal(raw.readUInt16BE(16) >> 12, 0x7);
+  const p0 = parseSacn(raw);
+  assert.deepEqual([p0.rootLength, p0.framingLength, p0.dmpLength], [130 - 16, 130 - 38, 130 - 115]);
+  assert.deepEqual([p0.universe, p0.priority, p0.sequence, p0.startCode, [...p0.data]], [7, 150, 255, 0, [1, 2, 3, 4]]);
+  assert.equal(p0.source, 'VEATION Touch');
+  assert.equal(sacnGroup(0x1234), '239.255.18.52');
+  // through the output manager, unicast to a local receiver
+  const rx = dgram.createSocket('udp4');
+  await new Promise((r) => rx.bind(0, '127.0.0.1', r));
+  const got = [];
+  rx.on('message', (m) => got.push(parseSacn(m)));
+  const prof = normalizeProfile({
+    walls: [{ id: 'W', width: 4, height: 3 }],
+    zones: [{ id: 'Z1', wallId: 'W' }, { id: 'Z2', wallId: 'W' }],
+    outputs: [{ id: 'S', type: 'sacn', host: '127.0.0.1', port: rx.address().port, universe: 9, channel: 3 }],
+  });
+  assert.equal(normalizeProfile({ outputs: [{ type: 'sacn', universe: 0 }] }).outputs[0].universe, 1, 'universe 0 is not valid in sACN');
+  assert.equal(normalizeProfile({ outputs: [{ type: 'sacn' }] }).outputs[0].host, 'multicast');
+  const om = new OutputManager({ warn() {} });
+  om.configure(prof);
+  const frame = (z2) => ({ seq: 1, t: 0, walls: [], events: [], zoneEvents: [], zoneCounts: { Z1: { active: false }, Z2: { active: z2 } }, roomCount: 0, burst: 0 });
+  om.send(frame(false), 1000);
+  om.send(frame(true), 1040);
+  await new Promise((r) => setTimeout(r, 120));
+  om.close(); rx.close();
+  assert.equal(got.length, 2);
+  assert.ok(got.every((q) => q && q.universe === 9 && q.priority === 100 && q.cid.equals(got[0].cid)));
+  assert.deepEqual(got.map((q) => [q.data[2], q.data[3]]), [[0, 0], [0, 255]], 'Z1 → ch 3, Z2 → ch 4');
+  assert.deepEqual(got.map((q) => q.sequence), [0, 1]);
+});
+
 test('outputs: Webhook POSTs zone events as JSON, in order; a dead endpoint is an error, not a stall', async () => {
   const http = await import('node:http');
   const { OutputManager } = await import('../engine/outputs/outputs.js');
@@ -477,7 +747,7 @@ test('outputs: Webhook POSTs zone events as JSON, in order; a dead endpoint is a
   const snap = om.snapshot();
   om.close(); srv.close();
   assert.deepEqual(bodies.map((b) => b.event), ['enter', 'exit'], 'in order despite the slow first reply');
-  assert.deepEqual(bodies[0].zone, { id: 'Z1', name: 'Big Door', wallId: 'W', address: '/big-door' });
+  assert.deepEqual(bodies[0].zone, { id: 'Z1', name: 'Big Door', wallId: 'W', walls: ['W'], address: '/big-door' });
   assert.equal(bodies[1].duration, 1.5);
   assert.equal(snap.H.sent, 2);
   assert.ok(snap.D.errors >= 1, `dead endpoint: ${JSON.stringify(snap.D)}`);

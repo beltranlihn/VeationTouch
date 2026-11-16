@@ -4,6 +4,7 @@
 //   const vt = new VeationTouch('ws://192.168.1.20:8770/ws/data', { rateHz: 60 });
 //   vt.on('down', (t) => …);           // {id, wallId, u, v, x, y}
 //   vt.on('up', (t) => …);
+//   vt.on('cross', (t) => …);          // {id, from, to, …}: slid across a joined corner — same id, no up / down
 //   vt.on('frame', (f) => …);          // every frame: f.walls[i].touches[j] = {id,u,v,x,y,vx,vy,size,age}
 //   vt.on('zone', (e) => …);           // {type:'enter'|'hold'|'exit', zoneId, wallId, count}
 //   vt.touches('P2')                   // current touches of a wall
@@ -12,7 +13,7 @@
 // u, v are 0..1 with the origin at the TOP-LEFT of the wall. x, y are metres from the
 // bottom-left corner of the wall. The connection retries forever.
 
-import { fitHomography, apply } from '../shared/geometry.js'; // served by the engine next to this file
+import { fitHomography, apply, gridMap } from '../shared/geometry.js'; // served by the engine next to this file
 
 export class VeationTouch {
   constructor(url, { rateHz = 60 } = {}) {
@@ -58,7 +59,7 @@ export class VeationTouch {
         const wall = this.profile?.walls.find((w) => w.id === e.wallId);
         const t = byId.get(e.wallId)?.touches.find((q) => q.id === e.id);
         const u = wall ? e.x / wall.width : t?.u, v = wall ? 1 - e.y / wall.height : t?.v;
-        this._emit(e.type, { id: e.id, wallId: e.wallId, u, v, x: e.x, y: e.y, duration: e.duration });
+        this._emit(e.type, { id: e.id, wallId: e.wallId, u, v, x: e.x, y: e.y, duration: e.duration, ...(e.type === 'cross' ? { from: e.from, to: e.to } : {}) });
       }
       for (const z of m.zoneEvents) this._emit('zone', z);
       this._emit('frame', m);
@@ -70,6 +71,7 @@ export class VeationTouch {
   toCanvas(wallId, u, v) {
     const w = this.profile?.walls.find((x) => x.id === wallId);
     if (!w) return null;
+    if (w.mapping?.mode === 'grid') return gridMap(w.mapping, u, v);
     if (w.mapping?.mode === 'corners') {
       // corner-pin: bilinear-free projective map of the unit square onto the 4 corners
       w._H ??= fitHomography([[0, 0], [1, 0], [1, 1], [0, 1]], w.mapping.corners);

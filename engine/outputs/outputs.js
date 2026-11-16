@@ -1,14 +1,17 @@
 // Output routing: every enabled destination of the profile gets the frame in its format.
 //   osc  — VEATION Touch address space (docs/OSC.md)
 //   tuio — TUIO 1.1 /tuio/2Dcur, one source per wall (optionally one port per wall)
-//   triggers — zones as OSC on/off · webhook — zone events as HTTP POST (JSON) · artnet — zones as DMX channels
+//   triggers — zones as OSC on/off · webhook — zone events as HTTP POST (JSON)
+//   artnet / sacn — zones as DMX channels (Art-Net ArtDmx, or ANSI E1.31 multicast / unicast)
 // WebSocket output lives in server.js (same frame object, JSON).
 
 import dgram from 'node:dgram';
+import crypto from 'node:crypto';
 import { message, bundles, i } from './osc.js';
 import { wallToUv, wallToCanvas, zoneAddress } from '../profile.js';
 import { TextureOutput } from './texture.js';
 import { artDmx } from './artnet.js';
+import { sacnPacket, sacnGroup } from './sacn.js';
 
 export class OutputManager {
   constructor(log) {
@@ -61,9 +64,9 @@ export class OutputManager {
     return [vx / wall.width, -vy / wall.height];
   }
 
-  _send(o, buf, port = o.port) {
+  _send(o, buf, port = o.port, host = o.host) {
     const st = this.stats.get(o.id);
-    this.sock.send(buf, port, o.host, (err) => {
+    this.sock.send(buf, port, host, (err) => {
       if (err) { st.errors++; st.lastError = err.message; } else st.sent++;
     });
   }
@@ -87,7 +90,7 @@ export class OutputManager {
         } else if (o.type === 'tuio') { if (due) this._tuio(o, walls); }
         else if (o.type === 'triggers') this._triggers(o, frame);
         else if (o.type === 'webhook') this._webhook(o, frame);
-        else if (o.type === 'artnet') { if (due) this._artnet(o, frame, nowMs); }
+        else if (o.type === 'artnet' || o.type === 'sacn') { if (due) this._dmx(o, frame, nowMs); }
         else this._osc(o, walls, frame, due);
       } catch (e) { st.errors++; st.lastError = e.message; }
       if (due) st.last = nowMs;
@@ -100,14 +103,22 @@ export class OutputManager {
     const wallById = new Map(walls.map((w) => [w.wall.id, w.wall]));
     // Events first: they are sent even between rate-limited frames.
     for (const e of frame.events) {
+      if (e.type === 'cross') {
+        // a touch slid across a joined corner: same id, no up / down — unless this destination only carries one side
+        const from = wallById.get(e.from), to = wallById.get(e.to);
+        if (from && to) msgs.push(message(`${P}/cross`, [i(e.id), e.from, e.to]));
+        else if (from) { const [u, v] = this._uv(o, from, e.fromX, e.y); msgs.push(message(`${P}/wall/${from.id}/up`, [i(e.id), u, v, e.duration ?? 0])); }
+        else if (to) { const [u, v] = this._uv(o, to, e.x, e.y); msgs.push(message(`${P}/wall/${to.id}/down`, [i(e.id), u, v])); }
+        continue;
+      }
       const wall = wallById.get(e.wallId);
       if (!wall) continue;
       const [u, v] = this._uv(o, wall, e.x, e.y);
       if (e.type === 'down') msgs.push(message(`${P}/wall/${wall.id}/down`, [i(e.id), u, v]));
-      else msgs.push(message(`${P}/wall/${wall.id}/up`, [i(e.id), u, v, e.duration ?? 0]));
+      else if (e.type === 'up') msgs.push(message(`${P}/wall/${wall.id}/up`, [i(e.id), u, v, e.duration ?? 0]));
     }
     for (const e of frame.zoneEvents) {
-      if (!o.walls.length || o.walls.includes(e.wallId)) msgs.push(message(`${P}/zone/${e.zoneId}/${e.type}`, [i(e.count)]));
+      if (zoneCovers(this._zone(e.zoneId), o)) msgs.push(message(`${P}/zone/${e.zoneId}/${e.type}`, [i(e.count)]));
     }
     if (due) {
       msgs.push(message(`${P}/frame`, [i(frame.seq), frame.t / 1000]));
@@ -159,8 +170,8 @@ export class OutputManager {
    * `<address>/hold 1` once after the hold time, `<address>/count n` when the count changes.
    */
   _triggers(o, frame) {
-    const zones = new Map(this.profile.zones.map((z) => [z.id, z]));
-    const inScope = (z) => z && (!o.walls.length || o.walls.includes(z.wallId));
+    const zones = this._zoneMap();
+    const inScope = (z) => zoneCovers(z, o);
     const msgs = [];
     for (const e of frame.zoneEvents) {
       const z = zones.get(e.zoneId);
@@ -181,8 +192,15 @@ export class OutputManager {
   }
 
   _zonesInScope(o) {
-    return this.profile.zones.filter((z) => z.enabled !== false && (!o.walls.length || o.walls.includes(z.wallId)));
+    return this.profile.zones.filter((z) => z.enabled !== false && zoneCovers(z, o));
   }
+
+  _zoneMap() {
+    if (this._zonesFor !== this.profile.zones) { this._zonesFor = this.profile.zones; this._zones = new Map(this.profile.zones.map((z) => [z.id, z])); }
+    return this._zones;
+  }
+
+  _zone(id) { return this._zoneMap().get(id); }
 
   /**
    * Webhook: one HTTP POST (JSON) per zone event, in order (one request at a time per destination), 3 s timeout.
@@ -195,7 +213,8 @@ export class OutputManager {
       const z = zones.get(e.zoneId);
       if (!z) continue;
       this._post(o, {
-        event: e.type, zone: { id: z.id, name: z.name, wallId: z.wallId, address: zoneAddress(z) },
+        event: e.type, zone: { id: z.id, name: z.name, wallId: z.wallId ?? null, walls: zoneWalls(z), address: zoneAddress(z) },
+        ...(e.test ? { test: true } : {}),
         count: e.count, ...(e.duration !== undefined ? { duration: Math.round(e.duration * 1000) / 1000 } : {}),
         room: frame.roomCount, time: new Date().toISOString(),
       });
@@ -222,27 +241,37 @@ export class OutputManager {
   }
 
   /**
-   * Art-Net: one DMX channel per zone in scope (profile order) from `channel`: 255 while the zone is active,
-   * 0 otherwise. Sent on change and at least once a second (nodes hold the last value).
+   * Art-Net / sACN: one DMX channel per zone in scope (profile order) from `channel`: 255 while the zone is active,
+   * 0 otherwise. Sent on change and at least once a second (nodes hold the last value; sACN receivers time out at 2.5 s).
    */
-  _artnet(o, frame, nowMs, force = null) {
+  _dmx(o, frame, nowMs, force = null) {
     const zones = this._zonesInScope(o);
     const n = Math.max(0, Math.min(zones.length, 513 - o.channel));
     const data = new Uint8Array(Math.max(2, (o.channel - 1 + n + 1) & ~1));
     for (let k = 0; k < n; k++) data[o.channel - 1 + k] = force ?? (frame.zoneCounts[zones[k].id]?.active ? 255 : 0);
-    const dmx = (this._dmx ??= new Map());
+    const dmx = (this._dmxState ??= new Map());
     const prev = dmx.get(o.id);
     if (!force && prev && Buffer.compare(prev.data, data) === 0 && nowMs - prev.at < 1000) return;
+    if (o.type === 'sacn') {
+      const seq = prev ? (prev.seq + 1) & 0xff : 0; // E1.31: 0–255, wraps
+      dmx.set(o.id, { data: force ? new Uint8Array(0) : data, at: force ? 0 : nowMs, seq });
+      const host = !o.host || o.host === 'multicast' ? sacnGroup(o.universe) : o.host;
+      this._send(o, sacnPacket({ universe: o.universe, sequence: seq, cid: this._cid(o), priority: o.priority }, data), o.port, host);
+      return;
+    }
     const seq = prev ? (prev.seq % 255) + 1 : 1;
     dmx.set(o.id, { data: force ? new Uint8Array(0) : data, at: force ? 0 : nowMs, seq }); // after a test: resend the real state
     this._send(o, artDmx(o.universe, seq, data));
   }
 
+  /** sACN component id: stable per room and output (a receiver tells sources apart by it). */
+  _cid(o) { return crypto.createHash('md5').update(`VEATION Touch/${this.profile.id}/${o.id}`).digest(); }
+
   /** One-shot test message to a destination. */
   test(o) {
     if (o.type === 'texture') return; // the texture is continuous: open a Spout receiver to see it
     if (o.type === 'webhook') { if (!o.url) throw new Error('no URL'); this._post(o, { event: 'test', source: 'VEATION Touch', time: new Date().toISOString() }); return; }
-    if (o.type === 'artnet') { this._artnet(o, { zoneCounts: {} }, 0, 255); return; } // every mapped channel full for ≤ 1 s
+    if (o.type === 'artnet' || o.type === 'sacn') { this._dmx(o, { zoneCounts: {} }, 0, 255); return; } // every mapped channel full for ≤ 1 s
     const buf = o.type === 'tuio'
       ? bundles([message('/tuio/2Dcur', ['source', 'vt-test@veation']), message('/tuio/2Dcur', ['alive']), message('/tuio/2Dcur', ['fseq', i(0)])])[0]
       : message(`${o.prefix}/test`, ['VEATION Touch', i(Date.now() % 1e9)]);
@@ -257,6 +286,14 @@ export class OutputManager {
     for (const t of this.textures?.values() || []) t.close();
     try { this.sock.close(); } catch { /* closed */ }
   }
+}
+
+/** Walls a zone covers: its own wall, or (canvas zones) every wall its shape overlaps. */
+const zoneWalls = (z) => z.walls || (z.wallId ? [z.wallId] : []);
+
+/** Does an output's wall selection include this zone? (no selection = every wall) */
+function zoneCovers(z, o) {
+  return !!z && (!o.walls.length || zoneWalls(z).some((w) => o.walls.includes(w)));
 }
 
 /** A readable reason for a failed fetch (undici hides it in `cause`, sometimes inside an AggregateError). */

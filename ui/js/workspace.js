@@ -4,16 +4,20 @@
 //   mapping    the OUTPUT CANVAS in pixels: move wall regions, drag corners (corner pin)
 //   sensors    one wall in focus: drag a sensor, rotate it with its handle, live point cloud
 //   calibrate  one wall in focus with the targets
-//   zones      one wall in focus: draw / move / resize zones and masks
+//   zones      one wall in focus (wall zones and masks, metres) — or the output canvas (canvas zones, pixels,
+//              drawn on the content and free to span walls): draw rect / polygon / circle, move, reshape
 // Edits are previewed locally while dragging (`ghost`) and committed once on release.
 
 import { store } from './conn.js';
-import { fitHomography, apply as applyM, gridMap, gridInsert, invertMap } from '/shared/geometry.js';
+import { fitHomography, apply as applyM, gridMap, gridInsert, invertMap, densify, roomPlan } from '/shared/geometry.js';
+import { kindOf, geomOf, withGeom, assignGeom, boundsOfGeom, translateGeom, describeGeom, shapeOutline, pointInShape, polygonArea, canvasToUv, canvasZoneOnWall } from './shapes.js';
 
 const GAP = 0.6;                       // metres between walls in the strip
+const SEAM = 0.06;                     // Live: walls joined by a continuous corner only show a seam (one surface)
 const FOCUS_MODES = new Set(['sensors', 'calibrate', 'zones']);
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const r3 = (v) => Math.round(v * 1000) / 1000;
+const r1 = (v) => Math.round(v * 10) / 10;
 const normRect = (r) => ({ x0: Math.min(r.x0, r.x1), y0: Math.min(r.y0, r.y1), x1: Math.max(r.x0, r.x1), y1: Math.max(r.y0, r.y1) });
 const rectCorners = (r) => [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]];
 const hCache = new WeakMap();
@@ -42,6 +46,11 @@ export class Workspace {
     this.hooks = hooks;
     this.mode = 'live';
     this.tool = 'select';           // select | hand | zone | mask
+    this.shape = 'rect';            // what the zone / mask tools draw: rect | polygon | circle
+    this.zoneSpace = 'wall';        // Zones: draw on a wall (metres) or on the output canvas (pixels)
+    this.poly = null;               // polygon being drawn {kind, space, wallId, pts}
+    this.vertex = null;             // selected polygon vertex {id, k} (Delete removes it)
+    this.mouse = null;              // last pointer position (rubber band of the polygon tool)
     this.focus = null;              // wall id in focus (null = all walls)
     this.snap = 0.01;               // metres (0 = off)
     this.selection = null;          // {kind:'wall'|'sensor'|'zone'|'mask'|'region', id, wallId?}
@@ -64,10 +73,17 @@ export class Workspace {
   // ------------------------------------------------------------------ mode / focus
 
   get P() { return store.state?.profile; }
-  get space() { return this.mode === 'mapping' ? 'canvas' : 'wall'; }
+  get space() { return this.mode === 'mapping' || (this.mode === 'zones' && this.zoneSpace === 'canvas') ? 'canvas' : 'wall'; }
+
+  setZoneSpace(space) {
+    if (this.zoneSpace === space) return;
+    this.zoneSpace = space; this.poly = null; this.vertex = null; this.fitKey = '';
+    if (this.selection?.kind === 'mask' && space === 'canvas') this.selection = null;
+  }
 
   setMode(mode) {
     this.mode = mode;
+    this.poly = null; this.vertex = null;
     this.tool = mode === 'zones' ? 'select' : this.tool === 'hand' && ['live', 'sensors', 'zones', 'calibrate'].includes(mode) ? 'hand' : 'select';
     if (FOCUS_MODES.has(mode) && !this.focus) this.focus = this.selection?.wallId || this.P?.walls[0]?.id || null;
     if (!FOCUS_MODES.has(mode) && mode !== 'mapping' && ['live', 'room'].includes(mode)) { /* keep user's choice */ }
@@ -81,7 +97,19 @@ export class Workspace {
     if (!P) return [];
     const list = this.focus && this.space === 'wall' ? P.walls.filter((w) => w.id === this.focus) : P.walls;
     let x = 0;
-    return list.map((w) => { const wall = this.val('wall', w.id, w); const r = { wall, x0: x }; x += wall.width + GAP; return r; });
+    let prev = null;
+    return list.map((w) => {
+      const wall = this.val('wall', w.id, w);
+      if (prev) x += this._gap(prev, wall);
+      const r = { wall, x0: x }; x += wall.width; prev = wall;
+      return r;
+    });
+  }
+
+  /** Space between two walls of the strip: in Live, consecutive walls joined by a continuous corner just touch. */
+  _gap(a, b) {
+    const W = this.P.walls, i = W.findIndex((q) => q.id === a.id);
+    return this.mode === 'live' && W[i + 1]?.id === b.id && a.joinNext !== false ? SEAM : GAP;
   }
 
   /** Value of an object, overridden by the in-progress drag. */
@@ -112,7 +140,8 @@ export class Workspace {
     if (!L.length) return;
     const totalW = L.at(-1).x0 + L.at(-1).wall.width;
     const maxH = Math.max(...L.map((l) => l.wall.height)) + 0.7; // room for sensors above the wall
-    const s = Math.min((this.w - pad * 2) / totalW, (this.h - top - pad - 30) / maxH);
+    const loop = this._loops(L) ? 46 : 0; // room for the "↻" marks at both ends of a closed room
+    const s = Math.min((this.w - (pad + loop) * 2) / totalW, (this.h - top - pad - 30) / maxH);
     this.view.s = Math.max(4, s);
     this.view.ox = (this.w - totalW * this.view.s) / 2;
     this.view.oy = top + (this.h - top - pad - 30 - maxH * this.view.s) / 2 + maxH * this.view.s;
@@ -142,17 +171,15 @@ export class Workspace {
     return [s.pose.x, s.pose.y];
   }
 
+  /** All walls are shown and they close into a loop (the last corner joins the first wall). */
+  _loops(L) {
+    const P = this.P;
+    return L.length === P.walls.length && L.length > 2 && P.walls.at(-1).joinNext !== false && roomCloses(P.walls);
+  }
+
   // ------------------------------------------------------------------ hit testing
 
   handleSize() { return this.coarse ? 16 : 7; }
-
-  rectHandles(l, r) {
-    const n = normRect(r);
-    const xs = [n.x0, (n.x0 + n.x1) / 2, n.x1], ys = [n.y1, (n.y0 + n.y1) / 2, n.y0];
-    const out = [];
-    for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) if (!(i === 1 && j === 1)) out.push({ i, j, px: this.sx(l.x0 + xs[i]), py: this.sy(ys[j]) });
-    return out;
-  }
 
   /** Outline of a wall region in canvas px (works for rect, corners and grid). */
   outline(w, m) {
@@ -172,6 +199,7 @@ export class Workspace {
     const sel = this.selection;
 
     if (this.space === 'canvas') {
+      if (this.mode === 'zones') return this._zoneHit(px, py);
       const order = [...P.walls].sort((a, b) => (sel?.id === b.id) - (sel?.id === a.id));
       for (const w of order) {
         const m = this.val('mapping', w.id, w.mapping);
@@ -190,11 +218,8 @@ export class Workspace {
       return null;
     }
 
-    // selected zone/mask handles
-    if (this.mode === 'zones' && (sel?.kind === 'zone' || sel?.kind === 'mask')) {
-      const { obj, l } = this._selRect();
-      if (obj) for (const h of this.rectHandles(l, obj)) if (Math.abs(h.px - px) <= hs && Math.abs(h.py - py) <= hs) return { type: 'handle', h };
-    }
+    // handles of the selected zone / mask
+    if (this.mode === 'zones') { const zh = this._zoneHandleHit(px, py); if (zh) return zh; }
     if (this.mode === 'sensors') {
       for (const s of P.sensors) {
         const l = L.find((q) => q.wall.id === s.wallId);
@@ -218,24 +243,242 @@ export class Workspace {
     }
     const at = this.wallAt(px, py);
     if (at && this.mode === 'zones') {
-      const inR = (r) => at.x >= Math.min(r.x0, r.x1) && at.x <= Math.max(r.x0, r.x1) && at.y >= Math.min(r.y0, r.y1) && at.y <= Math.max(r.y0, r.y1);
-      const z = [...P.zones].reverse().find((q) => q.wallId === at.l.wall.id && inR(this.val('zone', q.id, q).rect));
+      const z = [...P.zones].reverse().find((q) => q.space !== 'canvas' && q.wallId === at.l.wall.id && pointInShape(at.x, at.y, this.val('zone', q.id, q)));
       if (z) return { type: 'zone', zone: z, l: at.l, at };
-      const m = [...at.l.wall.masks].reverse().find((q) => inR(this.val('mask', `${at.l.wall.id}/${q.id}`, q)));
+      const m = [...at.l.wall.masks].reverse().find((q) => pointInShape(at.x, at.y, this.val('mask', `${at.l.wall.id}/${q.id}`, q)));
       if (m) return { type: 'mask', mask: m, l: at.l, at };
     }
     if (at) return { type: 'wall', l: at.l, at };
     return null;
   }
 
-  _selRect() {
+  // ------------------------------------------------------------------ zones & masks (any shape, wall or canvas)
+
+  /** Screen ↔ zone space: wall metres on a wall of the strip (y up), or output-canvas pixels (y down). */
+  _tf(space, wallId) {
+    if (space === 'canvas') {
+      if (this.space !== 'canvas') return null;
+      const c = this.P.canvas, st = this.snap * 100; // snap 1 / 5 / 10 cm → 1 / 5 / 10 px
+      return { toS: (x, y) => [this.sx(x), this.sy(y)], toZ: (px, py) => this.toWorld(px, py), up: false, unit: 'px', round: r1,
+        snap: (v) => (st ? Math.round(v / st) * st : r1(v)), bounds: { x0: 0, y0: 0, x1: c.width, y1: c.height } };
+    }
+    const l = this.space === 'wall' && this.walls().find((q) => q.wall.id === wallId);
+    if (!l) return null;
+    return { l, toS: (x, y) => [this.sx(l.x0 + x), this.sy(y)], toZ: (px, py) => { const [X, Y] = this.toWorld(px, py); return [X - l.x0, Y]; },
+      up: true, unit: 'm', round: r3, snap: (v) => this.snapM(v), bounds: { x0: 0, y0: 0, x1: l.wall.width, y1: l.wall.height } };
+  }
+
+  /** The selected zone or mask as it is edited now (ghost included), if it can be edited in this space. */
+  _selObj() {
     const sel = this.selection, P = this.P;
-    const l = this.walls().find((q) => q.wall.id === sel.wallId);
-    if (!l) return {};
-    if (sel.kind === 'zone') { const z = P.zones.find((q) => q.id === sel.id); return z ? { obj: this.val('zone', z.id, z).rect, l } : {}; }
-    const w = P.walls.find((q) => q.id === sel.wallId);
-    const m = w?.masks.find((q) => q.id === sel.id);
-    return m ? { obj: this.val('mask', `${w.id}/${m.id}`, m), l } : {};
+    if (sel?.kind === 'zone') {
+      const z = P.zones.find((q) => q.id === sel.id);
+      const tf = z && this._tf(z.space === 'canvas' ? 'canvas' : 'wall', z.wallId);
+      return tf ? { obj: this.val('zone', z.id, z), orig: z, isZone: true, ghostId: z.id, tf } : null;
+    }
+    if (sel?.kind === 'mask') {
+      const w = P.walls.find((q) => q.id === sel.wallId);
+      const m = w?.masks.find((q) => q.id === sel.id);
+      const tf = m && this._tf('wall', w.id);
+      return tf ? { obj: this.val('mask', `${w.id}/${m.id}`, m), orig: m, isZone: false, ghostId: `${w.id}/${m.id}`, tf } : null;
+    }
+    return null;
+  }
+
+  /** Handles of a shape, in screen px: rect 8 (i/j = left…right / top…bottom ON SCREEN), circle 4, polygon vertices + midpoints. */
+  _handles(so) {
+    const g = geomOf(so.obj), out = [], toS = so.tf.toS;
+    if (g.kind === 'polygon') {
+      const n = g.points.length;
+      g.points.forEach(([x, y], k) => { const [hx, hy] = toS(x, y); out.push({ type: 'vertex', k, px: hx, py: hy }); });
+      g.points.forEach(([x, y], k) => { const [x2, y2] = g.points[(k + 1) % n]; const [hx, hy] = toS((x + x2) / 2, (y + y2) / 2); out.push({ type: 'mid', k, px: hx, py: hy }); });
+    } else if (g.kind === 'circle') {
+      const c = g.circle;
+      for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) { const [hx, hy] = toS(c.x + dx * c.r, c.y + dy * c.r); out.push({ type: 'radius', px: hx, py: hy }); }
+    } else {
+      const [ax, ay] = toS(g.rect.x0, g.rect.y0), [bx, by] = toS(g.rect.x1, g.rect.y1);
+      const xs = [Math.min(ax, bx), (ax + bx) / 2, Math.max(ax, bx)], ys = [Math.min(ay, by), (ay + by) / 2, Math.max(ay, by)];
+      for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) if (!(i === 1 && j === 1)) out.push({ type: 'handle', i, j, px: xs[i], py: ys[j] });
+    }
+    return out;
+  }
+
+  _zoneHandleHit(px, py) {
+    const so = this._selObj();
+    if (!so) return null;
+    const hs = this.handleSize() + 4;
+    const list = this._handles(so).sort((a, b) => (a.type === 'mid') - (b.type === 'mid')); // vertices win over midpoints
+    for (const h of list) if (Math.abs(h.px - px) <= hs && Math.abs(h.py - py) <= hs) return { type: 'handle', h, so };
+    return null;
+  }
+
+  /** Zones tool on the output canvas: handles, then canvas zones, then the wall under the pointer (virtual hand). */
+  _zoneHit(px, py) {
+    const zh = this._zoneHandleHit(px, py);
+    if (zh) return zh;
+    const [X, Y] = this.toWorld(px, py);
+    const z = [...this.P.zones].reverse().find((q) => q.space === 'canvas' && pointInShape(X, Y, this.val('zone', q.id, q)));
+    if (z) return { type: 'zone', zone: z, at: { x: X, y: Y } };
+    const cw = this._wallAtCanvas(X, Y);
+    return cw ? { type: 'cwall', ...cw } : null;
+  }
+
+  /** Wall under a canvas pixel and the point there in wall metres (through the mapping). */
+  _wallAtCanvas(X, Y) {
+    for (const w of this.P.walls) {
+      if (!inPoly(X, Y, this.outline(w, w.mapping))) continue;
+      const [u, v] = canvasToUv(w, X, Y);
+      return { wall: w, x: clamp(u, 0, 1) * w.width, y: (1 - clamp(v, 0, 1)) * w.height };
+    }
+    return null;
+  }
+
+  _ghostGeom(so, g) {
+    this.ghost = { kind: so.isZone ? 'zone' : 'mask', id: so.ghostId, value: withGeom(so.orig, g, so.isZone) };
+  }
+
+  /** Save a zone / mask geometry (from a ghost-shaped {kind, id, value}). */
+  _commitGeom(gh, label) {
+    const isZ = gh.kind === 'zone';
+    const geom = geomOf(gh.value);
+    return this.hooks.edit((P) => {
+      let t;
+      if (isZ) t = P.zones.find((q) => q.id === gh.id);
+      else { const [wid, mid] = gh.id.split('/'); t = P.walls.find((w) => w.id === wid)?.masks.find((q) => q.id === mid); }
+      if (t) assignGeom(t, geom, isZ);
+    }, label);
+  }
+
+  /** Remove a vertex of the selected polygon (keeps at least 3). */
+  deleteVertex(k = this.vertex?.k) {
+    const so = this._selObj();
+    if (!so || this.vertex?.id !== this.selection?.id || kindOf(so.orig) !== 'polygon' || k === undefined || so.orig.points.length <= 3) return false;
+    const pts = so.orig.points.filter((_, i) => i !== k);
+    this.vertex = null;
+    this._commitGeom({ kind: so.isZone ? 'zone' : 'mask', id: so.ghostId, value: withGeom(so.orig, { kind: 'polygon', points: pts }, so.isZone) }, 'delete point');
+    return true;
+  }
+
+  /** Geometry of a rect / circle being drawn (null while too small to keep, unless `loose`). */
+  _drawnGeom(d, loose = false) {
+    const [ax, ay] = d.a, [bx, by] = d.b;
+    const min = d.space === 'canvas' ? 4 : 0.04;
+    if (d.shape === 'circle') {
+      const r = d.tf.round(Math.hypot(bx - ax, by - ay));
+      return loose || r >= min / 2 ? { kind: 'circle', circle: { x: ax, y: ay, r: Math.max(r, 1e-3) } } : null;
+    }
+    const r = normRect({ x0: ax, y0: ay, x1: bx, y1: by });
+    return loose || (r.x1 - r.x0 >= min && r.y1 - r.y0 >= min) ? { kind: 'rect', rect: r } : null;
+  }
+
+  // polygon tool: each click adds a point; the first point, a double-click, Enter or "Finish" closes it
+  _polyClick(px, py) {
+    let tf;
+    if (this.poly) {
+      tf = this._tf(this.poly.space, this.poly.wallId);
+      if (!tf) { this.poly = null; return; }
+      const pts = this.poly.pts;
+      if (pts.length >= 3) { const [fx, fy] = tf.toS(...pts[0]); if (Math.hypot(fx - px, fy - py) <= this.handleSize() + 6) { this.finishPoly(); return; } }
+    } else {
+      const canvas = this.space === 'canvas';
+      let wallId = null;
+      if (canvas) tf = this._tf('canvas');
+      else { const at = this.wallAt(px, py); if (!at || at.y > at.l.wall.height) return; wallId = at.l.wall.id; tf = this._tf('wall', wallId); }
+      if (!tf) return;
+      this.poly = { kind: this.tool, space: canvas ? 'canvas' : 'wall', wallId, pts: [] };
+    }
+    const [zx, zy] = tf.toZ(px, py);
+    const x = clamp(tf.snap(zx), tf.bounds.x0, tf.bounds.x1), y = clamp(tf.snap(zy), tf.bounds.y0, tf.bounds.y1);
+    const last = this.poly.pts.at(-1);
+    if (last && Math.abs(last[0] - x) < 1e-6 && Math.abs(last[1] - y) < 1e-6) return;
+    this.poly.pts.push([x, y]);
+    if (this.poly.pts.length >= 64) { this.finishPoly(); return; }
+    this.hooks.changed?.();
+  }
+
+  finishPoly() {
+    const q = this.poly;
+    this.poly = null;
+    if (q && q.pts.length >= 3 && Math.abs(polygonArea(q.pts)) > (q.space === 'canvas' ? 16 : 0.0016)) {
+      this.hooks.draw(q.kind, { space: q.space, wallId: q.wallId, geom: { kind: 'polygon', points: q.pts } });
+    }
+    this.hooks.changed?.();
+  }
+
+  undoPolyPoint() { if (!this.poly) return; this.poly.pts.pop(); if (!this.poly.pts.length) this.poly = null; this.hooks.changed?.(); }
+  cancelPoly() { if (!this.poly) return false; this.poly = null; this.hooks.changed?.(); return true; }
+
+  /** Pointer down in Zones: draw tools, handles, bodies. Returns true when it took the gesture. */
+  _zoneDown(e, h, px, py) {
+    const canvas = this.space === 'canvas';
+    if (this.tool === 'hand') {
+      if (!canvas) return false;
+      const cw = this._wallAtCanvas(...this.toWorld(px, py));
+      if (cw) { this.drag = { type: 'chand', wallId: cw.wall.id, handId: `ui${e.pointerId}` }; this.hooks.hand(cw.wall.id, cw.x, cw.y, 'down', this.drag.handId); }
+      return true;
+    }
+    if (this.tool === 'zone' || this.tool === 'mask') {
+      if (canvas && this.tool === 'mask') return true; // masks live on walls (they act on the LiDAR data)
+      const shape = this.tool === 'mask' && this.shape === 'circle' ? 'rect' : this.shape;
+      if (shape === 'polygon') { this.drag = { type: 'pan', h, start: this.toWorld(px, py), poly: true }; return true; } // a click adds a point
+      const tf = canvas ? this._tf('canvas') : h?.l ? this._tf('wall', h.l.wall.id) : null;
+      if (!tf) return true;
+      const [zx, zy] = tf.toZ(px, py);
+      const a = [clamp(tf.snap(zx), tf.bounds.x0, tf.bounds.x1), clamp(tf.snap(zy), tf.bounds.y0, tf.bounds.y1)];
+      this.drag = { type: 'draw', kind: this.tool, shape, tf, space: canvas ? 'canvas' : 'wall', wallId: tf.l?.wall.id ?? null, a, b: a.slice() };
+      return true;
+    }
+    if (h?.type === 'handle') {
+      this.drag = { type: 'reshape', so: h.so, g0: geomOf(h.so.obj), hd: h.h };
+      this.vertex = h.h.type === 'vertex' ? { id: this.selection.id, k: h.h.k } : null;
+      this.hooks.changed?.();
+      return true;
+    }
+    if (h?.type === 'zone' || h?.type === 'mask') {
+      const isZ = h.type === 'zone';
+      const obj = isZ ? h.zone : h.mask;
+      this.selection = { kind: h.type, id: obj.id, wallId: isZ ? obj.wallId : h.l.wall.id };
+      this.vertex = null;
+      this.hooks.pick(this.selection);
+      const so = this._selObj();
+      if (so) this.drag = { type: 'move', so, g0: geomOf(so.obj), start: so.tf.toZ(px, py) };
+      return true;
+    }
+    return false;
+  }
+
+  _reshape(d, px, py) {
+    const tf = d.so.tf, B = tf.bounds, hd = d.hd;
+    const [zx, zy] = tf.toZ(px, py);
+    const x = clamp(tf.snap(zx), B.x0, B.x1), y = clamp(tf.snap(zy), B.y0, B.y1);
+    if (hd.type === 'mid') {
+      // dragging a midpoint inserts a point there; from then on it is that point
+      const pts = d.g0.points.map((q) => q.slice());
+      pts.splice(hd.k + 1, 0, [x, y]);
+      d.g0 = { kind: 'polygon', points: pts };
+      d.hd = { type: 'vertex', k: hd.k + 1, added: true };
+      this.vertex = { id: this.selection.id, k: hd.k + 1 };
+    }
+    const g0 = d.g0, h2 = d.hd;
+    let g;
+    if (h2.type === 'vertex') {
+      const pts = g0.points.map((q) => q.slice());
+      pts[h2.k] = [x, y];
+      g = { kind: 'polygon', points: pts };
+    } else if (h2.type === 'radius') {
+      const c = g0.circle, minR = tf.unit === 'px' ? 2 : 0.02;
+      g = { kind: 'circle', circle: { ...c, r: tf.round(Math.max(minR, Math.hypot(zx - c.x, zy - c.y))) } };
+    } else {
+      // rect: screen left/right/top/bottom → zone edges (on a wall y points up, so the top edge is y1)
+      const r = { ...g0.rect }, min = tf.unit === 'px' ? 2 : 0.02;
+      if (h2.i === 0) r.x0 = Math.min(x, r.x1 - min);
+      if (h2.i === 2) r.x1 = Math.max(x, r.x0 + min);
+      const top = h2.j === 0, bottom = h2.j === 2;
+      if ((top && tf.up) || (bottom && !tf.up)) r.y1 = Math.max(y, r.y0 + min);
+      if ((bottom && tf.up) || (top && !tf.up)) r.y0 = Math.min(y, r.y1 - min);
+      g = { kind: 'rect', rect: r };
+    }
+    this._ghostGeom(d.so, g);
   }
 
   _rotHandle(s, cx, cy) {
@@ -253,13 +496,23 @@ export class Workspace {
     c.addEventListener('pointermove', (e) => this._move(e));
     c.addEventListener('pointerup', (e) => this._up(e));
     c.addEventListener('pointercancel', (e) => this._up(e, true));
-    c.addEventListener('dblclick', () => { this.fitKey = ''; });
-    c.addEventListener('pointermove', (e) => { if (!this.pointers.size) this._hover(e.offsetX, e.offsetY); });
+    c.addEventListener('dblclick', (e) => {
+      if (this.poly) { this.finishPoly(); return; }
+      if (this.mode === 'zones') {
+        const h = this.hit(e.offsetX, e.offsetY);
+        if (h?.type === 'handle' && h.h.type === 'vertex') { this.vertex = { id: this.selection.id, k: h.h.k }; this.deleteVertex(h.h.k); return; }
+        if (this.tool !== 'select' && this.tool !== 'hand') return;
+      }
+      this.fitKey = '';
+    });
+    c.addEventListener('pointermove', (e) => { this.mouse = [e.offsetX, e.offsetY]; if (!this.pointers.size) this._hover(e.offsetX, e.offsetY); });
+    c.addEventListener('pointerleave', () => { this.mouse = null; });
   }
 
   _hover(px, py) {
     const h = this.hit(px, py);
-    const cur = { handle: 'nwse-resize', corner: 'move', region: 'grab', rotate: 'grab', sensor: 'grab', zone: 'grab', mask: 'grab', edgeW: 'ew-resize', edgeH: 'ns-resize' }[h?.type];
+    const cur = h?.type === 'handle' && h.h ? ({ vertex: 'move', mid: 'copy', radius: 'ew-resize' }[h.h.type] || 'nwse-resize')
+      : { handle: 'nwse-resize', corner: 'move', region: 'grab', rotate: 'grab', sensor: 'grab', zone: 'grab', mask: 'grab', edgeW: 'ew-resize', edgeH: 'ns-resize' }[h?.type];
     this.c.style.cursor = this.tool === 'zone' || this.tool === 'mask' ? 'crosshair' : this.tool === 'hand' ? 'pointer' : cur || 'default';
     this.hoverHit = h;
   }
@@ -285,6 +538,10 @@ export class Workspace {
     const sel = (w) => this.selection?.kind === 'wall' && this.selection.id === w.id;
     this.drag = { type: 'pan', h, start: this.toWorld(px, py), shift: e.shiftKey };
 
+    if (this.mode === 'zones') {
+      if (this._zoneDown(e, h, px, py)) return;
+      if (this.space === 'canvas') return; // canvas zones: everything else pans
+    }
     if (this.space === 'canvas') {
       // grid tools: click inside the selected grid wall to insert a row / column there
       if ((this.tool === 'addrow' || this.tool === 'addcol') && h?.type === 'region' && h.wall.mapping.mode === 'grid' && sel(h.wall)) {
@@ -312,25 +569,6 @@ export class Workspace {
     if (this.tool === 'hand' && h?.type && h.at && h.at.y <= h.l.wall.height) {
       this.drag = { type: 'hand', wallId: h.l.wall.id, handId: `ui${e.pointerId}` };
       this.hooks.hand(h.l.wall.id, h.at.x, h.at.y, 'down', this.drag.handId);
-      return;
-    }
-    if ((this.tool === 'zone' || this.tool === 'mask') && h?.at) {
-      const x = this.snapM(h.at.x), y = this.snapM(h.at.y);
-      this.drag = { type: 'draw', kind: this.tool, l: h.l, r: { x0: x, y0: y, x1: x, y1: y } };
-      return;
-    }
-    if (h?.type === 'handle') {
-      const sel = this.selection;
-      const { obj, l } = this._selRect();
-      this.drag = { type: 'resize', sel, l, r0: normRect(obj), hi: h.h.i, hj: h.h.j };
-      return;
-    }
-    if (h?.type === 'zone' || h?.type === 'mask') {
-      const isZ = h.type === 'zone';
-      this.selection = isZ ? { kind: 'zone', id: h.zone.id, wallId: h.l.wall.id } : { kind: 'mask', id: h.mask.id, wallId: h.l.wall.id };
-      this.hooks.pick(this.selection);
-      const r0 = normRect(isZ ? h.zone.rect : h.mask);
-      this.drag = { type: 'move', sel: this.selection, l: h.l, r0, start: [h.at.x, h.at.y] };
       return;
     }
     if (h?.type === 'sensor') {
@@ -370,22 +608,26 @@ export class Workspace {
         if (l) this.hooks.hand(d.wallId, clamp(X - l.x0, 0, l.wall.width), clamp(Y, 0, l.wall.height), 'move', d.handId);
         break;
       }
-      case 'draw': d.r.x1 = this.snapM(clamp(X - d.l.x0, 0, d.l.wall.width)); d.r.y1 = this.snapM(clamp(Y, 0, d.l.wall.height)); break;
-      case 'move': {
-        if (!p.moved) break;
-        const W = d.l.wall.width, H = d.l.wall.height, r = d.r0;
-        let ox = this.snapM(X - d.l.x0 - d.start[0]), oy = this.snapM(Y - d.start[1]);
-        ox = clamp(ox, -r.x0, W - r.x1); oy = clamp(oy, -r.y0, H - r.y1);
-        const nr = { x0: r3(r.x0 + ox), y0: r3(r.y0 + oy), x1: r3(r.x1 + ox), y1: r3(r.y1 + oy) };
-        this._ghostRect(d.sel, nr);
+      case 'draw': {
+        const tf = d.tf, B = tf.bounds;
+        const [zx, zy] = tf.toZ(px, py);
+        d.b = [clamp(tf.snap(zx), B.x0, B.x1), clamp(tf.snap(zy), B.y0, B.y1)];
         break;
       }
-      case 'resize': {
-        const r = { ...d.r0 };
-        const x = this.snapM(clamp(X - d.l.x0, 0, d.l.wall.width)), y = this.snapM(clamp(Y, 0, d.l.wall.height));
-        if (d.hi === 0) r.x0 = Math.min(x, r.x1 - 0.02); if (d.hi === 2) r.x1 = Math.max(x, r.x0 + 0.02);
-        if (d.hj === 0) r.y1 = Math.max(y, r.y0 + 0.02); if (d.hj === 2) r.y0 = Math.min(y, r.y1 - 0.02);
-        this._ghostRect(d.sel, r);
+      case 'move': {
+        if (!p.moved) break;
+        const tf = d.so.tf, B = tf.bounds, b = boundsOfGeom(d.g0);
+        const [zx, zy] = tf.toZ(px, py);
+        const dx = clamp(tf.snap(zx - d.start[0]), B.x0 - b.x0, B.x1 - b.x1), dy = clamp(tf.snap(zy - d.start[1]), B.y0 - b.y0, B.y1 - b.y1);
+        this._ghostGeom(d.so, translateGeom(d.g0, dx, dy, tf.round));
+        break;
+      }
+      case 'reshape': if (p.moved || d.hd.type !== 'mid') this._reshape(d, px, py); break;
+      case 'chand': {
+        const cw = this._wallAtCanvas(X, Y);
+        if (!cw) break;
+        if (cw.wall.id !== d.wallId) { this.hooks.hand(d.wallId, 0, 0, 'up', d.handId); d.wallId = cw.wall.id; this.hooks.hand(d.wallId, cw.x, cw.y, 'down', d.handId); }
+        else this.hooks.hand(d.wallId, cw.x, cw.y, 'move', d.handId);
         break;
       }
       case 'sensor': {
@@ -445,19 +687,8 @@ export class Workspace {
     }
   }
 
-  _ghostRect(sel, r) {
-    if (sel.kind === 'zone') {
-      const z = this.P.zones.find((q) => q.id === sel.id);
-      this.ghost = { kind: 'zone', id: z.id, value: { ...z, rect: r } };
-    } else {
-      const w = this.P.walls.find((q) => q.id === sel.wallId);
-      const m = w.masks.find((q) => q.id === sel.id);
-      this.ghost = { kind: 'mask', id: `${w.id}/${m.id}`, value: { ...m, ...r } };
-    }
-  }
-
   _cancelDrag() {
-    if (this.drag?.type === 'hand') this.hooks.hand(this.drag.wallId, 0, 0, 'up', this.drag.handId);
+    if (this.drag?.type === 'hand' || this.drag?.type === 'chand') this.hooks.hand(this.drag.wallId, 0, 0, 'up', this.drag.handId);
     this.drag = null; this.ghost = null; this._ghostMap = null;
   }
 
@@ -473,16 +704,17 @@ export class Workspace {
     if (cancelled) return;
     const H = this.hooks;
     switch (d.type) {
-      case 'hand': H.hand(d.wallId, 0, 0, 'up', d.handId); break;
+      case 'hand': case 'chand': H.hand(d.wallId, 0, 0, 'up', d.handId); break;
       case 'draw': {
-        const r = normRect(d.r);
-        if (r.x1 - r.x0 >= 0.04 && r.y1 - r.y0 >= 0.04) H.draw(d.kind, d.l.wall.id, r);
+        const geom = this._drawnGeom(d);
+        if (geom) H.draw(d.kind, { space: d.space, wallId: d.wallId, geom });
         break;
       }
-      case 'move': case 'resize':
+      case 'move': case 'reshape':
         if (g) {
-          if (g.kind === 'zone') H.edit((P) => { P.zones.find((q) => q.id === g.id).rect = g.value.rect; }, d.type === 'move' ? 'move zone' : 'resize zone');
-          else { const [wid, mid] = g.id.split('/'); H.edit((P) => { const m = P.walls.find((w) => w.id === wid).masks.find((q) => q.id === mid); Object.assign(m, { x0: g.value.x0, y0: g.value.y0, x1: g.value.x1, y1: g.value.y1 }); }, d.type === 'move' ? 'move mask' : 'resize mask'); }
+          const what = g.kind === 'zone' ? 'zone' : 'mask';
+          const label = d.type === 'move' ? `move ${what}` : d.hd.added ? 'add point' : d.hd.type === 'vertex' ? 'move point' : `resize ${what}`;
+          this._commitGeom(g, label);
         }
         break;
       case 'sensor': case 'rotate':
@@ -499,7 +731,8 @@ export class Workspace {
         else if (g?.kind === 'pixelRect') H.edit((P) => { const w = P.walls.find((q) => q.id === g.id); w.pixelRect = g.value; w.mapping = { mode: 'rect' }; }, 'move wall region');
         break;
       case 'pan':
-        if (!p.moved) this._click(d.h);
+        if (!p.moved && d.poly) this._polyClick(p.x, p.y);
+        else if (!p.moved) this._click(d.h);
         break;
       default: break;
     }
@@ -528,8 +761,15 @@ export class Workspace {
       }, 'nudge wall region');
       return true;
     }
-    if (sel.kind === 'zone') { this.hooks.edit((Q) => { const r = Q.zones.find((q) => q.id === sel.id).rect; r.x0 = r3(r.x0 + dx * st); r.x1 = r3(r.x1 + dx * st); r.y0 = r3(r.y0 - dy * st); r.y1 = r3(r.y1 - dy * st); }, 'nudge zone'); return true; }
-    if (sel.kind === 'mask') { this.hooks.edit((Q) => { const m = Q.walls.find((w) => w.id === sel.wallId).masks.find((q) => q.id === sel.id); m.x0 = r3(m.x0 + dx * st); m.x1 = r3(m.x1 + dx * st); m.y0 = r3(m.y0 - dy * st); m.y1 = r3(m.y1 - dy * st); }, 'nudge mask'); return true; }
+    if (sel.kind === 'zone' || sel.kind === 'mask') {
+      const so = this._selObj();
+      if (!so) return false;
+      const px = so.tf.unit === 'px', step = px ? (big ? 10 : 1) : st;
+      // arrow up = +y on a wall (y up), −y on the canvas (y down)
+      const g = translateGeom(geomOf(so.orig), dx * step, (px ? dy : -dy) * step, so.tf.round);
+      this._commitGeom({ kind: so.isZone ? 'zone' : 'mask', id: so.ghostId, value: withGeom(so.orig, g, so.isZone) }, `nudge ${sel.kind}`);
+      return true;
+    }
     if (sel.kind === 'sensor') { this.hooks.edit((Q) => { const s = Q.sensors.find((q) => q.id === sel.id); s.pose.x = r3(s.pose.x + dx * st); s.pose.y = r3(s.pose.y - dy * st); }, 'nudge sensor'); return true; }
     void P;
     return false;
@@ -538,10 +778,11 @@ export class Workspace {
   // ------------------------------------------------------------------ drawing
 
   draw() {
+    if (this.suspended) return; // the 3D view is on top
     const ctx = this.ctx, P = this.P;
     ctx.clearRect(0, 0, this.w, this.h);
     if (!P) return;
-    const key = `${this.mode}|${this.focus}|${this.w}x${this.h}|${P.id}|${P.walls.map((w) => w.id).join(',')}|${P.canvas.width}x${P.canvas.height}`;
+    const key = `${this.mode}|${this.space}|${this.focus}|${this.w}x${this.h}|${P.id}|${P.walls.map((w) => w.id).join(',')}|${P.canvas.width}x${P.canvas.height}`;
     // never re-frame in the middle of a drag: the drag maths would jump
     if (key !== this.fitKey && !this.drag) { this.fitKey = key; this.fit(); }
     if (this.space === 'canvas') return this._drawCanvas();
@@ -601,9 +842,11 @@ export class Workspace {
       ctx.fillStyle = w.enabled ? '#B8B8B8' : '#6D6D6D';
       ctx.fillText(`${w.id}  ${w.name}`, X(0), Y(0) + 7);
       ctx.fillStyle = '#6D6D6D';
-      ctx.fillText(`${w.width.toFixed(2)} × ${w.height.toFixed(2)} m`, X(0), Y(0) + 21);
+      const dims = `${w.width.toFixed(2)} × ${w.height.toFixed(2)} m`;
+      ctx.fillText(dims, X(0), Y(0) + 21);
+      // touch count right after the size (walls of a continuous strip touch: nothing at their right end)
       const count = (live[w.id] || []).length;
-      if (count) { ctx.fillStyle = C.live; ctx.textAlign = 'right'; ctx.fillText(`${count} touch${count > 1 ? 'es' : ''}`, X(w.width), Y(0) + 21); ctx.textAlign = 'left'; }
+      if (count) { ctx.fillStyle = C.live; ctx.fillText(` · ${count} touch${count > 1 ? 'es' : ''}`, X(0) + ctx.measureText(dims).width, Y(0) + 21); }
 
       // room mode: resize handles + dimensions
       if (M === 'room') {
@@ -617,50 +860,51 @@ export class Workspace {
         ctx.textAlign = 'left';
       }
 
-      // masks
+      // masks (hatched)
       for (const m0 of w.masks) {
-        const m = normRect(this.val('mask', `${w.id}/${m0.id}`, m0));
-        const rx = X(m.x0), ry = Y(m.y1), rw = (m.x1 - m.x0) * s, rh = (m.y1 - m.y0) * s;
+        const m = this.val('mask', `${w.id}/${m0.id}`, m0);
         const on = zonesActive;
-        ctx.fillStyle = on ? 'rgba(224,108,108,0.12)' : 'rgba(224,108,108,0.05)';
-        ctx.fillRect(rx, ry, rw, rh);
-        hatch(ctx, rx, ry, rw, rh, on ? 'rgba(224,108,108,0.30)' : 'rgba(224,108,108,0.12)');
+        const pts = shapeOutline(m).map(([x, y]) => [X(x), Y(y)]);
+        tracePath(ctx, pts);
+        ctx.fillStyle = on ? 'rgba(224,108,108,0.12)' : 'rgba(224,108,108,0.05)'; ctx.fill();
+        hatchPath(ctx, pts, on ? 'rgba(224,108,108,0.30)' : 'rgba(224,108,108,0.12)');
+        tracePath(ctx, pts);
         ctx.strokeStyle = on ? 'rgba(224,108,108,0.7)' : 'rgba(224,108,108,0.3)';
-        ctx.setLineDash([4, 3]); ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh); ctx.setLineDash([]);
-        if (on) { ctx.fillStyle = 'rgba(224,108,108,0.9)'; ctx.font = '500 10px Geist, system-ui'; ctx.fillText(m0.name, rx + 4, ry + 4); }
+        ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+        if (on) { const b = boxOf(pts); ctx.fillStyle = 'rgba(224,108,108,0.9)'; ctx.font = '500 10px Geist, system-ui'; ctx.fillText(m0.name, b.x0 + 4, b.y0 + 4); }
       }
-      // zones
-      for (const z0 of P.zones.filter((q) => q.wallId === w.id)) {
+      // zones of this wall, and canvas zones that reach it (dashed: they are edited on the canvas)
+      ctx.save();
+      ctx.beginPath(); ctx.rect(X(0), Y(w.height), w.width * s, w.height * s); ctx.clip();
+      for (const z0 of P.zones) {
+        const onCanvas = z0.space === 'canvas';
+        if (onCanvas ? !(z0.walls || []).includes(w.id) : z0.wallId !== w.id) continue;
         const z = this.val('zone', z0.id, z0);
-        const st = store.live?.zones?.[z.id];
-        const r = normRect(z.rect);
-        const rx = X(r.x0), ry = Y(r.y1), rw = (r.x1 - r.x0) * s, rh = (r.y1 - r.y0) * s;
-        const selZ = sel?.kind === 'zone' && sel.id === z.id;
-        const dim = !zonesActive && M !== 'live';
-        ctx.fillStyle = st?.active ? 'rgba(229,181,103,0.22)' : dim ? 'rgba(229,181,103,0.03)' : 'rgba(229,181,103,0.07)';
-        ctx.fillRect(rx, ry, rw, rh);
-        ctx.strokeStyle = !z.enabled || dim ? 'rgba(229,181,103,0.35)' : C.attn;
-        ctx.lineWidth = selZ ? 2 : 1;
-        ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
-        ctx.lineWidth = 1;
-        if (!dim || st?.active) {
-          ctx.fillStyle = C.attn; ctx.font = '500 10px Geist, system-ui';
-          ctx.fillText(`${z.name}${st?.count ? ` · ${st.count}` : ''}`, rx + 4, ry + 4);
-        }
+        const pts = (onCanvas ? canvasZoneOnWall(z, w) : shapeOutline(z, 48)).map(([x, y]) => [X(x), Y(y)]);
+        this._drawZoneShape(z, pts, { dim: !zonesActive && M !== 'live', dashed: onCanvas, sel: sel?.kind === 'zone' && sel.id === z.id, clip: { x0: X(0), y0: Y(w.height) } });
       }
-      // selection handles (zones/masks)
-      if (zonesActive && (sel?.kind === 'zone' || sel?.kind === 'mask') && sel.wallId === w.id) {
-        const { obj } = this._selRect();
-        if (obj) {
-          const r = normRect(obj);
-          ctx.fillStyle = '#fff'; ctx.strokeStyle = '#111';
-          const hs = this.handleSize();
-          for (const h of this.rectHandles(l, r)) { ctx.fillRect(h.px - hs / 2, h.py - hs / 2, hs, hs); ctx.strokeRect(h.px - hs / 2 + 0.5, h.py - hs / 2 + 0.5, hs - 1, hs - 1); }
-          ctx.fillStyle = '#B8B8B8'; ctx.font = '500 10px Geist, system-ui'; ctx.textBaseline = 'bottom';
-          ctx.fillText(`${(r.x1 - r.x0).toFixed(2)} × ${(r.y1 - r.y0).toFixed(2)} m  @ ${r.x0.toFixed(2)}, ${r.y0.toFixed(2)}`, X(r.x0), Y(r.y1) - 4);
-          ctx.textBaseline = 'top';
-        }
-      }
+      ctx.restore();
+    }
+    // a closed room: the strip's two ends are the same corner (P3 ↻ P4)
+    if (this._loops(L)) {
+      const a = L.at(-1), b = L[0], ym = this.sy(Math.min(a.wall.height, b.wall.height) / 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.setLineDash([3, 3]);
+      const xr = this.sx(a.x0 + a.wall.width), xl = this.sx(b.x0);
+      line(ctx, xr + 2, ym, xr + 18, ym); line(ctx, xl - 18, ym, xl - 2, ym); ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '500 10px Geist, system-ui'; ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left'; ctx.fillText(`↻ ${b.wall.id}`, xr + 21, ym);
+      ctx.textAlign = 'right'; ctx.fillText(`${a.wall.id} ↻`, xl - 21, ym);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    }
+    // continuous corners: a small link between consecutive walls of the strip (Live draws them touching instead)
+    for (let k = 0; k + 1 < L.length && M !== 'live'; k++) {
+      const a = L[k], b = L[k + 1];
+      const ia = P.walls.findIndex((q) => q.id === a.wall.id), ib = P.walls.findIndex((q) => q.id === b.wall.id);
+      if (ib !== ia + 1 || a.wall.joinNext === false) continue;
+      const x0 = this.sx(a.x0 + a.wall.width), x1 = this.sx(b.x0), ym = this.sy(Math.min(a.wall.height, b.wall.height) / 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.setLineDash([3, 3]);
+      line(ctx, x0 + 2, ym, x1 - 2, ym); ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.arc((x0 + x1) / 2, ym, 2.5, 0, Math.PI * 2); ctx.fill();
     }
 
     // point clouds
@@ -792,17 +1036,81 @@ export class Workspace {
         ctx.textAlign = 'left'; ctx.textBaseline = 'top';
       }
     }
+    if (zonesActive) this._drawSelection();
+    this._drawPending();
+  }
 
-    // rectangle being drawn
-    const d = this.drag;
-    if (d?.type === 'draw') {
-      const r = normRect(d.r);
-      ctx.strokeStyle = d.kind === 'mask' ? C.danger : C.attn; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
-      ctx.strokeRect(this.sx(d.l.x0 + r.x0), this.sy(r.y1), (r.x1 - r.x0) * s, (r.y1 - r.y0) * s);
-      ctx.setLineDash([]); ctx.lineWidth = 1;
-      ctx.fillStyle = '#B8B8B8'; ctx.font = '500 10px Geist, system-ui';
-      ctx.fillText(`${(r.x1 - r.x0).toFixed(2)} × ${(r.y1 - r.y0).toFixed(2)} m`, this.sx(d.l.x0 + r.x1) + 6, this.sy(r.y0) - 14);
+  /** A zone outline (screen px): amber, filled while active, label at its top-left. */
+  _drawZoneShape(z, pts, { dim = false, dashed = false, sel = false, clip = null } = {}) {
+    const ctx = this.ctx, C = this.colors;
+    const st = store.live?.zones?.[z.id];
+    tracePath(ctx, pts);
+    ctx.fillStyle = st?.active ? 'rgba(229,181,103,0.22)' : dim ? 'rgba(229,181,103,0.03)' : 'rgba(229,181,103,0.07)';
+    ctx.fill();
+    ctx.strokeStyle = !z.enabled || dim ? 'rgba(229,181,103,0.35)' : C.attn;
+    ctx.lineWidth = sel ? 2 : 1;
+    if (dashed) ctx.setLineDash([6, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]); ctx.lineWidth = 1;
+    if (!dim || st?.active) {
+      const b = boxOf(pts);
+      ctx.fillStyle = C.attn; ctx.font = '500 10px Geist, system-ui'; ctx.textBaseline = 'top';
+      ctx.fillText(`${z.name}${st?.count ? ` · ${st.count}` : ''}${z.minHands > 1 ? ` (${z.minHands}+)` : ''}`, Math.max(b.x0, clip?.x0 ?? -Infinity) + 4, Math.max(b.y0, clip?.y0 ?? -Infinity) + 4);
     }
+  }
+
+  /** Handles and size readout of the selected zone / mask. */
+  _drawSelection() {
+    const so = this._selObj();
+    if (!so) return;
+    const ctx = this.ctx, hs = this.handleSize();
+    for (const h of this._handles(so)) {
+      if (h.type === 'mid') {
+        if (this.coarse) continue; // on touch screens midpoints are too close to the vertices: add points with a double tap
+        ctx.fillStyle = '#111'; ctx.strokeStyle = '#E0E0E0';
+        ctx.beginPath(); ctx.arc(h.px, h.py, hs / 2 - 0.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        continue;
+      }
+      const on = h.type === 'vertex' && this.vertex?.id === this.selection.id && this.vertex.k === h.k;
+      ctx.fillStyle = on ? this.colors.attn : '#fff'; ctx.strokeStyle = '#111';
+      if (h.type === 'handle') { ctx.fillRect(h.px - hs / 2, h.py - hs / 2, hs, hs); ctx.strokeRect(h.px - hs / 2 + 0.5, h.py - hs / 2 + 0.5, hs - 1, hs - 1); }
+      else { ctx.beginPath(); ctx.arc(h.px, h.py, hs / 2 + 0.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+    }
+    const g = geomOf(so.obj), b = boundsOfGeom(g);
+    const [ax, ay] = so.tf.toS(b.x0, b.y0), [bx, by] = so.tf.toS(b.x1, b.y1);
+    ctx.fillStyle = '#B8B8B8'; ctx.font = '500 10px Geist, system-ui'; ctx.textBaseline = 'bottom';
+    ctx.fillText(describeGeom(g, so.tf.unit), Math.min(ax, bx), Math.min(ay, by) - 4);
+    ctx.textBaseline = 'top';
+  }
+
+  /** A rect / circle being dragged out, or the polygon being clicked in. */
+  _drawPending() {
+    const ctx = this.ctx, C = this.colors, d = this.drag;
+    if (d?.type === 'draw') {
+      const g = this._drawnGeom(d, true);
+      const pts = shapeOutline(g, 48).map(([x, y]) => d.tf.toS(x, y));
+      ctx.strokeStyle = d.kind === 'mask' ? C.danger : C.attn; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+      tracePath(ctx, pts); ctx.stroke();
+      ctx.setLineDash([]); ctx.lineWidth = 1;
+      const [bx, by] = d.tf.toS(...d.b);
+      ctx.fillStyle = '#B8B8B8'; ctx.font = '500 10px Geist, system-ui'; ctx.textBaseline = 'top';
+      ctx.fillText(describeGeom(g, d.tf.unit), bx + 8, by + 6);
+    }
+    const q = this.poly;
+    const tf = q && this._tf(q.space, q.wallId);
+    if (!tf) return;
+    const pts = q.pts.map(([x, y]) => tf.toS(x, y));
+    ctx.strokeStyle = q.kind === 'mask' ? C.danger : C.attn; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.stroke();
+    if (this.mouse && !this.coarse && pts.length) { ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(...pts.at(-1)); ctx.lineTo(...this.mouse); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.lineWidth = 1;
+    pts.forEach(([x, y], i) => {
+      const closer = i === 0 && pts.length >= 3; // click it to close
+      ctx.fillStyle = closer ? C.attn : '#fff';
+      ctx.beginPath(); ctx.arc(x, y, closer ? 6 : 3.5, 0, Math.PI * 2); ctx.fill();
+    });
   }
 
   _drawCanvas() {
@@ -820,6 +1128,7 @@ export class Workspace {
     ctx.fillText(`Output canvas · ${P.canvas.width} × ${P.canvas.height} px`, X(0), Y(0) - 6);
     ctx.textBaseline = 'top';
     const live = store.live?.walls || {};
+    const editMap = this.mode === 'mapping'; // in Zones the wall regions are only a reference
 
     for (const w0 of P.walls) {
       const pr = this.val('pixelRect', w0.id, w0.pixelRect);
@@ -828,7 +1137,7 @@ export class Workspace {
       const w = { ...w0, pixelRect: pr, mapping: m };
       const out = this.outline(w, m);
       const cs = m.mode === 'grid' ? null : out;
-      const selW = sel?.id === w.id;
+      const selW = editMap && sel?.kind === 'wall' && sel.id === w.id;
       const path = (pts) => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y)))); };
       path(out); ctx.closePath();
       ctx.fillStyle = selW ? 'rgba(229,181,103,0.10)' : 'rgba(255,255,255,0.05)';
@@ -862,7 +1171,7 @@ export class Workspace {
             ctx.beginPath(); ctx.arc(X(x), Y(y), hs / 2 + (on ? 3 : 1), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
           });
         }
-      } else {
+      } else if (editMap) {
         // corner handles
         const hs = this.handleSize() + (selW ? 2 : 0);
         cs.forEach(([x, y]) => {
@@ -875,23 +1184,56 @@ export class Workspace {
         ctx.fillStyle = '#B8B8B8'; ctx.font = '500 10px Geist, system-ui';
         cs.forEach(([x, y], i) => ctx.fillText(`${Math.round(x)}, ${Math.round(y)}`, X(x) + (i === 1 || i === 2 ? -64 : 8), Y(y) + (i < 2 ? 8 : -20)));
       }
-      // live touches through the mapping (verifies the mapping end to end)
-      for (const [id, x, y] of live[w.id] || []) {
+    }
+
+    if (this.mode === 'zones') {
+      // wall zones where they land on the content (reference, dashed), then the canvas zones (editable)
+      for (const z of P.zones) {
+        const w = z.space !== 'canvas' && P.walls.find((q) => q.id === z.wallId);
+        if (!w) continue;
+        const pts = densify(shapeOutline(z, 48), Math.max(0.05, w.width / 60)).map(([x, y]) => { const [cx, cy] = uvToCanvas(w, x / w.width, 1 - y / w.height); return [X(cx), Y(cy)]; });
+        this._drawZoneShape(z, pts, { dim: true, dashed: true });
+      }
+      for (const z0 of P.zones) {
+        if (z0.space !== 'canvas') continue;
+        const z = this.val('zone', z0.id, z0);
+        this._drawZoneShape(z, shapeOutline(z, 64).map(([x, y]) => [X(x), Y(y)]), { sel: sel?.kind === 'zone' && sel.id === z.id });
+      }
+    }
+
+    // live touches through the mapping (verifies the mapping end to end)
+    for (const w of P.walls) {
+      const m = this.ghost?.kind === 'mapping' && this.ghost.id === w.id ? this.ghost.value : w.mapping;
+      for (const [, x, y] of live[w.id] || []) {
         const [tx, ty] = uvToCanvas(w, x / w.width, 1 - y / w.height, m);
         ctx.fillStyle = 'rgba(79,195,232,0.5)'; ctx.strokeStyle = C.live;
         ctx.beginPath(); ctx.arc(X(tx), Y(ty), 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        void id;
       }
     }
+    if (this.mode === 'zones') { this._drawSelection(); this._drawPending(); }
   }
+}
+
+/** Does the wall loop close (the last wall ends where the first begins, within 30 cm)? Cached per walls array. */
+const closesCache = new WeakMap();
+function roomCloses(walls) {
+  if (!closesCache.has(walls)) {
+    const p = roomPlan(walls), a = p[0], z = p.at(-1);
+    closesCache.set(walls, Math.hypot(z.p0[0] + z.dir[0] * z.width - a.p0[0], z.p0[1] + z.dir[1] * z.width - a.p0[1]) < 0.3);
+  }
+  return closesCache.get(walls);
 }
 
 function line(ctx, x0, y0, x1, y1) { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
 function circle(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); }
-function hatch(ctx, x, y, w, h, color) {
-  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+function tracePath(ctx, pts) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); }
+function boxOf(pts) { const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; }
+/** Diagonal hatching inside a closed screen-space path. */
+function hatchPath(ctx, pts, color) {
+  const b = boxOf(pts), w = b.x1 - b.x0, h = b.y1 - b.y0;
+  ctx.save(); tracePath(ctx, pts); ctx.clip();
   ctx.strokeStyle = color;
-  for (let t = -h; t < w; t += 8) line(ctx, x + t, y + h, x + t + h, y);
+  for (let t = -h; t < w; t += 8) line(ctx, b.x0 + t, b.y0 + h, b.x0 + t + h, b.y0);
   ctx.restore();
 }
 function inPoly(x, y, poly) {

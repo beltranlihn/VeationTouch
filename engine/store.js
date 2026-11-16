@@ -63,6 +63,8 @@ export class Store {
       projection: { displayId: s.projection?.displayId ?? null, mode: ['off', 'identify', 'debug'].includes(s.projection?.mode) ? s.projection.mode : 'off', open: !!s.projection?.open },
       autostart: !!s.autostart,
       locked: !!s.locked,
+      // name answered over mDNS: http://<localName>.local:<port>/
+      localName: typeof s.localName === 'string' && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(s.localName) ? s.localName : 'veation-touch',
     };
     if (JSON.stringify(out) !== JSON.stringify(s)) this.saveSettings(out);
     return out;

@@ -102,7 +102,8 @@ export class WallTracker {
     for (const tr of this.tracks) {
       const since = nowMs - tr.lastSeen;
       if (tr.state === 'tentative') {
-        if (tr.hits >= this.p.confirmFrames) {
+        // `confirmNow`: the room-level corner linker says this track continues a touch from the next wall
+        if (tr.hits >= this.p.confirmFrames || this.confirmNow?.(this.wall.id, tr)) {
           tr.state = 'active';
           tr.id = this.ids.next++;
           tr.downAt = nowMs;
@@ -125,6 +126,7 @@ export class WallTracker {
         x: tr.x + tr.vx * lead, y: tr.y + tr.vy * lead,
         vx: tr.vx, vy: tr.vy, size: tr.size,
         age: (nowMs - tr.downAt) / 1000,
+        seenMs: nowMs - tr.lastSeen,
         coasting: nowMs - tr.lastSeen > 150,
       });
     }

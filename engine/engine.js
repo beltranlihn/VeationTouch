@@ -8,6 +8,7 @@ import { SimDriver } from './drivers/sim.js';
 import { SensorPipeline, changedRuns } from './core/pipeline.js';
 import { WallTracker } from './core/tracker.js';
 import { ZoneEngine, BurstMeter } from './core/zones.js';
+import { CornerLinker } from './core/corners.js';
 import { CalibrationSession, defaultTargets, VerifySession, verifyTargets } from './core/calibration.js';
 import { OutputManager } from './outputs/outputs.js';
 import { normalizeProfile, blankProfile, wallToUv } from './profile.js';
@@ -35,9 +36,11 @@ export class Engine extends EventEmitter {
     this.trackers = new Map();  // wallId → WallTracker
     this.ids = { next: 1 };
     this.zones = new ZoneEngine();
+    this.corners = new CornerLinker(); // one touch across joined corners
     this.burst = new BurstMeter(300);
     this.outputs = new OutputManager(log);
     this.calib = null;
+    this.control = null;        // device driving the running calibration / verification {id, device, addr, since, gone}
     this.bgJobs = new Map();    // sensorId → {done, frames}
     this.seq = 0;
     this.startedAt = Date.now();
@@ -77,9 +80,12 @@ export class Engine extends EventEmitter {
     // trackers (a different room starts from scratch)
     if (prev && prev.id !== profile.id) this.trackers.clear();
     for (const w of profile.walls) {
-      const t = this.trackers.get(w.id);
-      if (t) { t.wall = w; t.configure(profile.tracking); } else this.trackers.set(w.id, new WallTracker(w, profile.tracking, this.ids));
+      let t = this.trackers.get(w.id);
+      if (t) { t.wall = w; t.configure(profile.tracking); } else { t = new WallTracker(w, profile.tracking, this.ids); this.trackers.set(w.id, t); }
+      t.confirmNow = (wallId, tr) => this.corners.shouldConfirm(wallId, tr);
     }
+    this.corners.configure(profile.walls);
+    this.corners.setZone(profile.tracking.cornerZone ?? 0.25);
     for (const id of [...this.trackers.keys()]) if (!profile.walls.some((w) => w.id === id)) this.trackers.delete(id);
 
     // sensors: restart a driver only if its connection settings changed
@@ -115,7 +121,7 @@ export class Engine extends EventEmitter {
         if (rt.driver instanceof SimDriver) { rt.driver.setWanderers(profile.simulation.wanderers); rt.driver.setPlane(profile.simulation.planes[s.id]); }
       }
     }
-    this.zones.configure(profile.zones);
+    this.zones.configure(profile.zones, profile.walls);
     this.outputs.configure(profile);
     if (this.calib && !profile.walls.some((w) => w.id === this.calib.wall.id)) this.calib = null;
     if (this.verify && !profile.walls.some((w) => w.id === this.verify.wall.id)) this.verify = null;
@@ -141,16 +147,21 @@ export class Engine extends EventEmitter {
 
   _tick() {
     const t0 = performance.now();
-    const walls = [], events = [];
-    const byWall = {};
+    const raw = [], rawEvents = [];
     for (const w of this.profile.walls) {
       const tr = this.trackers.get(w.id);
       if (!tr) continue;
       const r = tr.tick(t0);
-      walls.push({ wall: w, touches: r.touches });
-      byWall[w.id] = r.touches;
-      events.push(...r.events);
+      raw.push(...r.touches);
+      rawEvents.push(...r.events);
     }
+    // continuous corners: tracks of one hand on both sides of a joined corner become ONE public touch
+    const linked = this.corners.update(raw, rawEvents, t0);
+    const events = linked.events;
+    const byWall = {};
+    for (const t of linked.touches) (byWall[t.wallId] ??= []).push(t);
+    const walls = [];
+    for (const w of this.profile.walls) if (this.trackers.has(w.id)) walls.push({ wall: w, touches: byWall[w.id] ??= [] });
     if (this.verify) this.verify.feed(byWall[this.verify.wall.id] || [], t0);
     const z = this.zones.update(byWall, t0);
     this.burst.add(events);
@@ -178,7 +189,7 @@ export class Engine extends EventEmitter {
           return { id: t.id, u: r4(u), v: r4(v), x: r4(t.x), y: r4(t.y), vx: r4(t.vx), vy: r4(t.vy), size: r4(t.size), age: r4(t.age) };
         }),
       })),
-      events: frame.events.map((e) => ({ ...e, t: Math.round(e.t), x: r4(e.x), y: r4(e.y) })),
+      events: frame.events.map((e) => ({ ...e, t: Math.round(e.t), x: r4(e.x), y: r4(e.y), ...(e.fromX !== undefined ? { fromX: r4(e.fromX) } : {}) })),
       zones: frame.zoneCounts, zoneEvents: frame.zoneEvents.map((e) => ({ ...e, t: Math.round(e.t) })),
       room: { count: frame.roomCount, burst: frame.burst },
     };
@@ -215,6 +226,7 @@ export class Engine extends EventEmitter {
       engine: { fps: this.tickStats.fps, tickMaxMs: Math.round((this.tickStats.lastMax || 0) * 100) / 100, uptime: Math.round((Date.now() - this.startedAt) / 1000), rss: Math.round(process.memoryUsage().rss / 1048576) },
       calib: this.calib ? this.calib.snapshot(now) : null,
       verify: this.verify ? this.verify.snapshot(now) : null,
+      control: this._owner() ? { ...this.control } : null,
       recording: this.recorder ? { file: path.basename(this.recorder.file), seconds: Math.round(this.recorder.elapsed / 1000), frames: this.recorder.frames, mb: Math.round(this.recorder.bytes / 1e5) / 10 } : null,
       replay: this.replay ? { file: this.replay.file, pos: Math.round(this.replay.source.pos / 1000), duration: Math.round(this.replay.source.duration / 1000), from: this.replay.source.header?.profileName || null } : null,
     };
@@ -225,6 +237,7 @@ export class Engine extends EventEmitter {
       type: 'state', rev: this.rev, version: this.version, profile: this.profile, profiles: this.store.listProfiles(),
       projection: this.settings.projection, displays: this.displays, autostart: this.settings.autostart,
       locked: !!this.settings.locked,
+      localName: this.mdns ? { ...this.mdns.info(), port: this.port || null } : null,
       underlay: (() => { const u = this.store.underlayInfo(this.profile.id); return u ? { url: `/api/underlay?p=${encodeURIComponent(this.profile.id)}&v=${u.v}` } : null; })(),
     };
   }
@@ -237,7 +250,21 @@ export class Engine extends EventEmitter {
     const P = this.profile;
     // SHOW mode: the room is locked against edits; operation commands keep working.
     if (this.settings.locked && LOCKED_OPS.has(op)) throw new Error('the room is locked (Show mode) — unlock it first');
+    // While a calibration / verification runs, ONE device drives it and the others are view-only (they can take over).
+    // `__client` is set by the server, never by the client; commands without it (tests, the engine itself) pass.
+    const who = args.__client;
+    const owner = this._owner();
+    if (who && owner && CONTROL_OPS.has(op) && owner.id !== who.id) {
+      if (owner.gone) this._takeControl(who, 'the device that was calibrating disconnected');
+      else throw new Error(`calibration in progress on ${owner.device} — take control on this device to make changes`);
+    }
     switch (op) {
+      case 'control.take': {
+        if (!this.calib && !this.verify) throw new Error('no calibration or verification is running');
+        if (!who) throw new Error('only a connected device can take control');
+        this._takeControl(who);
+        return { control: { ...this.control } };
+      }
       case 'app.lock': {
         this.settings.locked = !!args.locked;
         this.store.saveSettings(this.settings);
@@ -319,7 +346,8 @@ export class Engine extends EventEmitter {
         if (!wall) throw new Error('unknown wall');
         if (this.calib) throw new Error('finish or cancel the calibration first');
         this.verify = new VerifySession(wall, verifyTargets(wall, args));
-        this.log.info(`verification started on ${wall.id}`);
+        this._setOwner(who);
+        this.log.info(`verification started on ${wall.id}${who ? ` from ${who.device}` : ''}`);
         this.emit('state');
         return { targets: this.verify.targets.length };
       }
@@ -341,6 +369,13 @@ export class Engine extends EventEmitter {
         for (const rt of this.sensors.values()) {
           if (rt.cfg.wallId === args.wallId && rt.driver instanceof SimDriver) rt.driver.touch(String(args.id ?? 'ui'), Number(args.x), Number(args.y), !!args.down);
         }
+        return {};
+      }
+
+      case 'zone.fire': {
+        // test a receiver without touching the wall: the zone goes active for a moment (enter … exit)
+        this.zones.fire(String(args.id), performance.now());
+        this.log.info(`zone ${args.id} fired (test)`);
         return {};
       }
 
@@ -470,6 +505,15 @@ export class Engine extends EventEmitter {
 
       case 'logs.get': return { entries: this.log.recent() };
       case 'net.firewall': return firewallStatus(this.port || this.settings.httpPort);
+      case 'net.localName': {
+        const name = String(args.name || '').trim().toLowerCase();
+        if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name)) throw new Error('local name: letters, digits and hyphens only (1–63), no dots');
+        if (this.mdns) await this.mdns.rename(name);
+        this.settings.localName = name;
+        this.store.saveSettings(this.settings);
+        this.emit('state');
+        return { host: `${name}.local` };
+      }
       case 'net.fixFirewall': {
         if (!args.__local) throw new Error('run this from the server itself (Windows asks for administrator rights there)');
         await fixFirewall(this.port || this.settings.httpPort);
@@ -545,10 +589,37 @@ export class Engine extends EventEmitter {
     if (missingBg.length && !args.force) throw new Error(`capture the background first (${missingBg.join(', ')})`);
     const targets = Array.isArray(args.targets) && args.targets.length >= 3 ? args.targets : defaultTargets(wall, args);
     this.calib = new CalibrationSession(wall, ids, targets, { holdMs: args.holdMs ?? 700 });
+    this._setOwner(args.__client);
     this.trackers.get(wall.id)?.clear();
-    this.log.info(`calibration started on ${wall.id} with ${targets.length} targets (${ids.join(', ')})`);
+    this.log.info(`calibration started on ${wall.id} with ${targets.length} targets (${ids.join(', ')})${args.__client ? ` from ${args.__client.device}` : ''}`);
     this.emit('state');
     return { targets: targets.length };
+  }
+
+  // ------------------------------------------------------------------ control of a calibration session
+
+  /** The device driving the running session (null when none runs or it was started without a device). */
+  _owner() {
+    if (!this.calib && !this.verify) this.control = null;
+    return this.control;
+  }
+
+  _setOwner(who) {
+    this.control = who ? { id: who.id, device: who.device || 'a device', addr: who.addr || '', since: Date.now(), gone: false } : null;
+  }
+
+  _takeControl(who, why = '') {
+    const prev = this.control;
+    this._setOwner(who);
+    this.log.info(`control of the calibration taken by ${this.control.device}${prev && prev.id !== who.id ? ` from ${prev.device}` : ''}${why ? ` (${why})` : ''}`);
+    this.emit('state');
+  }
+
+  /** The server tells us a UI device went away: if it was driving, anyone may take over (the session keeps running). */
+  clientGone(id) {
+    if (this.control?.id !== id || this.control.gone) return;
+    this.control.gone = true;
+    if (this._owner()) this.log.warn(`${this.control.device} disconnected during the calibration — any device can continue it`);
   }
 
   _cancelCalibration() {
@@ -576,6 +647,13 @@ export class Engine extends EventEmitter {
 }
 
 const r4 = (v) => Math.round(v * 10000) / 10000;
+
+/** Commands only the device driving a calibration / verification may send while it runs. */
+const CONTROL_OPS = new Set([
+  'calib.start', 'calib.skip', 'calib.back', 'calib.cancel', 'calib.redo', 'calib.apply', 'calib.clear', 'verify.start', 'verify.cancel',
+  'profile.update', 'profile.load', 'profile.create', 'profile.import', 'profile.delete', 'profile.restore',
+  'bg.capture', 'bg.clear', 'sensor.autoAlign', 'sensor.setIp', 'sensor.restart', 'replay.start', 'replay.stop', 'app.lock',
+]);
 
 /** Commands refused while the room is locked (Show mode). */
 const LOCKED_OPS = new Set([

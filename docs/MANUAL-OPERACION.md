@@ -59,6 +59,13 @@ Se opera desde el ordenador de la sala o desde una **tablet o teléfono** dentro
    sensores aparece marcada como *(sensors)*: no conectar la tablet a ella.
 3. Escanear el código QR con la cámara de la tablet. Al conectarse aparece **Connected: …** en el panel.
 4. El enlace lleva la clave de acceso de la instalación: compartirlo solo con operadores.
+5. También se puede escribir por nombre: `http://veation-touch.local:8770/?k=…` (el panel lo muestra entero).
+   Funciona en iPad, iPhone, Mac y Windows; en Android depende de la versión. El nombre se cambia en
+   **System › Network** (dos salas en la misma red necesitan nombres distintos). En el propio ordenador de la sala
+   usar `localhost`.
+6. **Punto de acceso propio:** si la Wi-Fi de la sala da problemas, activar en Windows *Configuración › Red ›
+   Zona con cobertura inalámbrica móvil* (Mobile hotspot). El panel la detecta, la pone la primera
+   («This PC's hotspot») y recuerda unirse primero a esa Wi-Fi.
 
 Si no abre:
 - Comprobar que la tablet está en la misma red.
@@ -136,14 +143,47 @@ El mapeo cambia dónde caen los toques en coordenadas de lienzo; nunca modifica 
 
 En la tablet, la calibración ocupa toda la pantalla (modo foco) con botones grandes.
 
+**Un solo dispositivo manda.** Quien inicia la calibración (o la verificación) la controla. Los demás
+dispositivos la ven en modo lectura con el aviso «Calibration in progress on …» y no pueden editar la sala
+mientras dura. Si la tablet se queda sin batería, **Take control** en otro dispositivo (pide confirmación) y se
+sigue desde ahí; si el dispositivo que mandaba se desconecta, el siguiente que actúe toma el control.
+
+## 8 bis. Esquinas continuas y vista 3D
+
+**Esquinas continuas.** Lo importante de unir los muros en un solo lienzo: al pasar la mano de un muro al
+siguiente por la esquina, sigue siendo **el mismo toque** (mismo id, sin «up» ni «down»). Las aplicaciones lo
+reciben como un movimiento continuo y un aviso `/vt/cross`. Está activado entre muros consecutivos; se desactiva
+por muro en **Room › Corner with the next wall › Continuous** (para muros que no se tocan). En
+**System › Processing › Corner zone** se ajusta la franja (25 cm a cada lado de la esquina).
+
+**Vista 3D.** **Live › 3D** muestra la sala de pie: muros con el contenido, zonas (se iluminan al activarse),
+máscaras, manos en tiempo real, sensores y puntos del LiDAR. Arrastrar = girar; botón derecho o Mayús = desplazar;
+rueda o pellizco = zoom; doble clic = encuadrar. **Inside** pone la cámara en el centro de la sala a la altura de
+los ojos. Con **Virtual hand** se toca la pared en 3D (también cruzando esquinas). La forma de la sala sale del orden
+de los muros y del ángulo de cada esquina (**Room › Corner with the next wall › Angle**, 90° por defecto).
+
 ## 9. Zonas y máscaras
 
-**Zones** muestra un muro (cambiar con P1, P2…).
-- **Zone:** arrastrar sobre el muro para dibujar. Mover arrastrando, tiradores para redimensionar,
-  **Ctrl+D** duplicar, **Supr** borrar, ajuste a 1/5/10 cm.
+**Zones** tiene dos espacios (arriba a la izquierda):
+- **Wall:** un muro en metros (cambiar con P1, P2…).
+- **Canvas:** el lienzo de salida en píxeles, con el contenido de fondo. Una zona de lienzo puede cruzar muros
+  (una puerta pintada sobre una esquina): los toques le llegan a través del Mapping de cada muro. En los muros
+  se ve discontinua.
+
+Dibujar:
+- **Zone** y la forma: **Rect** (arrastrar), **Circle** (arrastrar desde el centro) o **Polygon** (un clic
+  por punto; cerrar pulsando el primer punto, con doble clic, con **Enter** o con **Finish**; **Backspace**
+  quita el último punto; **Esc** cancela).
+- Editar: arrastrar la zona para moverla; tiradores para redimensionar. En un polígono, arrastrar un punto lo
+  mueve, arrastrar el punto medio de un lado añade uno, y doble clic en un punto (o seleccionarlo y **Supr**)
+  lo borra. **Ctrl+D** duplica, **Supr** borra la zona, flechas para mover fino, ajuste a 1/5/10 cm (o px).
 - Cada zona envía entrar / mantener / salir y su número de manos. **Hold after** = tiempo para «mantener»;
-  **Release after** = tiempo sin manos para «salir». **Trigger address** = dirección para la salida Triggers.
-- **Mask:** zonas ignoradas (puerta, lámpara, altavoz). Lo que caiga dentro nunca es un toque.
+  **Release after** = tiempo sin manos para «salir»; **Min hands** = cuántas manos a la vez hacen falta para
+  activarla (2 = «dos personas juntas»); **Trigger address** = dirección para la salida Triggers.
+- **Fire (test)** activa la zona un momento (entrar … salir) por todas las salidas, sin tocar la pared: sirve
+  para comprobar el receptor (TouchDesigner, la mesa de luces…).
+- **Mask:** zonas ignoradas (puerta, lámpara, altavoz), rectángulo o polígono. Lo que caiga dentro nunca es un
+  toque. Las máscaras se dibujan en el muro (actúan sobre los datos del LiDAR).
 
 ## 10. Salidas
 
@@ -157,6 +197,7 @@ En la tablet, la calibración ocupa toda la pantalla (modo foco) con botones gra
 | **Texture** | Máscara blanco y negro de los toques por **Spout** (mismo ordenador) | — |
 | **Webhook** | Eventos de zona (entrar / mantener / salir) como petición HTTP con JSON — control de show, domótica, servidores propios | URL |
 | **Art-Net** | Un canal DMX por zona (255 mientras está activa) — mesas de luces y nodos DMX | 6454 |
+| **sACN** | Los mismos canales DMX por el estándar ANSI E1.31 (multicast por defecto) — consolas, servidores de medios, pasarelas | 5568 |
 | WebSocket | Apps web/Electron: `ws://<servidor>:8770/ws/data` y SDK en `/sdk/veation-touch.js` | — |
 
 **Coordinates:** *Per wall* (0–1 de cada muro) o *Canvas* (0–1 del lienzo completo, sigue el Mapping).

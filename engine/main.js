@@ -9,6 +9,7 @@ import { createLogger } from './log.js';
 import { Store } from './store.js';
 import { Engine } from './engine.js';
 import { createServer } from './server.js';
+import { MdnsResponder } from './mdns.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => {
@@ -45,6 +46,10 @@ for (let p = wantPort; p < wantPort + 20 && !server; p++) {
 if (!server) { log.error('no free port for the server'); process.exit(71); }
 
 engine.port = server.port;
+// tablets can open http://<name>.local:<port>/ (mDNS); a busy or blocked UDP 5353 only loses the name, never the engine
+const mdns = new MdnsResponder({ name: engine.settings.localName, log });
+if (!args['no-mdns']) await mdns.start().catch((e) => log.warn(`mDNS: ${e.message}`));
+engine.mdns = mdns;
 engine.on('projection', (pr) => toParent({ type: 'projection', projection: pr, port: server.port }));
 engine.on('autostart', (enabled) => toParent({ type: 'autostart', enabled }));
 parent?.on('message', (e) => {
@@ -61,6 +66,7 @@ async function shutdown() {
   stopping = true;
   log.info('engine shutting down');
   server.close();
+  await mdns.stop().catch(() => {});
   await engine.stop();
   process.exit(0);
 }

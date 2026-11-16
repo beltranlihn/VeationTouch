@@ -96,6 +96,8 @@ input:focus,select:focus{border-color:var(--line-strong);outline:none;}
 .stage{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--well-deep);}
 .view-wrap{position:relative;flex:1;min-height:0;}
 #roomCanvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;}
+#room3d{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;}
+#room3d[hidden]{display:none;}
 .stage-hint{position:absolute;left:var(--sp-12);bottom:var(--sp-12);color:var(--ink-3);font-size:var(--fs-s);pointer-events:none;max-width:70%;}
 .stage-tools{position:absolute;right:var(--sp-12);top:var(--sp-12);display:flex;gap:var(--sp-6);}
 /* workspace bar: wall navigator + the tools of the current mode */
@@ -113,6 +115,11 @@ input:focus,select:focus{border-color:var(--line-strong);outline:none;}
 .app.calib-focus .calib-big .msg{font-size:18px;}
 .app.calib-focus .actions .btn{height:56px;padding:0 22px;font-size:16px;}
 .target-map{width:100%;max-width:420px;margin:0 auto;display:block;}
+/* another device drives the calibration: this one is view-only */
+.ctl-banner{display:flex;align-items:center;gap:var(--sp-12);padding:var(--sp-8) var(--sp-12);background:rgba(229,181,103,.10);border-bottom:.5px solid rgba(229,181,103,.35);color:var(--ink-2);font-size:var(--fs-s);}
+.ctl-banner b{color:var(--attn);font-weight:600;}
+.ctl-banner .grow{flex:1;}
+.viewonly .ws-bar .tool,.viewonly .ws-bar .seg button:not(.wallnav),.viewonly .ws-bar>.btn{opacity:.35;pointer-events:none;}
 /* Show mode: the room is locked */
 #lockBtn.on{background:var(--attn);color:#111;border-color:transparent;}
 .locked .ws-bar .tool,.locked .ws-bar .seg button:not(.wallnav),.locked .ws-bar>.btn{opacity:.35;pointer-events:none;}
@@ -139,6 +146,7 @@ input:focus,select:focus{border-color:var(--line-strong);outline:none;}
   display:flex;align-items:center;gap:var(--sp-8);}
 .sec h2 .grow{flex:1;}
 .sec h2 .btn{text-transform:none;letter-spacing:normal;font-weight:500;color:var(--ink);}
+.sec h2 .btn.primary{color:#111;}
 .sec h1{margin:0;font-size:var(--fs-l);font-weight:600;}
 .sec p{margin:var(--sp-6) 0;color:var(--ink-2);line-height:1.5;}
 .muted{color:var(--ink-3);}
