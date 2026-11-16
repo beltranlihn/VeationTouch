@@ -132,6 +132,12 @@ that is too far from the wall (ruler check). The simulator can lean a sensor's p
   firewall check of the app's own rules with an elevated "Fix" offered only at the server, and three live states:
   connected · reached this computer but not connected (the server notes page loads from non-local addresses,
   `status.reached`) · nothing reached it.
+- **Startup guard** (`ui/js/boot-guard.js`, a classic script in every page's head, before the modules): if the page
+  does not start (a script error, a module that fails to load, nothing within 12 s) it shows «This page could not
+  start» with the error and a Reload button, and POSTs the error to `/api/client-error`; the server writes ONE log
+  line per error (control characters stripped, ≤ 20 per address every 10 min, no key needed: a page that did not
+  start has none). Pages call `window.__vtStarted()` once up; later errors are only logged. Born from a bug that
+  left every QR-opened phone on a silent empty page (`history` shadowed in `conn.js`).
 - **Local name** (`engine/mdns.js`, RFC 6762, own code): the engine answers A questions for `<name>.local`
   (System › Network, default `veation-touch`) with the address of the interface on the querier's subnet, announces
   itself on start and says goodbye on stop. QU questions and plain DNS clients (source port ≠ 5353) get a unicast

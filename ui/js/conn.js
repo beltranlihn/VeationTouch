@@ -27,7 +27,8 @@ try {
 } catch { /* storage blocked */ }
 if (params.has('k')) { // keep the key out of screenshots (and the rest of the query: the texture page needs ?o=)
   const rest = new URLSearchParams(location.search); rest.delete('k');
-  history.replaceState(null, '', `${location.pathname}${[...rest].length ? `?${rest}` : ''}`);
+  // window.history: this module exports its own `history` (undo/redo), which is not initialised yet here
+  window.history.replaceState(null, '', `${location.pathname}${[...rest].length ? `?${rest}` : ''}`);
 }
 
 export const isCoarse = matchMedia('(pointer:coarse)').matches;

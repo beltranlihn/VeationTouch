@@ -82,6 +82,7 @@ function curWall() {
 
 function setWall(id) {
   if (rc.wall === id) return;
+  liftSimHand();
   rc.wall = id; rc.node = null; rc.samples = [];
   try { localStorage.setItem('vt-remote-wall', id); } catch { /* storage blocked */ }
   render(true);
@@ -89,6 +90,7 @@ function setWall(id) {
 
 function setStep(step) {
   if (rc.step === step) return;
+  liftSimHand();
   rc.step = step; rc.node = null; rc.samples = [];
   if (step === 'test') rc.walk = { walls: new Set(), corners: new Set() };
   render(true);
@@ -224,11 +226,11 @@ function body(w) {
   const c = store.status?.calib, v = store.status?.verify;
   const other = otherControl();
   const follow = (list) => { // another device drives the session: follow it, its buttons are not ours
-    if (other) for (const s of list) s.querySelectorAll?.('.actions .btn, .linkish').forEach((b) => { b.disabled = true; });
+    if (other) for (const s of list) s?.querySelectorAll?.('.actions .btn, .linkish').forEach((b) => { b.disabled = true; });
     return list;
   };
-  if (rc.step === 'calibrate') return c ? follow(V.calibSession(c, rc)) : calibrateBody(w);
-  if (rc.step === 'verify') return v ? follow(V.verifySession(v, other ? null : rc)) : verifyBody(w);
+  if (rc.step === 'calibrate') return c ? follow([...V.calibSession(c, rc), other ? null : simTargetSec(c, 'target', 1300)]) : calibrateBody(w);
+  if (rc.step === 'verify') return v ? follow([...V.verifySession(v, other ? null : rc), other ? null : simTargetSec(v, 'check point', 1600)]) : verifyBody(w);
   if (rc.step === 'fit') return fitBody(w);
   if (rc.step === 'test') return testBody();
   return prepareBody(w);
@@ -312,6 +314,7 @@ function fitBody(w) {
         h('button', { class: 'mid tnum', title: 'Pixels per press — tap to change', onclick: () => { rc.nudgeStep = { 1: 5, 5: 20, 20: 1 }[rc.nudgeStep] || 5; render(true); } }, `${rc.nudgeStep} px`),
         pad(1, 0, '→', 'Move the point right'), h('span'), pad(0, 1, '↓', 'Move the point down'), h('span'))),
     h('div', { class: 'actions', style: { justifyContent: 'center' } }, fitEl.follow, fitEl.undo),
+    simWall(w.id) ? simFitButton(w) : null,
     !w.verified?.pass ? h('button', { class: 'btn block', style: { marginTop: 'var(--sp-12)' }, onclick: () => setStep('verify') }, `Done here — verify ${w.id} again`) : null),
   sec('How it works', h('ol', { class: 'r-how' },
     h('li', {}, 'Put one open hand on an amber point on the wall.'),
@@ -638,6 +641,9 @@ function testBody() {
     walkEl.list,
     h('p', { class: 'muted' }, 'Where the disc is not under your hand: keep the hand there, alone on the wall, and tap Fix here.'),
     walkEl.fix, h('div', { style: { height: 'var(--sp-8)' } }), walkEl.finish),
+  testWalls().length && testWalls().every((w) => simWall(w.id)) ? sec(null,
+    h('button', { class: 'btn block sim-hand', onclick: (e) => simCorners(e.currentTarget) }, 'Simulated hand across every corner'),
+    h('p', { class: 'muted' }, SIM_NOTE)) : null,
   walkDone() ? sec(null, h('div', { class: 'callout ok' }, 'This room passed the walk test after its last verification.')) : null];
 }
 
@@ -666,6 +672,77 @@ function sendWalk() {
   cmd('projection.set', { walk: want }).catch(() => { walkSent = 'none'; });
 }
 document.addEventListener('visibilitychange', sendWalk);
+
+// ------------------------------------------------------------------ simulated hands (rehearse the flow without a room)
+
+const SIM_NOTE = 'Simulated sensors: nobody can touch the projection, so a virtual hand does it.';
+/** Every enabled sensor of the wall is simulated. */
+function simWall(wallId) {
+  const s = P().sensors.filter((x) => x.wallId === wallId && x.enabled);
+  return s.length > 0 && s.every((x) => x.driver === 'sim');
+}
+let simBusy = false;
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+const simTouch = (wallId, x, y, down, id = 'remote') => cmd('sim.touch', { wallId, x, y, id, down });
+
+/** Calibrate / Verify: a virtual hand holds the current target, then lets go (the session moves on by itself). */
+function simTargetSec(s, what, holdMs) {
+  if (!s || s.phase === 'done' || !simWall(s.wallId)) return null;
+  const t = s.targets[s.index];
+  if (!t) return null;
+  return sec(null,
+    h('button', { class: 'btn block sim-hand', onclick: async () => {
+      if (simBusy) return;
+      simBusy = true;
+      try { await simTouch(s.wallId, t.x, t.y, true); await pause(holdMs); await simTouch(s.wallId, t.x, t.y, false); }
+      catch (e) { toast(e.message, 'bad'); } finally { simBusy = false; }
+    } }, `Simulated hand on ${what} ${s.index + 1}`),
+    h('p', { class: 'muted' }, SIM_NOTE));
+}
+
+/** Fit: a virtual hand a little off the chosen point (4 cm right, 3 cm low) — Match should bring the ring under it. */
+let simFitOn = null;
+/** Leaving Fit (another step or wall) lifts the virtual hand: it must not stay on the wall. */
+function liftSimHand() {
+  if (!simFitOn) return;
+  simTouch(simFitOn.wallId, simFitOn.x, simFitOn.y, false).catch(() => {});
+  simFitOn = null;
+}
+function simFitButton(w) {
+  const on = simFitOn?.wallId === w.id;
+  return h('div', { style: { marginTop: 'var(--sp-12)' } },
+    h('button', { class: `btn block sim-hand${on ? ' on' : ''}`, onclick: async () => {
+      if (on) { await simTouch(simFitOn.wallId, simFitOn.x, simFitOn.y, false).catch(() => {}); simFitOn = null; render(true); return; }
+      const m = w.mapping, k = rc.node;
+      if (m.mode !== 'grid' || k == null) { toast('Choose a point first (tap it on the mesh)', 'bad'); return; }
+      const [u, v] = nodeUv(m, k);
+      const x = clamp(u * w.width + 0.04, 0.05, w.width - 0.05), y = clamp((1 - v) * w.height - 0.03, 0.05, w.height - 0.05);
+      rc.follow = false; // the hand is off the point on purpose: keep the chosen one
+      simFitOn = { wallId: w.id, x, y };
+      await simTouch(w.id, x, y, true).catch((e) => toast(e.message, 'bad'));
+      render(true);
+    } }, on ? 'Lift the simulated hand' : 'Simulated hand near the chosen point'),
+    h('p', { class: 'muted' }, `${SIM_NOTE} It lands 4 cm right and 3 cm below the point: Match fixes that.`));
+}
+
+/** Test: a virtual hand slides across each joined corner (and so touches every wall). */
+async function simCorners(btn) {
+  if (simBusy) return;
+  simBusy = true;
+  btn.disabled = true;
+  try {
+    const byId = new Map(P().walls.map((w) => [w.id, w]));
+    for (const [a, b] of testCorners()) {
+      const A = byId.get(a), B = byId.get(b), y = 1.2;
+      for (let x = A.width - 0.6; x <= A.width - 0.02; x += 0.04) { await simTouch(a, x, y, true, 'corner'); await pause(40); }
+      await simTouch(a, 0, y, false, 'corner');
+      for (let x = 0.02; x <= 0.6; x += 0.04) { await simTouch(b, x, y, true, 'corner'); await pause(40); }
+      await pause(300);
+      await simTouch(b, 0, y, false, 'corner');
+      await pause(400);
+    }
+  } catch (e) { toast(e.message, 'bad'); } finally { simBusy = false; btn.disabled = false; }
+}
 
 // ------------------------------------------------------------------ control, connection
 

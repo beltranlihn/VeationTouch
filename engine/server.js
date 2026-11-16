@@ -100,10 +100,34 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
   };
   const reachedList = () => [...reached.values()].filter((r) => Date.now() - r.at < 15 * 60000);
 
+  // A page that fails on a device (boot-guard.js) sends its error here: it lands in the log, so a phone's problem can
+  // be read on the computer. Open to any device (a page that did not start has no key yet), so: small bodies, one
+  // line per error, at most 20 per address every 10 minutes.
+  const errorBudget = new Map();
+  const oneLine = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, n);
+  const clientError = (req, res) => {
+    const addr = String(req.socket.remoteAddress || '').replace('::ffff:', '');
+    const chunks = []; let size = 0;
+    req.on('data', (c) => { size += c.length; if (size > 4096) { req.destroy(); return; } chunks.push(c); });
+    req.on('end', () => {
+      res.writeHead(204); res.end();
+      const b = errorBudget.get(addr);
+      const now = Date.now();
+      const budget = b && now - b.since < 600000 ? b : { since: now, n: 0 };
+      if (++budget.n > 20) return;
+      errorBudget.set(addr, budget);
+      let j = {};
+      try { j = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* not JSON: still worth a line */ }
+      const who = isLocal(addr) ? 'this computer' : `${deviceName(String(req.headers['user-agent'] || ''))} (${addr})`;
+      log.warn(`page error on ${who}, ${oneLine(j.page, 40) || '?'}${j.started ? '' : ' — the page did not start'}: ${oneLine(j.message, 300)}${j.where ? ` at ${oneLine(j.where, 200)}` : ''}`);
+    });
+  };
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const p = decodeURIComponent(url.pathname);
     if (p === '/' || p === '/index.html') noteReached(req);
+    if (p === '/api/client-error' && req.method === 'POST') return clientError(req, res);
     if (p === '/' || p === '/index.html') return serveFile(res, path.join(uiDir, 'index.html'));
     if (p === '/projection') return serveFile(res, path.join(uiDir, 'projection.html'));
     if (p === '/texture') return serveFile(res, path.join(uiDir, 'texture.html')); // a Texture output shown full screen

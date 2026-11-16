@@ -69,3 +69,4 @@ on('live', frame);
 on('state', draw);
 resize();
 connect();
+window.__vtStarted?.(); // the startup guard (boot-guard.js) stands down

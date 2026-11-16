@@ -196,6 +196,11 @@ contenido (pared no del todo plana, proyector que dobla la imagen), se corrige p
 
 El ajuste cambia dónde caen los toques en coordenadas del contenido; nunca modifica la imagen.
 
+**Ensayar en simulación.** Con sensores simulados nadie puede tocar la proyección: el mando muestra botones
+discontinuos **Simulated hand on target N** (Calibrate), **… on check point N** (Verify), **Simulated hand near the
+chosen point** (Fit: cae 4 cm a la derecha y 3 cm abajo, para que Match tenga algo que corregir) y **Simulated hand
+across every corner** (Test). Las manos simuladas que pasean se apartan del muro mientras se captura su fondo.
+
 **Test — prueba de paseo.** Mientras está abierto, la proyección muestra en todos los muros **lo que envían las
 salidas**: un disco blanco bajo cada mano (el mismo dibujo que la salida Texture) y las zonas. Recorrer la sala tocando
 cada muro (arriba, abajo, cerca de los bordes) y pasando la mano por cada esquina; el mando marca **Touched P1…** y
@@ -342,6 +347,7 @@ Para llevar una sala a otro ordenador: **System › Export** y **Import**.
 |---|---|
 | Sensor *offline* | Cable / PoE, IP correcta en Sensors, **Restart**; **Sensor network…** para ver si responde |
 | El teléfono no abre el enlace en una Wi-Fi de invitados | Punto de acceso del ordenador (§4, **Open Mobile hotspot settings**) |
+| Un teléfono muestra «This page could not start» | El error ya está en el registro del ordenador (**System › Log**, «page error on iPhone…»): enviarlo al equipo de desarrollo; **Reload** lo reintenta |
 | Toques fantasma en un muro vacío | Recapturar el fondo con la sala vacía; máscara sobre el objeto; subir *Background margin* |
 | Toques desplazados | Verify; recalibrar ese muro; revisar Mapping con *Pattern* |
 | Toques que se cortan | Nivelar el soporte (plano demasiado lejos de la pared); *Keep through gaps* en System › Processing |

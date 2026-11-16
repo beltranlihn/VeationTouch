@@ -673,3 +673,95 @@ test('ui: walk test — the projection shows what the outputs send under every h
   assert.equal(r.blockedBeforeCorners, true, 'every corner must be crossed too');
   assert.equal(r.ready, true);
 });
+
+test('ui: the QR link (with the access key) opens the remote on a phone that is not this computer — connected, key out of the URL', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { store } = await import('/js/conn.js');
+    for (let k = 0; k < 50 && !store.connected; k++) await new Promise((r) => setTimeout(r, 100));
+    return { remote: !!window.__vt?.remote, connected: !!store.connected, local: store.state?.local, url: location.pathname + location.search,
+      room: document.querySelector('.r-room')?.innerText };`, {
+    mobile: true, w: 390, h: 844,
+    page: '/?k=qr-test-key',
+    server: { trustLocal: false }, // act as a phone on the LAN: only the key lets it in
+    setup: (engine) => { engine.settings.token = 'qr-test-key'; },
+  });
+  assert.deepEqual(errors, []);
+  assert.equal(result.connected, true, 'the live channel is up');
+  assert.equal(result.remote, true, 'the calibration remote, with its data');
+  assert.match(result.room, /Barcelona XR Lab/);
+  assert.equal(result.url, '/', 'the key is kept out of the address bar (screenshots)');
+});
+
+test('ui: in a simulated room the phone rehearses the whole calibration — a virtual hand holds each target', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { store } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const rc = window.__vt;
+    rc.setWall('P2'); rc.setStep('calibrate');
+    rc.calibOpt.cols = 2; rc.calibOpt.rows = 2; rc.rerender();
+    [...document.querySelectorAll('#rBody button')].find((b) => /^Start calibration/.test(b.innerText)).click();
+    for (let k = 0; k < 30 && !store.status?.calib; k++) await wait(100);
+    const labels = [];
+    for (let n = 0; n < 4; n++) {
+      let btn = null;
+      for (let k = 0; k < 40 && !(btn = [...document.querySelectorAll('#rBody button')].find((b) => b.innerText === 'Simulated hand on target ' + (n + 1))); k++) await wait(100);
+      if (!btn) break;
+      labels.push(btn.innerText);
+      btn.click();
+      for (let k = 0; k < 60 && (store.status?.calib?.index ?? 0) === n && store.status?.calib?.phase !== 'done'; k++) await wait(100);
+    }
+    for (let k = 0; k < 30 && store.status?.calib?.phase !== 'done'; k++) await wait(100);
+    const c = store.status?.calib;
+    return { labels, phase: c?.phase, result: c?.result?.S2 ? { ok: c.result.S2.ok, points: c.result.S2.points, rmsMm: c.result.S2.rmsMm } : null,
+      apply: [...document.querySelectorAll('#rBody button')].some((b) => b.innerText === 'Apply & save') };`, {
+    mobile: true, w: 390, h: 844,
+    setup: async (engine) => {
+      await engine.command('bg.capture', { frames: 5 });
+      await new Promise((r) => setTimeout(r, 1500));
+    },
+  });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(result.labels, ['Simulated hand on target 1', 'Simulated hand on target 2', 'Simulated hand on target 3', 'Simulated hand on target 4']);
+  assert.equal(result.phase, 'done');
+  assert.deepEqual({ ok: result.result?.ok, points: result.result?.points }, { ok: true, points: 4 });
+  assert.ok(result.result.rmsMm < 15, `${result.result.rmsMm} mm`);
+  assert.equal(result.apply, true);
+});
+
+test('ui: a page that cannot start says so on screen and its error reaches the computer\'s log', opt, async () => {
+  // a copy of the UI whose entry module throws while loading — what a phone saw with the QR-key bug
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-broken-ui-'));
+  fs.cpSync(path.join(root, 'ui'), path.join(tmp, 'ui'), { recursive: true });
+  fs.cpSync(path.join(root, 'engine', 'core'), path.join(tmp, 'engine', 'core'), { recursive: true }); // /shared/*.js
+  fs.writeFileSync(path.join(tmp, 'ui', 'js', 'main.js'), "import './conn.js';\nthrow new ReferenceError(\"Cannot access 'history' before initialization\");\n");
+  const lines = [];
+  const log = { ...quiet, warn: (m) => lines.push(m) };
+  try {
+    const { result, errors } = await inUi(`
+      await new Promise((r) => setTimeout(r, 800));
+      const d = document.getElementById('bootFail');
+      return { shown: !!d, text: d ? d.innerText : '' };`, { page: '/', wait: 'load', mobile: true, w: 390, h: 844, server: { root: tmp, log } });
+    assert.equal(result.shown, true, 'not a silent empty page');
+    assert.match(result.text, /This page could not start/);
+    assert.match(result.text, /Cannot access 'history' before initialization/);
+    assert.ok(errors.length >= 1, 'the runner saw the error too');
+    const line = lines.find((l) => /^page error on/.test(l));
+    assert.ok(line, `in the log: ${JSON.stringify(lines)}`);
+    assert.match(line, /the page did not start: .*Cannot access 'history' before initialization/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('ui: a page that started keeps quiet on screen — a later error is only sent to the log', opt, async () => {
+  const lines = [];
+  const log = { ...quiet, warn: (m) => lines.push(m) };
+  const { result } = await inUi(`
+    window.dispatchEvent(new ErrorEvent('error', { message: 'late failure', filename: location.origin + '/js/app.js', lineno: 3, colno: 9 }));
+    await new Promise((r) => setTimeout(r, 600));
+    return { overlay: !!document.getElementById('bootFail') };`, { server: { log } });
+  assert.equal(result.overlay, false, 'the working app is not covered');
+  const line = lines.find((l) => /late failure/.test(l));
+  assert.ok(line, JSON.stringify(lines));
+  assert.match(line, /^page error on this computer, \/: late failure at \/js\/app\.js:3:9$/, 'started: no "did not start"');
+});

@@ -559,3 +559,56 @@ test('server: a device that opened the page is reported even when it never conne
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('engine: simulated wandering hands leave the walls while their background is captured, and come back after', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-bgwander-'));
+  const store = new Store(dir, path.resolve(import.meta.dirname, '..', 'profiles'), quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  const warnings = [];
+  engine.log = { ...quiet, warn: (m) => warnings.push(m) };
+  engine.start();
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const count = () => [...engine.sensors.values()].reduce((n, rt) => n + (rt.driver.world?.wanderers?.length || 0), 0);
+  try {
+    assert.ok(engine.profile.simulation.wanderers > 0, 'the simulated room has wandering hands');
+    await wait(800);
+    const before = count();
+    assert.ok(before > 0);
+    await engine.command('bg.capture', { frames: 10 });
+    assert.equal(count(), 0, 'the room is empty while it is learned');
+    for (let k = 0; k < 40 && engine.bgJobs.size; k++) await wait(100);
+    assert.equal(engine.bgJobs.size, 0);
+    assert.deepEqual(warnings.filter((w) => /movement during the capture/.test(w)), [], 'no "something moved" warning in an empty simulated room');
+    assert.equal(count(), before, 'the hands come back');
+  } finally {
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('server: page errors from devices go to the log — one clean line each, a limited number per device', async () => {
+  const { createServer } = await import('../engine/server.js');
+  const http = await import('node:http');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-clienterr-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const lines = [];
+  const server = await createServer(engine, { port: 0, root: path.resolve(import.meta.dirname, '..'), log: { ...quiet, warn: (m) => lines.push(m) } });
+  const post = (body) => new Promise((resolve, reject) => {
+    const r = http.request({ host: '127.0.0.1', port: server.port, path: '/api/client-error', method: 'POST', headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)' } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    r.on('error', reject); r.end(body);
+  });
+  try {
+    assert.equal(await post(JSON.stringify({ message: 'boom\nINFO  fake line', where: '/js/conn.js:30:3', page: '/', started: false })), 204);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(lines, ['page error on this computer, / — the page did not start: boom INFO  fake line at /js/conn.js:30:3'], 'one line: a message cannot forge log lines');
+    for (let k = 0; k < 30; k++) await post(JSON.stringify({ message: `again ${k}`, page: '/', started: true }));
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(lines.length, 20, 'at most 20 per device every 10 minutes');
+  } finally {
+    server.close();
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

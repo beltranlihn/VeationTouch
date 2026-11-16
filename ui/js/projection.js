@@ -223,3 +223,4 @@ function drawWalk(P) {
 window.__proj = { draw }; // UI tests: a hidden window paints no frames, they draw on demand
 on('state', () => {});
 connect();
+window.__vtStarted?.(); // the startup guard (boot-guard.js) stands down

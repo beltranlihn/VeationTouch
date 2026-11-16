@@ -628,11 +628,15 @@ export class Engine extends EventEmitter {
     if (!ids.length) throw new Error('no running sensor to capture');
     for (const id of ids) {
       const rt = this.sensors.get(id);
-      const job = { frames, done: () => (rt.pipeline.learning ? rt.pipeline.learning.samples.length : frames) };
-      this.bgJobs.set(id, job);
+      this.bgJobs.set(id, { frames, done: () => (rt.pipeline.learning ? rt.pipeline.learning.samples.length : frames) });
+    }
+    this._syncWanderers(); // simulated hands leave those walls first: the room must be empty for its background
+    for (const id of ids) {
+      const rt = this.sensors.get(id);
       rt.bgMotion = null;
       rt.pipeline.learnBackground(frames, (dist, motion) => {
         this.bgJobs.delete(id);
+        this._syncWanderers();
         rt.bgMotion = motion;
         this.store.saveBackground(this.profile.id, id, { binDeg: this.profile.processing.binDeg, dist, at: new Date().toISOString() });
         if (motion) this.log.warn(`background ${id}: movement during the capture near ${motion.where.map((w) => `(${w.x}, ${w.y}) m`).join(', ')} — repeat it with the wall clear`);
@@ -685,9 +689,13 @@ export class Engine extends EventEmitter {
     this.emit('textureWindows', list);
   }
 
-  /** Simulated wandering hands, except on the wall being calibrated, verified or fitted (they would hit its targets). */
+  /**
+   * Simulated wandering hands, except on the wall being calibrated, verified or fitted (they would hit its targets)
+   * and on walls whose background is being captured (the room must be empty).
+   */
   _syncWanderers() {
     const busy = new Set([this.calib?.wall.id, this.verify?.wall.id, this.fit?.wallId].filter(Boolean));
+    for (const id of this.bgJobs?.keys() || []) { const w = this.sensors.get(id)?.cfg.wallId; if (w) busy.add(w); }
     for (const rt of this.sensors.values()) {
       if (rt.driver instanceof SimDriver) rt.driver.setWanderers(busy.has(rt.cfg.wallId) ? 0 : this.profile.simulation.wanderers);
     }

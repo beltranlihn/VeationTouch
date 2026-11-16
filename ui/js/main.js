@@ -10,4 +10,5 @@ try {
 } catch { /* storage blocked */ }
 if (mode !== 'full' && mode !== 'remote') mode = matchMedia('(pointer:coarse)').matches ? 'remote' : 'full';
 document.documentElement.dataset.ui = mode;
-import(mode === 'remote' ? './remote.js' : './app.js');
+// the startup guard (boot-guard.js) shows any failure on screen and sends it to the computer's log
+import(mode === 'remote' ? './remote.js' : './app.js').then(() => window.__vtStarted?.());
