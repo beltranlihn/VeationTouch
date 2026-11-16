@@ -9,7 +9,7 @@
 // Edits are previewed locally while dragging (`ghost`) and committed once on release.
 
 import { store } from './conn.js';
-import { fitHomography, apply as applyM, gridMap, gridInsert, invertMap, densify, roomPlan } from '/shared/geometry.js';
+import { fitHomography, apply as applyM, gridMap, gridInsert, invertMap, densify, planCloses, mappingOutline } from '/shared/geometry.js';
 import { kindOf, geomOf, withGeom, assignGeom, boundsOfGeom, translateGeom, describeGeom, shapeOutline, pointInShape, polygonArea, canvasToUv, canvasZoneOnWall } from './shapes.js';
 
 const GAP = 0.6;                       // metres between walls in the strip
@@ -182,15 +182,7 @@ export class Workspace {
   handleSize() { return this.coarse ? 16 : 7; }
 
   /** Outline of a wall region in canvas px (works for rect, corners and grid). */
-  outline(w, m) {
-    if (m.mode !== 'grid') return m.mode === 'corners' ? m.corners : rectCorners(this.val('pixelRect', w.id, w.pixelRect));
-    const pts = [], n = 12;
-    for (let k = 0; k < n; k++) pts.push(gridMap(m, k / n, 0));
-    for (let k = 0; k < n; k++) pts.push(gridMap(m, 1, k / n));
-    for (let k = 0; k < n; k++) pts.push(gridMap(m, 1 - k / n, 1));
-    for (let k = 0; k < n; k++) pts.push(gridMap(m, 0, 1 - k / n));
-    return pts;
-  }
+  outline(w, m) { return mappingOutline(m, this.val('pixelRect', w.id, w.pixelRect)); }
 
   hit(px, py) {
     const P = this.P;
@@ -1214,13 +1206,10 @@ export class Workspace {
   }
 }
 
-/** Does the wall loop close (the last wall ends where the first begins, within 30 cm)? Cached per walls array. */
+/** Does the wall loop close? (the engine's rule, `planCloses`) Cached per walls array. */
 const closesCache = new WeakMap();
 function roomCloses(walls) {
-  if (!closesCache.has(walls)) {
-    const p = roomPlan(walls), a = p[0], z = p.at(-1);
-    closesCache.set(walls, Math.hypot(z.p0[0] + z.dir[0] * z.width - a.p0[0], z.p0[1] + z.dir[1] * z.width - a.p0[1]) < 0.3);
-  }
+  if (!closesCache.has(walls)) closesCache.set(walls, planCloses(walls));
   return closesCache.get(walls);
 }
 

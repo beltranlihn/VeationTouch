@@ -14,7 +14,7 @@
 //   · the reported wall follows u; when it changes a `cross` event is emitted; up only when the hand is really gone
 // Everything downstream (zones, outputs, UI) sees these public touches.
 
-import { roomPlan } from './geometry.js';
+import { planCloses } from './geometry.js';
 
 export const CORNER_DEFAULTS = Object.freeze({
   edgeZone: 0.25,  // m each side of a joined corner where touches are followed across it (0 = never link)
@@ -25,6 +25,7 @@ export const CORNER_DEFAULTS = Object.freeze({
   bridgeMs: 1200,  // never carry a hand longer than this after its last sighting
   minSpeed: 0.15,  // m/s along the strip to count as "heading into the corner"
   tauMs: 35,       // smoothing of the corner coordinate (time constant)
+  switchM: 0.03,   // the reported wall changes only once the hand is this far past the corner (no flicker at it)
 });
 
 export class CornerLinker {
@@ -41,20 +42,26 @@ export class CornerLinker {
   /** Corner zone (m): how far from a corner, on each side, a hand is followed across it; 0 = off. */
   setZone(m) { this.p.edgeZone = Math.max(0, m); this.p.yTol = Math.max(0.1, Math.min(0.4, m)); }
 
+  /** Profile tracking settings: the corner zone, and how far the wall trackers already extrapolate. */
+  setTracking(tracking = {}) {
+    this.setZone(tracking.cornerZone ?? CORNER_DEFAULTS.edgeZone);
+    this.p.predictMs = tracking.predictMs ?? CORNER_DEFAULTS.predictMs;
+  }
+
   /** @param {{id:string,width:number,joinNext?:boolean,turn?:number}[]} walls in strip order */
   configure(walls) {
     this.right.clear(); this.left.clear();
     this.widths = new Map(walls.map((w) => [w.id, w.width]));
-    let closes = false;
-    if (walls.length > 2) {
-      const plan = roomPlan(walls), a = plan[0], z = plan.at(-1);
-      closes = Math.hypot(z.p0[0] + z.dir[0] * z.width - a.p0[0], z.p0[1] + z.dir[1] * z.width - a.p0[1]) < 0.3;
-    }
+    const closes = planCloses(walls);
     walls.forEach((w, i) => {
       if (w.joinNext === false) return;
       const n = i + 1 < walls.length ? walls[i + 1] : closes ? walls[0] : null;
       if (n && n.id !== w.id) { this.right.set(w.id, n.id); this.left.set(n.id, w.id); }
     });
+    // a touch followed across a corner that is no longer joined (wall renamed, removed, unjoined) goes back to its wall
+    for (const g of this.groups.values()) {
+      if (g.corner && this.right.get(g.corner.left) !== g.corner.right) { g.corner = null; g.est = null; g.uS = null; g.side = null; }
+    }
   }
 
   /** Joined pairs [[leftWallId, rightWallId]…] (UI, tests). */
@@ -82,7 +89,8 @@ export class CornerLinker {
   _match(wallId, x, y) {
     let best = null, bestD = Infinity;
     for (const g of this.groups.values()) {
-      if (!g.corner || !g.est) continue;
+      // a touch still tracked on this same wall is another hand, not this one coming back across the corner
+      if (!g.corner || !g.est || g.liveWalls?.has(wallId)) continue;
       const u = this._u(g.corner, wallId, x);
       if (u === null || Math.abs(y - g.est.y) > this.p.yTol) continue;
       const d = Math.abs(u - g.est.u);
@@ -98,7 +106,9 @@ export class CornerLinker {
   shouldConfirm(wallId, track) {
     if (!this._cornerOf(wallId, track.x)) return false;
     const g = this._match(wallId, track.x, track.y);
-    if (!g) return false;
+    // only to close the gap of a hand nobody sees right now: while the other wall still sees it, a single detection
+    // here (a corner return, dust) goes through the normal confirmation
+    if (!g || g.fresh) return false;
     track.vx = g.est.vu; track.vy = g.est.vy;
     return true;
   }
@@ -128,6 +138,7 @@ export class CornerLinker {
     for (const t of touches) { const pub = this.pubOf.get(t.id); if (!members.has(pub)) members.set(pub, []); members.get(pub).push(t); }
     const pubTouches = [];
     for (const g of [...this.groups.values()]) {
+      g.liveWalls = new Set((members.get(g.id) || []).map((t) => t.wallId));
       const o = this._report(g, members.get(g.id) || [], now);
       if (!o) {
         if (g.out) out.push({ type: 'up', id: g.id, wallId: g.out.wallId, x: g.out.x, y: g.out.y, t: now, duration: (now - g.downAt) / 1000 });
@@ -165,12 +176,12 @@ export class CornerLinker {
 
     if (!corner) {
       // away from corners: the wall's own track, untouched
-      g.corner = null; g.est = null; g.uS = null;
+      g.corner = null; g.est = null; g.uS = null; g.side = null; g.fresh = members.some((m) => m.seenMs <= P.freshMs);
       if (!members.length) return null;
       const m = members.reduce((a, b) => (a.seenMs <= b.seenMs ? a : b));
       return { ...base, wallId: m.wallId, x: m.x, y: m.y, vx: m.vx, vy: m.vy, size: m.size, coasting: m.coasting };
     }
-    if (!g.corner || g.corner.left !== corner.left || g.corner.right !== corner.right) g.uS = null;
+    if (!g.corner || g.corner.left !== corner.left || g.corner.right !== corner.right) { g.uS = null; g.side = null; }
     g.corner = corner;
 
     // estimates in corner coordinates; a reading older than the trackers' own prediction is carried at its speed
@@ -179,7 +190,8 @@ export class CornerLinker {
     for (const m of members) {
       const u0 = this._u(corner, m.wallId, m.x);
       const age = Math.max(0, m.seenMs - P.predictMs);
-      const heading = Math.abs(m.vx) >= P.minSpeed && (u0 * m.vx < 0 || Math.abs(u0) < P.edgeZone + 0.1);
+      // only a hand last seen heading INTO the corner is carried (through it, up to the far side's zone)
+      const heading = Math.abs(m.vx) >= P.minSpeed && (u0 * m.vx < 0 || (g.approach && Math.abs(u0) < P.edgeZone + 0.1));
       const u = u0 + (heading ? m.vx * Math.min(age, P.bridgeMs) / 1000 : 0);
       const w = Math.exp(-m.seenMs / P.recentMs) + 1e-6;
       su += u * w; sy += m.y * w; svu += m.vx * w; svy += m.vy * w; sw += w; size = Math.max(size, m.size);
@@ -188,21 +200,29 @@ export class CornerLinker {
     let est;
     if (members.length) {
       est = { u: su / sw, y: sy / sw, vu: svu / sw, vy: svy / sw, size, t: fresh ? now : (g.est?.t ?? now) };
+      if (fresh) g.approach = est.u * est.vu < 0 && Math.abs(est.vu) >= P.minSpeed;
     } else {
       // no track at all (both sides blind): carry the hand at its speed for a moment if it was heading this way
       const e = g.est;
-      // (heading into the corner, or through it and not yet past the far wall's corner zone)
-      const heading = e && Math.abs(e.vu) >= P.minSpeed && (e.u * e.vu < 0 || Math.abs(e.u) < P.edgeZone + 0.1);
+      // (last seen heading into the corner: into it, or through it and not yet past the far wall's corner zone)
+      const heading = e && g.approach && Math.abs(e.vu) >= P.minSpeed && (e.u * e.vu < 0 || Math.abs(e.u) < P.edgeZone + 0.1);
       if (!e || !heading || now - e.t > P.bridgeMs) return null;
       est = { ...e, u: e.u + (e.vu * dt) / 1000 };
     }
     // never carried further than the corner zone on the far side
     est.u = Math.max(-P.edgeZone - 0.15, Math.min(P.edgeZone + 0.15, est.u));
     g.est = est;
+    g.fresh = fresh;
     g.uS = g.uS == null ? est.u : g.uS + (est.u - g.uS) * (1 - Math.exp(-dt / P.tauMs));
-    const onLeft = g.uS < 0;
+    // the wall it is reported on changes only once it is clearly past the corner (hysteresis: no cross flicker
+    // while a hand rests in the corner); until then it stays on the edge of its wall
+    if (!g.side) g.side = g.out?.wallId === corner.left ? 'left' : g.out?.wallId === corner.right ? 'right' : g.uS < 0 ? 'left' : 'right';
+    else if (g.side === 'left' && g.uS > P.switchM) g.side = 'right';
+    else if (g.side === 'right' && g.uS < -P.switchM) g.side = 'left';
+    const onLeft = g.side === 'left';
     const wallId = onLeft ? corner.left : corner.right;
-    const x = onLeft ? this.widths.get(corner.left) + g.uS : g.uS;
+    const wl = this.widths.get(corner.left);
+    const x = onLeft ? Math.min(wl, wl + g.uS) : Math.max(0, g.uS);
     return { ...base, wallId, x, y: est.y, vx: est.vu, vy: est.vy, size: est.size || 0.08, coasting: !fresh };
   }
 }

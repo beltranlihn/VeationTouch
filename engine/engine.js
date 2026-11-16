@@ -85,7 +85,7 @@ export class Engine extends EventEmitter {
       t.confirmNow = (wallId, tr) => this.corners.shouldConfirm(wallId, tr);
     }
     this.corners.configure(profile.walls);
-    this.corners.setZone(profile.tracking.cornerZone ?? 0.25);
+    this.corners.setTracking(profile.tracking); // corner zone + the trackers' own prediction (not counted twice)
     for (const id of [...this.trackers.keys()]) if (!profile.walls.some((w) => w.id === id)) this.trackers.delete(id);
 
     // sensors: restart a driver only if its connection settings changed

@@ -68,14 +68,17 @@ is the video processor's job).
 ## Continuous corners — `engine/core/corners.js`
 
 The point of one content canvas around the room: a hand sliding from one wall onto the next must stay ONE touch.
-Walls keep their own trackers; `CornerLinker` sits on top. Consecutive walls with `joinNext` (default on; the last
-joins the first when the room plan closes) share a corner; near it (`tracking.cornerZone`, 25 cm each side) touches
+Walls keep their own trackers; `CornerLinker` sits on top. Consecutive walls with `joinNext` share a corner (the last
+joins the first when the plan closes, `planCloses`); unset, `joinNext` defaults to on only when the walls close a room.
+Near a corner (`tracking.cornerZone`, 25 cm each side) touches
 are followed in corner coordinates — u = signed distance from the corner along the strip, so both sides are one line.
 A new track there joins the touch at its height (same public id, no down) and is confirmed at once with that hand's
-velocity (no `confirmFrames` wait, no start from rest). When both sensors see the hand the position is their
+velocity (no `confirmFrames` wait, no start from rest) — only to close a gap: while the other wall still sees the
+hand, and never for a track on a wall that already carries that touch (another hand). When both sensors see the hand the position is their
 recency-weighted average; through the blind stretch at the corner (edge margins, two scan planes — no sensor sees
-the hand there) a hand heading into the corner is carried at its own speed until the other wall sees it, at most
-until it is past the far wall's corner zone (≤ 1.2 s). The reported wall follows u (`cross` event when it changes);
+the hand there) a hand last seen heading into the corner is carried at its own speed (beyond the trackers' own
+`predictMs`) until the other wall sees it, at most until it is past the far wall's corner zone (≤ 1.2 s). The reported
+wall follows u with 3 cm of hysteresis (`cross` event when it changes);
 up only when the hand is really gone. Measured with simulated 10 Hz sensors and a 24 cm blind stretch: one down, one
 cross, one up at 0.5–1.5 m/s, and at the corner the lag and the frame-to-frame steps are no larger than anywhere
 else on the wall (tests). Limits: two people touching the two sides of a corner within 25 cm, at the same height,

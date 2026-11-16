@@ -194,9 +194,12 @@ export class MdnsResponder {
     try { m = parseMessage(buf); } catch { return; }
     const me = this.host;
     if (m.response) {
-      // somebody else answering for our name with an address that is not ours
+      // somebody else answering for our name with an address that is not ours (most responses on a LAN are about
+      // other names: look at our interfaces only when one mentions ours)
+      const ours = m.answers.filter((a) => a.name.toLowerCase() === me && a.ip && a.ttl > 0);
+      if (!ours.length) return;
       const mine = new Set(this.interfaces().map((i) => i.ip));
-      const other = m.answers.find((a) => a.name.toLowerCase() === me && a.ip && !mine.has(a.ip) && a.ttl > 0);
+      const other = ours.find((a) => !mine.has(a.ip));
       if (other && !mine.has(rinfo.address) && this.conflict !== other.ip) {
         this.conflict = other.ip;
         this.log.warn(`mDNS: ${other.ip} also answers for ${me} — give this server another local name (System › Network)`);

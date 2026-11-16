@@ -288,6 +288,13 @@ export function roomPlan(walls, { close = false, closeTol = 0.3 } = {}) {
   return out;
 }
 
+/** Does the wall loop close — the last wall ends within `tol` metres of where the first begins (3 walls or more)? */
+export function planCloses(walls, tol = 0.3) {
+  if (walls.length < 3) return false;
+  const plan = roomPlan(walls), a = plan[0], z = plan.at(-1);
+  return Math.hypot(z.p0[0] + z.dir[0] * z.width - a.p0[0], z.p0[1] + z.dir[1] * z.width - a.p0[1]) < tol;
+}
+
 /** Outline of a wall's region in the output canvas, for any mapping mode (grid edges sampled). */
 export function mappingOutline(mapping, pixelRect, n = 12) {
   if (mapping?.mode === 'corners') return mapping.corners;

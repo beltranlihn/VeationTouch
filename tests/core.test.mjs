@@ -462,7 +462,7 @@ async function slideAcrossCorner({ walls, speed = 1, y = 1.2, yB = y, useLinker 
 }
 
 for (const [speed, blind] of [[1, 0.12], [0.5, 0.12], [1.5, 0.12], [1, 0]]) test(`corners: a hand sliding across a joined corner stays ONE touch (${speed} m/s, ${blind * 200} cm blind)`, async () => {
-  const walls = [{ id: 'A', width: 6, height: 3 }, { id: 'B', width: 6, height: 3 }];
+  const walls = [{ id: 'A', width: 6, height: 3, joinNext: true }, { id: 'B', width: 6, height: 3 }];
   const r = await slideAcrossCorner({ walls, speed, blind });
   assert.equal(r.down.length, 1, `downs: ${r.down.length}`);
   assert.equal(r.up.length, 1, `ups: ${r.up.length}`);
@@ -495,7 +495,7 @@ for (const [speed, blind] of [[1, 0.12], [0.5, 0.12], [1.5, 0.12], [1, 0]]) test
 test('corners: a hand lifted near a corner (still) ends at once; one heading into it ends after the bridge', async () => {
   const { CornerLinker } = await import('../engine/core/corners.js');
   const L = new CornerLinker();
-  L.configure(normalizeProfile({ walls: [{ id: 'A', width: 6 }, { id: 'B', width: 6 }] }).walls);
+  L.configure(normalizeProfile({ walls: [{ id: 'A', width: 6, joinNext: true }, { id: 'B', width: 6 }] }).walls);
   const touch = (vx, seenMs) => ({ id: 1, wallId: 'A', x: 5.9, y: 1, vx, vy: 0, size: 0.08, seenMs, coasting: seenMs > 150 });
   // still hand near the corner: up the tick its track ends
   L.update([touch(0, 0)], [{ type: 'down', id: 1, wallId: 'A', x: 5.9, y: 1, t: 0 }], 0);
@@ -508,18 +508,75 @@ test('corners: a hand lifted near a corner (still) ends at once; one heading int
   assert.deepEqual(types, ['cross', 'up']);
 });
 
+test('corners: review fixes — same-wall hands, no flicker at the corner, no outward phantom, prediction, renamed walls', async () => {
+  const { CornerLinker } = await import('../engine/core/corners.js');
+  const walls = [{ id: 'A', width: 6, joinNext: true }, { id: 'B', width: 6, joinNext: true }];
+  const T = (id, wallId, x, o = {}) => ({ id, wallId, x, y: 1.2, vx: 0, vy: 0, size: 0.08, seenMs: 0, coasting: false, ...o });
+  const down = (id, wallId, x, t) => ({ type: 'down', id, wallId, x, y: 1.2, t });
+  // 1. a second hand on the SAME wall near the corner is its own touch (no instant confirm, no merge)
+  let L = new CornerLinker(); L.configure(walls);
+  L.update([T(1, 'A', 5.85)], [down(1, 'A', 5.85, 0)], 0);
+  L.update([T(1, 'A', 5.85)], [], 16);
+  assert.equal(L.shouldConfirm('A', { x: 5.95, y: 1.3, vx: 0, vy: 0 }), false);
+  let r = L.update([T(1, 'A', 5.85), T(2, 'A', 5.95)], [down(2, 'A', 5.95, 33)], 33);
+  assert.deepEqual(r.touches.map((t) => t.id).sort(), [1, 2]);
+  assert.deepEqual(r.events.map((e) => [e.type, e.id]), [['down', 2]]);
+  // 2. a hand resting IN the corner, seen alternately by both sensors: it stays on one wall, no cross flicker
+  L = new CornerLinker(); L.configure(walls);
+  L.update([T(1, 'A', 5.97)], [down(1, 'A', 5.97, 0)], 0);
+  L.update([T(1, 'A', 5.97), T(2, 'B', 0.03, { seenMs: 50 })], [down(2, 'B', 0.03, 16)], 16);
+  let crosses = 0;
+  for (let t = 33; t < 2000; t += 16.7) {
+    const k = Math.floor(t / 50) % 2; // the two sensors take turns being the freshest
+    crosses += L.update([T(1, 'A', 5.97, { seenMs: k ? 45 : 0 }), T(2, 'B', 0.03, { seenMs: k ? 0 : 45 })], [], t).events.filter((e) => e.type === 'cross').length;
+  }
+  assert.equal(crosses, 0, `${crosses} cross events for a hand that did not move`);
+  // 3. a hand lifted while moving AWAY from the corner ends with its track (no phantom carried outwards)
+  L = new CornerLinker(); L.configure(walls);
+  L.update([T(1, 'B', 0.1, { vx: 0.5 })], [down(1, 'B', 0.1, 0)], 0);
+  L.update([T(1, 'B', 0.11, { vx: 0.5 })], [], 20);
+  r = L.update([], [{ type: 'up', id: 1 }], 260);
+  assert.deepEqual(r.events.map((e) => e.type), ['up']);
+  // 8. while the other wall still sees the hand, a single detection near the corner is not confirmed at once
+  L = new CornerLinker(); L.configure(walls);
+  L.update([T(1, 'A', 5.9, { vx: 1 })], [down(1, 'A', 5.9, 0)], 0);
+  assert.equal(L.shouldConfirm('B', { x: 0.05, y: 1.2, vx: 0, vy: 0 }), false, 'A is fresh');
+  L.update([T(1, 'A', 5.9, { vx: 1, seenMs: 150, coasting: true })], [], 150);
+  assert.equal(L.shouldConfirm('B', { x: 0.05, y: 1.2, vx: 0, vy: 0 }), true, 'nobody sees it: bridge the gap');
+  // 4. the trackers' prediction is not counted twice: with predictMs 0 a stale reading is carried from 0 ms
+  const carried = (predictMs) => {
+    const C = new CornerLinker(); C.configure(walls); C.setTracking({ cornerZone: 0.25, predictMs });
+    C.update([T(1, 'A', 5.8, { vx: 1 })], [down(1, 'A', 5.8, 0)], 0);
+    let o; for (let t = 10; t <= 400; t += 10) o = C.update([T(1, 'A', 5.8, { vx: 1, seenMs: Math.min(t, 100) })], [], t).touches[0];
+    return o.x;
+  };
+  assert.ok(carried(0) - carried(60) > 0.05, `predictMs 0 carries ${carried(0).toFixed(3)} vs ${carried(60).toFixed(3)}`);
+  // 7. a corner that stops existing (wall renamed) never yields NaN
+  L = new CornerLinker(); L.configure(walls);
+  L.update([T(1, 'A', 5.9, { vx: 1 })], [down(1, 'A', 5.9, 0)], 0);
+  L.update([T(1, 'A', 5.92, { vx: 1 })], [], 16);
+  L.configure([{ id: 'A2', width: 6, joinNext: true }, { id: 'B', width: 6, joinNext: true }]);
+  r = L.update([], [{ type: 'up', id: 1 }], 33); // its track is gone with the old wall: nothing left to carry
+  assert.ok([...r.touches, ...r.events].every((t) => Number.isFinite(t.x) && Number.isFinite(t.y)), JSON.stringify(r));
+});
+
 test('corners: not linked when the walls are not joined, or the hands are at different heights', async () => {
   const sep = await slideAcrossCorner({ walls: [{ id: 'A', width: 6, height: 3, joinNext: false }, { id: 'B', width: 6, height: 3 }] });
   assert.equal(sep.down.length, 2);
   assert.equal(sep.cross.length, 0);
-  const other = await slideAcrossCorner({ walls: [{ id: 'A', width: 6, height: 3 }, { id: 'B', width: 6, height: 3 }], y: 0.8, yB: 1.9 });
+  const other = await slideAcrossCorner({ walls: [{ id: 'A', width: 6, height: 3, joinNext: true }, { id: 'B', width: 6, height: 3 }], y: 0.8, yB: 1.9 });
   assert.equal(other.down.length, 2, 'two people at different heights are two touches');
   const { CornerLinker } = await import('../engine/core/corners.js');
   const L = new CornerLinker();
   L.configure(normalizeProfile({ walls: [{ id: 'P4', width: 7.33 }, { id: 'P1', width: 6.483 }, { id: 'P2', width: 7.353 }, { id: 'P3', width: 6.411 }] }).walls);
   assert.deepEqual(L.joins(), [['P4', 'P1'], ['P1', 'P2'], ['P2', 'P3'], ['P3', 'P4']], 'a closed room also joins the last corner');
-  L.configure(normalizeProfile({ walls: [{ id: 'A', width: 4 }, { id: 'B', width: 4 }, { id: 'C', width: 4 }] }).walls);
+  L.configure(normalizeProfile({ walls: [{ id: 'A', width: 4, joinNext: true }, { id: 'B', width: 4, joinNext: true }, { id: 'C', width: 4, joinNext: true }] }).walls);
   assert.deepEqual(L.joins(), [['A', 'B'], ['B', 'C']], 'a U-shaped set of walls does not close');
+  // by default only a closed room is joined: walls that just follow each other in the list stay independent
+  const def = (walls) => normalizeProfile({ walls }).walls.map((w) => w.joinNext);
+  assert.deepEqual(def([{ id: 'P4', width: 7.33 }, { id: 'P1', width: 6.483 }, { id: 'P2', width: 7.353 }, { id: 'P3', width: 6.411 }]), [true, true, true, true]);
+  assert.deepEqual(def([{ id: 'A', width: 4 }, { id: 'B', width: 4 }]), [false, false]);
+  assert.deepEqual(def([{ id: 'A', width: 4, joinNext: true }, { id: 'B', width: 4 }]), [true, false], 'an explicit choice is kept');
 });
 
 test('osc: encode/decode round trip, bundles stay below the MTU', () => {
@@ -665,7 +722,7 @@ test('outputs: a corner crossing is /vt/cross where both walls are carried, up /
   rx.on('message', (m) => { for (const d of decode(m)) got.push(d); });
   const port = rx.address().port;
   const prof = normalizeProfile({
-    walls: [{ id: 'A', width: 4, height: 2 }, { id: 'B', width: 4, height: 2 }],
+    walls: [{ id: 'A', width: 4, height: 2, joinNext: true }, { id: 'B', width: 4, height: 2 }],
     outputs: [{ id: 'all', type: 'osc', host: '127.0.0.1', port }, { id: 'onlyA', type: 'osc', host: '127.0.0.1', port, prefix: '/a', walls: ['A'] }, { id: 'onlyB', type: 'osc', host: '127.0.0.1', port, prefix: '/b', walls: ['B'] }],
   });
   const om = new OutputManager({ warn() {} });

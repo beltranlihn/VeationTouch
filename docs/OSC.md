@@ -4,12 +4,13 @@ All coordinates are **u, v ∈ 0–1 with the origin at the TOP-LEFT** of the wa
 canvas (destination option *Canvas*). Velocities are in u/s, v/s. Sizes in metres, ages in seconds.
 Ids are unique per touch for the whole session (they never repeat while the engine runs).
 
-**Continuous corners.** Walls joined by a continuous corner (Room › *Corner with the next wall › Continuous*, on by
-default between consecutive walls; the last and the first wall too when the room closes) behave as one surface: a
+**Continuous corners.** Walls joined by a continuous corner (Room › *Corner with the next wall › Continuous*; on by
+default when the walls close a room — every corner, the last one included — off otherwise) behave as one surface: a
 hand sliding across the corner is ONE touch — it keeps its id, its age and its zones, there is **no up on the wall
 it leaves and no down on the wall it enters**; it simply moves from one wall's stream to the other's and a `cross`
 event says so. Through the short blind stretch at the corner the touch is carried at the hand's speed, so in canvas
-coordinates it moves on without a jump.
+coordinates it moves on without a jump. A hand resting in the corner stays on one wall (the reported wall changes
+only 3 cm past the corner).
 
 ## OSC (UDP, default port 9000, prefix `/vt`)
 

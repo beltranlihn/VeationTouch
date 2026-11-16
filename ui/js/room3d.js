@@ -145,16 +145,27 @@ export class Room3D {
 
   setActive(on) {
     if (on && !this.ok) return false;
+    if (!on) {
+      // a virtual hand held down while the view goes away would stay pressed on the wall: lift it
+      for (const p of this.pointers.values()) if (p.hand) this.hooks.hand(p.hand.wallId, 0, 0, 'up', p.hand.id);
+      this.pointers.clear();
+    }
     this.active = on;
     this.c.hidden = !on;
     if (on) { this._resize(); if (!this.cam) this.reset(); this._loop(); }
     return true;
   }
 
+  /** One render loop at a time, however often the view is (re)activated. */
   _loop() {
-    if (!this.active) return;
-    try { this.draw(); } catch (e) { console.error(e); }
-    requestAnimationFrame(() => this._loop());
+    if (this._running) return;
+    this._running = true;
+    const step = () => {
+      if (!this.active) { this._running = false; return; }
+      try { this.draw(); } catch (e) { console.error(e); }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   _resize() {
@@ -221,11 +232,14 @@ export class Room3D {
     const ul = this._underlay();
     const live = store.live?.zones || {};
     const zones = P.zones.filter((z) => (z.space === 'canvas' ? (z.walls || []).includes(w.id) : z.wallId === w.id));
-    const key = JSON.stringify([w.width, w.height, w.name, w.enabled, w.masks, w.mapping, w.pixelRect, zones, zones.map((z) => !!live[z.id]?.active), ul ? this._ulUrl : null]);
+    // redraw only when something it shows changed: profile objects are replaced on every edit (identity is enough),
+    // plus which of its zones are active and the content image
+    const act = zones.map((z) => (live[z.id]?.active ? 1 : 0)).join('');
+    const ulKey = ul ? this._ulUrl : null;
     let t = this.walls.get(w.id);
-    if (t && t.key === key) return t.tex;
+    if (t && t.w === w && t.zonesOf === P.zones && t.act === act && t.ul === ulKey) return t.tex;
     if (!t) { t = { tex: gl.createTexture(), cv: document.createElement('canvas') }; this.walls.set(w.id, t); }
-    t.key = key;
+    Object.assign(t, { w, zonesOf: P.zones, act, ul: ulKey });
     const W = 1024, H = clamp(Math.round((W * w.height) / w.width), 64, 1024);
     const cv = t.cv; cv.width = W; cv.height = H;
     const g = cv.getContext('2d');

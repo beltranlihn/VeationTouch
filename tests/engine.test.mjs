@@ -273,3 +273,74 @@ test('server: pairing links rank this PC hotspot first and the LiDAR network las
   assert.deepEqual(list.map((l) => [l.kind, l.ip, l.sensors]), [['hotspot', '192.168.137.1', false], ['wifi', '172.16.2.42', false], ['ethernet', '192.168.11.5', true]]);
   assert.equal(list[0].url, 'http://192.168.137.1:8770/?k=k');
 });
+
+test('mdns: responses about other names never look at the network interfaces', async () => {
+  const { MdnsResponder, buildResponse } = await import('../engine/mdns.js');
+  let calls = 0;
+  const m = new MdnsResponder({ name: 'veation-touch', log: quiet, interfaces: () => { calls++; return [{ ip: '192.168.1.10', mask: '255.255.255.0' }]; } });
+  for (let k = 0; k < 50; k++) m._onMessage(buildResponse(`quest-${k}.local`, ['192.168.1.50']), { address: '192.168.1.50', port: 5353 });
+  assert.equal(calls, 0, 'busy LAN: no adapter enumeration per packet');
+  m._onMessage(buildResponse('veation-touch.local', ['192.168.1.99']), { address: '192.168.1.99', port: 5353 });
+  assert.equal(m.info().conflict, '192.168.1.99');
+});
+
+test('sdk: toCanvas follows a grid mapping (the same maths as the engine)', async () => {
+  const { createServer } = await import('../engine/server.js');
+  const { gridFrom, gridMap } = await import('../engine/core/geometry.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-sdk-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const server = await createServer(engine, { port: 0, root: path.resolve(import.meta.dirname, '..'), log: quiet });
+  let vt = null;
+  try {
+    // the SDK as an app loads it: /sdk/veation-touch.js next to /shared/geometry.js
+    const base = `http://127.0.0.1:${server.port}`;
+    for (const f of ['sdk/veation-touch.js', 'shared/geometry.js']) {
+      fs.mkdirSync(path.join(dir, path.dirname(f)), { recursive: true });
+      fs.writeFileSync(path.join(dir, f), await (await fetch(`${base}/${f}`)).text());
+    }
+    const { pathToFileURL } = await import('node:url');
+    const { VeationTouch } = await import(pathToFileURL(path.join(dir, 'sdk', 'veation-touch.js')).href);
+    vt = new VeationTouch(`ws://127.0.0.1:${server.port}/ws/data`);
+    const grid = gridFrom((u, v) => [100 + 800 * u + 40 * Math.sin(u * 3) * v, 50 + 400 * v + 30 * u * u], 4, 3);
+    vt.profile = { walls: [{ id: 'W', pixelRect: { x: 0, y: 0, w: 10, h: 10 }, mapping: { mode: 'grid', ...grid } }] };
+    for (const [u, v] of [[0.2, 0.3], [0.77, 0.9], [0.5, 0.5]]) {
+      const [x, y] = vt.toCanvas('W', u, v), [ex, ey] = gridMap(grid, u, v);
+      assert.ok(Math.hypot(x - ex, y - ey) < 1e-9, `(${u}, ${v}) → ${x}, ${y} vs ${ex}, ${ey}`);
+    }
+  } finally {
+    vt?.close(); // it reconnects forever otherwise
+    server.close();
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('server: the UI live feed carries every event, also those of frames between two live messages', async () => {
+  const { createServer } = await import('../engine/server.js');
+  const { WebSocket } = await import('ws');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-feed-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const server = await createServer(engine, { port: 0, root: path.resolve(import.meta.dirname, '..'), log: quiet });
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws/ui`);
+  const ids = new Set();
+  ws.on('message', (raw, bin) => { if (bin) return; const m = JSON.parse(raw); if (m.type === 'live') for (const e of m.events || []) ids.add(e.id); });
+  try {
+    await new Promise((r) => ws.on('open', r));
+    await new Promise((r) => setTimeout(r, 200));
+    const frame = (id) => ({ seq: 0, t: performance.now(), walls: [], roomCount: 0, burst: 0, zoneCounts: {}, zoneEvents: [],
+      events: [{ type: 'down', id, wallId: 'W1', x: 1, y: 1, t: 0 }] });
+    // two frames back to back: one of them falls between two live messages (they go out every other frame)
+    engine.emit('frame', frame(9001)); engine.emit('frame', frame(9002));
+    await new Promise((r) => setTimeout(r, 200));
+    assert.ok(ids.has(9001) && ids.has(9002), `events seen: ${[...ids].join(', ')}`);
+  } finally {
+    ws.close();
+    server.close();
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

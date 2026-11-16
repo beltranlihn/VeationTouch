@@ -152,8 +152,8 @@ sigue desde ahí; si el dispositivo que mandaba se desconecta, el siguiente que 
 
 **Esquinas continuas.** Lo importante de unir los muros en un solo lienzo: al pasar la mano de un muro al
 siguiente por la esquina, sigue siendo **el mismo toque** (mismo id, sin «up» ni «down»). Las aplicaciones lo
-reciben como un movimiento continuo y un aviso `/vt/cross`. Está activado entre muros consecutivos; se desactiva
-por muro en **Room › Corner with the next wall › Continuous** (para muros que no se tocan). En
+reciben como un movimiento continuo y un aviso `/vt/cross`. Viene activado cuando los muros cierran una sala (como
+XR Lab); si no, se activa por muro en **Room › Corner with the next wall › Continuous**. En
 **System › Processing › Corner zone** se ajusta la franja (25 cm a cada lado de la esquina).
 
 **Vista 3D.** **Live › 3D** muestra la sala de pie: muros con el contenido, zonas (se iluminan al activarse),

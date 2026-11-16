@@ -6,7 +6,7 @@
 // through it, gets defaults, gets clamped, and old schema versions are migrated.
 
 import { PROCESSING_DEFAULTS } from './core/pipeline.js';
-import { fitHomography, apply as applyH, gridMap, boundsOf, polygonArea, polygonsOverlap, shapeOutline, mappingOutline } from './core/geometry.js';
+import { fitHomography, apply as applyH, gridMap, boundsOf, polygonArea, polygonsOverlap, shapeOutline, mappingOutline, planCloses } from './core/geometry.js';
 import { TRACKER_DEFAULTS } from './core/tracker.js';
 
 export const SCHEMA = 1;
@@ -88,7 +88,8 @@ function normWall(w, i, canvas) {
     mapping,
     planeOffset: num(w?.planeOffset, 0.02, 0, 1), // informational: distance scan plane ↔ wall
     turn: num(w?.turn, 90, -180, 180), // floor plan (3D view): corner to the NEXT wall, degrees clockwise seen from above
-    joinNext: bool(w?.joinNext, true), // a hand crossing the corner to the next wall stays ONE touch (same id)
+    // a hand crossing the corner to the next wall stays ONE touch (same id); unset = decided per room below
+    joinNext: typeof w?.joinNext === 'boolean' ? w.joinNext : null,
     masks: (Array.isArray(w?.masks) ? w.masks : []).slice(0, 64).map((m, k) => {
       const base = { id: id(m?.id, `M${k + 1}`), name: str(m?.name, `Mask ${k + 1}`) };
       const pts = m?.type === 'polygon' ? polyPoints(m.points) : null;
@@ -217,6 +218,10 @@ export function normalizeProfile(input) {
   const p = input && typeof input === 'object' ? migrate(structuredClone(input)) : {};
   const canvas = { width: int(p.canvas?.width, 3840, 16, 32768), height: int(p.canvas?.height, 2400, 16, 32768) };
   const walls = uniqueIds((Array.isArray(p.walls) ? p.walls : []).slice(0, 32).map((w, i) => normWall(w, i, canvas)), 'W');
+  // continuous corners default ON only where the walls certainly meet: a room whose wall loop closes. Walls that
+  // merely follow each other in the list (separate walls, older profiles) stay independent until joined in Room.
+  const closes = planCloses(walls);
+  for (const w of walls) if (w.joinNext === null) w.joinNext = closes;
   const sensors = uniqueIds((Array.isArray(p.sensors) ? p.sensors : []).slice(0, 64).map((s, i) => normSensor(s, i, walls)), 'S');
   const zones = uniqueIds((Array.isArray(p.zones) ? p.zones : []).slice(0, 256).map((z, i) => normZone(z, i, walls, canvas)), 'Z');
   const outputs = uniqueIds((Array.isArray(p.outputs) ? p.outputs : []).slice(0, 32).map(normOutput), 'O');
