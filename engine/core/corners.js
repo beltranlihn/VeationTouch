@@ -64,6 +64,9 @@ export class CornerLinker {
     }
   }
 
+  /** Forget every touch (another room was loaded: its trackers start from scratch too). */
+  reset() { this.pubOf.clear(); this.groups.clear(); }
+
   /** Joined pairs [[leftWallId, rightWallId]…] (UI, tests). */
   joins() { return [...this.right.entries()]; }
 

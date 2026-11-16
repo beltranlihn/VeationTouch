@@ -51,13 +51,14 @@ const mdns = new MdnsResponder({ name: engine.settings.localName, log });
 if (!args['no-mdns']) await mdns.start().catch((e) => log.warn(`mDNS: ${e.message}`));
 engine.mdns = mdns;
 engine.on('projection', (pr) => toParent({ type: 'projection', projection: pr, port: server.port }));
+engine.on('textureWindows', (list) => toParent({ type: 'textureWindows', list }));
 engine.on('autostart', (enabled) => toParent({ type: 'autostart', enabled }));
 parent?.on('message', (e) => {
   const m = e.data;
   if (m?.type === 'displays') engine.setDisplays(m.list);
   if (m?.type === 'shutdown') shutdown();
 });
-toParent({ type: 'ready', port: server.port, token: engine.settings.token, projection: engine.settings.projection, autostart: engine.settings.autostart });
+toParent({ type: 'ready', port: server.port, token: engine.settings.token, projection: engine.settings.projection, autostart: engine.settings.autostart, textureWindows: engine.textureWindows() });
 log.info(`UI: http://localhost:${server.port}/`);
 
 let stopping = false;

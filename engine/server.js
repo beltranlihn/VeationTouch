@@ -12,6 +12,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import v8 from 'node:v8';
 import { WebSocketServer } from 'ws';
+import { wifiSsids, looksLikeGuestNetwork } from './net.js';
 
 const require = createRequire(import.meta.url);
 const qrcode = require('qrcode-generator');
@@ -35,7 +36,7 @@ const ip4 = (s) => s.split('.').reduce((a, n) => ((a << 8) | (Number(n) & 255)) 
  * …and the interface that reaches the LiDARs (same subnet as a sensor IP) is marked `sensors`
  * and listed last: a tablet should not be put on the sensor network.
  */
-export function lanUrls(port, token, sensorHosts = [], ifaces = os.networkInterfaces()) {
+export function lanUrls(port, token, sensorHosts = [], ifaces = os.networkInterfaces(), ssids = {}) {
   const out = [];
   for (const [name, list] of Object.entries(ifaces)) {
     if (/vethernet|virtual|vmware|vbox|hyper-v|wsl|docker|loopback|bluetooth/i.test(name)) continue;
@@ -45,7 +46,9 @@ export function lanUrls(port, token, sensorHosts = [], ifaces = os.networkInterf
       const kind = a.address.startsWith('192.168.137.') ? 'hotspot' : /wi-?fi|wlan|wireless/i.test(name) ? 'wifi' : /ethernet|^eth|^en/i.test(name) ? 'ethernet' : 'other';
       const mask = ip4(a.netmask || '255.255.255.0');
       const sensors = sensorHosts.some((h) => /^(\d{1,3}\.){3}\d{1,3}$/.test(h) && (ip4(h) & mask) === (ip4(a.address) & mask));
-      out.push({ iface: name, kind, ip: a.address, sensors, url: `http://${a.address}:${port}/?k=${token}` });
+      // ssid: the Wi-Fi the phone must join; guest: that Wi-Fi probably keeps devices apart (client isolation)
+      const ssid = ssids[name] || null;
+      out.push({ iface: name, kind, ip: a.address, sensors, url: `http://${a.address}:${port}/?k=${token}`, ssid, guest: looksLikeGuestNetwork(ssid) });
     }
   }
   const rank = { hotspot: -1, wifi: 0, ethernet: 1, other: 2 };
@@ -56,7 +59,9 @@ export function lanUrls(port, token, sensorHosts = [], ifaces = os.networkInterf
  * @param {import('./engine.js').Engine} engine
  * @param {{port:number, root:string, log:object}} opt
  */
-export function createServer(engine, { port, root, log }) {
+export function createServer(engine, { port, root, log, trustLocal = true }) {
+  // trustLocal: this computer needs no access key (the desktop window). Tests turn it off to act as a tablet.
+  const isTrusted = (addr) => trustLocal && isLocal(addr);
   const uiDir = path.join(root, 'ui');
   const sdkDir = path.join(root, 'sdk');
 
@@ -73,13 +78,38 @@ export function createServer(engine, { port, root, log }) {
     return p.startsWith(dir) ? p : null;
   };
 
+  // Wi-Fi names, refreshed in the background (netsh takes ~100 ms): the pairing panel names the network to join
+  let ssids = {};
+  const refreshSsids = () => wifiSsids().then((s) => { ssids = s; }).catch(() => {});
+  refreshSsids();
+  const ssidTimer = setInterval(refreshSsids, 20000);
+  ssidTimer.unref?.();
+  const lan = () => lanUrls(port, engine.settings.token, engine.profile.sensors.filter((s) => s.driver === 's2e').map((s) => s.host), os.networkInterfaces(), ssids);
+
+  // Devices that opened the page from another address, even if they never connected: tells "the phone reached this
+  // computer but could not connect" apart from "nothing reached it" (another network, or a Wi-Fi that isolates devices)
+  const reached = new Map();
+  const noteReached = (req) => {
+    const addr = String(req.socket.remoteAddress || '').replace('::ffff:', '');
+    if (!addr || isLocal(addr)) return;
+    const device = deviceName(String(req.headers['user-agent'] || ''));
+    const prev = reached.get(addr);
+    if (!prev || Date.now() - prev.at > 600000) log.info(`page opened from ${addr} (${device})`);
+    reached.set(addr, { addr, device, at: Date.now() });
+    if (reached.size > 50) reached.delete(reached.keys().next().value);
+  };
+  const reachedList = () => [...reached.values()].filter((r) => Date.now() - r.at < 15 * 60000);
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const p = decodeURIComponent(url.pathname);
+    if (p === '/' || p === '/index.html') noteReached(req);
     if (p === '/' || p === '/index.html') return serveFile(res, path.join(uiDir, 'index.html'));
     if (p === '/projection') return serveFile(res, path.join(uiDir, 'projection.html'));
+    if (p === '/texture') return serveFile(res, path.join(uiDir, 'texture.html')); // a Texture output shown full screen
     // the browser uses the very same geometry code as the engine (one implementation of the mapping)
     if (p === '/shared/geometry.js') return serveFile(res, path.join(root, 'engine', 'core', 'geometry.js'));
+    if (p === '/shared/mask.js') return serveFile(res, path.join(root, 'engine', 'core', 'mask.js')); // the Texture output's rasteriser (live preview)
     if (p === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       const mem = process.memoryUsage(), mb = (b) => Math.round(b / 1048576);
@@ -87,6 +117,11 @@ export function createServer(engine, { port, root, log }) {
         ok: true, version: engine.version, profile: engine.profile?.id, uptimeS: Math.round(process.uptime()),
         memory: { rssMb: mb(mem.rss), heapUsedMb: mb(mem.heapUsed), heapLimitMb: mb(v8.getHeapStatistics().heap_size_limit) },
       }));
+    }
+    if (p === '/api/pair-check') {
+      // does this device hold a valid access key? (the UI tells "not paired" apart from "engine down"; never leaks it)
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify({ paired: isTrusted(req.socket.remoteAddress) || url.searchParams.get('k') === engine.settings.token }));
     }
     if (p === '/api/qr.svg') {
       const text = url.searchParams.get('t') || '';
@@ -106,7 +141,7 @@ export function createServer(engine, { port, root, log }) {
       }
       if (req.method === 'POST') {
         // same rule as the UI channel: localhost, or the access key
-        if (!isLocal(req.socket.remoteAddress) && url.searchParams.get('k') !== engine.settings.token) { res.writeHead(401); return res.end(); }
+        if (!isTrusted(req.socket.remoteAddress) && url.searchParams.get('k') !== engine.settings.token) { res.writeHead(401); return res.end(); }
         if (engine.settings.locked) { res.writeHead(423, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'the room is locked (Show mode)' })); }
         const chunks = []; let size = 0;
         req.on('data', (c) => { size += c.length; if (size > 25 * 1048576) { req.destroy(); return; } chunks.push(c); });
@@ -134,7 +169,7 @@ export function createServer(engine, { port, root, log }) {
     const url = new URL(req.url, 'http://x');
     const addr = req.socket.remoteAddress;
     if (url.pathname === '/ws/ui') {
-      if (!isLocal(addr) && url.searchParams.get('k') !== engine.settings.token) {
+      if (!isTrusted(addr) && url.searchParams.get('k') !== engine.settings.token) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy();
         log.warn(`UI connection refused from ${addr} (missing/wrong access key)`);
         return;
@@ -156,7 +191,7 @@ export function createServer(engine, { port, root, log }) {
     if (!client.local) log.info(`device connected from ${addr.replace('::ffff:', '')} (${deviceName(ua)})`);
     uiClients.add(client);
     updateVizListener();
-    send(ws, { ...engine.state(), lan: lanUrls(port, engine.settings.token, engine.profile.sensors.filter((s) => s.driver === 's2e').map((s) => s.host)), token: engine.settings.token, local: client.local, you: client.id });
+    send(ws, { ...engine.state(), lan: lan(), token: engine.settings.token, local: client.local, you: client.id });
     send(ws, engine.status());
     ws.on('message', async (raw) => {
       let m;
@@ -202,14 +237,17 @@ export function createServer(engine, { port, root, log }) {
     for (const c of uiClients) if (filter(c) && c.ws.readyState === 1) c.ws.send(s);
   };
 
+  let liveRoom = null, pendingEvents = []; // UI live feed: events of the frames between two live messages
   engine.on('state', () => {
-    const st = { ...engine.state(), lan: lanUrls(port, engine.settings.token, engine.profile.sensors.filter((s) => s.driver === 's2e').map((s) => s.host)), token: engine.settings.token };
+    // another room: events still waiting for the next live message belong to the old one
+    if (liveRoom !== engine.profile.id) { liveRoom = engine.profile.id; pendingEvents = []; }
+    const st = { ...engine.state(), lan: lan(), token: engine.settings.token };
     for (const c of uiClients) send(c.ws, { ...st, local: c.local, you: c.id });
   });
   const unsubLog = log.onEntry?.((entry) => broadcast({ type: 'log', entry }, (c) => c.role === 'ui'));
 
   // live touches at 30 Hz, status at 2 Hz, point clouds at ≤10 Hz (binary)
-  let liveN = 0, pendingEvents = [];
+  let liveN = 0;
   engine.on('frame', (frame) => {
     if (!uiClients.size) return;
     liveN++;
@@ -227,7 +265,7 @@ export function createServer(engine, { port, root, log }) {
       };
       broadcast(live);
     }
-    if (liveN % 30 === 0) broadcast({ ...engine.status(), clients: clientList() });
+    if (liveN % 30 === 0) broadcast({ ...engine.status(), clients: clientList(), reached: reachedList(), projections: [...uiClients].filter((c) => c.role === 'projection').length, textureWindows: [...uiClients].filter((c) => c.role === 'texture').length });
     if (liveN % 6 === 0) sendViz();
   });
 
@@ -292,7 +330,7 @@ export function createServer(engine, { port, root, log }) {
       log.info(`server listening on :${bound}`);
       resolve({
         port: bound,
-        close: () => { unsubLog?.(); for (const c of uiClients) c.ws.terminate(); for (const c of dataClients) c.ws.terminate(); server.close(); },
+        close: () => { clearInterval(ssidTimer); unsubLog?.(); for (const c of uiClients) c.ws.terminate(); for (const c of dataClients) c.ws.terminate(); server.close(); },
       });
     });
   });

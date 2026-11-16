@@ -2,11 +2,13 @@
 // Every wall is drawn THROUGH ITS MAPPING (rect or corner pin), so what the operator sees on the
 // physical wall is exactly where touches will land.
 // Modes: off (black) · identify (mapping pattern: grid, ids, zones) · debug (touches).
-// While a calibration runs, its targets are drawn on top whatever the mode.
+// While a calibration runs, its targets are drawn on top whatever the mode. While the remote's walk test is open,
+// every wall shows what the outputs send — the white touch discs of the Texture rasteriser — with the zones.
 
 import { store, on, connect } from './conn.js';
 import { uvToCanvas } from './workspace.js';
 import { shapeOutline, densify } from '/shared/geometry.js';
+import { TouchMask } from '/shared/mask.js';
 
 const c = document.getElementById('c');
 const g = c.getContext('2d');
@@ -42,8 +44,12 @@ function draw() {
   const P = S.profile;
   const mode = S.projection?.mode || 'off';
   const calib = store.status?.calib;
-  if (mode === 'off' && !calib) return;
+  const fit = S.projection?.fit;
+  const fitWall = fit && P.walls.find((w) => w.id === fit.wallId && w.mapping?.mode === 'grid');
+  const walk = !!S.projection?.walk && !calib && !fitWall;
+  if (mode === 'off' && !calib && !fitWall && !walk) return;
   g.setTransform(c.width / P.canvas.width, 0, 0, c.height / P.canvas.height, 0, 0);
+  if (walk) { drawWalk(P); return; }
 
   for (const w of P.walls) {
     const Pt = (x, y) => uvToCanvas(w, x / w.width, 1 - y / w.height);
@@ -87,7 +93,7 @@ function draw() {
     const Pt = (x, y) => uvToCanvas(w, x / w.width, 1 - y / w.height);
     const pxPerM = w.pixelRect.h / w.height;
 
-    if (mode === 'debug' || mode === 'identify') {
+    if ((mode === 'debug' || mode === 'identify') && w !== fitWall) {
       for (const [id, x, y, size, coast] of store.live?.walls?.[w.id] || []) {
         const [px, py] = Pt(x, y);
         const rad = Math.max(0.05, size / 2 + 0.02) * pxPerM;
@@ -150,7 +156,70 @@ function draw() {
       });
     }
   }
+  if (fitWall) drawFit(fitWall, fit.node);
 }
 
+/**
+ * Fit (from the calibration remote): the wall's mesh, every point, the chosen one ringed, and each touch as a cyan
+ * ring — where the system sees the hand. The operator moves the point until the ring sits under the hand.
+ */
+function drawFit(w, node) {
+  const m = w.mapping, nx = m.us.length;
+  const pxPerM = w.pixelRect.h / w.height;
+  const path = (pts) => { g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke(); };
+  g.strokeStyle = 'rgba(229,181,103,0.6)'; g.lineWidth = 2;
+  for (let j = 0; j < m.vs.length; j++) path(m.points.slice(j * nx, j * nx + nx));
+  for (let i = 0; i < nx; i++) path(m.vs.map((_, j) => m.points[j * nx + i]));
+  g.fillStyle = AMBER;
+  for (const [x, y] of m.points) { g.beginPath(); g.arc(x, y, pxPerM * 0.035, 0, Math.PI * 2); g.fill(); }
+  if (node != null && m.points[node]) {
+    const [x, y] = m.points[node];
+    const R = pxPerM * 0.11;
+    g.strokeStyle = '#fff'; g.lineWidth = 5;
+    g.beginPath(); g.arc(x, y, R, 0, Math.PI * 2); g.stroke();
+    g.lineWidth = 3;
+    line([x - R * 1.7, y], [x - R * 0.45, y]); line([x + R * 0.45, y], [x + R * 1.7, y]);
+    line([x, y - R * 1.7], [x, y - R * 0.45]); line([x, y + R * 0.45], [x, y + R * 1.7]);
+  }
+  for (const [, x, y, size] of store.live?.walls?.[w.id] || []) {
+    const [px, py] = uvToCanvas(w, x / w.width, 1 - y / w.height);
+    const rad = Math.max(0.05, size / 2 + 0.02) * pxPerM;
+    g.strokeStyle = CYAN; g.lineWidth = 6;
+    g.beginPath(); g.arc(px, py, rad, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = CYAN; g.beginPath(); g.arc(px, py, pxPerM * 0.012, 0, Math.PI * 2); g.fill();
+  }
+}
+
+/** Walk test: the touch discs exactly as the first Texture output draws them (or its defaults), zones on top. */
+const walkMask = new TouchMask();
+const walkOff = document.createElement('canvas');
+let walkImg = null, walkT = null;
+function drawWalk(P) {
+  const o = P.outputs.find((x) => x.type === 'texture' && x.enabled) || P.outputs.find((x) => x.type === 'texture')
+    || { radius: 0.08, softness: 0.5, trailMs: 250, sizeMode: 'fixed', scale: 0.25 };
+  const scale = Math.min(0.25, o.scale || 0.25); // the projection only needs to show it, not to send it
+  const w = Math.max(16, Math.round(P.canvas.width * scale)), h = Math.max(16, Math.round(P.canvas.height * scale));
+  if (walkMask.resize(w, h)) { walkOff.width = w; walkOff.height = h; walkImg = new ImageData(w, h); walkT = null; }
+  const L = store.live, now = L?.t ?? 0;
+  const dt = walkT === null || now < walkT ? 33 : Math.min(1000, now - walkT);
+  walkT = now;
+  const walls = P.walls.map((wall) => ({ wall, touches: (L?.walls?.[wall.id] || []).map(([, x, y, size]) => ({ x, y, size })) }));
+  walkMask.render(walls, o, scale, dt);
+  const m = walkMask.mask, d = walkImg.data;
+  for (let i = 0, j = 0; i < m.length; i++, j += 4) { d[j] = d[j + 1] = d[j + 2] = 255; d[j + 3] = m[i]; }
+  walkOff.getContext('2d').putImageData(walkImg, 0, 0);
+  g.imageSmoothingEnabled = true;
+  g.drawImage(walkOff, 0, 0, P.canvas.width, P.canvas.height);
+  // the walls' outlines, faint: where each wall's content is
+  g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 2;
+  for (const wl of P.walls) {
+    const Pt = (x, y) => uvToCanvas(wl, x / wl.width, 1 - y / wl.height);
+    poly(densify([[0, wl.height], [wl.width, wl.height], [wl.width, 0], [0, 0]], 0.25).map(([x, y]) => Pt(x, y))); g.stroke();
+    for (const z of P.zones.filter((q) => q.space !== 'canvas' && q.wallId === wl.id)) drawZone(z, densify(shapeOutline(z, 48), 0.1).map(([x, y]) => Pt(x, y)));
+  }
+  for (const z of P.zones.filter((q) => q.space === 'canvas')) drawZone(z, shapeOutline(z, 64));
+}
+
+window.__proj = { draw }; // UI tests: a hidden window paints no frames, they draw on demand
 on('state', () => {});
 connect();

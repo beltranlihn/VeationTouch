@@ -91,12 +91,21 @@ data packets: universe 1–63999, *Priority* 0–200 (default 100), START code 0
 time out after 2.5 s). Destination `multicast` (default) = the universe's group `239.255.<hi>.<lo>`; or a receiver's
 IP for unicast.
 
-## Texture (Spout, same machine)
+## Texture (Spout, NDI or full screen)
 
 A greyscale mask of the touches — white discs on black — rendered in output-canvas pixels through each wall's
-Mapping, shared as a Spout sender (default name `VEATION Touch`). Options: resolution (1/8 … full canvas),
-disc radius (m), soft edge, trail (ms), rate (default 30 Hz). Receive it with TouchDesigner's *Syphon Spout In
-TOP*, Resolume/MadMapper Spout sources, or a Spout plugin in Unreal. One Texture output per installation.
+Mapping. Each Texture output goes to **one** destination (`sink`), and only that one runs:
+
+| `sink` | Where | Receive it with |
+|---|---|---|
+| `spout` (default) | this computer — a Spout sender named `senderName` (default `VEATION Touch`) | TouchDesigner *Syphon Spout In TOP*, Resolume / MadMapper Spout source, Unreal Spout plugin |
+| `ndi` | the network — the NDI source `<COMPUTER> (<senderName>)`, BGRA frames at `rateHz` | TouchDesigner *NDI In TOP*, Resolume / MadMapper / OBS NDI source, Unreal NDI plugin |
+| `window` | a full-screen window on display `displayId` (desktop app), `fit` = `fit` (canvas proportions, black around) or `stretch` | a capture card or another machine's video input; any browser can open `/texture?o=<id>` |
+
+Options: resolution (1/8 … full canvas), disc radius (m), disc size (`sizeMode`: `fixed`, or `touch` — the disc takes
+half the touch's measured width, never less than the radius), soft edge, trail (ms), rate (default 30 Hz), walls.
+Only one output at a time can use Spout (one sender per process); NDI and full screen have no such limit. NDI uses the
+NDI Runtime installed on the computer (free, ndi.video — not bundled). NDI® is a registered trademark of Vizrt NDI AB.
 
 ## Canvas coordinates and Mapping
 

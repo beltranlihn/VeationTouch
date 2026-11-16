@@ -25,7 +25,10 @@ try {
   if (key) localStorage.setItem('vt-key', key);
   else key = localStorage.getItem('vt-key');
 } catch { /* storage blocked */ }
-if (params.has('k')) history.replaceState(null, '', location.pathname); // keep the key out of screenshots
+if (params.has('k')) { // keep the key out of screenshots (and the rest of the query: the texture page needs ?o=)
+  const rest = new URLSearchParams(location.search); rest.delete('k');
+  history.replaceState(null, '', `${location.pathname}${[...rest].length ? `?${rest}` : ''}`);
+}
 
 export const isCoarse = matchMedia('(pointer:coarse)').matches;
 
@@ -38,12 +41,13 @@ export async function upload(pathname, body, extra = '') {
   if (!r.ok) throw new Error(j.error || `upload failed (${r.status})`);
   return j;
 }
-let ws = null, nextId = 1, retry = 0;
+let ws = null, nextId = 1, retry = 0, unpaired = false;
 let serverProfile = null;
 const pending = new Map();
-const isProjection = location.pathname.startsWith('/projection');
-const role = isProjection ? 'projection' : params.get('role') || 'ui';
-let wantViz = !isProjection;
+// the pages that only draw (projection, full-screen texture) never need point clouds
+const pageRole = location.pathname.startsWith('/projection') ? 'projection' : location.pathname.startsWith('/texture') ? 'texture' : null;
+const role = pageRole || params.get('role') || 'ui';
+let wantViz = !pageRole;
 
 function url() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -57,13 +61,18 @@ export function connect() {
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
     retry = 0;
+    unpaired = false;
     store.connected = true;
     sendHello();
     emit('connection', true);
   };
   ws.onclose = () => {
     store.connected = false;
-    emit('connection', false);
+    emit('connection', unpaired ? 'unpaired' : false);
+    // the page loads but the UI channel is refused: tell "this device is not paired" apart from "engine down"
+    fetch(`/api/pair-check${key ? `?k=${encodeURIComponent(key)}` : ''}`, { cache: 'no-store' })
+      .then((r) => r.json()).then((j) => { const u = j.paired === false; if (u !== unpaired) { unpaired = u; emit('connection', u ? 'unpaired' : false); } })
+      .catch(() => {});
     for (const p of pending.values()) p.reject(new Error('connection lost'));
     pending.clear();
     setTimeout(connect, Math.min(5000, 300 * 2 ** retry++));
@@ -73,7 +82,7 @@ export function connect() {
     const m = JSON.parse(ev.data);
     switch (m.type) {
       case 'state':
-        if (serverProfile && serverProfile.id !== m.profile.id) history.clear();
+        if (serverProfile && serverProfile.id !== m.profile.id) { history.clear(); store.events.length = 0; emit('events', []); } // another room: its own history and events
         store.state = m; serverProfile = m.profile; emit('state', m);
         break;
       case 'status': store.status = { ...m, clients: m.clients ?? store.status?.clients }; emit('status', m); break;

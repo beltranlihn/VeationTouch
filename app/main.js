@@ -20,6 +20,8 @@ crashReporter.start({ uploadToServer: false, compress: true });
 let engine = null, enginePort = null, engineReady = false;
 let mainWin = null, projWin = null, tray = null, quitting = false;
 let restarts = 0, startedAt = 0, projection = { open: false, displayId: null };
+let texWanted = [];            // Texture outputs shown full screen: [{id, displayId}] from the engine
+const texWins = new Map();     // output id → its full-screen window
 
 function log(msg) {
   const line = `${new Date().toISOString()} MAIN  ${msg}\n`;
@@ -59,7 +61,12 @@ function onEngineMessage(m) {
     sendDisplays();
     if (mainWin) mainWin.loadURL(uiUrl()); else if (!HIDDEN) createMainWindow();
     applyProjection();
+    texWanted = m.textureWindows || [];
+    applyTextureWindows();
     applyAutostart(m.autostart);
+  } else if (m?.type === 'textureWindows') {
+    texWanted = m.list;
+    applyTextureWindows();
   } else if (m?.type === 'projection') {
     projection = m.projection;
     applyProjection();
@@ -140,6 +147,31 @@ function applyProjection() {
   projWin.loadURL(uiUrl('/projection'));
 }
 
+/** One full-screen window per Texture output sent to a display (the page draws the mask from the live touches). */
+function applyTextureWindows() {
+  const displays = screen.getAllDisplays();
+  const want = new Map(engineReady ? texWanted.filter((t) => displays.some((d) => d.id === t.displayId)).map((t) => [t.id, t]) : []);
+  for (const [id, w] of texWins) if (!want.has(id)) { w.destroy(); texWins.delete(id); }
+  for (const [id, t] of want) {
+    const b = displays.find((d) => d.id === t.displayId).bounds;
+    let w = texWins.get(id);
+    if (!w) {
+      w = new BrowserWindow({
+        x: b.x, y: b.y, width: b.width, height: b.height, frame: false, fullscreen: true, show: false,
+        backgroundColor: '#000000', skipTaskbar: true, autoHideMenuBar: true, title: `VEATION Touch — Texture ${id}`,
+        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+      });
+      w.once('ready-to-show', () => w.showInactive());
+      w.on('closed', () => { if (texWins.get(id) === w) texWins.delete(id); });
+      w.webContents.on('render-process-gone', () => setTimeout(() => w.isDestroyed() || w.loadURL(uiUrl(`/texture?o=${encodeURIComponent(id)}`)), 1000));
+      texWins.set(id, w);
+      w.loadURL(uiUrl(`/texture?o=${encodeURIComponent(id)}`));
+    } else if (JSON.stringify(w.getBounds()) !== JSON.stringify(b)) {
+      w.setFullScreen(false); w.setBounds(b); w.setFullScreen(true);
+    }
+  }
+}
+
 function applyAutostart(enabled) {
   if (!app.isPackaged) return; // dev runs must not register electron.exe at login
   app.setLoginItemSettings({ openAtLogin: !!enabled, args: ['--hidden'] });
@@ -169,7 +201,7 @@ app.whenReady().then(() => {
   powerSaveBlocker.start('prevent-display-sleep'); // projection + sensors must not sleep mid-show
   createTray();
   startEngine();
-  for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => { sendDisplays(); applyProjection(); });
+  for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => { sendDisplays(); applyProjection(); applyTextureWindows(); });
 });
 app.on('window-all-closed', (e) => { if (!quitting) e.preventDefault?.(); });
 app.on('before-quit', () => {

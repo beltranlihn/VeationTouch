@@ -12,11 +12,12 @@ import { CornerLinker } from './core/corners.js';
 import { CalibrationSession, defaultTargets, VerifySession, verifyTargets } from './core/calibration.js';
 import { OutputManager } from './outputs/outputs.js';
 import { normalizeProfile, blankProfile, wallToUv } from './profile.js';
-import { firewallStatus, fixFirewall } from './net.js';
+import { firewallStatus, fixFirewall, setInterfaceAddress, openHotspotSettings } from './net.js';
 import { autoAlign, backgroundPoints } from './core/autoalign.js';
 import { levelCheck } from './core/levelcheck.js';
 import { Recorder, ReplaySource, ReplayDriver, listRecordings, readHeader } from './record.js';
-import { discover, setStaticIp } from './discover.js';
+import { discover, factoryNetwork, readdress, unconfiguredInterfaces, suggestAddresses, onNetwork, SERVER_SENSOR_IP, FACTORY_IP } from './discover.js';
+import { lanInterfaces } from './mdns.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -41,6 +42,7 @@ export class Engine extends EventEmitter {
     this.outputs = new OutputManager(log);
     this.calib = null;
     this.control = null;        // device driving the running calibration / verification {id, device, addr, since, gone}
+    this.fit = null;            // Fit from the calibration remote {wallId, node, client}: the projection highlights that mesh point
     this.bgJobs = new Map();    // sensorId → {done, frames}
     this.seq = 0;
     this.startedAt = Date.now();
@@ -78,7 +80,8 @@ export class Engine extends EventEmitter {
     if (this.settings.activeProfile !== profile.id) { this.settings.activeProfile = profile.id; this.store.saveSettings(this.settings); }
 
     // trackers (a different room starts from scratch)
-    if (prev && prev.id !== profile.id) this.trackers.clear();
+    if (prev && prev.id !== profile.id) { this.trackers.clear(); this.corners.reset(); this.fit = null; }
+    if (this.fit && !profile.walls.some((w) => w.id === this.fit.wallId)) this.fit = null;
     for (const w of profile.walls) {
       let t = this.trackers.get(w.id);
       if (t) { t.wall = w; t.configure(profile.tracking); } else { t = new WallTracker(w, profile.tracking, this.ids); this.trackers.set(w.id, t); }
@@ -118,10 +121,12 @@ export class Engine extends EventEmitter {
       } else {
         rt.cfg = s;
         rt.pipeline.configure(s, wall, profile.processing);
-        if (rt.driver instanceof SimDriver) { rt.driver.setWanderers(profile.simulation.wanderers); rt.driver.setPlane(profile.simulation.planes[s.id]); }
+        if (rt.driver instanceof SimDriver) rt.driver.setPlane(profile.simulation.planes[s.id]);
       }
     }
+    this._syncWanderers();
     this.zones.configure(profile.zones, profile.walls);
+    this._syncTextureWindows();
     this.outputs.configure(profile);
     if (this.calib && !profile.walls.some((w) => w.id === this.calib.wall.id)) this.calib = null;
     if (this.verify && !profile.walls.some((w) => w.id === this.verify.wall.id)) this.verify = null;
@@ -162,7 +167,10 @@ export class Engine extends EventEmitter {
     for (const t of linked.touches) (byWall[t.wallId] ??= []).push(t);
     const walls = [];
     for (const w of this.profile.walls) if (this.trackers.has(w.id)) walls.push({ wall: w, touches: byWall[w.id] ??= [] });
-    if (this.verify) this.verify.feed(byWall[this.verify.wall.id] || [], t0);
+    if (this.verify) {
+      this.verify.feed(byWall[this.verify.wall.id] || [], t0);
+      if (this.verify.phase === 'done' && !this.verify.saved) { const v = this.verify; v.saved = true; setImmediate(() => this._saveVerification(v)); } // not mid-frame
+    }
     const z = this.zones.update(byWall, t0);
     this.burst.add(events);
     const frame = {
@@ -235,7 +243,10 @@ export class Engine extends EventEmitter {
   state() {
     return {
       type: 'state', rev: this.rev, version: this.version, profile: this.profile, profiles: this.store.listProfiles(),
-      projection: this.settings.projection, displays: this.displays, autostart: this.settings.autostart,
+      // fit: the mesh point the calibration remote is moving, highlighted by the projection (never saved)
+      // walk: the remote's walk test is open — the projection shows what the outputs send, on every wall (never saved)
+      projection: { ...this.settings.projection, fit: this.fit ? { wallId: this.fit.wallId, node: this.fit.node } : null, walk: !!this.walk },
+      displays: this.displays, autostart: this.settings.autostart,
       locked: !!this.settings.locked,
       localName: this.mdns ? { ...this.mdns.info(), port: this.port || null } : null,
       underlay: (() => { const u = this.store.underlayInfo(this.profile.id); return u ? { url: `/api/underlay?p=${encodeURIComponent(this.profile.id)}&v=${u.v}` } : null; })(),
@@ -269,7 +280,7 @@ export class Engine extends EventEmitter {
         this.settings.locked = !!args.locked;
         this.store.saveSettings(this.settings);
         this.log.info(this.settings.locked ? 'room locked (Show mode)' : 'room unlocked');
-        if (this.settings.locked) { this._cancelCalibration(); this.verify = null; }
+        if (this.settings.locked) { this._cancelCalibration(); this.verify = null; this._syncWanderers(); }
         this.emit('state');
         return { locked: this.settings.locked };
       }
@@ -284,6 +295,12 @@ export class Engine extends EventEmitter {
       case 'profile.update': {
         if (args.rev !== undefined && args.rev !== this.rev) throw new Error('stale: the profile changed on another device — reloaded');
         const next = normalizeProfile({ ...args.profile, id: P.id });
+        // a verification measured one mapping and one calibration: when either changes, it no longer holds
+        for (const w of next.walls) {
+          const was = P.walls.find((x) => x.id === w.id);
+          const cal = (p, id) => JSON.stringify(p.sensors.filter((s) => s.wallId === id).map((s) => s.calibration));
+          if (!was || JSON.stringify(was.mapping) !== JSON.stringify(w.mapping) || cal(P, w.id) !== cal(next, w.id)) w.verified = null;
+        }
         this._activate(this.store.saveProfile(next));
         return { rev: this.rev };
       }
@@ -347,6 +364,7 @@ export class Engine extends EventEmitter {
         if (this.calib) throw new Error('finish or cancel the calibration first');
         this.verify = new VerifySession(wall, verifyTargets(wall, args));
         this._setOwner(who);
+        this._syncWanderers();
         this.log.info(`verification started on ${wall.id}${who ? ` from ${who.device}` : ''}`);
         this.emit('state');
         return { targets: this.verify.targets.length };
@@ -354,6 +372,7 @@ export class Engine extends EventEmitter {
       case 'verify.cancel': {
         if (this.verify) this.log.info(`verification on ${this.verify.wall.id} closed${this.verify.summary() ? ` — mean ${this.verify.summary().meanMm} mm, max ${this.verify.summary().maxMm} mm` : ''}`);
         this.verify = null;
+        this._syncWanderers();
         this.emit('state');
         return {};
       }
@@ -390,17 +409,47 @@ export class Engine extends EventEmitter {
         // never probe a unit we are streaming from: any request would interrupt its data
         const running = [...this.sensors.values()].filter((rt) => rt.cfg.driver === 's2e' && rt.status.state === 'scanning').map((rt) => rt.cfg.host);
         const found = await discover({ skip: running });
-        const byHost = new Map(this.profile.sensors.filter((s) => s.driver === 's2e').map((s) => [s.host, s.id]));
+        const s2e = this.profile.sensors.filter((s) => s.driver === 's2e');
+        const byHost = new Map(s2e.map((s) => [s.host, s.id]));
         this.log.info(`discovery: ${found.length} unit(s) answered${running.length ? `, ${running.length} running sensor(s) not probed` : ''}`);
+        const network = factoryNetwork(lanInterfaces()); // can this PC reach a factory-new unit at all?
+        // the address each wall's unit should get: the one its sensor in the profile is waiting on (nothing answers
+        // there yet), otherwise the next free one (.11, .12…) on the sensor network
+        const answering = new Set([...found.map((f) => f.host), ...running]);
+        const waiting = new Map(this.profile.walls.map((w) => [w.id, s2e.find((s) => s.wallId === w.id && s.host !== FACTORY_IP && !answering.has(s.host)
+          && (!network.via || onNetwork(network.via, s.host)))]).filter(([, s]) => s));
+        const auto = suggestAddresses(this.profile.walls.filter((w) => !waiting.has(w.id)).map((w) => w.id), network.via, [...answering, ...s2e.map((s) => s.host)]);
+        const suggest = Object.fromEntries(this.profile.walls.map((w) => [w.id, waiting.has(w.id) ? { ip: waiting.get(w.id).host, sensorId: waiting.get(w.id).id } : { ip: auto[w.id], sensorId: null }]));
         return {
-          found: found.map((f) => ({ ...f, usedBy: byHost.get(f.host) || null, factoryDefault: f.host === '192.168.11.2' })),
+          found: found.map((f) => ({ ...f, usedBy: byHost.get(f.host) || null, factoryDefault: f.host === FACTORY_IP })),
           running: running.map((h) => ({ host: h, usedBy: byHost.get(h) })),
+          network: { ...network, unconfigured: unconfiguredInterfaces(), serverIp: SERVER_SENSOR_IP },
+          suggest,
         };
       }
-      case 'sensor.setIp': {
-        const r = await setStaticIp({ host: args.host, ip: args.ip, mask: args.mask, gw: args.gw });
-        this.log.warn(`static IP of ${args.host} set to ${r.ip} (experimental command) — the unit resets`);
-        return r;
+      case 'sensor.readdress': {
+        // give a unit a new address and CONFIRM it (it answers there with the same serial); the profile follows it
+        const ip = String(args.ip || '').trim(), port = Number(args.port) || 8089;
+        if (!/^127\./.test(ip) && !lanInterfaces().some((i) => onNetwork(i, ip))) {
+          throw new Error(`this computer has no address on the network of ${ip}: it could not reach the sensor there. Set up its network card first.`);
+        }
+        const r = await readdress({ host: args.host, port, ip, mask: args.mask, gw: args.gw, waitMs: args.waitMs || 20000 });
+        this.log.info(`S2E ${r.serial || ''} moved from ${args.host} to ${r.ip}`.replace('  ', ' '));
+        const next = structuredClone(this.profile);
+        const a = args.assign || {};
+        let s = (a.sensorId && next.sensors.find((x) => x.id === a.sensorId)) || next.sensors.find((x) => x.driver === 's2e' && x.host === args.host);
+        const wall = next.walls.find((w) => w.id === (a.wallId || s?.wallId));
+        if (!s && wall) {
+          let n = 1;
+          while (next.sensors.some((x) => x.id === `S${n}`)) n++;
+          s = { id: `S${n}`, name: `LiDAR ${wall.id}`, wallId: wall.id, driver: 's2e', pose: { x: wall.width / 2, y: wall.height + 0.3, rotation: -90 } };
+          next.sensors.push(s);
+        }
+        if (s) {
+          Object.assign(s, { driver: 's2e', host: r.ip, port, enabled: true, ...(wall ? { wallId: wall.id } : {}) });
+          this._activate(this.store.saveProfile(normalizeProfile(next)));
+        }
+        return { ...r, sensorId: s?.id || null, wallId: s ? (wall?.id || s.wallId) : null };
       }
 
       case 'sensor.autoAlign': {
@@ -445,6 +494,18 @@ export class Engine extends EventEmitter {
       }
 
       case 'projection.set': {
+        if ('walk' in args) {
+          this.walk = args.walk ? { client: args.__client?.id ?? null } : null;
+          if (!('fit' in args) && !args.mode && !('displayId' in args) && !('open' in args)) { this.emit('state'); return {}; }
+        }
+        if ('fit' in args) {
+          // Fit, from the calibration remote: the projection draws that wall's mesh and highlights one point
+          const f = args.fit;
+          this.fit = f && this.profile.walls.some((w) => w.id === f.wallId)
+            ? { wallId: f.wallId, node: Number.isInteger(f.node) && f.node >= 0 ? f.node : null, client: args.__client?.id ?? null } : null;
+          this._syncWanderers();
+          if (!args.mode && !('displayId' in args) && !('open' in args)) { this.emit('state'); return {}; }
+        }
         const pr = this.settings.projection;
         if (args.mode && ['off', 'identify', 'debug'].includes(args.mode)) pr.mode = args.mode;
         if ('displayId' in args) pr.displayId = args.displayId;
@@ -513,6 +574,20 @@ export class Engine extends EventEmitter {
         this.store.saveSettings(this.settings);
         this.emit('state');
         return { host: `${name}.local` };
+      }
+      case 'net.setSensorNic': {
+        // the network card on the sensors' switch (no DHCP: it only has a 169.254 address) gets 192.168.11.5
+        if (!args.__local) throw new Error('run this from the server itself (Windows asks for administrator rights there)');
+        const nic = unconfiguredInterfaces().find((i) => i.name === args.iface);
+        if (!nic) throw new Error('that network card is not waiting for an address (only a card on a network without DHCP is set up from here)');
+        await setInterfaceAddress(nic.name, SERVER_SENSOR_IP);
+        this.log.info(`network card "${nic.name}" set to ${SERVER_SENSOR_IP} for the sensors`);
+        return { iface: nic.name, ip: SERVER_SENSOR_IP };
+      }
+      case 'net.openHotspot': {
+        if (!args.__local) throw new Error('open it on the server itself');
+        await openHotspotSettings();
+        return {};
       }
       case 'net.fixFirewall': {
         if (!args.__local) throw new Error('run this from the server itself (Windows asks for administrator rights there)');
@@ -590,10 +665,32 @@ export class Engine extends EventEmitter {
     const targets = Array.isArray(args.targets) && args.targets.length >= 3 ? args.targets : defaultTargets(wall, args);
     this.calib = new CalibrationSession(wall, ids, targets, { holdMs: args.holdMs ?? 700 });
     this._setOwner(args.__client);
+    this._syncWanderers();
     this.trackers.get(wall.id)?.clear();
     this.log.info(`calibration started on ${wall.id} with ${targets.length} targets (${ids.join(', ')})${args.__client ? ` from ${args.__client.device}` : ''}`);
     this.emit('state');
     return { targets: targets.length };
+  }
+
+  /** Texture outputs shown full screen (enabled, sink 'window', a display chosen): one window each, opened by the desktop app. */
+  textureWindows() {
+    return this.profile.outputs.filter((o) => o.type === 'texture' && o.enabled && o.sink === 'window' && o.displayId != null)
+      .map((o) => ({ id: o.id, displayId: o.displayId }));
+  }
+
+  _syncTextureWindows() {
+    const list = this.textureWindows(), key = JSON.stringify(list);
+    if (key === this._texKey) return;
+    this._texKey = key;
+    this.emit('textureWindows', list);
+  }
+
+  /** Simulated wandering hands, except on the wall being calibrated, verified or fitted (they would hit its targets). */
+  _syncWanderers() {
+    const busy = new Set([this.calib?.wall.id, this.verify?.wall.id, this.fit?.wallId].filter(Boolean));
+    for (const rt of this.sensors.values()) {
+      if (rt.driver instanceof SimDriver) rt.driver.setWanderers(busy.has(rt.cfg.wallId) ? 0 : this.profile.simulation.wanderers);
+    }
   }
 
   // ------------------------------------------------------------------ control of a calibration session
@@ -617,6 +714,9 @@ export class Engine extends EventEmitter {
 
   /** The server tells us a UI device went away: if it was driving, anyone may take over (the session keeps running). */
   clientGone(id) {
+    // the device that was fitting a mesh went away: the projection stops highlighting its point
+    if (this.fit && this.fit.client === id) { this.fit = null; this._syncWanderers(); this.emit('state'); }
+    if (this.walk && this.walk.client === id) { this.walk = null; this.emit('state'); }
     if (this.control?.id !== id || this.control.gone) return;
     this.control.gone = true;
     if (this._owner()) this.log.warn(`${this.control.device} disconnected during the calibration — any device can continue it`);
@@ -626,7 +726,22 @@ export class Engine extends EventEmitter {
     if (!this.calib) return;
     this.log.info(`calibration on ${this.calib.wall.id} cancelled`);
     this.calib = null;
+    this._syncWanderers();
     this.emit('state');
+  }
+
+  /** The last verification of a wall, kept with the wall (the room setup guide and the remote read it). */
+  _saveVerification(v) {
+    const s = v.summary();
+    if (!s) return;
+    const prof = structuredClone(this.profile);
+    const w = prof.walls.find((x) => x.id === v.wall.id);
+    if (!w) return;
+    const worst = v.targets.reduce((b, t, k) => (t.errMm !== null && (b < 0 || t.errMm > v.targets[b].errMm) ? k : b), -1);
+    w.verified = { at: new Date().toISOString(), meanMm: s.meanMm, maxMm: s.maxMm, n: s.n, pass: s.maxMm <= VERIFY_PASS_MM,
+      worst: worst >= 0 ? { x: v.targets[worst].x, y: v.targets[worst].y, errMm: v.targets[worst].errMm } : null };
+    this._activate(this.store.saveProfile(prof));
+    this.log.info(`verification of ${w.id}: mean ${s.meanMm} mm, worst ${s.maxMm} mm — ${w.verified.pass ? 'pass' : 'not good enough for hands'}`);
   }
 
   _applyCalibration() {
@@ -639,6 +754,8 @@ export class Engine extends EventEmitter {
       const r = c.result[s.id];
       if (r?.ok) { s.calibration = { matrix: r.matrix, kind: r.kind, rmsMm: r.rmsMm, maxMm: r.maxMm, points: r.points, at }; applied.push(s.id); }
     }
+    const cw = prof.walls.find((w) => w.id === c.wall.id);
+    if (cw) cw.verified = null; // a new calibration has not been verified yet
     this.calib = null;
     this._activate(this.store.saveProfile(prof));
     this.log.info(`calibration applied to ${applied.join(', ') || 'no sensor'}`);
@@ -647,6 +764,8 @@ export class Engine extends EventEmitter {
 }
 
 const r4 = (v) => Math.round(v * 10000) / 10000;
+/** A verification passes when its worst point is within a hand radius. */
+export const VERIFY_PASS_MM = 25;
 
 /** Commands only the device driving a calibration / verification may send while it runs. */
 const CONTROL_OPS = new Set([
@@ -659,5 +778,5 @@ const CONTROL_OPS = new Set([
 const LOCKED_OPS = new Set([
   'profile.update', 'profile.load', 'profile.create', 'profile.import', 'profile.delete', 'profile.restore',
   'bg.capture', 'bg.clear', 'calib.start', 'calib.apply', 'calib.clear', 'verify.start', 'sensor.autoAlign',
-  'replay.start', 'rec.delete', 'sensor.discover', 'sensor.setIp',
+  'replay.start', 'rec.delete', 'sensor.discover', 'sensor.readdress', 'net.setSensorNic',
 ]);

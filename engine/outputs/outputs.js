@@ -279,7 +279,10 @@ export class OutputManager {
   }
 
   snapshot() {
-    return Object.fromEntries([...this.stats].map(([k, v]) => [k, { sent: v.sent, errors: v.errors, lastError: v.lastError }]));
+    return Object.fromEntries([...this.stats].map(([k, v]) => {
+      const t = this.textures?.get(k);
+      return [k, { sent: v.sent, errors: v.errors, lastError: v.lastError, ...(t?.receivers != null ? { receivers: t.receivers } : {}) }];
+    }));
   }
 
   close() {

@@ -37,6 +37,8 @@ export class CalibrationSession {
     this.lastDetection = 0;
     this.firstCaptureAt = 0;
     this.result = null;
+    this.autoRedo = null;          // {index, errMm}: a capture that disagreed with the others is being asked again
+    this.autoRedone = new Set();   // each target is asked again automatically at most once
   }
 
   get current() { return this.targets[this.index] || null; }
@@ -87,12 +89,53 @@ export class CalibrationSession {
       this.index = this.targets.length;
     } else this.index++;
     this.phase = this.index >= this.targets.length ? 'done' : 'waiting';
-    if (this.phase === 'done') this.result = this.solve();
+    if (this.phase === 'done') this._finish();
+  }
+
+  /**
+   * Solve; a capture that disagrees with all the others (the wrong dot was touched, the hand was off the dot, someone
+   * else walked through the plane) is asked again automatically — once per target — before the result is shown.
+   */
+  _finish() {
+    this.result = this.solve();
+    const s = this.suspectTarget();
+    if (s && !this.autoRedone.has(s.index)) {
+      this.autoRedone.add(s.index);
+      this.redoTarget(s.index);
+      this.autoRedo = s;
+    }
+  }
+
+  /**
+   * Leave-one-out: fit every sensor without each target in turn. Without the bad one, the others agree (their own
+   * residual is small) and the bad one lands far from where they put it (> 4 cm and 5× their residual). A good target
+   * left out does not look like that: the bad one, still in, spoils the fit of the rest.
+   * @returns {{index:number, errMm:number, sensorId:string}|null}
+   */
+  suspectTarget() {
+    let worst = null;
+    for (const sid of this.sensorIds) {
+      const r = this.result?.[sid];
+      if (!r?.ok || r.pairs.length < 6) continue;
+      r.pairs.forEach((p, i) => {
+        const rest = r.pairs.filter((_, j) => j !== i);
+        const src = rest.map((q) => q.sensor), dst = rest.map((q) => q.wall);
+        // affine, not homography: 8 points nearly pin down a homography's 8 unknowns, so it would bend to fit a bad
+        // point; the sensor-to-wall transform is close to rigid, which an affine fit holds with room to spare
+        const m = fitAffine(src, dst);
+        if (!m || !isWellConditioned(m)) return;
+        const restRms = residuals(m, src, dst).rms;
+        const err = residuals(m, [p.sensor], [p.wall]).errors[0];
+        if (err > Math.max(0.04, 5 * restRms) && (!worst || err > worst.err)) worst = { index: p.index, err, sensorId: sid };
+      });
+    }
+    return worst ? { index: worst.index, errMm: Math.round(worst.err * 1000), sensorId: worst.sensorId } : null;
   }
 
   /** Redo one target (e.g. the worst one) and come back to the result. */
   redoTarget(i) {
     if (i < 0 || i >= this.targets.length) return;
+    this.autoRedo = null;
     this.targets[i].captured = {};
     this.targets[i].skipped = false;
     this.index = i;
@@ -103,8 +146,13 @@ export class CalibrationSession {
     this.phase = 'waiting';
   }
 
-  /** Index of the target with the largest residual over all sensors (or -1). */
+  /**
+   * The target to redo: the one that disagrees with the others (leave-one-out) if there is one — a homography bends
+   * towards a bad point and can put the largest residual on its neighbour — else the largest residual (or -1).
+   */
   worstTarget() {
+    const s = this.result ? this.suspectTarget() : null;
+    if (s) return s.index;
     let worst = -1, err = -1;
     for (const r of Object.values(this.result || {})) {
       for (const p of r.pairs || []) if (p.errMm > err) { err = p.errMm; worst = p.index; }
@@ -159,7 +207,7 @@ export class CalibrationSession {
   snapshot(tMs) {
     return {
       wallId: this.wall.id, sensorIds: this.sensorIds, index: this.index, phase: this.phase,
-      progress: this.progress(tMs), redoing: !!this.returnToDone,
+      progress: this.progress(tMs), redoing: !!this.returnToDone, autoRedo: this.autoRedo,
       targets: this.targets.map((t) => ({ x: t.x, y: t.y, skipped: t.skipped, captured: Object.keys(t.captured) })),
       result: this.result,
       worst: this.phase === 'done' ? this.worstTarget() : -1,

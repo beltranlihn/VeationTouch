@@ -6,7 +6,7 @@
 // through it, gets defaults, gets clamped, and old schema versions are migrated.
 
 import { PROCESSING_DEFAULTS } from './core/pipeline.js';
-import { fitHomography, apply as applyH, gridMap, boundsOf, polygonArea, polygonsOverlap, shapeOutline, mappingOutline, planCloses } from './core/geometry.js';
+import { boundsOf, polygonArea, polygonsOverlap, shapeOutline, mappingOutline, planCloses, wallUvToCanvas } from './core/geometry.js';
 import { TRACKER_DEFAULTS } from './core/tracker.js';
 
 export const SCHEMA = 1;
@@ -62,6 +62,13 @@ function normMapping(m, pixelRect, canvas) {
   return { mode, corners: m.corners.map(([x, y]) => [cl(x, canvas.width), cl(y, canvas.height)]) };
 }
 
+function normVerified(v) {
+  if (!v || typeof v !== 'object' || !Number.isFinite(v.maxMm)) return null;
+  const mm = (x) => Math.round(num(x, 0, 0, 100000) * 10) / 10;
+  const worst = v.worst && Number.isFinite(v.worst.x) && Number.isFinite(v.worst.y) ? { x: num(v.worst.x, 0, -100, 100), y: num(v.worst.y, 0, -100, 100), errMm: mm(v.worst.errMm) } : null;
+  return { at: str(v.at), meanMm: mm(v.meanMm), maxMm: mm(v.maxMm), n: int(v.n, 0, 0, 100), pass: v.pass === true, worst };
+}
+
 function normWall(w, i, canvas) {
   const width = num(w?.width, 6, 0.2, 100);
   const height = num(w?.height, 3, 0.2, 30);
@@ -87,6 +94,8 @@ function normWall(w, i, canvas) {
     pixelRect,
     mapping,
     planeOffset: num(w?.planeOffset, 0.02, 0, 1), // informational: distance scan plane ↔ wall
+    // the last verification (written by the engine, dropped when the mapping or the calibration changes)
+    verified: normVerified(w?.verified),
     turn: num(w?.turn, 90, -180, 180), // floor plan (3D view): corner to the NEXT wall, degrees clockwise seen from above
     // a hand crossing the corner to the next wall stays ONE touch (same id); unset = decided per room below
     joinNext: typeof w?.joinNext === 'boolean' ? w.joinNext : null,
@@ -193,6 +202,11 @@ function normOutput(o, i) {
     senderName: str(o?.senderName, 'VEATION Touch').replace(/[^\w .-]/g, '').slice(0, 60) || 'VEATION Touch',
     scale: [0.125, 0.25, 0.5, 1].includes(o?.scale) ? o.scale : 0.25,
     radius: num(o?.radius, 0.08, 0.01, 1),
+    sizeMode: o?.sizeMode === 'touch' ? 'touch' : 'fixed', // 'touch': the disc grows with what touches (radius = the minimum)
+    // where the texture goes — only this one runs: Spout (same machine), NDI (network), or a full-screen window
+    sink: ['spout', 'ndi', 'window'].includes(o?.sink) ? o.sink : 'spout',
+    displayId: Number.isFinite(o?.displayId) ? o.displayId : null, // 'window': the display it fills
+    fit: o?.fit === 'stretch' ? 'stretch' : 'fit',                  // 'window': keep the canvas proportions, or fill
     softness: num(o?.softness, 0.5, 0, 1),
     trailMs: int(o?.trailMs, 0, 0, 10000),
     // webhook: zone events POSTed as JSON
@@ -278,24 +292,8 @@ function migrate(p) {
   return p;
 }
 
-const hCache = new WeakMap();
-/** Homography wall-UV (0..1, top-left) → canvas pixels for a corners mapping. */
-export function mappingMatrix(mapping) {
-  let H = hCache.get(mapping);
-  if (!H) {
-    H = fitHomography([[0, 0], [1, 0], [1, 1], [0, 1]], mapping.corners) || [1, 0, 0, 0, 1, 0, 0, 0, 1];
-    hCache.set(mapping, H);
-  }
-  return H;
-}
-
-/** Canvas pixel of a wall UV (0..1, origin top-left), honouring the wall mapping. */
-export function wallUvToCanvas(wall, u, v) {
-  if (wall.mapping?.mode === 'grid') return gridMap(wall.mapping, u, v);
-  if (wall.mapping?.mode === 'corners') return applyH(mappingMatrix(wall.mapping), u, v);
-  const r = wall.pixelRect;
-  return [r.x + u * r.w, r.y + v * r.h];
-}
+/** Canvas pixel of a wall UV (0..1, origin top-left), honouring the wall mapping (shared with the UI). */
+export { wallUvToCanvas };
 
 /** Pixel position of a wall point (metres) in the output canvas. */
 export function wallToCanvas(wall, x, y) {

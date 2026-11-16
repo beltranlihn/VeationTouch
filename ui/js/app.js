@@ -82,6 +82,16 @@ const ws = new Workspace($('roomCanvas'), {
   changed: () => { render(); renderBar(); hint(); },
 });
 ctx.ws = ws;
+// the tool bar ends where the view buttons (Undo, Redo, Fit, Points, Content) begin, whatever their number
+{
+  const tools = document.querySelector('.stage-tools'), bar = $('wsBar');
+  const fitBar = () => {
+    const sameRow = tools.getBoundingClientRect().top < bar.getBoundingClientRect().top + 30;
+    bar.style.right = sameRow ? `${tools.offsetWidth + 24}px` : '';
+  };
+  new ResizeObserver(fitBar).observe(tools);
+  addEventListener('resize', fitBar);
+}
 const r3d = new Room3D($('room3d'), { hand: handHook, ws, changed: () => renderBar() });
 ctx.r3d = r3d;
 
@@ -128,7 +138,8 @@ let pending = false, lastRender = 0;
 function render() {
   if (!store.state) return;
   const a = document.activeElement;
-  if (a && panel.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'SELECT')) { pending = true; return; }
+  // never rebuild the panel under the operator: a field being typed in, a fader being dragged or adjusted
+  if ((a && panel.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.classList.contains('vfield'))) || panel.querySelector('.vfield.drag')) { pending = true; return; }
   pending = false;
   lastRender = performance.now();
   const top = panel.scrollTop;
@@ -136,6 +147,7 @@ function render() {
   panel.scrollTop = top;
 }
 panel.addEventListener('focusout', () => setTimeout(() => { if (pending) render(); }, 0));
+panel.addEventListener('faderend', () => setTimeout(() => { if (pending && !panel.contains(document.activeElement)) render(); }, 0));
 
 function maybeRender(ev, minGapMs = 0) {
   if (!RERENDER_ON[ctx.view].includes(ev)) return;
@@ -169,9 +181,10 @@ function hint() {
     room: 'Drag the amber handles to resize a wall · tap a wall to edit it',
     mapping: 'The output canvas in pixels · drag a wall to move it · drag its corners · arrows nudge 1 px (Shift 10 px)',
     sensors: 'Drag a sensor to move it · drag the amber dot to rotate · the floor line should lie on the bottom edge',
-    calibrate: 'Amber target = the one to touch now',
+    calibrate: store.status?.calib ? 'Amber target = the one to touch now' : store.status?.verify ? 'Touch each check point: the error of the real touch is measured' : 'Choose the wall, go through the checklist, then start the calibration',
     zones: zoneHint(),
-    outputs: '', system: '',
+    outputs: ws.texture ? (ws.tool === 'hand' ? 'Virtual hand: drag on the canvas — the disc appears where that touch lands through the Mapping' : 'Live texture: exactly what this output sends · white = touch · drag to pan, wheel or pinch to zoom') : '',
+    system: '',
   }[ctx.view];
   $('stageHint').textContent = t || '';
 }
@@ -186,12 +199,20 @@ const ICON = {
 };
 
 function toolBtn(id, label, title) {
-  return h('button', { class: `tool${ws.tool === id ? ' on' : ''}`, title, html: `${ICON[id] || ''}${label}`, onclick: () => { ws.tool = id; hint(); renderBar(); } });
+  return h('button', { class: `tool${id === 'select' || id === 'hand' ? ' view' : ''}${ws.tool === id ? ' on' : ''}`, title, html: `${ICON[id] || ''}${label}`, onclick: () => { ws.tool = id; hint(); renderBar(); } });
+}
+
+/** Outputs with a Texture output selected: the stage shows its live mask (what the Spout sender sends). */
+function syncTexture() {
+  const o = ctx.view === 'outputs' && ctx.sel?.kind === 'output' ? store.state?.profile.outputs.find((x) => x.id === ctx.sel.id) : null;
+  const want = o?.type === 'texture' ? o.id : null;
+  if ((ws.texture?.id ?? null) !== want) { ws.texture = want ? { id: want, override: {} } : null; ws.fitKey = ''; hint(); }
 }
 
 function renderBar() {
   const P = store.state?.profile;
   if (!P) return;
+  syncTexture();
   const bar = [];
   const sims = P.sensors.some((s) => s.driver === 'sim' && s.enabled);
   const wallSpace = ctx.view !== 'mapping' && ctx.view !== 'outputs' && ctx.view !== 'system' && ws.space === 'wall';
@@ -206,10 +227,13 @@ function renderBar() {
 
   if (ctx.view === 'live') {
     bar.push(h('div', { class: 'seg', title: 'The room as a strip of walls (2D) or standing around the floor (3D)' },
-      h('button', { class: ctx.live3d ? '' : 'on', onclick: () => setLive3d(false) }, '2D'),
-      h('button', { class: ctx.live3d ? 'on' : '', onclick: () => setLive3d(true) }, '3D')));
+      h('button', { class: `view${ctx.live3d ? '' : ' on'}`, onclick: () => setLive3d(false) }, '2D'),
+      h('button', { class: `view${ctx.live3d ? ' on' : ''}`, onclick: () => setLive3d(true) }, '3D')));
     if (ctx.live3d) bar.push(h('div', { class: 'seg' },
-      h('button', { class: r3d.cam?.inside ? 'on' : '', title: 'Stand in the middle of the room and look around', onclick: () => { if (r3d.cam?.inside) r3d.reset(); else r3d.inside(); } }, 'Inside')));
+      h('button', { class: `view${r3d.cam?.inside ? ' on' : ''}`, title: 'Stand in the middle of the room and look around', onclick: () => { if (r3d.cam?.inside) r3d.reset(); else r3d.inside(); } }, 'Inside')));
+  }
+  if (ctx.view === 'outputs' && ws.texture && sims) {
+    bar.push(h('div', { class: 'seg' }, toolBtn('select', 'View', 'Pan and zoom'), toolBtn('hand', 'Virtual hand', 'Touch the walls with a simulated hand (through the Mapping) to try the texture')));
   }
   if (ctx.view === 'live' || ctx.view === 'sensors') {
     if (sims) bar.push(h('div', { class: 'seg' }, toolBtn('select', 'View', ctx.live3d && ctx.view === 'live' ? 'Orbit, pan and zoom' : 'Pan and select'), toolBtn('hand', 'Virtual hand', 'Touch the wall with a simulated hand')));
@@ -245,7 +269,7 @@ function renderBar() {
   if (ctx.view === 'room') {
     bar.push(h('div', { class: 'seg' },
       h('button', { onclick: () => V.addWall(ctx) }, '+ Wall'),
-      h('button', { onclick: () => V.newRoomWizard() }, 'New room…')));
+      h('button', { onclick: () => V.newRoomWizard(ctx) }, 'New room…')));
   }
   if (ctx.view === 'mapping') {
     const w = ctx.sel?.kind === 'wall' ? P.walls.find((q) => q.id === ctx.sel.id) : null;
@@ -257,7 +281,7 @@ function renderBar() {
       h('button', { class: `tool${ws.tool === 'addrow' ? ' on' : ''}`, onclick: () => { ws.tool = ws.tool === 'addrow' ? 'select' : 'addrow'; ctx.rerender(); } }, '+ Row'),
       h('button', { class: `tool${ws.tool === 'addcol' ? ' on' : ''}`, onclick: () => { ws.tool = ws.tool === 'addcol' ? 'select' : 'addcol'; ctx.rerender(); } }, '+ Column')));
     const pm = store.state.projection.mode;
-    bar.push(h('button', { class: `btn small${pm === 'identify' ? ' attn' : ''}`, onclick: () => cmd('projection.set', { mode: pm === 'identify' ? 'off' : 'identify' }) }, pm === 'identify' ? 'Pattern on walls: on' : 'Show pattern on walls'));
+    bar.push(h('button', { class: `btn small${pm === 'identify' ? ' attn' : ''}`, onclick: () => cmd('projection.set', { mode: pm === 'identify' ? 'off' : 'identify' }) }, pm === 'identify' ? 'Pattern: on' : 'Pattern'));
   }
   if (ctx.view === 'calibrate' && (store.status?.calib || store.status?.verify) && !isCoarse) {
     bar.push(h('button', { class: 'btn small', onclick: () => { ctx.calibFocus = !ctx.calibFocus; updateFocusMode(); } }, ctx.calibFocus ? 'Exit focus mode' : 'Focus mode'));
@@ -424,7 +448,11 @@ function renderStatusBar() {
 }
 
 $('nav').addEventListener('click', (e) => { const b = e.target.closest('button[data-view]'); if (b) setView(b.dataset.view); });
-$('profileSelect').addEventListener('change', (e) => cmd('profile.load', { id: e.target.value }).then(() => { ws.focus = null; ctx.select(null); }).catch((err) => toast(err.message, 'bad')));
+$('profileSelect').addEventListener('change', async (e) => {
+  // switching rooms stops sensors and outputs: confirm, and put the selector back if not
+  const ok = await V.switchRoom(store.state.profiles.find((p) => p.id === e.target.value));
+  if (ok) { ws.focus = null; ctx.select(null); } else e.target.value = store.state.profile.id;
+});
 $('projSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) cmd('projection.set', { mode: b.dataset.mode }).catch((err) => toast(err.message, 'bad')); });
 $('connectBtn').addEventListener('click', () => V.openConnectModal());
 $('lockBtn').addEventListener('click', async () => {
@@ -475,7 +503,12 @@ on('error', (e) => toast(e.message, 'bad'));
 on('events', () => { const f = document.getElementById('eventFeed'); if (f) f.replaceChildren(...V.feedLines()); });
 on('log', () => { const b = document.getElementById('logBox'); if (b) { const atEnd = b.scrollTop + b.clientHeight >= b.scrollHeight - 8; b.replaceChildren(...V.logLines()); if (atEnd) b.scrollTop = b.scrollHeight; } });
 on('connection', (ok) => {
-  $('connLost').hidden = ok;
+  $('connLost').hidden = ok === true;
+  const unpaired = ok === 'unpaired';
+  $('connLostTitle').textContent = unpaired ? 'This device is not paired' : 'Connection to the engine lost';
+  $('connLostText').textContent = unpaired
+    ? 'On the server, open Connect device and scan its QR code with this device (the link carries the access key).'
+    : 'Reconnecting…';
   if (ok) cmd('logs.get').then((r) => { store.logs = r.entries; }).catch(() => {});
 });
 

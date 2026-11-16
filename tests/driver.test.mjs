@@ -80,6 +80,45 @@ test('discovery finds an S2E and reads its serial; static IP command is sent and
   }
 });
 
+test('re-address: the unit comes back on its new IP with the same serial, or the change is reported as failed', async () => {
+  const { readdress, readStaticIp, discover } = await import('../engine/discover.js');
+  const world = new SimWall(wall, pose, { seed: 4 });
+  // a factory-new unit on one loopback address, another unit already on the address we will try first
+  const emu = new S2EEmulator(world, { host: '127.0.0.2', rebind: true, rebootMs: 200, serial: 'AA'.repeat(16) });
+  const port = await emu.start();
+  const other = new S2EEmulator(world, { host: '127.0.0.4', port, serial: 'BB'.repeat(16) });
+  await other.start();
+  try {
+    assert.deepEqual(await readStaticIp({ host: '127.0.0.2', port }), { ip: '127.0.0.2', mask: '255.255.255.0', gw: '127.0.0.1' }, 'its configuration can be read back without changing it');
+    await assert.rejects(readdress({ host: '127.0.0.2', port, ip: '127.0.0.4', mask: '255.0.0.0', pollMs: 100, waitMs: 2000 }), /already used by another unit \(serial BBBB/);
+    assert.equal(emu.host, '127.0.0.2', 'nothing was sent to a unit whose new address is taken');
+    const r = await readdress({ host: '127.0.0.2', port, ip: '127.0.0.3', mask: '255.0.0.0', pollMs: 100, waitMs: 3000 });
+    assert.equal(r.ip, '127.0.0.3');
+    assert.equal(r.serial, 'AA'.repeat(16), 'confirmed by the serial number, not just by "something answered"');
+    assert.equal((await discover({ hosts: ['127.0.0.2'], port, timeoutMs: 300 })).length, 0, 'the old address is free');
+    // a unit that ignores the command: reported as "kept its address", never as success
+    const stubborn = new S2EEmulator(world, { host: '127.0.0.5', port, rebind: false, serial: 'CC'.repeat(16) });
+    await stubborn.start();
+    try {
+      await assert.rejects(readdress({ host: '127.0.0.5', port, ip: '127.0.0.6', mask: '255.0.0.0', pollMs: 100, waitMs: 800 }), /kept 127\.0\.0\.5/);
+    } finally { stubborn.stop(); }
+  } finally {
+    emu.stop(); other.stop();
+  }
+});
+
+test('sensor network helpers: unconfigured cards and suggested addresses per wall', async () => {
+  const { unconfiguredInterfaces, suggestAddresses } = await import('../engine/discover.js');
+  const ifaces = {
+    'Wi-Fi': [{ family: 'IPv4', address: '172.16.2.42', internal: false }],
+    'Ethernet 2': [{ family: 'IPv4', address: '169.254.10.20', internal: false }],
+    'vEthernet (WSL)': [{ family: 'IPv4', address: '169.254.1.1', internal: false }],
+  };
+  assert.deepEqual(unconfiguredInterfaces(ifaces), [{ name: 'Ethernet 2', ip: '169.254.10.20' }], 'only a real card without DHCP');
+  assert.deepEqual(suggestAddresses(['P1', 'P2', 'P3'], { ip: '192.168.11.5' }, ['192.168.11.12']),
+    { P1: '192.168.11.11', P2: '192.168.11.13', P3: '192.168.11.14' }, 'skips addresses in use');
+});
+
 test('driver: watchdog notices a cut cable and recovers when it comes back', async () => {
   const world = new SimWall(wall, pose, { seed: 5 });
   const emu = new S2EEmulator(world);

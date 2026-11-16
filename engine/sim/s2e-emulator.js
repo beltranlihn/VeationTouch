@@ -14,10 +14,17 @@ const SAMPLES_PER_REV = 3200;
 
 export class S2EEmulator {
   /** @param {import('./world.js').SimWall} world */
-  constructor(world, { port = 0, host = '127.0.0.1', typical = 1, splitDatagrams = true } = {}) {
+  /**
+   * rebind: like the real unit, a RESET after a static-IP change brings it back on the new address (after rebootMs).
+   * serial: the unit's 16-byte serial number as 32 hex digits (GET_INFO).
+   */
+  constructor(world, { port = 0, host = '127.0.0.1', typical = 1, splitDatagrams = true, rebind = false, rebootMs = 300, serial = Buffer.from('EMULATORS2E00001').toString('hex') } = {}) {
     this.world = world;
     this.port = port;
     this.host = host;
+    this.rebind = rebind;
+    this.rebootMs = rebootMs;
+    this.serial = Buffer.from(serial.padEnd(32, '0').slice(0, 32), 'hex');
     this.typical = typical;
     this.split = splitDatagrams;
     this.client = null;
@@ -70,14 +77,19 @@ export class S2EEmulator {
   _handle(cmd, payload) {
     const C = P.CMD;
     switch (cmd) {
-      case C.STOP: case C.RESET: this._stopStream(); break;
+      case C.STOP: this._stopStream(); break;
+      case C.RESET: {
+        this._stopStream();
+        if (this.rebind && this.staticIp && this.staticIp.ip !== this.host) this._reboot(this.staticIp.ip);
+        break;
+      }
       case C.GET_HEALTH: {
         const d = Buffer.alloc(3); d[0] = this.health.status; d.writeUInt16LE(this.health.errorCode, 1);
         this._reply(P.ANS.HEALTH, d); break;
       }
       case C.GET_INFO: {
         const d = Buffer.alloc(20); d[0] = 0x71; d[1] = 3; d[2] = 1; d[3] = 18;
-        Buffer.from('EMULATORS2E00001').copy(d, 4);
+        this.serial.copy(d, 4);
         this._reply(P.ANS.DEVINFO, d); break;
       }
       case C.GET_LIDAR_CONF: this._conf(payload); break;
@@ -114,8 +126,26 @@ export class S2EEmulator {
       case P.CONF.SCAN_MODE_ANS_TYPE: out(Buffer.from([m.ans])); break;
       case P.CONF.SCAN_MODE_US_PER_SAMPLE: out(u32(Math.round(m.us * 256))); break;
       case P.CONF.SCAN_MODE_MAX_DISTANCE: out(u32(m.max * 256)); break;
+      case P.CONF.STATIC_IP: {
+        const cur = this.staticIp || { ip: this.host, mask: '255.255.255.0', gw: this.host.replace(/\.\d+$/, '.1') };
+        out(Buffer.from([cur.ip, cur.mask, cur.gw].flatMap((s) => s.split('.').map(Number))));
+        break;
+      }
       default: break; // unknown entries: no answer (driver times out), like old firmware
     }
+  }
+
+  /** The unit restarts on a new address: silent while it boots, then it answers there (same port). */
+  _reboot(ip) {
+    try { this.sock.close(); } catch { /* closed */ }
+    this.client = null;
+    this.host = ip;
+    setTimeout(() => {
+      this.sock = dgram.createSocket('udp4');
+      this.sock.on('message', (m, r) => this._onRequest(m, r));
+      this.sock.on('error', () => {});
+      this.sock.bind(this.port, this.host);
+    }, this.rebootMs);
   }
 
   _stopStream() {

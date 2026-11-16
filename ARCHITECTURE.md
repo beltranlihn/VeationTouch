@@ -126,9 +126,12 @@ that is too far from the wall (ruler check). The simulator can lean a sensor's p
 - **Health** (Live): sensors not scanning (with the last error), no background, not calibrated, output errors,
   engine below 50 fps.
 - **Versions**: every save keeps the previous file (last 30); System › Versions lists and restores them.
-- **Pairing**: network picker (this PC's Windows hotspot — 192.168.137.x — first, the LiDAR subnet last), firewall
-  check of the app's own rules with an elevated "Fix" offered only at the server, and live confirmation of
-  connected devices.
+- **Pairing**: network picker (this PC's Windows hotspot — 192.168.137.x — first, the LiDAR subnet last) naming the
+  Wi-Fi (SSID from `netsh wlan show interfaces`, refreshed every 20 s; `engine/net.js`) the phone must join, a
+  warning when it looks like guest Wi-Fi (client isolation) with a button that opens Windows' Mobile hotspot settings,
+  firewall check of the app's own rules with an elevated "Fix" offered only at the server, and three live states:
+  connected · reached this computer but not connected (the server notes page loads from non-local addresses,
+  `status.reached`) · nothing reached it.
 - **Local name** (`engine/mdns.js`, RFC 6762, own code): the engine answers A questions for `<name>.local`
   (System › Network, default `veation-touch`) with the address of the interface on the querier's subnet, announces
   itself on start and says goodbye on stop. QU questions and plain DNS clients (source port ≠ 5353) get a unicast
@@ -155,8 +158,16 @@ outputs behave exactly as in the room. Recording is refused during a replay and 
 
 Sweeps every local IPv4 network up to /22 plus the factory address 192.168.11.2 with GET_HEALTH on UDP 8089
 (paced), then GET_INFO for serial and firmware. Sensors that are streaming are never probed: any request stops
-an S2E's stream. `setStaticIp` (SET_LIDAR_CONF 0x0001CCC0 + RESET) works against the emulator and is marked
-experimental until verified on a real unit.
+an S2E's stream. Re-addressing (`readdress`): refuse if the new address answers already, note the unit's serial,
+SET_LIDAR_CONF 0x0001CCC0 (ip, mask, gw) + RESET, then poll the new address until the SAME serial answers (20 s);
+otherwise report "kept its old address" or "answers on neither". `readStaticIp` reads the configuration back
+without changing anything. The engine refuses an address no network card of this computer could reach, and the
+profile follows the unit (its sensor gets the new host, or a new sensor is added on the chosen wall).
+`sensor.discover` also returns, per wall, the address its unit should get (the one its sensor in the profile waits
+on, else .11, .12… free) and the network cards with only a 169.254 address (plugged into a network without DHCP —
+the sensors' switch), which `net.setSensorNic` sets to 192.168.11.5 through an elevated netsh (UAC on the server).
+The emulator re-binds to the new address on RESET (`rebind`), so all of this is tested end to end on loopback
+addresses.
 
 ## Content underlay
 
@@ -197,6 +208,31 @@ bilinear inside each cell; it starts from the current mapping (nothing jumps), r
 operator clicks without changing the map (`gridInsert`), and nodes are dragged on the canvas or nudged 1/5/20 px
 from the tablet pad.
 
+**Fit** (the calibration remote, `ui/js/remote.js`): the operator puts a hand on a projected mesh point k; the
+sensor reads the hand at wall UV (u, v). `gridSolveNode` moves only point k so that the map sends (u, v) to the
+pixel point k had — the pixel physically under the hand — dividing the error by k's bilinear weight at (u, v);
+it refuses when that weight is < 0.25 (hand too far from the point). The remote tells the engine which point it is
+moving (`projection.set {fit: {wallId, node}}`, never saved, cleared when that device disconnects or the room
+changes); the projection then draws that wall's mesh, the point and the live touches as rings whatever its mode,
+and the simulated wandering hands leave the wall. The canonical `wallUvToCanvas` (rect, corner pin, mesh) lives in
+`geometry.js` and is used by the engine, the outputs, the UI and the projection.
+
+**Bad touches during calibration** (`CalibrationSession.suspectTarget`): leave-one-out with an AFFINE fit (8 points
+would nearly pin down a homography's 8 unknowns, and it bends towards a bad point); a target whose capture lands
+> 4 cm and > 5× the others' residual from the fit of the others is asked again automatically, once per target, before
+the result is shown. "Redo worst point" uses the same test first.
+
+**Verification is kept** on its wall (`wall.verified`: mean, worst, pass = worst ≤ 25 mm, where the worst point was)
+and dropped when that wall's mapping or its sensors' calibration changes (in `profile.update` and on apply).
+
+**Room setup guide** (the remote): `nextTask()` returns ONE next thing — sensors running → background → projection →
+calibrate each wall with sensors → verify each → fix a failed one at its worst point (Fit with the nearest mesh
+point chosen) → walk test → lock. **Walk test**: while the remote's Test step is open, `projection.set {walk}`
+(transient, cleared with that device) makes the projection draw what the outputs send — the first Texture output's
+`TouchMask` discs — on every wall, with the zones; the remote ticks each wall touched and each joined corner crossed
+(`cross` events), and "Fix here" opens Fit on the wall of the one hand. Passing it is remembered per device
+(localStorage) until a newer verification.
+
 ## Zones — `engine/core/zones.js`
 
 A zone is a shape — `rect`, `polygon` (3–64 points) or `circle` — in one of two spaces:
@@ -227,11 +263,37 @@ planes) and touches it — across corners too.
 
 ## Texture output
 
-`engine/outputs/texture.js` rasterises the touches (CPU, Uint8 mask → RGBA, smoothstep edge, exponential trail)
-in canvas pixels through the mapping and sends it with the studio's own prebuilt Spout addon
-(`native/spout-send/dsp_spout.node`, Node-API, unpacked from the asar). ~1.5 ms per frame at 960×600.
+`engine/core/mask.js` rasterises the touches (CPU, Uint8 mask, smoothstep edge, exponential trail, disc radius fixed
+or following the touch's measured width) in canvas pixels through the mapping; `engine/outputs/texture.js` expands
+it to RGBA. Each output has ONE sink and only that one runs: **Spout** (the studio's own prebuilt addon,
+`native/spout-send/dsp_spout.node`, Node-API, unpacked from the asar; one sender per process), **NDI**
+(`engine/outputs/ndi.js`: the NDI Runtime installed on the computer — found through `NDI_RUNTIME_DIR_V6/_V5`,
+`VT_NDI_LIB` overrides — called through koffi (MIT); structures from the MIT-licensed SDK header; nothing of NDI is
+bundled; `tests/ndi.test.mjs` receives the source back through the runtime and checks its pixels) or a **full-screen
+window** (the engine renders nothing: it emits `textureWindows` [{id, displayId}], the desktop app opens one frameless
+full-screen window per entry at `/texture?o=<id>`, and `ui/js/texture.js` draws the mask itself from the live touches,
+fit or stretch). ~1.5 ms per frame at 960×600. The same module is served as `/shared/mask.js`: the UI's live
+preview (Outputs › Texture) runs it on the live touches (≈30 Hz, capped at 0.7 Mpx), so the preview is the output,
+and the blob faders preview while dragged without saving. Faders follow VEATION's inspector (`fader()` in
+`ui/js/dom.js`: 3 px groove + fill, no knob, value in an s0 box that can be typed in); a UI test fails if a native
+range input appears in any view.
+
+## UI tests — `tests/ui.test.mjs`
+
+The operator UI is tested in the real thing: each test starts an engine on a temporary folder (bundled profiles →
+the simulated XR Lab room), opens the UI in a hidden Electron window (`tests/ui/runner.cjs`), runs a script in the
+page and asserts on what it returns; page errors fail the test. The server option `trustLocal: false` lets a test act
+as a tablet without the access key (`/api/pair-check` tells "not paired" from "engine down"). `--mobile` emulates a
+phone (touch as the main pointer → the calibration remote). Each run has its own in-memory session (no localStorage
+carried between tests). A hidden window paints no frames: tests that read a canvas call its draw first
+(`__vt.ws.draw()`, `__proj.draw()`).
 
 ## UI
+
+`ui/js/main.js` picks the interface per device: touch as the main pointer (phones, tablets) → the **calibration
+remote** (`remote.js`: wall picker, Prepare / Calibrate / Fit / Verify, projection mode; it reuses the calibration
+panels of `views.js` and updates what changes 30 times a second in place, so buttons are never rebuilt under the
+finger); otherwise the full app. `?ui=full|remote` overrides it and is remembered on the device.
 
 Same SPA for the Electron window and the tablet (`ui/`, vanilla ES modules, no build step). **Each tool turns the
 central canvas into its own workspace** (`ui/js/workspace.js`): Live/Room show all walls (Room: drag edges to
@@ -255,4 +317,4 @@ WebSocket frames (Float32), ≤ 10 Hz (5 Hz on touch devices) and only built whi
 | Disconnect/reconnect behaviour, multiple units on one subnet | watchdog timings |
 | Crosstalk between walls at the corners | masks / motor speeds |
 | End-to-end latency (hand → projection) | `predictMs`, `confirmFrames` |
-| `setStaticIp` (SET_LIDAR_CONF 0x0001CCC0) | untested — use RoboStudio until verified |
+| `setStaticIp` (SET_LIDAR_CONF 0x0001CCC0) | not yet tried on a real unit — the app only reports success when the unit answers on the new address with the same serial (`readdress`), so a wrong command shows as "kept its address", never as a false success |

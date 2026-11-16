@@ -9,7 +9,8 @@
 // Edits are previewed locally while dragging (`ghost`) and committed once on release.
 
 import { store } from './conn.js';
-import { fitHomography, apply as applyM, gridMap, gridInsert, invertMap, densify, planCloses, mappingOutline } from '/shared/geometry.js';
+import { apply as applyM, gridMap, gridInsert, invertMap, densify, planCloses, mappingOutline, wallUvToCanvas } from '/shared/geometry.js';
+import { TouchMask } from '/shared/mask.js';
 import { kindOf, geomOf, withGeom, assignGeom, boundsOfGeom, translateGeom, describeGeom, shapeOutline, pointInShape, polygonArea, canvasToUv, canvasZoneOnWall } from './shapes.js';
 
 const GAP = 0.6;                       // metres between walls in the strip
@@ -20,18 +21,16 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 const r1 = (v) => Math.round(v * 10) / 10;
 const normRect = (r) => ({ x0: Math.min(r.x0, r.x1), y0: Math.min(r.y0, r.y1), x1: Math.max(r.x0, r.x1), y1: Math.max(r.y0, r.y1) });
 const rectCorners = (r) => [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]];
-const hCache = new WeakMap();
 
-/** Wall UV (0..1 top-left) → canvas px through the wall's mapping (same maths as the engine). */
-export function uvToCanvas(wall, u, v, mapping = wall.mapping) {
-  if (mapping?.mode === 'grid') return gridMap(mapping, u, v);
-  if (mapping?.mode === 'corners') {
-    let H = hCache.get(mapping);
-    if (!H) { H = fitHomography([[0, 0], [1, 0], [1, 1], [0, 1]], mapping.corners); hCache.set(mapping, H); }
-    return applyM(H, u, v);
-  }
-  const r = wall.pixelRect;
-  return [r.x + u * r.w, r.y + v * r.h];
+/** Wall UV (0..1 top-left) → canvas px through the wall's mapping: the engine's own code (/shared/geometry.js). */
+export const uvToCanvas = wallUvToCanvas;
+
+/** The live texture preview is drawn at the output's resolution, capped to this many pixels (a phone stays smooth). */
+const PREVIEW_MAX_PX = 700000;
+/** Resolution of the Texture preview for an output: [scale, width, height] (the output's own, or less when huge). */
+export function texturePreviewSize(P, o) {
+  const scale = Math.min(o.scale, Math.sqrt(PREVIEW_MAX_PX / (P.canvas.width * P.canvas.height)));
+  return [scale, Math.max(16, Math.round(P.canvas.width * scale)), Math.max(16, Math.round(P.canvas.height * scale))];
 }
 
 export class Workspace {
@@ -73,7 +72,7 @@ export class Workspace {
   // ------------------------------------------------------------------ mode / focus
 
   get P() { return store.state?.profile; }
-  get space() { return this.mode === 'mapping' || (this.mode === 'zones' && this.zoneSpace === 'canvas') ? 'canvas' : 'wall'; }
+  get space() { return this.mode === 'mapping' || (this.mode === 'zones' && this.zoneSpace === 'canvas') || (this.mode === 'outputs' && this.texture) ? 'canvas' : 'wall'; }
 
   setZoneSpace(space) {
     if (this.zoneSpace === space) return;
@@ -84,7 +83,7 @@ export class Workspace {
   setMode(mode) {
     this.mode = mode;
     this.poly = null; this.vertex = null;
-    this.tool = mode === 'zones' ? 'select' : this.tool === 'hand' && ['live', 'sensors', 'zones', 'calibrate'].includes(mode) ? 'hand' : 'select';
+    this.tool = mode === 'zones' ? 'select' : this.tool === 'hand' && ['live', 'sensors', 'zones', 'calibrate', 'outputs'].includes(mode) ? 'hand' : 'select';
     if (FOCUS_MODES.has(mode) && !this.focus) this.focus = this.selection?.wallId || this.P?.walls[0]?.id || null;
     if (!FOCUS_MODES.has(mode) && mode !== 'mapping' && ['live', 'room'].includes(mode)) { /* keep user's choice */ }
     this.fitKey = '';
@@ -400,13 +399,18 @@ export class Workspace {
   undoPolyPoint() { if (!this.poly) return; this.poly.pts.pop(); if (!this.poly.pts.length) this.poly = null; this.hooks.changed?.(); }
   cancelPoly() { if (!this.poly) return false; this.poly = null; this.hooks.changed?.(); return true; }
 
+  /** Virtual hand on the output canvas: it lands on the wall under the pointer, through the Mapping. */
+  _canvasHand(e, px, py) {
+    const cw = this._wallAtCanvas(...this.toWorld(px, py));
+    if (cw) { this.drag = { type: 'chand', wallId: cw.wall.id, handId: `ui${e.pointerId}` }; this.hooks.hand(cw.wall.id, cw.x, cw.y, 'down', this.drag.handId); }
+  }
+
   /** Pointer down in Zones: draw tools, handles, bodies. Returns true when it took the gesture. */
   _zoneDown(e, h, px, py) {
     const canvas = this.space === 'canvas';
     if (this.tool === 'hand') {
       if (!canvas) return false;
-      const cw = this._wallAtCanvas(...this.toWorld(px, py));
-      if (cw) { this.drag = { type: 'chand', wallId: cw.wall.id, handId: `ui${e.pointerId}` }; this.hooks.hand(cw.wall.id, cw.x, cw.y, 'down', this.drag.handId); }
+      this._canvasHand(e, px, py);
       return true;
     }
     if (this.tool === 'zone' || this.tool === 'mask') {
@@ -533,6 +537,11 @@ export class Workspace {
     if (this.mode === 'zones') {
       if (this._zoneDown(e, h, px, py)) return;
       if (this.space === 'canvas') return; // canvas zones: everything else pans
+    }
+    if (this.mode === 'outputs') {
+      // the texture preview is read-only: the virtual hand touches, anything else pans
+      if (this.tool === 'hand' && this.space === 'canvas') this._canvasHand(e, px, py);
+      return;
     }
     if (this.space === 'canvas') {
       // grid tools: click inside the selected grid wall to insert a row / column there
@@ -777,6 +786,7 @@ export class Workspace {
     const key = `${this.mode}|${this.space}|${this.focus}|${this.w}x${this.h}|${P.id}|${P.walls.map((w) => w.id).join(',')}|${P.canvas.width}x${P.canvas.height}`;
     // never re-frame in the middle of a drag: the drag maths would jump
     if (key !== this.fitKey && !this.drag) { this.fitKey = key; this.fit(); }
+    if (this.mode === 'outputs' && this.texture) return this._drawTexture();
     if (this.space === 'canvas') return this._drawCanvas();
     this._drawWalls();
   }
@@ -813,6 +823,7 @@ export class Workspace {
     const sel = this.selection;
     const M = this.mode;
     const zonesActive = M === 'zones', sensorsActive = M === 'sensors';
+    const labelled = new Set(); // canvas zones already labelled this frame
 
     for (const l of L) {
       const w = l.wall;
@@ -829,27 +840,30 @@ export class Workspace {
       ctx.lineWidth = 1;
       ctx.strokeStyle = 'rgba(255,255,255,0.28)';
       line(ctx, X(-0.25), Y(0), X(w.width + 0.25), Y(0));
-      // labels under the wall
+      // labels under the wall — only what fits in its width (narrow walls used to write over their neighbours)
       ctx.font = '500 11px Geist, system-ui'; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+      const room = w.width * s - 6;
+      const fit = (...options) => options.find((t) => ctx.measureText(t).width <= room) ?? '';
       ctx.fillStyle = w.enabled ? '#B8B8B8' : '#6D6D6D';
-      ctx.fillText(`${w.id}  ${w.name}`, X(0), Y(0) + 7);
+      ctx.fillText(fit(`${w.id}  ${w.name}`, w.id), X(0), Y(0) + 7);
       ctx.fillStyle = '#6D6D6D';
-      const dims = `${w.width.toFixed(2)} × ${w.height.toFixed(2)} m`;
-      ctx.fillText(dims, X(0), Y(0) + 21);
-      // touch count right after the size (walls of a continuous strip touch: nothing at their right end)
       const count = (live[w.id] || []).length;
-      if (count) { ctx.fillStyle = C.live; ctx.fillText(` · ${count} touch${count > 1 ? 'es' : ''}`, X(0) + ctx.measureText(dims).width, Y(0) + 21); }
+      const touches = count ? ` · ${count} touch${count > 1 ? 'es' : ''}` : '';
+      const dims = fit(`${w.width.toFixed(2)} × ${w.height.toFixed(2)} m${touches}`, `${w.width.toFixed(2)} m${touches}`, `${w.width.toFixed(1)} m`, '');
+      const plain = dims.endsWith(touches) && touches ? dims.slice(0, -touches.length) : dims;
+      ctx.fillText(plain, X(0), Y(0) + 21);
+      // touch count right after the size (walls of a continuous strip touch: nothing at their right end)
+      if (touches && dims.endsWith(touches)) { ctx.fillStyle = C.live; ctx.fillText(touches, X(0) + ctx.measureText(plain).width, Y(0) + 21); }
 
       // room mode: resize handles + dimensions
       if (M === 'room') {
         ctx.fillStyle = C.attn;
-        const hs = this.handleSize();
-        ctx.fillRect(X(w.width) - hs / 2, Y(w.height / 2) - hs * 1.5, hs, hs * 3);
-        ctx.fillRect(X(w.width / 2) - hs * 1.5, Y(w.height) - hs / 2, hs * 3, hs);
-        ctx.fillStyle = '#8C8C8C';
-        ctx.textAlign = 'center';
-        ctx.fillText(`${w.width.toFixed(3)} m`, X(w.width / 2), Y(w.height) - 18);
-        ctx.textAlign = 'left';
+        // handles scale down with the wall on screen (on a phone the whole room is small: they covered it)
+        const hs = this.handleSize(), len = Math.min(hs * 3, (w.height * s) / 3, (w.width * s) / 3), th = Math.min(hs, len / 2);
+        ctx.fillRect(X(w.width) - th / 2, Y(w.height / 2) - len / 2, th, len);
+        ctx.fillRect(X(w.width / 2) - len / 2, Y(w.height) - th / 2, len, th);
+        // the precise width only where it does not run into the sensor label (the short one is under the wall)
+        if (w.width * s > 170) { ctx.fillStyle = '#8C8C8C'; ctx.fillText(`${w.width.toFixed(3)} m`, X(0) + 2, Y(w.height) - 18); }
       }
 
       // masks (hatched)
@@ -873,7 +887,10 @@ export class Workspace {
         if (onCanvas ? !(z0.walls || []).includes(w.id) : z0.wallId !== w.id) continue;
         const z = this.val('zone', z0.id, z0);
         const pts = (onCanvas ? canvasZoneOnWall(z, w) : shapeOutline(z, 48)).map(([x, y]) => [X(x), Y(y)]);
-        this._drawZoneShape(z, pts, { dim: !zonesActive && M !== 'live', dashed: onCanvas, sel: sel?.kind === 'zone' && sel.id === z.id, clip: { x0: X(0), y0: Y(w.height) } });
+        // a canvas zone reaching several walls gets its label once (it used to read "Corner P1-P2 Corner P1-P2")
+        const label = !onCanvas || !labelled.has(z.id);
+        if (onCanvas) labelled.add(z.id);
+        this._drawZoneShape(z, pts, { dim: !zonesActive && M !== 'live', dashed: onCanvas, sel: sel?.kind === 'zone' && sel.id === z.id, clip: { x0: X(0), y0: Y(w.height) }, label });
       }
       ctx.restore();
     }
@@ -1023,9 +1040,12 @@ export class Workspace {
         ctx.strokeStyle = C.live; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
         ctx.lineWidth = 1;
-        ctx.fillStyle = '#fff'; ctx.font = '600 10px Geist, system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(String(id), px, py);
-        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        // ids only when zoomed in enough to read them (on the whole-room strip they were just noise)
+        if (s >= 45) {
+          ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '600 10px Geist, system-ui'; ctx.textBaseline = 'bottom';
+          ctx.fillText(String(id), px + r * 0.75 + 2, py - r * 0.75);
+          ctx.textBaseline = 'top';
+        }
       }
     }
     if (zonesActive) this._drawSelection();
@@ -1033,7 +1053,7 @@ export class Workspace {
   }
 
   /** A zone outline (screen px): amber, filled while active, label at its top-left. */
-  _drawZoneShape(z, pts, { dim = false, dashed = false, sel = false, clip = null } = {}) {
+  _drawZoneShape(z, pts, { dim = false, dashed = false, sel = false, clip = null, label = true } = {}) {
     const ctx = this.ctx, C = this.colors;
     const st = store.live?.zones?.[z.id];
     tracePath(ctx, pts);
@@ -1044,10 +1064,12 @@ export class Workspace {
     if (dashed) ctx.setLineDash([6, 4]);
     ctx.stroke();
     ctx.setLineDash([]); ctx.lineWidth = 1;
-    if (!dim || st?.active) {
+    if (label && (!dim || st?.active)) {
       const b = boxOf(pts);
       ctx.fillStyle = C.attn; ctx.font = '500 10px Geist, system-ui'; ctx.textBaseline = 'top';
-      ctx.fillText(`${z.name}${st?.count ? ` · ${st.count}` : ''}${z.minHands > 1 ? ` (${z.minHands}+)` : ''}`, Math.max(b.x0, clip?.x0 ?? -Infinity) + 4, Math.max(b.y0, clip?.y0 ?? -Infinity) + 4);
+      const text = `${z.name}${st?.count ? ` · ${st.count}` : ''}${z.minHands > 1 ? ` (${z.minHands}+)` : ''}`;
+      // only when it fits inside the zone (small zones on the whole-room strip would write over each other)
+      if (ctx.measureText(text).width + 8 <= b.x1 - b.x0) ctx.fillText(text, Math.max(b.x0, clip?.x0 ?? -Infinity) + 4, Math.max(b.y0, clip?.y0 ?? -Infinity) + 4);
     }
   }
 
@@ -1203,6 +1225,68 @@ export class Workspace {
       }
     }
     if (this.mode === 'zones') { this._drawSelection(); this._drawPending(); }
+  }
+
+  /**
+   * Outputs › Texture: the live mask, rendered by the engine's own rasteriser (/shared/mask.js) from the live
+   * touches with the output's settings (and the slider being dragged) — what the Spout sender sends.
+   */
+  _drawTexture() {
+    const ctx = this.ctx, P = this.P, k = this.view.s;
+    const X = (x) => this.sx(x), Y = (y) => this.sy(y);
+    const o0 = P.outputs.find((x) => x.id === this.texture.id);
+    if (!o0) return;
+    const o = { ...o0, ...this.texture.override };
+    const pv = this._texturePreview(o);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(X(0), Y(0), P.canvas.width * k, P.canvas.height * k);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(pv.canvas, X(0), Y(0), P.canvas.width * k, P.canvas.height * k);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.strokeRect(X(0) + 0.5, Y(0) + 0.5, P.canvas.width * k, P.canvas.height * k);
+    ctx.fillStyle = '#8C8C8C'; ctx.font = '500 11px Geist, system-ui'; ctx.textBaseline = 'bottom'; ctx.textAlign = 'left';
+    const where = o.sink === 'ndi' ? `NDI “${o.senderName}”` : o.sink === 'window' ? 'Full screen' : `Spout “${o.senderName}”`;
+    ctx.fillText(`${where} · ${Math.round(P.canvas.width * o.scale)} × ${Math.round(P.canvas.height * o.scale)} px${o.enabled ? '' : ' · output off'}`, X(0), Y(0) - 6);
+    // where each wall lands, for reference (walls the output leaves out are hatched)
+    for (const w of P.walls) {
+      const out = this.outline(w, w.mapping).map(([x, y]) => [X(x), Y(y)]);
+      tracePath(ctx, out);
+      ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.stroke();
+      if (o.walls.length && !o.walls.includes(w.id)) hatchPath(ctx, out, 'rgba(255,255,255,0.08)');
+      const b = boxOf(out);
+      ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '600 11px Geist, system-ui'; ctx.textBaseline = 'top';
+      ctx.fillText(w.id, b.x0 + 6, b.y0 + 5);
+    }
+  }
+
+  /** The preview's mask: a new frame for each live message (≈30 Hz), at most at the output's own rate. */
+  _texturePreview(o) {
+    const P = this.P;
+    const [scale, w, h] = texturePreviewSize(P, o);
+    let pv = this._tex;
+    if (!pv || pv.w !== w || pv.h !== h) {
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const img = new ImageData(w, h);
+      for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
+      pv = this._tex = { w, h, canvas, g: canvas.getContext('2d'), img, mask: new TouchMask(), live: null, t: null };
+      pv.mask.resize(w, h);
+      pv.g.putImageData(img, 0, 0);
+    }
+    const L = store.live;
+    if (!L || L === pv.live) return pv;
+    pv.live = L;
+    if (pv.t !== null && L.t >= pv.t && L.t - pv.t < 1000 / o.rateHz - 2) return pv; // the output's own rate
+    const dt = pv.t === null || L.t < pv.t ? 33 : Math.min(1000, L.t - pv.t);
+    pv.t = L.t;
+    const walls = P.walls.filter((x) => !o.walls.length || o.walls.includes(x.id))
+      .map((wall) => ({ wall, touches: (L.walls?.[wall.id] || []).map(([, x, y, size]) => ({ x, y, size })) }));
+    if (pv.mask.render(walls, o, scale, dt)) {
+      const m = pv.mask.mask, d = pv.img.data;
+      for (let i = 0, j = 0; i < m.length; i++, j += 4) { const v = m[i]; d[j] = v; d[j + 1] = v; d[j + 2] = v; }
+      pv.g.putImageData(pv.img, 0, 0);
+    }
+    return pv;
   }
 }
 

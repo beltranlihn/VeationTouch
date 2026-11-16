@@ -344,3 +344,218 @@ test('server: the UI live feed carries every event, also those of frames between
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('discover: knows whether this computer can reach a factory-new S2E (192.168.11.2)', async () => {
+  const { factoryNetwork } = await import('../engine/discover.js');
+  const off = factoryNetwork([{ name: 'Ethernet', ip: '172.17.1.51', mask: '255.255.0.0' }, { name: 'Wi-Fi', ip: '192.168.1.20', mask: '255.255.255.0' }]);
+  assert.equal(off.reachable, false);
+  assert.equal(off.have, '172.17.1.51 (Ethernet), 192.168.1.20 (Wi-Fi)');
+  const on = factoryNetwork([{ name: 'LiDAR', ip: '192.168.11.10', mask: '255.255.255.0' }]);
+  assert.equal(on.reachable, true);
+  assert.equal(on.via.name, 'LiDAR');
+});
+
+test('server: /api/pair-check tells a paired device from one without the key (and never leaks it)', async () => {
+  const { createServer } = await import('../engine/server.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-pair-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const server = await createServer(engine, { port: 0, root: path.resolve(import.meta.dirname, '..'), log: quiet, trustLocal: false });
+  try {
+    const get = async (q = '') => (await fetch(`http://127.0.0.1:${server.port}/api/pair-check${q}`)).text();
+    assert.deepEqual(JSON.parse(await get()), { paired: false });
+    assert.deepEqual(JSON.parse(await get('?k=wrong')), { paired: false });
+    const ok = await get(`?k=${engine.settings.token}`);
+    assert.deepEqual(JSON.parse(ok), { paired: true });
+    assert.ok(!(await get()).includes(engine.settings.token));
+  } finally {
+    server.close();
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('engine: simulated wandering hands leave the wall being calibrated or verified, and come back after', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-wander-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const count = () => engine.sensors.get('S1').driver.world.wanderers.length;
+  try {
+    const p = structuredClone(engine.profile); p.simulation.wanderers = 3;
+    await engine.command('profile.update', { profile: p, rev: engine.rev });
+    assert.equal(count(), 3);
+    await engine.command('calib.start', { wallId: 'W1', force: true });
+    assert.equal(count(), 0, 'none while calibrating W1');
+    await engine.command('calib.cancel');
+    assert.equal(count(), 3);
+    await engine.command('verify.start', { wallId: 'W1' });
+    assert.equal(count(), 0, 'none while verifying W1');
+    await engine.command('verify.cancel');
+    assert.equal(count(), 3);
+  } finally {
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('engine: Fit — the projection is told which mesh point to highlight; the wandering hands leave that wall; it ends with its device', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-fit-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const count = () => engine.sensors.get('S1').driver.world.wanderers.length;
+  try {
+    const p = structuredClone(engine.profile); p.simulation.wanderers = 2;
+    await engine.command('profile.update', { profile: p, rev: engine.rev });
+    assert.equal(engine.state().projection.fit, null);
+    await engine.command('projection.set', { fit: { wallId: 'W1', node: 4 }, __client: { id: 7, device: 'phone' } });
+    assert.deepEqual(engine.state().projection.fit, { wallId: 'W1', node: 4 });
+    assert.equal(count(), 0, 'no simulated hands on the wall being fitted');
+    assert.equal(store.loadSettings?.().projection?.fit, undefined, 'never saved');
+    await engine.command('projection.set', { fit: { wallId: 'nope', node: 1 } });
+    assert.equal(engine.state().projection.fit, null, 'unknown wall');
+    await engine.command('projection.set', { fit: { wallId: 'W1', node: 2 }, __client: { id: 7, device: 'phone' } });
+    engine.clientGone(8);
+    assert.ok(engine.state().projection.fit, 'another device leaving changes nothing');
+    engine.clientGone(7);
+    assert.equal(engine.state().projection.fit, null, 'the phone that was fitting went away');
+    assert.equal(count(), 2, 'the hands come back');
+  } finally {
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('engine: a Texture output sent full screen asks the desktop app for a window on its display — only while enabled', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-texwin-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  const seen = [];
+  engine.on('textureWindows', (list) => seen.push(list));
+  engine.start();
+  const edit = async (fn) => { const p = structuredClone(engine.profile); fn(p); await engine.command('profile.update', { profile: p, rev: engine.rev }); };
+  try {
+    await edit((p) => { p.outputs.push({ id: 'TX', type: 'texture', sink: 'window', enabled: true }); });
+    assert.deepEqual(engine.textureWindows(), [], 'no display chosen yet: no window');
+    await edit((p) => { p.outputs.find((o) => o.id === 'TX').displayId = 7; });
+    assert.deepEqual(seen.at(-1), [{ id: 'TX', displayId: 7 }]);
+    await edit((p) => { p.outputs.find((o) => o.id === 'TX').enabled = false; });
+    assert.deepEqual(seen.at(-1), [], 'off: the window closes');
+    await edit((p) => { const o = p.outputs.find((x) => x.id === 'TX'); o.enabled = true; o.sink = 'ndi'; });
+    assert.deepEqual(engine.textureWindows(), [], 'another destination: no window');
+  } finally {
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('engine: a new sensor gets its address from the app — confirmed, put on its wall, and streaming', async () => {
+  const { S2EEmulator } = await import('../engine/sim/s2e-emulator.js');
+  const { SimWall } = await import('../engine/sim/world.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-readdr-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const wallDef = engine.profile.walls[0];
+  const emu = new S2EEmulator(new SimWall({ width: wallDef.width, height: wallDef.height }, { x: wallDef.width / 2, y: wallDef.height + 0.3, rotation: -90 }, { seed: 2 }),
+    { host: '127.0.0.7', rebind: true, rebootMs: 200, serial: 'DD'.repeat(16) });
+  const port = await emu.start();
+  try {
+    await assert.rejects(engine.command('sensor.readdress', { host: '127.0.0.7', port, ip: '10.99.99.11', assign: { wallId: wallDef.id } }),
+      /no address on the network of 10\.99\.99\.11/, 'an address this computer could not reach afterwards is refused before anything is sent');
+    assert.equal(emu.host, '127.0.0.7');
+    const r = await engine.command('sensor.readdress', { host: '127.0.0.7', port, ip: '127.0.0.8', assign: { wallId: wallDef.id }, waitMs: 4000 });
+    assert.equal(r.serial, 'DD'.repeat(16));
+    const s = engine.profile.sensors.find((x) => x.id === r.sensorId);
+    assert.deepEqual([s.driver, s.host, s.port, s.wallId], ['s2e', '127.0.0.8', port, wallDef.id], 'the profile follows the unit');
+    let state = null;
+    for (let k = 0; k < 40 && state !== 'scanning'; k++) { await new Promise((q) => setTimeout(q, 100)); state = engine.status().sensors[s.id]?.state; }
+    assert.equal(state, 'scanning', 'and it streams from its new address');
+    await engine.command('app.lock', { locked: true });
+    await assert.rejects(engine.command('sensor.readdress', { host: '127.0.0.8', port, ip: '127.0.0.9' }), /locked/);
+  } finally {
+    emu.stop();
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('net: the Wi-Fi name of each card is read from netsh (localised labels) and guest networks are recognised', async () => {
+  const { parseWlanInterfaces, looksLikeGuestNetwork } = await import('../engine/net.js');
+  const es = 'Hay 1 interfaz en el sistema:\r\n\r\n    Nombre                 : Wi-Fi\r\n    Descripción            : Intel(R) Wi-Fi 6E\r\n    Estado                 : conectado\r\n    SSID                   : BCN_XRLab_Guest\r\n    AP BSSID               : e2:5d:54:9f:24:c9\r\n\r\n';
+  assert.deepEqual(parseWlanInterfaces(es), { 'Wi-Fi': 'BCN_XRLab_Guest' }, 'SSID, not AP BSSID');
+  assert.deepEqual(parseWlanInterfaces('There is 1 interface on the system:\n\n    Name                   : Wi-Fi 2\n    State                  : disconnected\n'), {}, 'not connected: no network');
+  assert.equal(looksLikeGuestNetwork('BCN_XRLab_Guest'), true);
+  assert.equal(looksLikeGuestNetwork('XRLab-Install'), false);
+});
+
+test('engine: the last verification stays with its wall — and is dropped when the mapping or the calibration changes', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-verif-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  try {
+    const p = structuredClone(engine.profile);
+    p.simulation.wanderers = 0;
+    await engine.command('profile.update', { profile: p, rev: engine.rev });
+    const wallId = engine.profile.walls[0].id;
+    await wait(400);
+    await engine.command('verify.start', { wallId });
+    for (const tg of engine.verify.targets.slice()) {
+      await engine.command('sim.touch', { wallId, x: tg.x + 0.004, y: tg.y, id: 'h', down: true });
+      await wait(900);
+      await engine.command('sim.touch', { wallId, x: 0, y: 0, id: 'h', down: false });
+      await wait(600);
+    }
+    for (let k = 0; k < 20 && !engine.profile.walls[0].verified; k++) await wait(50);
+    const v = engine.profile.walls[0].verified;
+    assert.ok(v, 'saved when the last check point is measured');
+    assert.equal(v.n, 5);
+    assert.equal(v.pass, true, `worst ${v.maxMm} mm`);
+    assert.ok(v.worst && Number.isFinite(v.worst.x), 'with where the worst point was (the remote fits there)');
+    // an unrelated edit keeps it
+    const q = structuredClone(engine.profile); q.name = 'Renamed';
+    await engine.command('profile.update', { profile: q, rev: engine.rev });
+    assert.ok(engine.profile.walls[0].verified, 'renaming the room does not undo a verification');
+    // moving the wall in the content invalidates it
+    const m = structuredClone(engine.profile); m.walls[0].pixelRect.x += 20;
+    await engine.command('profile.update', { profile: m, rev: engine.rev });
+    assert.equal(engine.profile.walls[0].verified, null, 'the mapping changed: verify again');
+  } finally {
+    await engine.command('verify.cancel').catch(() => {});
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('server: a device that opened the page is reported even when it never connects (and this computer is not)', async () => {
+  const lanIp = Object.values(os.networkInterfaces()).flat().find((a) => a && a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.'))?.address;
+  if (!lanIp) return; // no network card: nothing to reach this computer through
+  const { createServer } = await import('../engine/server.js');
+  const { default: WebSocket } = await import('ws');
+  const http = await import('node:http');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-reached-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const server = await createServer(engine, { port: 0, root: path.resolve(import.meta.dirname, '..'), log: quiet });
+  const get = (host) => new Promise((resolve, reject) => http.get(`http://${host}:${server.port}/`, (res) => { res.resume(); res.on('end', resolve); }).on('error', reject));
+  try {
+    await get('127.0.0.1');     // the desktop window: not a device
+    await get(lanIp);           // as a phone on the LAN would (another address than loopback)
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws/ui`);
+    const reached = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('no status with reached')), 5000);
+      ws.on('message', (raw) => { const m = JSON.parse(String(raw)); if (m.reached) { clearTimeout(t); resolve(m.reached); } });
+    });
+    ws.close();
+    assert.deepEqual(reached.map((r) => r.addr), [lanIp], 'the page load from the LAN address, not the local one');
+  } finally {
+    server.close();
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

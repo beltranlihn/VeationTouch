@@ -310,6 +310,22 @@ export function mappingOutline(mapping, pixelRect, n = 12) {
   return [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]];
 }
 
+const homCache = new WeakMap();
+/**
+ * Canvas pixel of a wall UV (0..1, origin top-left) through the wall's mapping — rect, corner pin or mesh.
+ * The one implementation of the mapping: the engine, the outputs, the UI and the projection all use it.
+ */
+export function wallUvToCanvas(wall, u, v, mapping = wall.mapping) {
+  if (mapping?.mode === 'grid') return gridMap(mapping, u, v);
+  if (mapping?.mode === 'corners') {
+    let H = homCache.get(mapping);
+    if (!H) { H = fitHomography([[0, 0], [1, 0], [1, 1], [0, 1]], mapping.corners) || IDENTITY; homCache.set(mapping, H); }
+    return apply(H, u, v);
+  }
+  const r = wall.pixelRect;
+  return [r.x + u * r.w, r.y + v * r.h];
+}
+
 // ---------------------------------------------------------------- grid warp (mesh mapping)
 // A grid is { us:[0..1], vs:[0..1], points:[[x,y]] } — node lines at the given UV positions
 // (strictly increasing, first 0, last 1), points row-major (row j = vs[j], column i = us[i]).
@@ -332,6 +348,34 @@ export function gridMap(g, u, v) {
     (1 - s) * (1 - t) * a[0] + s * (1 - t) * b[0] + s * t * c[0] + (1 - s) * t * d[0],
     (1 - s) * (1 - t) * a[1] + s * (1 - t) * b[1] + s * t * c[1] + (1 - s) * t * d[1],
   ];
+}
+
+/**
+ * Fit: move node k of a grid so that (u, v) maps to `target` (canvas px), the other nodes staying put.
+ * Returns the node's new position, or null when (u, v) barely depends on that node (weight < `minWeight`:
+ * the point is too far from it — the correction would be huge and wrong).
+ */
+export function gridSolveNode(g, k, u, v, target, minWeight = 0.25) {
+  const nx = g.us.length;
+  const i = k % nx, j = Math.floor(k / nx);
+  const [ci, s] = cellOf(g.us, u), [cj, t] = cellOf(g.vs, v);
+  const wi = i === ci ? 1 - s : i === ci + 1 ? s : 0;
+  const wj = j === cj ? 1 - t : j === cj + 1 ? t : 0;
+  const w = wi * wj;
+  if (w < minWeight) return null;
+  const [x, y] = gridMap(g, u, v);
+  const p = g.points[k];
+  return [p[0] + (target[0] - x) / w, p[1] + (target[1] - y) / w];
+}
+
+/** The grid node closest to (u, v), measured in metres on a wall of `width` × `height`. */
+export function gridNearestNode(g, u, v, width = 1, height = 1) {
+  let best = 0, bd = Infinity;
+  g.vs.forEach((tv, j) => g.us.forEach((tu, i) => {
+    const d = ((tu - u) * width) ** 2 + ((tv - v) * height) ** 2;
+    if (d < bd) { bd = d; best = j * g.us.length + i; }
+  }));
+  return best;
 }
 
 /** Uniform nx × ny grid sampled from any UV → px function (keeps the current look). */

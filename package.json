@@ -16,6 +16,7 @@
     "dist": "electron-builder --win"
   },
   "dependencies": {
+    "koffi": "3.3.8",
     "qrcode-generator": "1.4.4",
     "ws": "8.18.3"
   },
@@ -29,8 +30,14 @@
     "copyright": "Copyright © 2026 Alma Digital Studio",
     "publish": null,
     "npmRebuild": false,
-    "directories": { "output": "dist" },
-    "asarUnpack": ["native/**"],
+    "directories": {
+      "output": "dist"
+    },
+    "asarUnpack": [
+      "native/**",
+      "node_modules/koffi/**",
+      "node_modules/@koromix/**"
+    ],
     "files": [
       "app/**",
       "engine/**",
@@ -46,7 +53,14 @@
     ],
     "win": {
       "icon": "build/icon.ico",
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

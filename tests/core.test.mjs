@@ -187,8 +187,9 @@ test('calibration: redo the worst point, then verification measures the real tra
     world.injected.clear();
     for (let k = 0; k < 8; k++) { cal.feed('S', pipe.process(scanOf(t), { raw: true }).detections, t); t += 100; }
   };
-  targets.forEach((tg, k) => touchTarget(tg.x + (k === 4 ? 0.06 : 0), tg.y)); // target 5 touched 6 cm off
+  targets.forEach((tg, k) => touchTarget(tg.x + (k === 4 ? 0.025 : 0), tg.y)); // target 5 touched 2.5 cm off: not caught by itself
   assert.equal(cal.phase, 'done');
+  assert.equal(cal.autoRedo, null);
   const before = cal.result.S.maxMm;
   assert.equal(cal.worstTarget(), 4, 'the sloppy touch is the worst point');
   cal.redoTarget(4);
@@ -210,6 +211,42 @@ test('calibration: redo the worst point, then verification measures the real tra
   const sum = vs.summary();
   assert.equal(sum.n, 5);
   assert.ok(sum.maxMm < 15, `verified error mean ${sum.meanMm} / max ${sum.maxMm} mm`);
+});
+
+test('calibration: a touch that disagrees with the others is asked again by itself — once — before the result', async () => {
+  const { wall, world, pipe, scanOf } = wallSetup({ x: 0.03, y: 0.02, rotation: -1.5 });
+  const targets = defaultTargets(wall);
+  const cal = new CalibrationSession(wall, ['S'], targets, { holdMs: 300 });
+  let t = 1000;
+  const touchTarget = (x, y) => {
+    world.injected.set('h', { x, y });
+    for (let k = 0; k < 6; k++) { cal.feed('S', pipe.process(scanOf(t), { raw: true }).detections, t); t += 100; }
+    world.injected.clear();
+    for (let k = 0; k < 8; k++) { cal.feed('S', pipe.process(scanOf(t), { raw: true }).detections, t); t += 100; }
+  };
+  // target 1 (a corner) touched 15 cm off — the operator hit the wrong spot
+  targets.forEach((tg, k) => touchTarget(tg.x + (k === 0 ? 0.15 : 0), tg.y));
+  assert.equal(cal.phase, 'waiting', 'no result yet: that target is asked again');
+  assert.equal(cal.index, 0);
+  assert.equal(cal.autoRedo?.index, 0);
+  assert.ok(cal.autoRedo.errMm > 80, `it was ${cal.autoRedo.errMm} mm away from where the others put it`);
+  assert.equal(cal.snapshot(t).autoRedo.index, 0, 'the remote can say why');
+  touchTarget(targets[0].x, targets[0].y);
+  assert.equal(cal.phase, 'done');
+  assert.ok(cal.result.S.maxMm < 10, `after the redo the worst point is ${cal.result.S.maxMm} mm`);
+
+  // the same target wrong again: asked only once, then the result is shown (Redo worst point is still there)
+  const cal2 = new CalibrationSession(wall, ['S'], targets, { holdMs: 300 });
+  const touch2 = (x, y) => {
+    world.injected.set('h', { x, y });
+    for (let k = 0; k < 6; k++) { cal2.feed('S', pipe.process(scanOf(t), { raw: true }).detections, t); t += 100; }
+    world.injected.clear();
+    for (let k = 0; k < 8; k++) { cal2.feed('S', pipe.process(scanOf(t), { raw: true }).detections, t); t += 100; }
+  };
+  targets.forEach((tg, k) => touch2(tg.x + (k === 0 ? 0.15 : 0), tg.y));
+  touch2(targets[0].x + 0.15, targets[0].y);
+  assert.equal(cal2.phase, 'done', 'never a loop');
+  assert.equal(cal2.worstTarget(), 0);
 });
 
 test('auto-align: recovers the sensor pose from floor + side walls and measures the wall width', async () => {
@@ -824,4 +861,57 @@ test('profile: the XR Lab profile is valid; garbage is clamped, not trusted', ()
   assert.equal(g.sensors[0].port, 65535);
   assert.equal(g.outputs[0].prefix, '/vt');
   assert.ok(poseMatrix(x.sensors[0].pose).every(Number.isFinite));
+});
+
+test('texture: the UI preview and the Spout output are the same rasteriser; "follows the touch" grows the disc', async () => {
+  const { TextureRenderer } = await import('../engine/outputs/texture.js');
+  const { TouchMask, discRadiusM } = await import('../engine/core/mask.js');
+  const prof = normalizeProfile({ canvas: { width: 400, height: 200 }, walls: [{ id: 'A', width: 4, height: 2, pixelRect: { x: 0, y: 0, w: 400, h: 200 } }] });
+  const wall = prof.walls[0];
+  const touches = [{ x: 1, y: 1.5, size: 0.06 }, { x: 3, y: 0.5, size: 0.5 }];
+  const o = { scale: 0.5, radius: 0.1, softness: 0.4, trailMs: 0, sizeMode: 'fixed' };
+  const r = new TextureRenderer();
+  r.configure(o, prof);
+  r.render([{ wall, touches }], 16);
+  const m = new TouchMask();
+  m.resize(200, 100);
+  m.render([{ wall, touches }], o, 0.5, 16);
+  assert.deepEqual(Buffer.from(m.mask), Buffer.from(r.mask), 'the preview mask is the output mask, pixel for pixel');
+  // follows the touch: never below the radius, half the measured width above it
+  assert.equal(discRadiusM({ radius: 0.1, sizeMode: 'touch' }, { size: 0.06 }), 0.1);
+  assert.equal(discRadiusM({ radius: 0.1, sizeMode: 'touch' }, { size: 0.5 }), 0.25);
+  assert.equal(discRadiusM({ radius: 0.1, sizeMode: 'fixed' }, { size: 0.5 }), 0.1);
+  const lit = (sizeMode) => {
+    const t = new TouchMask(); t.resize(400, 200);
+    t.render([{ wall, touches: [{ x: 3, y: 0.5, size: 0.5 }] }], { ...o, softness: 0, sizeMode }, 1, 16);
+    return t.mask.reduce((n, v) => n + (v > 0), 0);
+  };
+  assert.ok(lit('touch') > lit('fixed') * 5, `a 50 cm body makes a bigger disc (${lit('touch')} vs ${lit('fixed')} px)`);
+  assert.equal(normalizeProfile({ outputs: [{ type: 'texture', sizeMode: 'touch' }] }).outputs[0].sizeMode, 'touch');
+  assert.equal(normalizeProfile({ outputs: [{ type: 'texture', sizeMode: 'huge' }] }).outputs[0].sizeMode, 'fixed');
+});
+
+test('fit: moving one mesh point puts the hand\'s wall position on the point\'s pixel; nearest point; far hands refused', async () => {
+  const { gridFrom, gridMap, gridSolveNode, gridNearestNode } = await import('../engine/core/geometry.js');
+  const g = gridFrom((u, v) => [100 + u * 600, 50 + v * 300], 4, 3); // 4 × 3 points over a 600 × 300 px region
+  const k = 1 * 4 + 2;                                                // row 1, column 2 → uv (2/3, 1/2)
+  // the hand is on that point's projected dot, but the sensor reads it 4 cm right and 2 cm up (wall of 6 × 3 m)
+  const u = 2 / 3 + 0.04 / 6, v = 0.5 - 0.02 / 3;
+  assert.equal(gridNearestNode(g, u, v, 6, 3), k);
+  const target = g.points[k].slice();
+  const np = gridSolveNode(g, k, u, v, target);
+  const g2 = { ...g, points: g.points.map((p, q) => (q === k ? np : p)) };
+  const [x, y] = gridMap(g2, u, v);
+  assert.ok(Math.hypot(x - target[0], y - target[1]) < 1e-6, `the hand now lands on the point's pixel (${x}, ${y})`);
+  assert.ok(Math.hypot(np[0] - target[0], np[1] - target[1]) > 3, 'the point itself moved');
+  assert.deepEqual(g2.points.filter((_, q) => q !== k), g.points.filter((_, q) => q !== k), 'no other point moved');
+  assert.equal(gridSolveNode(g, k, 0.05, 0.05, target), null, 'a hand far from the point cannot move it');
+});
+
+test('texture: destination Spout / NDI / full screen (Spout by default, as before); display and proportions for the window', () => {
+  const out = (o) => normalizeProfile({ outputs: [{ type: 'texture', ...o }] }).outputs[0];
+  assert.deepEqual([out({}).sink, out({}).displayId, out({}).fit], ['spout', null, 'fit']);
+  assert.equal(out({ sink: 'ndi' }).sink, 'ndi');
+  assert.deepEqual([out({ sink: 'window', displayId: 2779098405, fit: 'stretch' }).sink, out({ sink: 'window', displayId: 2779098405 }).displayId, out({ fit: 'stretch' }).fit], ['window', 2779098405, 'stretch']);
+  assert.equal(out({ sink: 'hdmi' }).sink, 'spout');
 });
