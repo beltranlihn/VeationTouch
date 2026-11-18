@@ -288,6 +288,17 @@ export function roomPlan(walls, { close = false, closeTol = 0.3 } = {}) {
   return out;
 }
 
+/**
+ * The worst verification error (mm) a wall accepts. 25 mm — a hand's radius — with the scan plane at the usual 2–3 cm
+ * from the wall. A plane set further out (a wall that reacts before the touch, e.g. in front of a light bar) reads the
+ * arm where it crosses the plane, so the reading moves with the angle of the arm: half the extra distance is allowed
+ * on top (12 cm → 70 mm).
+ */
+export function verifyPassMm(wall) {
+  const extra = Math.max(0, (Number.isFinite(wall?.planeOffset) ? wall.planeOffset : 0.02) - 0.03);
+  return Math.round(25 + extra * 500);
+}
+
 /** Does the wall loop close — the last wall ends within `tol` metres of where the first begins (3 walls or more)? */
 export function planCloses(walls, tol = 0.3) {
   if (walls.length < 3) return false;

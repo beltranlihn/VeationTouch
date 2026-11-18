@@ -10,6 +10,7 @@ import { WallTracker } from './core/tracker.js';
 import { ZoneEngine, BurstMeter } from './core/zones.js';
 import { CornerLinker } from './core/corners.js';
 import { CalibrationSession, defaultTargets, VerifySession, verifyTargets } from './core/calibration.js';
+import { verifyPassMm } from './core/geometry.js';
 import { OutputManager } from './outputs/outputs.js';
 import { normalizeProfile, blankProfile, wallToUv } from './profile.js';
 import { firewallStatus, fixFirewall, setInterfaceAddress, openHotspotSettings } from './net.js';
@@ -746,7 +747,8 @@ export class Engine extends EventEmitter {
     const w = prof.walls.find((x) => x.id === v.wall.id);
     if (!w) return;
     const worst = v.targets.reduce((b, t, k) => (t.errMm !== null && (b < 0 || t.errMm > v.targets[b].errMm) ? k : b), -1);
-    w.verified = { at: new Date().toISOString(), meanMm: s.meanMm, maxMm: s.maxMm, n: s.n, pass: s.maxMm <= VERIFY_PASS_MM,
+    const passMm = verifyPassMm(w);
+    w.verified = { at: new Date().toISOString(), meanMm: s.meanMm, maxMm: s.maxMm, n: s.n, passMm, pass: s.maxMm <= passMm,
       worst: worst >= 0 ? { x: v.targets[worst].x, y: v.targets[worst].y, errMm: v.targets[worst].errMm } : null };
     this._activate(this.store.saveProfile(prof));
     this.log.info(`verification of ${w.id}: mean ${s.meanMm} mm, worst ${s.maxMm} mm — ${w.verified.pass ? 'pass' : 'not good enough for hands'}`);
@@ -772,8 +774,6 @@ export class Engine extends EventEmitter {
 }
 
 const r4 = (v) => Math.round(v * 10000) / 10000;
-/** A verification passes when its worst point is within a hand radius. */
-export const VERIFY_PASS_MM = 25;
 
 /** Commands only the device driving a calibration / verification may send while it runs. */
 const CONTROL_OPS = new Set([

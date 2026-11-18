@@ -61,7 +61,7 @@
       "name": "Pantalla 3",
       "width": 6.411,
       "height": 3.5,
-      "planeOffset": 0.1,
+      "planeOffset": 0.12,
       "pixelRect": {
         "x": 5524,
         "y": 0,
@@ -70,7 +70,8 @@
       },
       "mapping": {
         "mode": "rect"
-      }
+      },
+      "notes": "Sensor centred above the LED bar, standing out past it: the scan plane is ~12 cm from the wall, so this wall reacts ~10 cm before the touch."
     }
   ],
   "sensors": [
@@ -81,7 +82,7 @@
       "driver": "sim",
       "pose": {
         "x": 2.791,
-        "y": 3.8,
+        "y": 3.75,
         "rotation": -90
       }
     },
@@ -91,8 +92,8 @@
       "wallId": "P2",
       "driver": "sim",
       "pose": {
-        "x": 3.6765,
-        "y": 3.8,
+        "x": 3.13,
+        "y": 3.75,
         "rotation": -90
       }
     },
@@ -103,7 +104,7 @@
       "driver": "sim",
       "pose": {
         "x": 3.205,
-        "y": 3.5,
+        "y": 3.75,
         "rotation": -90
       }
     },
@@ -113,8 +114,8 @@
       "wallId": "P4",
       "driver": "sim",
       "pose": {
-        "x": 3.665,
-        "y": 3.8,
+        "x": 4.21,
+        "y": 3.75,
         "rotation": -90
       }
     }

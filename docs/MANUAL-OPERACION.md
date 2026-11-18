@@ -107,10 +107,23 @@ se puede duplicar, exportar e importar desde **System**. Cada cambio guarda la v
 
 ## 6. Poner en marcha los sensores
 
+**Alimentación.** El S2E **no se alimenta por PoE**: su cable trae un conector Ethernet (sólo datos) y una entrada de
+corriente aparte (conector DC 5,5 × 2,1 mm) de **12 V** (lo que indican la tarjeta del kit y el sensor; usar siempre
+12 V aunque el datasheet cite un margen más amplio). Consume ≈ 2,4 W funcionando, pero al
+arrancar pide hasta **1,5 A a 12 V (18 W)**. Enchufado a un switch PoE estándar (802.3af/at) recibe datos, no
+corriente (el switch no le da tensión porque no la pide). Dos maneras:
+- **Un cable por sensor desde el switch PoE:** en cada sensor, un **splitter PoE activo 802.3at (PoE+)** con salida
+  **12 V ≥ 2 A** (conector 5,5 × 2,1 mm) y paso de datos 10/100. Un splitter 802.3af (12,95 W) se queda corto en el
+  arranque. El switch debe dar PoE+ en esos puertos (≈ 25 W cada uno).
+- **Un adaptador de 12 V ≥ 2 A por sensor** (fuente estabilizada, poco rizado: el ruido de la fuente aumenta el ruido
+  del láser) y el Ethernet a cualquier switch.
+Nunca un inyector PoE **pasivo** (pone tensión fija en el cable sin negociar). Comprobar la polaridad del conector DC
+(centro positivo es lo habitual) antes de enchufar.
+
 Todo se hace desde la app, sin otro programa: **Sensors › Sensor network…**
 
 1. **This computer.** Cada S2E nuevo viene con la IP **192.168.11.2**, así que el ordenador necesita una dirección en
-   esa red. Si la tarjeta de red conectada al switch PoE de los sensores no tiene dirección (red sin DHCP), la app la
+   esa red. Si la tarjeta de red conectada al switch de los sensores no tiene dirección (red sin DHCP), la app la
    reconoce y ofrece **Use it for the sensors (192.168.11.5)**: Windows pide permiso de administrador y sólo cambia
    esa tarjeta (la Wi-Fi y las demás redes siguen igual).
 2. **Sensors.** Conectar los sensores nuevos **de uno en uno** (todos traen la misma IP): enchufar uno, **Search
@@ -140,6 +153,10 @@ El soporte debe permitir ajustar la inclinación en dos ejes.
   esquina. Usa los datos en vivo (último medio segundo), así que se puede repetir justo después de cada ajuste del
   soporte: inclinar el sensor para separar el plano de la pared por ese lado hasta que salga en verde. Al terminar,
   volver a capturar el fondo (si el fondo guardado ya no coincide con lo que ve el sensor, el chequeo lo avisa).
+- **Un muro con el plano más separado** (algo sobresale de la pared y el sensor tiene que ir por delante, como la barra
+  de luz de P3 en el XR Lab): poner esa distancia en **Room › Scan plane** (ej. 0,12 m). Ese muro reacciona unos
+  centímetros **antes** de tocar, y la lectura se desplaza según el ángulo del brazo; por eso **Verify** le admite
+  más error: 25 mm más la mitad de lo que el plano pasa de 3 cm (a 12 cm, 70 mm).
 - Lo que no puede ver: un plano demasiado **lejos** de la pared. Comprobar con una regla apoyada perpendicular a la
   pared en varios puntos que se detecta a 1,5–3 cm de la pared en todo el muro.
 
@@ -345,7 +362,7 @@ Para llevar una sala a otro ordenador: **System › Export** y **Import**.
 
 | Síntoma | Qué revisar |
 |---|---|
-| Sensor *offline* | Cable / PoE, IP correcta en Sensors, **Restart**; **Sensor network…** para ver si responde |
+| Sensor *offline* | Cable, alimentación de 12 V (el S2E no toma corriente del PoE: splitter PoE+ o adaptador, §6), IP correcta en Sensors, **Restart**; **Sensor network…** para ver si responde |
 | El teléfono no abre el enlace en una Wi-Fi de invitados | Punto de acceso del ordenador (§4, **Open Mobile hotspot settings**) |
 | Un teléfono muestra «This page could not start» | El error ya está en el registro del ordenador (**System › Log**, «page error on iPhone…»): enviarlo al equipo de desarrollo; **Reload** lo reintenta |
 | Toques fantasma en un muro vacío | Recapturar el fondo con la sala vacía; máscara sobre el objeto; subir *Background margin* |

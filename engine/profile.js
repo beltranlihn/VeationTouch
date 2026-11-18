@@ -66,7 +66,7 @@ function normVerified(v) {
   if (!v || typeof v !== 'object' || !Number.isFinite(v.maxMm)) return null;
   const mm = (x) => Math.round(num(x, 0, 0, 100000) * 10) / 10;
   const worst = v.worst && Number.isFinite(v.worst.x) && Number.isFinite(v.worst.y) ? { x: num(v.worst.x, 0, -100, 100), y: num(v.worst.y, 0, -100, 100), errMm: mm(v.worst.errMm) } : null;
-  return { at: str(v.at), meanMm: mm(v.meanMm), maxMm: mm(v.maxMm), n: int(v.n, 0, 0, 100), pass: v.pass === true, worst };
+  return { at: str(v.at), meanMm: mm(v.meanMm), maxMm: mm(v.maxMm), n: int(v.n, 0, 0, 100), passMm: mm(v.passMm ?? 25), pass: v.pass === true, worst };
 }
 
 function normWall(w, i, canvas) {
@@ -93,7 +93,8 @@ function normWall(w, i, canvas) {
     enabled: bool(w?.enabled, true),
     pixelRect,
     mapping,
-    planeOffset: num(w?.planeOffset, 0.02, 0, 1), // informational: distance scan plane ↔ wall
+    // distance scan plane ↔ wall: 2–3 cm normally; further out the wall reacts before the touch (and Verify allows more)
+    planeOffset: num(w?.planeOffset, 0.02, 0, 1),
     // the last verification (written by the engine, dropped when the mapping or the calibration changes)
     verified: normVerified(w?.verified),
     turn: num(w?.turn, 90, -180, 180), // floor plan (3D view): corner to the NEXT wall, degrees clockwise seen from above

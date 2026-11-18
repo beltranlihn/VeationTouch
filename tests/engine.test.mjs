@@ -612,3 +612,40 @@ test('server: page errors from devices go to the log — one clean line each, a 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('engine: a wall whose scan plane stands 12 cm out passes verification with the larger error it reads', async () => {
+  const { verifyPassMm } = await import('../engine/core/geometry.js');
+  assert.equal(verifyPassMm({ planeOffset: 0.02 }), 25, 'the usual 2–3 cm plane: a hand radius');
+  assert.equal(verifyPassMm({ planeOffset: 0.03 }), 25);
+  assert.equal(verifyPassMm({ planeOffset: 0.12 }), 70, 'in front of a light bar: half the extra distance on top');
+  assert.equal(verifyPassMm({}), 25);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-plane-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  try {
+    const p = structuredClone(engine.profile);
+    p.simulation.wanderers = 0;
+    p.walls[0].planeOffset = 0.12;
+    await engine.command('profile.update', { profile: p, rev: engine.rev });
+    const wallId = engine.profile.walls[0].id;
+    await wait(400);
+    await engine.command('verify.start', { wallId });
+    for (const tg of engine.verify.targets.slice()) { // every reading 5 cm off, as an arm crossing the plane at an angle
+      await engine.command('sim.touch', { wallId, x: tg.x + 0.05, y: tg.y, id: 'h', down: true });
+      await wait(900);
+      await engine.command('sim.touch', { wallId, x: 0, y: 0, id: 'h', down: false });
+      await wait(600);
+    }
+    for (let k = 0; k < 20 && !engine.profile.walls[0].verified; k++) await wait(50);
+    const v = engine.profile.walls[0].verified;
+    assert.ok(v.maxMm > 25 && v.maxMm < 70, `worst ${v.maxMm} mm`);
+    assert.equal(v.passMm, 70);
+    assert.equal(v.pass, true, 'it would fail the 25 mm of a wall touched at 2 cm');
+  } finally {
+    await engine.command('verify.cancel').catch(() => {});
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

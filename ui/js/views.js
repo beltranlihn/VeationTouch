@@ -3,7 +3,7 @@
 
 import { store, cmd, editProfile, upload, otherControl, isCoarse } from './conn.js';
 import { h, sec, field, selectField, toggle, nudgeField, fader, badge, dot, toast, confirmBox, promptBox, stateKind, round, modal, switchUi } from './dom.js';
-import { gridMap, gridFrom, gridInsert } from '/shared/geometry.js';
+import { gridMap, gridFrom, gridInsert, verifyPassMm } from '/shared/geometry.js';
 import { uvToCanvas, texturePreviewSize } from './workspace.js';
 
 const run = (p, okMsg) => p.then((r) => { if (okMsg) toast(okMsg, 'ok'); return r; }).catch((e) => toast(e.message, 'bad'));
@@ -774,11 +774,12 @@ export function verifySession(v, ctx) {
   const total = v.targets.length;
   if (v.phase === 'done') {
     const s = v.summary;
-    const good = s && s.maxMm <= 25;
+    const lim = verifyPassMm(P().walls.find((w) => w.id === v.wallId));
+    const good = s && s.maxMm <= lim;
     const worst = s ? v.targets.reduce((b, t, k) => (t.errMm !== null && (b < 0 || t.errMm > v.targets[b].errMm) ? k : b), -1) : -1;
     return [sec(`Verification of ${v.wallId}`,
       s ? h('div', { class: `callout ${good ? 'ok' : 'attn'}` }, `Mean error ${s.meanMm} mm · worst ${s.maxMm} mm on ${s.n} points. `,
-        good ? 'Good for hands.' : ctx?.fixWorst ? `Larger than a hand radius at point ${worst + 1}: fix it there with your hand.` : 'Larger than a hand radius: recalibrate, or redo the worst calibration point.') : h('p', { class: 'muted' }, 'No point measured.'),
+        good ? `Good for hands (limit ${lim} mm).` : ctx?.fixWorst ? `Over the ${lim} mm limit at point ${worst + 1}: fix it there with your hand.` : `Over the ${lim} mm limit: recalibrate, or redo the worst calibration point.`) : h('p', { class: 'muted' }, 'No point measured.'),
       !good && s && ctx?.fixWorst ? h('button', { class: 'btn primary block big', onclick: () => ctx.fixWorst(v, worst) }, `Fix point ${worst + 1} with your hand`) : null,
       h('table', { class: 'calib-table' },
         h('tr', {}, h('th', {}, 'Point'), h('th', {}, 'Target (m)'), h('th', {}, 'Measured (m)'), h('th', {}, 'Error')),

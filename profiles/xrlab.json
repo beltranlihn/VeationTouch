@@ -61,14 +61,14 @@
       "name": "Pantalla 3",
       "width": 6.411,
       "height": 3.5,
-      "planeOffset": 0.1,
+      "planeOffset": 0.12,
       "pixelRect": {
         "x": 5524,
         "y": 0,
         "w": 1672,
         "h": 912
       },
-      "notes": "Access wall with door. Add a mask over the door once its position is measured.",
+      "notes": "Sensor centred above the LED bar, standing out past it: the scan plane is ~12 cm from the wall, so this wall reacts ~10 cm before the touch.",
       "mapping": {
         "mode": "rect"
       }
@@ -84,7 +84,7 @@
       "port": 8089,
       "pose": {
         "x": 2.791,
-        "y": 3.8,
+        "y": 3.75,
         "rotation": -90
       }
     },
@@ -96,8 +96,8 @@
       "host": "192.168.11.12",
       "port": 8089,
       "pose": {
-        "x": 3.6765,
-        "y": 3.8,
+        "x": 3.13,
+        "y": 3.75,
         "rotation": -90
       }
     },
@@ -110,7 +110,7 @@
       "port": 8089,
       "pose": {
         "x": 3.205,
-        "y": 3.5,
+        "y": 3.75,
         "rotation": -90
       }
     },
@@ -122,8 +122,8 @@
       "host": "192.168.11.14",
       "port": 8089,
       "pose": {
-        "x": 3.665,
-        "y": 3.8,
+        "x": 4.21,
+        "y": 3.75,
         "rotation": -90
       }
     }

@@ -228,7 +228,9 @@ would nearly pin down a homography's 8 unknowns, and it bends towards a bad poin
 > 4 cm and > 5× the others' residual from the fit of the others is asked again automatically, once per target, before
 the result is shown. "Redo worst point" uses the same test first.
 
-**Verification is kept** on its wall (`wall.verified`: mean, worst, pass = worst ≤ 25 mm, where the worst point was)
+**Verification is kept** on its wall (`wall.verified`: mean, worst, pass = worst ≤ `verifyPassMm(wall)` — 25 mm, plus
+half of the scan plane's distance beyond 3 cm (`wall.planeOffset`: a plane in front of something on the wall reads the
+arm where it crosses, so the reading moves with the arm's angle) — and where the worst point was)
 and dropped when that wall's mapping or its sensors' calibration changes (in `profile.update` and on apply).
 
 **Room setup guide** (the remote): `nextTask()` returns ONE next thing — sensors running → background → projection →
