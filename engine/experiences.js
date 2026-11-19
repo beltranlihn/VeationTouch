@@ -36,10 +36,12 @@ export function normManifest(m, folder, dir) {
   if (!m || typeof m !== 'object') return null;
   const id = typeof m.id === 'string' && ID_RE.test(m.id) ? m.id : ID_RE.test(folder) ? folder : null;
   if (!id) return null;
-  const entry = typeof m.entry === 'string' && m.entry && !m.entry.startsWith('/') && !m.entry.includes('..') && !m.entry.includes('\\') ? m.entry : 'index.html';
+  // kind: 'visual' (a page that draws, the default) or 'sound' (a module that makes sound — experiences/SOUND-API.md)
+  const kind = m.kind === 'sound' ? 'sound' : 'visual';
+  const entry = typeof m.entry === 'string' && m.entry && !m.entry.startsWith('/') && !m.entry.includes('..') && !m.entry.includes('\\') ? m.entry : kind === 'sound' ? 'sound.js' : 'index.html';
   const seen = new Set();
   const params = (Array.isArray(m.params) ? m.params : []).slice(0, 64).map(normParam).filter((p) => p && !seen.has(p.key) && seen.add(p.key));
-  return { id, name: text(m.name, 80) || id, description: text(m.description, 400), entry, params, dir };
+  return { id, name: text(m.name, 80) || id, description: text(m.description, 400), kind, entry, params, dir };
 }
 
 /** The manifest of every folder of the given roots. The first root to define an id wins. */
@@ -64,6 +66,9 @@ export function scanCatalog(roots, log) {
 
 /** What a client is told about the catalog (no disk paths). */
 export const publicCatalog = (catalog) => catalog.map(({ dir, ...rest }) => rest);
+/** The two kinds apart: pieces that draw (the Experience layer of the output) and pieces that make sound (the Audio card). */
+export const visualOnly = (catalog) => catalog.filter((e) => e.kind !== 'sound');
+export const soundOnly = (catalog) => catalog.filter((e) => e.kind === 'sound');
 
 /**
  * A value for one manifest parameter, or an Error saying why not. Numbers are clamped into their range; a select

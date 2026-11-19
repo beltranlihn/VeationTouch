@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VEATION Touch — Room audio</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;color:#B8B8B8;font:13px/1.4 Geist,system-ui,sans-serif;}
+  body{display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;}
+  p{margin:0;max-width:34em;}
+</style>
+<script src="js/boot-guard.js"></script>
+</head>
+<body>
+<!-- The room's sound. The desktop app opens this page in a hidden window while room audio is on; in a browser it is a tab
+     that must stay open. It draws nothing: ui/js/audio-host.js owns the audio devices, the routing and the sound piece. -->
+<p id="status">Room audio — starting…</p>
+<script type="module" src="js/audio-host.js"></script>
+</body>
+</html>

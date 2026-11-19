@@ -93,13 +93,18 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
   const uiDir = path.join(root, 'ui');
   const sdkDir = path.join(root, 'sdk');
 
-  const serveFile = (res, file) => {
+  const serveFile = (res, file, extra = null) => {
     fs.readFile(file, (err, data) => {
       if (err) { res.writeHead(404); res.end('not found'); return; }
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', ...extra });
       res.end(data);
     });
   };
+  // The audio window shares memory between its audio contexts (SharedArrayBuffer), which the browser only allows on a
+  // cross-origin-isolated page. The page asks for isolation (COOP + COEP); everything it loads is ours and says so (CORP).
+  // /sdk/ is left out: other apps load it from their own origin.
+  const ISOLATED = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cross-Origin-Resource-Policy': 'same-origin' };
+  const OWN = { 'Cross-Origin-Resource-Policy': 'same-origin' };
 
   const safeJoin = (dir, rel) => {
     const p = path.normalize(path.join(dir, rel));
@@ -162,9 +167,10 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (p === '/' || p === '/index.html') return serveFile(res, path.join(uiDir, 'index.html'));
     if (p === '/projection') return serveFile(res, path.join(uiDir, 'projection.html'));
     if (p === '/texture') return serveFile(res, path.join(uiDir, 'texture.html')); // a Texture output shown full screen
+    if (p === '/audio') return serveFile(res, path.join(uiDir, 'audio.html'), ISOLATED);        // the room's sound: a hidden window of the desktop app (or a browser tab)
     if (p === '/output') return serveFile(res, path.join(uiDir, 'output.html'));   // the room output: the layers composed (the desktop app's window sends it to Spout)
     // the browser uses the very same geometry code as the engine (one implementation of the mapping)
-    if (p === '/shared/geometry.js') return serveFile(res, path.join(root, 'engine', 'core', 'geometry.js'));
+    if (p === '/shared/geometry.js') return serveFile(res, path.join(root, 'engine', 'core', 'geometry.js'), OWN);
     if (p === '/shared/mask.js') return serveFile(res, path.join(root, 'engine', 'core', 'mask.js')); // the Texture output's rasteriser (live preview)
     if (p === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -212,14 +218,14 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
         return undefined;
       }
     }
-    if (p === '/experiences/runtime.js') return serveFile(res, path.join(root, 'experiences', 'runtime.js'));
+    if (p === '/experiences/runtime.js') return serveFile(res, path.join(root, 'experiences', 'runtime.js'), OWN);
     if (p.startsWith('/experiences/')) {
       // /experiences/<id>/<file>: the folder of a catalog entry, nothing else (no listing: a folder is a 404)
       const rest = p.slice('/experiences/'.length), cut = rest.indexOf('/');
       const e = cut > 0 ? engine.catalog.find((c) => c.id === rest.slice(0, cut)) : null;
       const f = e ? within(e.dir, rest.slice(cut + 1)) : null;
       if (!f) { res.writeHead(404); return res.end('not found'); }
-      return serveFile(res, f);
+      return serveFile(res, f, OWN);
     }
     if (p === '/api/experience/preview.jpg' && req.method === 'GET') {
       // the running page's last frame, for the Experiences tab: same rule as the UI channel (this computer, or the key)
@@ -245,7 +251,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     }
     if (p.startsWith('/sdk/')) { const f = safeJoin(sdkDir, p.slice(5)); return f ? serveFile(res, f) : (res.writeHead(400), res.end()); }
     const f = safeJoin(uiDir, p.slice(1));
-    if (f) return serveFile(res, f);
+    if (f) return serveFile(res, f, OWN);
     res.writeHead(400); res.end();
   });
 

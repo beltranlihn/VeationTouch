@@ -41,8 +41,13 @@ function installFakeOut(kind = 'spout') {
   };
 }
 
-/** @returns {Promise<object>} the runtime handle (see the property list in ARCHITECTURE.md › Experiences) */
-export async function connectExperience() {
+/**
+ * @param {{ sound?: boolean, id?: string }} [opt]  sound: the runtime of a SOUND piece (experiences/SOUND-API.md): no canvas, no
+ *   output — the hands as {stroke, wallId, u, v, size}, answered at once. `id`: the piece (it is not in the page's address).
+ * @returns {Promise<object>} the runtime handle (see the property list in ARCHITECTURE.md › Experiences)
+ */
+export async function connectExperience(opt = {}) {
+  if (opt.sound) return connectSound(opt.id || null);
   if (q.get('fakeOut') === '1' && !window.vtOut) installFakeOut();
   if (q.get('fakeOut') === 'gpu' && !window.vtOut) installFakeOut('spout-gpu');
   const run = q.get('run') === '1';
@@ -203,7 +208,10 @@ const MOVE_EPS = 0.05;              // px: under this a hand has not moved
  * `direct`: pointer devices (standalone) — no delay, no stitching: the hand is where the pointer is.
  */
 export function makeHands(vt, opt = {}) {
-  const direct = !!opt.direct, delay = direct ? 0 : (opt.delay ?? HAND_DELAY_MS);
+  // sound: the hands of a sound piece (SOUND-API.md): no playback delay and no curve — the newest real reading is where the
+  // hand is, a `down` the moment it lands — but the same stitching; events and hands() carry {stroke, wallId, u, v, size}
+  const sound = !!opt.sound, hold = sound;
+  const direct = !!opt.direct, delay = direct || sound ? 0 : (opt.delay ?? HAND_DELAY_MS);
   const clock = opt.now || (() => performance.now());
   const strokes = [];            // in order of appearance
   const byTracker = new Map();   // tracker id → stroke
@@ -220,14 +228,14 @@ export function makeHands(vt, opt = {}) {
     const last = S.pts[S.pts.length - 1];
     if (last && !(r.t > last.t)) {
       if (!direct) return false;
-      last.x = r.x; last.y = r.y; last.size = r.size; last.wallId = r.wallId; // pointers: two events in one ms, the later one wins
+      last.x = r.x; last.y = r.y; last.size = r.size; last.wallId = r.wallId; last.u = r.u; last.v = r.v; // pointers: two events in one ms, the later one wins
       return true;
     }
     if (direct && last) { // the speed between the two readings, lightly smoothed
       const dts = (r.t - last.t) / 1000;
       S.dvx = 0.4 * S.dvx + 0.6 * (near(r.x - last.x) / dts); S.dvy = 0.4 * S.dvy + 0.6 * ((r.y - last.y) / dts); S.fresh = true;
     }
-    S.pts.push({ t: r.t, x: last ? last.x + near(r.x - last.x) : r.x, y: r.y, wallId: r.wallId, size: r.size });
+    S.pts.push({ t: r.t, x: last ? last.x + near(r.x - last.x) : r.x, y: r.y, wallId: r.wallId, size: r.size, u: r.u, v: r.v });
     return true;
   }
 
@@ -269,8 +277,8 @@ export function makeHands(vt, opt = {}) {
   /** The curve at engine time `tr`: cubic Hermite through the readings, tangents from the neighbours (C1). x, y in px, v in px / ms. */
   function pose(S, tr) {
     const P = S.pts, n = P.length, last = P[n - 1];
-    if (n === 1 || tr <= P[0].t) return { x: P[0].x, y: P[0].y, vx: 0, vy: 0, size: P[0].size, wallId: P[0].wallId };
-    if (tr >= last.t) return { x: last.x, y: last.y, vx: 0, vy: 0, size: last.size, wallId: last.wallId };
+    if (n === 1 || tr <= P[0].t) return { x: P[0].x, y: P[0].y, vx: 0, vy: 0, size: P[0].size, wallId: P[0].wallId, u: P[0].u, v: P[0].v };
+    if (tr >= last.t) return { x: last.x, y: last.y, vx: 0, vy: 0, size: last.size, wallId: last.wallId, u: last.u, v: last.v };
     let i = 0;
     while (P[i + 1].t < tr) i++;
     const a = P[i], b = P[i + 1], h = b.t - a.t, s = (tr - a.t) / h;
@@ -291,6 +299,7 @@ export function makeHands(vt, opt = {}) {
   }
 
   function emit(type, S) {
+    if (sound) { vt.emit('touch', { type, stroke: S.id, wallId: S.wallId, u: S.u, v: S.v, size: S.size }); return; }
     vt.emit('touch', { type, id: S.id, stroke: S.id, trackerId: [...S.trackers][0] ?? null, wallId: S.wallId, x: S.x, y: S.y, vx: type === 'move' ? S.vx : 0, vy: type === 'move' ? S.vy : 0, size: S.size });
   }
 
@@ -303,13 +312,13 @@ export function makeHands(vt, opt = {}) {
     for (const S of strokes) {
       const cap = S.pts[S.pts.length - 1].t;
       if (!S.started) {
-        if (!direct && ideal < S.pts[0].t) continue; // still on its way: it is drawn from its first reading on
+        if (!direct && !hold && ideal < S.pts[0].t) continue; // still on its way: it is drawn from its first reading on
         S.started = true; S.tr = S.pts[0].t;
         const p0 = pose(S, S.tr);
-        Object.assign(S, { x: wrapX(p0.x), y: p0.y, size: p0.size, wallId: p0.wallId, vx: 0, vy: 0, ex: wrapX(p0.x), ey: p0.y, ewall: p0.wallId });
+        Object.assign(S, { x: wrapX(p0.x), y: p0.y, size: p0.size, wallId: p0.wallId, u: p0.u, v: p0.v, vx: 0, vy: 0, ex: wrapX(p0.x), ey: p0.y, ewall: p0.wallId });
         emit('down', S); // where its first reading was; the playback goes on from there
       }
-      if (direct) { S.tr = cap; S.rate = 1; }
+      if (direct || hold) { S.tr = cap; S.rate = 1; }
       else {
         const lag = ideal - S.tr;
         if (lag > RESYNC_MS) { S.tr = Math.min(cap, ideal); S.rate = 1; }
@@ -320,7 +329,7 @@ export function makeHands(vt, opt = {}) {
         }
       }
       const p = pose(S, S.tr);
-      S.x = wrapX(p.x); S.y = p.y; S.size = p.size; S.wallId = p.wallId;
+      S.x = wrapX(p.x); S.y = p.y; S.size = p.size; S.wallId = p.wallId; S.u = p.u; S.v = p.v;
       if (direct) { if (S.fresh) S.fresh = false; else { S.dvx *= 0.5; S.dvy *= 0.5; } S.vx = S.dvx; S.vy = S.dvy; }
       else { S.vx = p.vx * 1000 * S.rate; S.vy = p.vy * 1000 * S.rate; } // px / s of page time, from the curve
       if (Math.hypot(near(S.x - S.ex), S.y - S.ey) > MOVE_EPS || S.wallId !== S.ewall) { S.ex = S.x; S.ey = S.y; S.ewall = S.wallId; emit('move', S); }
@@ -334,14 +343,14 @@ export function makeHands(vt, opt = {}) {
       if (!direct && engNow < last.t + STITCH_MS + STITCH_GRACE_MS) continue; // it may yet come back under another id
       if (!S.started) { strokes.splice(k, 1); continue; }
       const p = pose(S, last.t);
-      S.x = wrapX(p.x); S.y = p.y; S.vx = S.vy = 0;
+      S.x = wrapX(p.x); S.y = p.y; S.u = p.u; S.v = p.v; S.vx = S.vy = 0;
       if (Math.hypot(near(S.x - S.ex), S.y - S.ey) > MOVE_EPS) emit('move', S);
       emit('up', S);
       strokes.splice(k, 1);
     }
   }
 
-  const view = (S) => ({ id: S.id, stroke: S.id, trackerId: [...S.trackers][0] ?? null, wallId: S.wallId, x: S.x, y: S.y, vx: S.vx, vy: S.vy, size: S.size, ended: S.trackers.size === 0 });
+  const view = (S) => sound ? ({ stroke: S.id, wallId: S.wallId, u: S.u, v: S.v, size: S.size }) : ({ id: S.id, stroke: S.id, trackerId: [...S.trackers][0] ?? null, wallId: S.wallId, x: S.x, y: S.y, vx: S.vx, vy: S.vy, size: S.size, ended: S.trackers.size === 0 });
   return {
     ingest, tick,
     hands: () => { tick(); return strokes.filter((S) => S.started).map(view); },
@@ -480,6 +489,71 @@ function fillWindow(vt) {
     Object.assign(c.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', display: 'block', objectFit: vt.fit === 'stretch' ? 'fill' : 'contain' });
   };
   if (document.body) apply(); else addEventListener('DOMContentLoaded', apply, { once: true });
+}
+
+// ---------------------------------------------------------------------------------------------- sound
+
+/**
+ * The runtime of a SOUND piece, in the audio window (ui/js/audio-host.js) — experiences/SOUND-API.md. No canvas, no output:
+ * vt.params / vt.on('params'), vt.walls / vt.closedLoop, vt.hands() and the 'touch' events {type, stroke, wallId, u, v, size}.
+ * The hands are the visual ones minus the playback: a `down` the moment a hand lands, the newest real reading as its place,
+ * the same stitching of a hand the tracker splits (one stroke, an `up` once the stitch window has passed). `dispose()` lets go.
+ */
+async function connectSound(id) {
+  const vt = makeHandle({});
+  vt.id = id; vt.sink = 'sound';
+  let conn = null;
+  try { conn = await within(engineReachable().then((ok) => (ok ? import('/js/conn.js') : null)), 4000) || null; } catch { conn = null; }
+  if (!conn) { // no engine (a piece opened on its own): defaults of its manifest, no hands
+    try {
+      const m = await within(fetch(new URL('manifest.json', location.href)).then((r) => r.json()), 2500);
+      for (const p of m?.params || []) if (p && p.key && 'default' in p) vt.params[p.key] = p.default;
+    } catch { /* no manifest: no parameters */ }
+    vt.standalone = true; vt.dispose = () => {};
+    return vt;
+  }
+  const geo = await import('/shared/geometry.js');
+  const { store, on, connect } = conn;
+  connect();
+  if (!store.state) await new Promise((res) => { const off = on('state', () => { off(); res(); }); });
+  const hands = makeHands(vt, { sound: true });
+  const wallOf = (wallId) => store.state.profile.walls.find((w) => w.id === wallId);
+  const paramValues = () => {
+    const mine = store.state.profile.audio?.sound?.params?.[id] || {};
+    const list = (store.state.sounds || []).find((e) => e.id === id)?.params || [];
+    return Object.fromEntries(list.map((p) => [p.key, p.key in mine ? mine[p.key] : p.default]));
+  };
+  const refresh = () => {
+    const P = store.state.profile;
+    // hands are tracked in a canvas-pixel space (it makes a hand crossing the seam of a closed room one stroke); only u / v leave
+    vt.canvas = { ...P.canvas }; vt.scale = 1; vt.size = { width: P.canvas.width, height: P.canvas.height };
+    vt.walls = P.walls.map((w) => ({ id: w.id, name: w.name }));
+    vt.closedLoop = geo.planCloses(P.walls);
+    setParams(vt, paramValues());
+  };
+  // A touch in the live feed: [id, x, y, size, coasting, rx, ry, seenAt] (see connectEngine): the REAL reading is the hand
+  const onLive = (L) => {
+    const seen = [];
+    for (const [wallId, list] of Object.entries(L.walls || {})) {
+      const w = wallOf(wallId);
+      if (!w) continue;
+      const pxPerM = w.pixelRect.w / w.width;
+      for (const t of list) {
+        const real = t.length >= 8 && Number.isFinite(t[5]) && Number.isFinite(t[6]) && Number.isFinite(t[7]);
+        const xm = real ? t[5] : t[1], ym = real ? t[6] : t[2];
+        const [x, y] = geo.wallUvToCanvas(w, xm / w.width, 1 - ym / w.height);
+        seen.push({ id: t[0], wallId, x, y, size: t[3], t: real ? t[7] : L.t, pxPerM,
+          u: Math.min(1, Math.max(0, xm / w.width)), v: Math.min(1, Math.max(0, ym / w.height)) });
+      }
+    }
+    hands.ingest(seen, L.t);
+  };
+  const offs = [on('live', onLive), on('state', refresh)];
+  refresh();
+  vt.hands = hands.hands; vt._tick = hands.tick;
+  const timer = setInterval(hands.tick, 25); // the `up` of a hand that left comes after the stitch window, with or without a reading
+  vt.dispose = () => { clearInterval(timer); for (const off of offs) off(); };
+  return vt;
 }
 
 // ---------------------------------------------------------------------------------------------- standalone

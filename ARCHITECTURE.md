@@ -9,6 +9,7 @@ Electron main (app/main.js) ── thin: windows, tray, autostart, supervisor
   │     HTTP + WebSocket server on :8770 (falls back to the next free port)
   │     mDNS responder on UDP 5353: <local name>.local → this server (engine/mdns.js)
   ├─ BrowserWindow: operator UI  → http://127.0.0.1:<port>/
+  ├─ BrowserWindow: room audio   → http://127.0.0.1:<port>/audio (hidden, only while room audio is on)
   └─ BrowserWindow: projection   → http://127.0.0.1:<port>/projection (frameless, fullscreen on a chosen display)
 Phones / tablets on the LAN → http://<server-ip>:<port>/?k=<access key>  (or http://veation-touch.local:<port>/…)
 Apps (TouchDesigner, Unreal, web) ← OSC / TUIO / ws://<server>:<port>/ws/data
@@ -477,6 +478,91 @@ regardless. Output, layer and parameter changes move the profile revision on, so
 refused. Switches are saved at once; faders are saved 700 ms after they settle.
 
 **Measured** on an RTX 4060 laptop: 7196 × 912 at 59–60 fps, with frame gaps ≤ 15 ms over 5 s.
+
+## Room audio — sound pieces over the room's speakers (`profile.audio`, `ui/audio.html`, `ui/js/audio-*.js`)
+
+A sound piece (`experiences/<id>/`, manifest `kind: "sound"`, entry `sound.js`) only makes sound; it plays together with
+the visual experience. The app owns devices, routing, sub, volume and limiter; the piece's contract is
+`experiences/SOUND-API.md`. Nothing here is specific to a room: the room is `profile.audio`.
+
+**Why this shape.** Dante Virtual Soundcard in WDM mode shows in Windows as several STEREO devices ("DVS Transmit 1-2",
+"3-4"…), not as one 8-channel device. ASIO would give one device but its SDK is proprietary or GPLv3, which the licence
+rule excludes. So one synthesis context renders N logical channels and one sink context per device plays its pair.
+
+```
+audio window (hidden BrowserWindow, /audio — COOP/COEP so SharedArrayBuffer exists)
+  synthesis AudioContext (48 kHz, no device: sinkId {type:'none'})
+    sound piece → wallInput(wall,u) / roomInput() / subInput()      ui/js/audio-graph.js
+      → per-channel bus (+ pieces' fade) → wall high-pass (4th order) ┐
+      → subSum → crossover low-pass (4th order) → sub channel         ├ post[c] (+ test tones)
+      → (fold to L/R when there is no multichannel device)            ┘
+      → ChannelMerger (discrete) → master × mute → limiter (AudioWorklet, always on)
+      → vt-ring-writer (AudioWorklet): each device's channels → its SharedArrayBuffer ring
+  sink AudioContext per device (setSinkId) ← vt-ring-reader (AudioWorklet) ← that ring        ui/js/audio-core.js
+```
+
+- **Logical channels → devices.** `layoutDevices(profile.audio.devices, found)`: labels (device ids change between
+  sessions) matched in order, exact → prefix → substring, never the "Default -" duplicate; the channels run on over the
+  devices, each taking its real `destination.maxChannelCount`. A device that is missing keeps a pair, so the others keep
+  their channels, and the card says "not found". No label → one sink on the default device, stereo, with every channel
+  folded into left / right (speakers panned in channel order, equal power; the sub in both).
+- **Walls and speakers.** `map: { wallId: [channel…] }` (1-based; a wall may have several speakers, left → right inside
+  the room, in channel order). `wallInput(wall, u)` shares a mono source over them with equal power; `roomInput()` is
+  equal on every wall (equal power per wall); `subInput()` goes to the sub only — folded into the walls (past their
+  high-pass) when the map has no sub. Wall inputs and the room input also feed the sub sum.
+- **Sub.** `sub: { channel, crossoverHz }`: the sum low-passed at the crossover goes to the sub channel; the walls are
+  high-passed at `wallHighpassHz` (0 = off). They are independent: set the high-pass to the crossover.
+- **Final stage.** `master` (0..1, never above unity), `mute`, then a linked-channel look-ahead limiter
+  (`Limiter`, 1.3 ms) with a hard clip behind it at `ceilingDb` (−12..−1 dBFS: it cannot be set above −1). The limiter is
+  an AudioWorklet because `DynamicsCompressorNode` is limited to two channels. It is applied after the fold, so it limits
+  what really leaves. Piece start / stop fade the pieces' level over 1 s (`fade`), not the master, test tones or mute.
+- **Ring buffer.** `RingWriter` / `RingReader`: lock-free, single writer, single reader, planar Float32 in a
+  SharedArrayBuffer, one ring per device (16384 frames). The contexts run on different clocks, so the reader keeps
+  ~1280 frames (27 ms) queued: inside a dead band it copies frames exactly; outside it plays 0.2 % fast or slow
+  (linear interpolation) until back, then drops the leftover fraction (otherwise a permanent half-sample delay would be a
+  low-pass). Before the target and on an underrun it outputs exact silence (the whole block), never stale frames;
+  after a stall it skips to the target.
+- **Window and permissions.** The engine emits `audioWindow` (also in `ready`) while `audio.on`; `app/main.js` opens a
+  hidden window (`backgroundThrottling: false`, `autoplayPolicy: no-user-gesture-required`). The permission handlers
+  narrow only that window: `media` (audio only — Chromium gives device NAMES only after one microphone grant; the tracks
+  are stopped at once) and `speaker-selection`, for this app's own origin; other windows keep Electron's default.
+  Without the desktop app the card links the page for a browser tab (it must stay open and be clicked once).
+- **Server.** `/audio` carries `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy:
+  require-corp`; the UI scripts, `/shared/`, `/experiences/` carry `Cross-Origin-Resource-Policy: same-origin` (`/sdk/` does
+  not: other apps load it). The operator UI is not isolated.
+- **Runtime, sound mode** (`connectExperience({ sound: true, id })`). No canvas. `makeHands(vt, { sound: true })`: a `down`
+  the moment a hand lands, the newest REAL reading (`rx, ry, seenAt`) is where it is, and the same stitching (a new id
+  within 0.3 m and 300 ms is the same stroke, `up` after the window). Events and `vt.hands()` carry
+  `{ stroke, wallId, u, v, size }` (u, v from the wall metres; size in metres). The tracking itself runs in canvas pixels, so a
+  hand crossing the seam of a closed room stays one stroke.
+- **Engine.** State: `audio` (on, running = the window reported in the last 6 s, devices with their channel counts, sinks,
+  logical / available channels, peak in 3 dB steps, test, `sound: { running, active, id, error }`) and `sounds` (the
+  catalog of `kind: "sound"`; `experiences` has the visual ones only; `experience.play` refuses a sound id and
+  `sound.play` a visual one). Commands: `audio.set {on, devices, channels, master, mute, ceilingDb, wallHighpassHz, sub}`,
+  `audio.map {map, channels?, sub?}`, `audio.test {channel}` (a soft ~1 s tone, after the filters, on one logical channel —
+  also the sub; the window plays it when it sees a new `state.audio.test.seq`), `audio.mute`, `audio.report` (from the
+  window, every 500 ms), `sound.play {id}` (turns audio on), `sound.stop`, `sound.set {autostart}`, `sound.param`.
+  **Show mode** locks devices, channels, map, sub, filters, ceiling, Test and autostart; play, stop, parameters, master,
+  mute and the on/off switch keep working. The audio window is a UI client with role `audio` (no point clouds).
+- **Ambient notes** (`experiences/ambient-notes/`, the first sound piece; own Web Audio synthesis, nothing loaded). A pad
+  (a chord of the scale on detuned saws + triangles, slow low-pass, a generated 5 s reverb) plays on every wall, its root
+  an octave down on the sub; every "Pad change" seconds the next chord fades in. Each touch is one note on ITS wall: the
+  height picks the note of the scale (`theory.js`), `u` pans it over that wall's speakers and opens its filter. The note
+  is STRUCK the moment the hand lands ("Attack", 2–80 ms, default 5: the touch is felt), rings down for ~0.6 s, then
+  swells and brightens while the hand stays ("Swell", bounded) and leaves a long tail on `up` ("Release"). Notes are
+  keyed by stroke (`voices.js`: a repeated `down` never adds a voice), capped per wall and in total (the oldest yields
+  with a quick fade). Defaults put the people first: Pad volume 20 %, Notes volume 85 % — a touch stands ~9 dB above the
+  pad on its wall. One note peaks around −20 dBFS; 20 struck at once with every volume at 100 % peak at −9.6 dBFS
+  before the limiter.
+- **Tests.** `tests/audio.test.mjs` (ring, devices, spreading, limiter, sound hands, profile, engine, server),
+  `tests/audio-ui.test.mjs` (the graph on an `OfflineAudioContext` in Electron's renderer, the writer worklet into rings on
+  the isolated page, the runtime against a live engine, the Audio card), `tests/ambient-notes.test.mjs` (the piece on a
+  fake host) and `tests/sound-room.test.mjs` — the real parts together, XR Lab's map read from its profile: a touch on P2
+  sounds only on P2's channel; 20 hands at once (and a piece 10x too loud, which goes to +11 dBFS without the limiter)
+  stay below the ceiling; a pass the tracker splits into 3 ids is one `down`, one voice, one `up` (three notes without
+  the runtime's stitching).
+- **Not verifiable without the hardware:** whether DVS's pairs report `maxChannelCount` 2 and their exact labels (the card's
+  Devices readout shows them), clock drift against the real Dante clock, and the latency of the whole chain.
 
 ## Internet access — `engine/cloud.js`, `cloud/`
 

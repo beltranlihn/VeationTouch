@@ -1,0 +1,214 @@
+{
+  "id": "ambient-notes",
+  "name": "Ambient notes",
+  "description": "A slow pad plays all the time; every touch strikes one soft note on its own wall. Height picks the note, a held hand lets it swell, lifting it leaves a long tail.",
+  "kind": "sound",
+  "entry": "sound.js",
+  "params": [
+    {
+      "key": "key",
+      "label": "Key",
+      "type": "select",
+      "default": "D",
+      "options": [
+        [
+          "C",
+          "C"
+        ],
+        [
+          "C#",
+          "C#"
+        ],
+        [
+          "D",
+          "D"
+        ],
+        [
+          "D#",
+          "D#"
+        ],
+        [
+          "E",
+          "E"
+        ],
+        [
+          "F",
+          "F"
+        ],
+        [
+          "F#",
+          "F#"
+        ],
+        [
+          "G",
+          "G"
+        ],
+        [
+          "G#",
+          "G#"
+        ],
+        [
+          "A",
+          "A"
+        ],
+        [
+          "A#",
+          "A#"
+        ],
+        [
+          "B",
+          "B"
+        ]
+      ]
+    },
+    {
+      "key": "scale",
+      "label": "Scale",
+      "type": "select",
+      "default": "minor-pentatonic",
+      "options": [
+        [
+          "major-pentatonic",
+          "Major pentatonic"
+        ],
+        [
+          "minor-pentatonic",
+          "Minor pentatonic"
+        ],
+        [
+          "dorian",
+          "Dorian"
+        ],
+        [
+          "lydian",
+          "Lydian"
+        ],
+        [
+          "mixolydian",
+          "Mixolydian"
+        ],
+        [
+          "aeolian",
+          "Aeolian (natural minor)"
+        ]
+      ]
+    },
+    {
+      "key": "lowOctave",
+      "label": "Lowest octave",
+      "type": "number",
+      "min": 2,
+      "max": 5,
+      "step": 1,
+      "default": 3
+    },
+    {
+      "key": "octaves",
+      "label": "Note range",
+      "type": "number",
+      "min": 1,
+      "max": 4,
+      "step": 1,
+      "default": 3,
+      "unit": "oct"
+    },
+    {
+      "key": "attack",
+      "label": "Attack",
+      "type": "number",
+      "min": 2,
+      "max": 80,
+      "step": 1,
+      "default": 5,
+      "unit": "ms"
+    },
+    {
+      "key": "swell",
+      "label": "Swell",
+      "type": "number",
+      "min": 0.5,
+      "max": 15,
+      "step": 0.1,
+      "default": 3,
+      "unit": "s"
+    },
+    {
+      "key": "release",
+      "label": "Release",
+      "type": "number",
+      "min": 0.5,
+      "max": 15,
+      "step": 0.1,
+      "default": 5,
+      "unit": "s"
+    },
+    {
+      "key": "reverbMix",
+      "label": "Reverb mix",
+      "type": "number",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "default": 45,
+      "unit": "%"
+    },
+    {
+      "key": "padVolume",
+      "label": "Pad volume",
+      "type": "number",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "default": 20,
+      "unit": "%"
+    },
+    {
+      "key": "notesVolume",
+      "label": "Notes volume",
+      "type": "number",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "default": 85,
+      "unit": "%"
+    },
+    {
+      "key": "padChange",
+      "label": "Pad change",
+      "type": "number",
+      "min": 8,
+      "max": 180,
+      "step": 1,
+      "default": 45,
+      "unit": "s"
+    },
+    {
+      "key": "positionFilter",
+      "label": "Position opens filter",
+      "type": "number",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "default": 50,
+      "unit": "%"
+    },
+    {
+      "key": "maxPerWall",
+      "label": "Notes per wall",
+      "type": "number",
+      "min": 1,
+      "max": 6,
+      "step": 1,
+      "default": 4
+    },
+    {
+      "key": "maxNotes",
+      "label": "Notes in total",
+      "type": "number",
+      "min": 2,
+      "max": 24,
+      "step": 1,
+      "default": 12
+    }
+  ]
+}

@@ -47,7 +47,7 @@ let serverProfile = null;
 const pending = new Map();
 // the pages that only draw (projection, full-screen texture, the room output, an experience) never need point clouds
 const pageRole = location.pathname.startsWith('/projection') ? 'projection' : location.pathname.startsWith('/texture') ? 'texture'
-  : location.pathname.startsWith('/output') ? 'output' : location.pathname.startsWith('/experiences/') ? 'experience' : null;
+  : location.pathname.startsWith('/output') ? 'output' : location.pathname.startsWith('/audio') ? 'audio' : location.pathname.startsWith('/experiences/') ? 'experience' : null;
 const role = pageRole || params.get('role') || 'ui';
 let wantViz = !pageRole;
 
@@ -59,6 +59,8 @@ function url() {
 }
 
 export function connect() {
+  // one channel per page: a second caller (the audio window and the runtime of its sound piece) shares the open one
+  if (ws && ws.readyState <= 1) return;
   ws = new WebSocket(url());
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {

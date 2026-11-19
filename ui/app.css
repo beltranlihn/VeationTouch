@@ -407,6 +407,22 @@ kbd{font:500 11px/1 Geist, system-ui;color:var(--ink);background:var(--s2);borde
 .xp-fold>summary{cursor:pointer;color:var(--ink-3);font-size:var(--fs-s);padding:var(--sp-4) 0;}
 .xp-fold-body{display:flex;flex-direction:column;gap:var(--sp-4);padding-top:var(--sp-4);}
 .xp-calib>.muted{margin-top:var(--sp-4);}
+/* Audio card (Experiences tab): channels, outputs, devices */
+.xp-audio h3,.au-setup h3{margin:var(--sp-8) 0 0;font-size:var(--fs-s);font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);}
+.xp-audio h3 small{margin-left:var(--sp-8);font-weight:400;text-transform:none;letter-spacing:0;}
+.au-chans,.au-devices{display:flex;flex-direction:column;gap:2px;padding-top:var(--sp-8);border-top:.5px solid var(--line-soft);}
+.au-ch{display:grid;grid-template-columns:2.2em minmax(0,1fr) auto;gap:var(--sp-8);align-items:center;padding:var(--sp-4) 0;}
+.au-ch .n{color:var(--ink-3);}
+.au-ch .who{min-width:0;color:var(--ink);}
+.au-ch .who small{display:block;color:var(--ink-3);font-size:var(--fs-s);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.au-slot{display:flex;align-items:center;gap:var(--sp-8);}
+.au-slot .row{flex:1;min-width:0;}
+.au-chips{display:flex;flex-wrap:wrap;gap:var(--sp-4);flex:1;}
+.au-chips button{min-width:2.2em;height:calc(var(--ctl-h) - 4px);border-radius:var(--r);background:var(--s2);border:.5px solid var(--line);color:var(--ink-2);font-weight:500;}
+.au-chips button.on{background:var(--state-on);color:var(--ink);}
+.au-chips button:hover:not(.on){background:var(--state-hover);}
+.au-dev{display:flex;justify-content:space-between;gap:var(--sp-8);padding:2px 0;color:var(--ink-2);}
+.au-dev small{color:var(--ink-3);}
 /* calibration remote: the way out, the hand-distance hint, and "Take control and …" buttons */
 .remote .r-exit{min-height:48px;padding:0 var(--sp-16);}
 .remote .r-near{color:var(--attn);font-size:var(--fs-l);text-align:center;min-height:1.4em;}

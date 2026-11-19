@@ -53,6 +53,7 @@ engine.mdns = mdns;
 engine.on('projection', (pr) => toParent({ type: 'projection', projection: pr, port: server.port }));
 engine.on('textureWindows', (list) => toParent({ type: 'textureWindows', list }));
 engine.on('outputWindow', (window) => toParent({ type: 'outputWindow', window }));
+engine.on('audioWindow', (window) => toParent({ type: 'audioWindow', window }));
 engine.on('autostart', (enabled) => toParent({ type: 'autostart', enabled }));
 parent?.on('message', (e) => {
   const m = e.data;
@@ -63,7 +64,7 @@ parent?.on('message', (e) => {
   }
   if (m?.type === 'shutdown') shutdown();
 });
-toParent({ type: 'ready', port: server.port, token: engine.settings.token, projection: engine.settings.projection, autostart: engine.settings.autostart, textureWindows: engine.textureWindows(), outputWindow: engine.outputWindow() });
+toParent({ type: 'ready', port: server.port, token: engine.settings.token, projection: engine.settings.projection, autostart: engine.settings.autostart, textureWindows: engine.textureWindows(), outputWindow: engine.outputWindow(), audioWindow: engine.audioWindow() });
 log.info(`UI: http://localhost:${server.port}/`);
 
 let stopping = false;

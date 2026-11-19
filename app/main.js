@@ -2,7 +2,7 @@
 // the tray. All tracking work happens in the engine (utilityProcess), so a crash there never
 // takes the UI down and vice versa. See ARCHITECTURE.md › Processes.
 
-import { app, BrowserWindow, utilityProcess, screen, Tray, Menu, nativeImage, crashReporter, powerSaveBlocker, shell } from 'electron';
+import { app, BrowserWindow, utilityProcess, screen, Tray, Menu, nativeImage, crashReporter, powerSaveBlocker, shell, session } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +26,8 @@ let texWanted = [];            // Texture outputs shown full screen: [{id, displ
 const texWins = new Map();     // output id → its full-screen window
 let outWanted = null;          // the room output to run, from the engine: {url, sink, displayId, fit, scale, fps, senderName, width, height} | null
 let outWin = null, outKey = '';// its window (off screen for Spout, full screen for a display) and what it was made for
+let audioWanted = null;        // the room's sound window, from the engine: {url} | null
+let audioWin = null, audioKey = ''; // its (hidden) window and what it was opened for
 let previewTimer = null;       // once a second: a JPEG of the output for the Experiences tab
 let previewWanted = true;      // the engine says whether anyone looks at that preview (no capture otherwise)
 
@@ -51,6 +53,7 @@ function startEngine() {
   engine.on('exit', (code) => {
     engine = null; engineReady = false;
     closeOutputWindow(); // its page talks to the engine that just went away; ready opens a fresh one
+    closeAudioWindow();
     if (quitting) return;
     if (Date.now() - startedAt > 60000) restarts = 0; // it ran fine for a minute: reset the backoff
     const delay = Math.min(30000, 1000 * 2 ** restarts++);
@@ -72,12 +75,17 @@ function onEngineMessage(m) {
     applyTextureWindows();
     outWanted = m.outputWindow || null;
     applyOutputWindow();
+    audioWanted = m.audioWindow || null;
+    applyAudioWindow();
     applyAutostart(m.autostart);
   } else if (m?.type === 'previewWanted') {
     previewWanted = !!m.on;
   } else if (m?.type === 'outputWindow') {
     outWanted = m.window || null;
     applyOutputWindow();
+  } else if (m?.type === 'audioWindow') {
+    audioWanted = m.window || null;
+    applyAudioWindow();
   } else if (m?.type === 'textureWindows') {
     texWanted = m.list;
     applyTextureWindows();
@@ -349,6 +357,53 @@ function applyOutputWindow() {
   log(`room output opened (${display ? 'full screen' : `Spout "${want.senderName}", ${gpu ? 'GPU' : 'CPU'} path`}, ${want.width}x${want.height})`);
 }
 
+function closeAudioWindow() {
+  const w = audioWin;
+  audioWin = null; audioKey = '';
+  if (w && !w.isDestroyed()) w.destroy();
+}
+
+/**
+ * The room's sound: a hidden window (no content to show, no off-screen rendering) running /audio, which owns the audio
+ * contexts and the output devices (ui/js/audio-host.js). It must not be throttled or wait for a click to make sound, and it
+ * needs the microphone permission once (Chromium gives device NAMES only after it) — see the permission handlers below.
+ */
+function applyAudioWindow() {
+  const want = engineReady ? audioWanted : null;
+  if (!want) { closeAudioWindow(); return; }
+  const key = `${enginePort}${want.url}`;
+  if (audioWin && !audioWin.isDestroyed() && key === audioKey) return;
+  closeAudioWindow();
+  const w = new BrowserWindow({
+    show: false, width: 480, height: 240, skipTaskbar: true, autoHideMenuBar: true, title: 'VEATION Touch — Audio',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
+  });
+  audioWin = w; audioKey = key;
+  w.on('closed', () => { if (audioWin === w) { audioWin = null; audioKey = ''; } });
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(uiUrl('/'))) e.preventDefault(); });
+  w.webContents.on('render-process-gone', (_e, d) => {
+    log(`audio renderer gone (${d.reason}); restarting it`);
+    setTimeout(() => { if (audioWin === w) { closeAudioWindow(); applyAudioWindow(); } }, 1000);
+  });
+  w.loadURL(uiUrl(want.url));
+  log('room audio window opened (hidden)');
+}
+
+/** Only this app's audio window may use the microphone permission (to read device names) and speaker selection; no video, nothing else. */
+function installAudioPermissions() {
+  const isAudio = (wc) => !!audioWin && !audioWin.isDestroyed() && wc === audioWin.webContents;
+  const ok = (permission, details) => (permission === 'speaker-selection' || permission === 'media') && !(details?.mediaTypes || []).includes('video');
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+    // (Electron's default is to grant everything; the other windows keep that — only the audio window is narrowed)
+    callback(isAudio(wc) ? ok(permission, details) && String(details?.requestingUrl || '').startsWith(uiUrl('/')) : true);
+  });
+  session.defaultSession.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
+    if (!isAudio(wc)) return true;
+    return ok(permission, details) && String(requestingOrigin || '').startsWith(uiUrl('/').replace(/\/$/, ''));
+  });
+}
+
 function applyAutostart(enabled) {
   if (!app.isPackaged) return; // dev runs must not register electron.exe at login
   app.setLoginItemSettings({ openAtLogin: !!enabled, args: ['--hidden'] });
@@ -376,6 +431,7 @@ app.on('second-instance', showMain);
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   powerSaveBlocker.start('prevent-display-sleep'); // projection + sensors must not sleep mid-show
+  installAudioPermissions();
   createTray();
   startEngine();
   for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => { sendDisplays(); applyProjection(); applyTextureWindows(); applyOutputWindow(); });

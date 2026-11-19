@@ -13,7 +13,7 @@ import { CalibrationSession, defaultTargets, VerifySession, verifyTargets } from
 import { verifyPassMm, poseMatrix, apply } from './core/geometry.js';
 import { OutputManager } from './outputs/outputs.js';
 import { overlayOf } from './core/mask.js';
-import { normalizeProfile, blankProfile, wallToUv, OUTPUT_SCALES, OUTPUT_FPS, OUTPUT_BLENDS, OUTPUT_LAYERS, TOUCH_LAYER_SCALES, normRoomOutput } from './profile.js';
+import { normalizeProfile, blankProfile, wallToUv, OUTPUT_SCALES, OUTPUT_FPS, OUTPUT_BLENDS, OUTPUT_LAYERS, TOUCH_LAYER_SCALES, normRoomOutput, normAudio, AUDIO_MAX_CHANNELS } from './profile.js';
 import { firewallStatus, fixFirewall, setInterfaceAddress, openHotspotSettings } from './net.js';
 import { autoAlign, backgroundPoints } from './core/autoalign.js';
 import { levelCheck } from './core/levelcheck.js';
@@ -22,7 +22,7 @@ import { discover, candidateHosts, factoryNetwork, readdress, unconfiguredInterf
 import { lanInterfaces } from './mdns.js';
 import { CloudLink, normalizeRelayUrl } from './cloud.js';
 import { cloudSettings } from './store.js';
-import { scanCatalog, publicCatalog, checkParam } from './experiences.js';
+import { scanCatalog, publicCatalog, checkParam, visualOnly, soundOnly } from './experiences.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,6 +64,9 @@ export class Engine extends EventEmitter {
     this.exp = { fps: 0, error: null };                  // how the experience layer's page is doing (transient, never saved)
     this.out = { fps: 0, error: null, previewAt: null }; // how the room output's window is doing, as the desktop app reports it
     this.outPreview = null;     // the last JPEG of the whole output: { buf, at } (from the desktop app, 1 per second)
+    // room audio (transient, never saved): what the audio window last reported, the test tone asked for, whether the sound piece plays
+    this.aud = { report: null, at: 0, test: null, testSeq: 0, playing: false, error: null };
+    this._audKey = 'null';
     this._outKey = 'null';
     this.lastFrame = null;
     this.tickStats = { fps: 0, n: 0, t0: performance.now(), maxMs: 0 };
@@ -79,15 +82,19 @@ export class Engine extends EventEmitter {
     this.catalog = scanCatalog(this.experienceDirs, this.log);
     this._activate(prof);
     const x = this.profile.experience;
-    if (x.autostart && x.id && this.catalog.some((e) => e.id === x.id)) { this._experienceRun(); this.log.info(`experience "${x.id}" started with the app`); }
+    if (x.autostart && x.id && this._visual().some((e) => e.id === x.id)) { this._experienceRun(); this.log.info(`experience "${x.id}" started with the app`); }
     else if (this.profile.output.on) this.log.info(`room output "${this.profile.output.senderName}" on`);
+    this._soundAutostart();
     this._timer = setInterval(() => this._tick(), 1000 / TICK_HZ);
+    this._audTimer = setInterval(() => this._audioWatch(), 1000);
+    this._audTimer.unref?.();
     this.log.info(`engine ${this.version} started with profile "${prof.name}"`);
     if (this.settings.cloud.enabled) this.cloud.apply();
   }
 
   async stop() {
     clearInterval(this._timer);
+    clearInterval(this._audTimer);
     this._flushExperience();
     this.cloud.stop();
     if (this.recorder) await this.recorder.stop().catch(() => {});
@@ -157,9 +164,12 @@ export class Engine extends EventEmitter {
     this._syncTextureWindows();
     if (prev && prev.id !== profile.id) { // another room: its own experience (it runs only if that room starts it with the app)
       this.exp = { fps: 0, error: null }; this.out = { fps: 0, error: null, previewAt: null }; this.outPreview = null;
-      if (profile.experience.autostart && this.catalog.some((e) => e.id === profile.experience.id)) this._experienceRun();
+      if (profile.experience.autostart && this._visual().some((e) => e.id === profile.experience.id)) this._experienceRun();
+      this.aud = { report: null, at: 0, test: null, testSeq: this.aud.testSeq, playing: false, error: null }; // another room: its own sound
+      this._soundAutostart();
     }
     this._syncOutputWindow();
+    this._syncAudioWindow();
     this.outputs.configure(profile);
     if (this.calib && !profile.walls.some((w) => w.id === this.calib.wall.id)) this.calib = null;
     if (this.verify && !profile.walls.some((w) => w.id === this.verify.wall.id)) this.verify = null;
@@ -310,7 +320,9 @@ export class Engine extends EventEmitter {
       grid: !!this.grid,
       experience: this.experienceState(),
       output: this.outputState(),
-      experiences: publicCatalog(this.catalog),
+      experiences: publicCatalog(this._visual()),   // pieces that draw …
+      sounds: publicCatalog(this._sounds()),        // … and pieces that make sound, apart
+      audio: this.audioState(),
       displays: this.displays, autostart: this.settings.autostart,
       locked: !!this.settings.locked,
       cloud: this.cloud.status(), // never the secret
@@ -717,10 +729,10 @@ export class Engine extends EventEmitter {
       case 'experience.list': {
         this.catalog = scanCatalog(this.experienceDirs, this.log);
         this.emit('state');
-        return { experiences: publicCatalog(this.catalog) };
+        return { experiences: publicCatalog(this._visual()), sounds: publicCatalog(this._sounds()) };
       }
       case 'experience.play': {
-        const e = this.catalog.find((x) => x.id === args.id);
+        const e = this._visual().find((x) => x.id === args.id);
         if (!e) throw new Error(`unknown experience "${args.id}"`);
         P.experience.id = e.id;
         this._experienceRun();
@@ -803,7 +815,7 @@ export class Engine extends EventEmitter {
         return {};
       }
       case 'experience.param': {
-        const x = P.experience, e = this.catalog.find((c) => c.id === x.id);
+        const x = P.experience, e = this._visual().find((c) => c.id === x.id);
         if (!e) throw new Error('no experience selected');
         const param = e.params.find((q) => q.key === args.key);
         if (!param) throw new Error(`"${e.id}" has no parameter "${args.key}"`);
@@ -823,6 +835,117 @@ export class Engine extends EventEmitter {
         this.exp.error = err;
         this.emit('state');
         return {};
+      }
+      case 'audio.set': {
+        // the room's sound: on / off, devices, channels, sub, filters, levels. Show mode locks everything but the switch, master and mute.
+        if (this.settings.locked && Object.keys(args).some((k) => !['on', 'master', 'mute'].includes(k) && !k.startsWith('__'))) throw new Error('the room is locked (Show mode) — unlock it first');
+        const A = P.audio, next = {};
+        if ('on' in args) { if (typeof args.on !== 'boolean') throw new Error('on: true or false'); next.on = args.on; }
+        if ('devices' in args) {
+          if (!Array.isArray(args.devices) || args.devices.length > 16 || !args.devices.every((d) => typeof d === 'string')) throw new Error('devices: a list of device names (at most 16)');
+          next.devices = args.devices;
+        }
+        if ('channels' in args) { const n = Number(args.channels); if (!Number.isInteger(n) || n < 1 || n > AUDIO_MAX_CHANNELS) throw new Error(`channels: a whole number from 1 to ${AUDIO_MAX_CHANNELS}`); next.channels = n; }
+        if ('master' in args) { const n = Number(args.master); if (!(n >= 0 && n <= 1)) throw new Error('master: from 0 to 1'); next.master = n; }
+        if ('mute' in args) { if (typeof args.mute !== 'boolean') throw new Error('mute: true or false'); next.mute = args.mute; }
+        if ('ceilingDb' in args) { const n = Number(args.ceilingDb); if (!(n >= -12 && n <= -1)) throw new Error('ceilingDb: from -12 to -1 (the limiter never lets more than -1 dBFS through)'); next.ceilingDb = n; }
+        if ('wallHighpassHz' in args) { const n = Number(args.wallHighpassHz); if (!(n >= 0 && n <= 500)) throw new Error('wallHighpassHz: from 0 (off) to 500'); next.wallHighpassHz = n; }
+        if ('sub' in args) {
+          const sb = args.sub;
+          if (!sb || typeof sb !== 'object') throw new Error('sub: { channel, crossoverHz }');
+          const ch = sb.channel === undefined ? A.sub.channel : sb.channel, hz = sb.crossoverHz ?? A.sub.crossoverHz;
+          if (ch !== null && !(Number.isInteger(ch) && ch >= 1)) throw new Error('sub.channel: a channel number or null (no sub)');
+          if (!(Number(hz) >= 40 && Number(hz) <= 250)) throw new Error('sub.crossoverHz: from 40 to 250');
+          next.sub = { channel: ch, crossoverHz: Number(hz) };
+        }
+        const was = A.on;
+        P.audio = normAudio({ ...A, ...next }, P.walls);
+        if (was && !P.audio.on) { this.aud.playing = false; this.aud.report = null; this.aud.error = null; }
+        if (next.on !== undefined && next.on !== was) this.log.info(`room audio ${P.audio.on ? 'on' : 'off'}`);
+        this._saveExperience(true);
+        this._syncAudioWindow();
+        this.emit('state');
+        return { audio: P.audio };
+      }
+      case 'audio.map': {
+        // which logical channels each wall's speakers are ({ wallId: [channel, …] }, left → right inside the room), and the sub
+        if (!args.map || typeof args.map !== 'object' || Array.isArray(args.map)) throw new Error('map: { wallId: [channel, …] }');
+        const A = P.audio, n = args.channels === undefined ? A.channels : Number(args.channels);
+        if (!Number.isInteger(n) || n < 1 || n > AUDIO_MAX_CHANNELS) throw new Error(`channels: a whole number from 1 to ${AUDIO_MAX_CHANNELS}`);
+        for (const [wid, list] of Object.entries(args.map)) {
+          if (!P.walls.some((w) => w.id === wid)) throw new Error(`"${wid}" is not a wall of this room`);
+          if (!Array.isArray(list) || !list.every((c) => Number.isInteger(c) && c >= 1 && c <= n)) throw new Error(`${wid}: channels are whole numbers from 1 to ${n}`);
+        }
+        let sub = A.sub;
+        if ('sub' in args) {
+          const sb = args.sub;
+          if (!sb || typeof sb !== 'object') throw new Error('sub: { channel, crossoverHz }');
+          const ch = sb.channel === undefined ? A.sub.channel : sb.channel;
+          if (ch !== null && !(Number.isInteger(ch) && ch >= 1 && ch <= n)) throw new Error(`sub.channel: null or a channel from 1 to ${n}`);
+          sub = { channel: ch, crossoverHz: sb.crossoverHz ?? A.sub.crossoverHz };
+        }
+        P.audio = normAudio({ ...A, channels: n, map: args.map, sub }, P.walls);
+        this._saveExperience(true);
+        this.emit('state');
+        return { map: P.audio.map, sub: P.audio.sub, channels: P.audio.channels };
+      }
+      case 'audio.mute': {
+        const mute = 'mute' in args ? !!args.mute : !P.audio.mute;
+        P.audio.mute = mute;
+        this.log.info(mute ? 'room audio muted' : 'room audio unmuted');
+        this._saveExperience(true);
+        this.emit('state');
+        return { mute };
+      }
+      case 'audio.test': {
+        // a soft ~1 s tone on ONE logical channel (the sub included), to find out which speaker is which. The audio window plays it.
+        const n = Number(args.channel);
+        if (!Number.isInteger(n) || n < 1 || n > P.audio.channels) throw new Error(`channel: a whole number from 1 to ${P.audio.channels}`);
+        if (!P.audio.on) throw new Error('room audio is off');
+        this.aud.test = { seq: ++this.aud.testSeq, channel: n, at: Date.now() };
+        this.emit('state');
+        return { channel: n };
+      }
+      case 'audio.report': {
+        // sent by the audio window about twice a second: the devices it found, the sinks it opened, the level, errors
+        if (!P.audio.on) return {};
+        this._audioReport(args);
+        return {};
+      }
+      case 'sound.play': {
+        const e = this._sounds().find((x) => x.id === args.id);
+        if (!e) throw new Error(`unknown sound "${args.id}"`);
+        P.audio.sound.id = e.id;
+        P.audio.on = true;
+        this.aud.playing = true; this.aud.error = null;
+        this.log.info(`sound "${e.id}" started`);
+        this._saveExperience(true);
+        this._syncAudioWindow();
+        this.emit('state');
+        return {};
+      }
+      case 'sound.stop': {
+        if (this.aud.playing) this.log.info('sound stopped');
+        this.aud.playing = false; this.aud.error = null;
+        this.emit('state');
+        return {};
+      }
+      case 'sound.set': {
+        if ('autostart' in args) P.audio.sound.autostart = !!args.autostart;
+        this._saveExperience(true);
+        this.emit('state');
+        return {};
+      }
+      case 'sound.param': {
+        const s = P.audio.sound, e = this._sounds().find((c) => c.id === s.id);
+        if (!e) throw new Error('no sound selected');
+        const param = e.params.find((q) => q.key === args.key);
+        if (!param) throw new Error(`"${e.id}" has no parameter "${args.key}"`);
+        const value = checkParam(param, args.value, P.walls.map((w) => w.id));
+        (s.params[e.id] ??= {})[param.key] = value;
+        this._saveExperience();
+        this.emit('state'); // the piece listens to the state: no restart
+        return { value };
       }
       case 'net.firewall': return firewallStatus(this.port || this.settings.httpPort);
       case 'net.localName': {
@@ -956,7 +1079,7 @@ export class Engine extends EventEmitter {
 
   /** What the UI is told about the experience: the selected one, whether it runs (output on + its layer on) and how it is doing. */
   experienceState() {
-    const x = this.profile.experience, e = this.catalog.find((c) => c.id === x.id);
+    const x = this.profile.experience, e = this._visual().find((c) => c.id === x.id);
     const running = this.profile.output.on && this._layer('experience').on && !!e;
     return {
       running, id: x.id, fps: running ? this.exp.fps : 0, error: running ? this.exp.error : null,
@@ -1034,6 +1157,70 @@ export class Engine extends EventEmitter {
     if (!this._expSave) return;
     this._cancelExperienceSave();
     try { this.store.saveProfile(profile); } catch (e) { this.log.error(`save ${profile?.id}: ${e.message}`); }
+  }
+
+  // ------------------------------------------------------------------ room audio
+
+  _visual() { return visualOnly(this.catalog); }
+  _sounds() { return soundOnly(this.catalog); }
+
+  /** The sound piece plays when the room starts, if the room says so (and audio is on). */
+  _soundAutostart() {
+    const A = this.profile.audio;
+    if (A.on && A.sound.autostart && A.sound.id && this._sounds().some((e) => e.id === A.sound.id)) { this.aud.playing = true; this.log.info(`sound "${A.sound.id}" started with the app`); }
+  }
+
+  /** The last report is fresh for 6 s: a window that stops reporting is no longer "running". */
+  _audioWatch() {
+    if (this.aud.report && Date.now() - this.aud.at > 6000) { this.aud.report = null; this.emit('state'); }
+  }
+
+  /** What the audio window says, cleaned up; a change the UI would show (not every peak) is announced. */
+  _audioReport(r) {
+    const txt = (v, n = 200) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]+/g, ' ').slice(0, n) : '');
+    const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Math.max(0, Math.min(1000000, Math.round(Number(v)))) : d);
+    const list = (a, f) => (Array.isArray(a) ? a.slice(0, 64).map(f) : []);
+    const peak = Number(r.peakDb);
+    const rep = {
+      devices: list(r.devices, (d) => ({ label: txt(d?.label), channels: num(d?.channels), default: !!d?.default })),
+      sinks: list(r.sinks, (k) => ({ label: txt(k?.label), first: num(k?.first), count: num(k?.count), missing: !!k?.missing, error: txt(k?.error) || null, state: txt(k?.state, 20) })),
+      logical: num(r.logical), available: num(r.available), fold: !!r.fold,
+      peakDb: Number.isFinite(peak) ? Math.max(-120, Math.min(6, Math.round(peak / 3) * 3)) : null, // 3 dB steps: a number that changes with every beat would rebuild the UI
+      rate: num(r.rate), isolated: r.isolated !== false,
+      error: txt(r.error, 300) || null,
+      sound: { active: !!r.sound?.active, id: txt(r.sound?.id, 40) || null, error: txt(r.sound?.error, 300) || null },
+    };
+    const before = JSON.stringify(this.aud.report);
+    this.aud.report = rep; this.aud.at = Date.now();
+    if (rep.error && rep.error !== this.aud.lastError) this.log.warn(`room audio: ${rep.error}`);
+    if (rep.sound.error && rep.sound.error !== this.aud.lastSoundError) this.log.warn(`sound "${rep.sound.id}": ${rep.sound.error}`);
+    this.aud.lastError = rep.error; this.aud.lastSoundError = rep.sound.error;
+    if (JSON.stringify(rep) !== before) this.emit('state');
+  }
+
+  /** What the UI is told about the room's sound. */
+  audioState() {
+    const A = this.profile.audio, rep = A.on ? this.aud.report : null;
+    const entry = this._sounds().find((e) => e.id === A.sound.id);
+    const running = A.on && this.aud.playing && !!entry;
+    return {
+      on: A.on, running: !!rep, url: A.on ? '/audio?run=1' : null,
+      devices: rep?.devices || [], sinks: rep?.sinks || [],
+      logical: A.channels, available: rep?.available ?? 0, fold: rep ? rep.fold : A.devices.length === 0,
+      peakDb: rep?.peakDb ?? null, rate: rep?.rate ?? 0, isolated: rep ? rep.isolated : true, error: rep?.error || null,
+      test: this.aud.test,
+      sound: { running, id: A.sound.id, active: running && !!rep?.sound.active, error: running ? (rep?.sound.error || null) : null },
+    };
+  }
+
+  /** The window the desktop app opens (hidden) for the room's sound; null = none. */
+  audioWindow() { return this.profile.audio.on ? { url: '/audio?run=1' } : null; }
+
+  _syncAudioWindow() {
+    const m = this.audioWindow(), key = JSON.stringify(m);
+    if (key === this._audKey) return;
+    this._audKey = key;
+    this.emit('audioWindow', m);
   }
 
   /** Texture outputs shown full screen (enabled, sink 'window', a display chosen): one window each, opened by the desktop app. */
@@ -1160,4 +1347,7 @@ const LOCKED_OPS = new Set([
   'bg.capture', 'bg.clear', 'calib.start', 'calib.apply', 'calib.clear', 'verify.start', 'sensor.autoAlign',
   'replay.start', 'rec.delete', 'sensor.discover', 'sensor.readdress', 'net.setSensorNic',
   'experience.set', // play / stop / param stay available in Show mode: they are how a show is run
+  // the room's sound: where it goes (devices, map, test) is locked; play / stop / parameters / master / mute / the switch are how a show
+  // is run (audio.set checks its own keys)
+  'audio.map', 'audio.test', 'sound.set',
 ]);

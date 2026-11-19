@@ -16,6 +16,9 @@ Producto reutilizable: **nada de una sala concreta va en el código** — todo v
 - **`experiences/`** = experiencias interactivas que la app manda directo a la sala (pestaña Experiences): `runtime.js` es
   su API (lienzo, muros, toques, parámetros, salida Spout). Una carpeta por pieza con su `manifest.json`; la primera es
   `alma-fluid` (fluido de la web, MIT). En salas que cierran el círculo deben ser continuas 360° (sin costura P3→P4).
+  Las piezas de **sonido** (`kind: "sound"`, contrato `experiences/SOUND-API.md`; la primera es `ambient-notes`) suenan
+  por los altavoces de la sala a la vez que la visual; dispositivos, mapa muro→canal, sub y limitador viven en
+  `profile.audio` (ARCHITECTURE.md › Room audio). Sólo síntesis Web Audio propia, sin samples.
 - **`cloud/`** = acceso por internet: relé en Cloudflare (`relay/`) y página de salas en Vercel (`launcher/`).
 - **`README.md`** = índice del repositorio y cómo arrancar.
 

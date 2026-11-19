@@ -496,6 +496,48 @@ Sin la app de escritorio (modo servidor) la tarjeta da la dirección de la exper
 - El botón **Experience**, junto a Points, la muestra u oculta y recuerda la elección. Si el ordenador va justo de
   recursos, conviene ocultarla.
 
+**Sonido de la sala (Experiences › Audio).**
+Las piezas de sonido (como **Ambient notes**) suenan por los altavoces de la sala a la vez que la experiencia visual, y
+reaccionan a las manos. Van aparte, en la sección **Sound**: **Play** y **Stop** (con un fundido de 1 s), sus parámetros
+y **Start with the app**.
+1. **Audio** enciende el sonido de la sala. Sin dispositivos elegidos, todo suena en estéreo por la salida por defecto del
+   ordenador (los canales se reparten de izquierda a derecha y el sub va a los dos lados): sirve para probar en el portátil.
+2. **Dispositivos.** Debajo de **Devices** aparecen todas las salidas del ordenador con su número de canales. Con
+   **Dante Virtual Soundcard en modo WDM, Windows no ve un dispositivo de 8 canales, sino varios estéreo**: «DVS Transmit 1-2»,
+   «3-4», «5-6»… Se añaden en **Outputs** en orden con **Add device**: los canales lógicos van encadenados (el primer par
+   son los canales 1 y 2, el segundo el 3 y 4…). Los dispositivos se guardan por su nombre. Si uno no está, la tarjeta lo
+   dice («not found»), su par queda en silencio y los demás siguen con sus canales.
+3. **Mapa.** En **Walls**, cada muro marca el canal (o canales) de sus altavoces; si tiene varios, van de izquierda a
+   derecha, vistos desde dentro, en orden de canal. **Sub channel** y **Crossover** definen el sub (todo lo grave va a él);
+   **Wall high-pass** quita el grave a los muros (conviene la misma frecuencia que el crossover; 0 = sin filtro).
+   **Limiter ceiling** es el techo del limitador, que está siempre activo y nunca deja pasar más de −1 dBFS.
+   En XR Lab el perfil trae los muros en los canales 1 a 4 y el sub en el 5, pero **los números reales dependen de la
+   programación de Q-SYS**: hay que comprobarlos.
+4. **Test.** Cada canal tiene un botón **Test** que emite un tono suave de 1 s sólo por ese canal (el sub incluido, con un
+   tono grave): sirve para saber qué altavoz es cuál y corregir el mapa.
+5. **Master** y **Mute** ajustan el volumen general, también en modo Show. En modo **Show** quedan bloqueados los
+   dispositivos, el mapa, los filtros y Test; se puede reproducir, parar y mover parámetros.
+6. Sin la app de escritorio hay que abrir la página de audio en una pestaña del navegador y dejarla abierta (y pulsar
+   una vez en ella).
+
+**Ambient notes.** Un colchón (pad) suena siempre de fondo en toda la sala y cada persona que toca un muro toca una nota
+suave en ese muro. La nota **se percute en el momento en que la mano llega** (se nota que has tocado), se asienta y, si la
+mano se queda, crece y se abre poco a poco; al soltar se apaga en una cola larga. La altura de la mano elige la nota dentro
+de la escala; la posición a lo largo del muro la reparte entre los altavoces de ese muro y abre o cierra el filtro. Por
+defecto las personas mandan: el pad va bajo (20 %) y las notas altas (85 %), así un toque queda claramente por encima.
+Parámetros:
+- **Key** y **Scale**: tonalidad y escala (pentatónica por defecto: cualquier combinación de notas suena bien).
+- **Lowest octave** y **Note range**: desde qué octava y cuántas octavas abarca la altura del muro.
+- **Attack**: lo que tarda el golpe de la nota, en milisegundos (5 ms por defecto; corto para que el toque se sienta).
+- **Swell**: lo que tarda en crecer la nota mientras la mano sigue en el muro.
+- **Release**: lo que dura la cola al soltar.
+- **Reverb mix**: cantidad de reverberación.
+- **Pad volume** y **Notes volume**: volumen del colchón y de las notas.
+- **Pad change**: cada cuántos segundos el colchón pasa despacio al siguiente acorde.
+- **Position opens filter**: cuánto abre el filtro la posición de la mano a lo largo del muro.
+- **Notes per wall** y **Notes in total**: cuántas notas suenan a la vez como máximo; al llegar al tope, la más antigua
+  se apaga suavemente.
+
 ## 11. Durante la función
 
 - **Show** (arriba) bloquea la sala: nadie puede mover zonas, sensores ni el mapeo por accidente. Las salidas,

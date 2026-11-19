@@ -1081,7 +1081,10 @@ test('ui: an experience page gets the room in render pixels, hears touches where
     // hand that is suddenly 0.35 m away in one revolution (3.5 m/s) is, rightly, another hand for the tracker
     for (let s = 1; s <= 5; s++) { await cmd('sim.touch', { wallId: wall.id, x: x + 0.07 * s, y, id: 'probe', down: true }); await wait(120); }
     for (let k = 0; k < 40 && !pr.events.some((e) => e.type === 'move' && e.vx > 20); k++) await wait(100);
-    out.move = pr.events.filter((e) => e.type === 'move').sort((a, b) => b.vx - a.vx)[0] || null;
+    // where the slide got to (the last move) and how fast it went (the fastest move: under load it can be an early one)
+    const moves = pr.events.filter((e) => e.type === 'move');
+    out.move = moves[moves.length - 1] || null;
+    out.maxVx = moves.reduce((m, e) => Math.max(m, e.vx), -Infinity);
     await cmd('sim.touch', { wallId: wall.id, x, y, id: 'probe', down: false });
     for (let k = 0; k < 40 && !pr.events.some((e) => e.type === 'up'); k++) await wait(100);
     out.up = pr.events.find((e) => e.type === 'up') || null;
@@ -1115,7 +1118,7 @@ test('ui: an experience page gets the room in render pixels, hears touches where
   assert.equal(result.down.vx, 0);
   assert.ok(result.listed.some((t) => t.id === result.down.id && t.wallId === result.down.wallId && t.size > 0), 'vt.touches() lists it with a size in px');
   // (the hand slides ~0.6 m/s: 40–50 render px/s at scale 0.25 — the threshold only asks for a clear positive speed)
-  assert.ok(result.move && result.move.vx > 20 && result.move.x > result.down.x + 10, `moved right with a positive speed: ${JSON.stringify(result.move)}`);
+  assert.ok(result.move && result.maxVx > 20 && result.move.x > result.down.x + 10, `moved right with a positive speed: ${JSON.stringify(result.move)}, fastest vx ${result.maxVx}`);
   assert.equal(result.move.id, result.down.id, 'same touch id');
   assert.ok(result.up && result.up.id === result.down.id, 'and an up for the same id when the hand leaves');
   assert.equal(result.touchesAfter, 0);
@@ -1804,6 +1807,7 @@ test('ui: projection page — the same feedback: the hand under calibration, the
     const hand = handFar(wall, tgt), [hx, hy] = toPx(hand.x, hand.y);
     await cmd('sim.touch', { wallId: wall.id, x: hand.x, y: hand.y, id: 'h', down: true });
     for (let k = 0; k < 60 && !(store.live?.calibHands?.[wall.id]?.length); k++) await wait(50);
+    await wait(350); // a few revolutions: the first one may catch the hand half-way in (a loaded machine shows it)
     window.__proj.draw();
     out.hand = centroid(g, c.width, c.height, isCyan); out.handAt = [hx, hy];
     await cmd('sim.touch', { wallId: wall.id, x: 0, y: 0, id: 'h', down: false });

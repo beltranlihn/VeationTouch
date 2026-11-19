@@ -1265,7 +1265,9 @@ function xpLive(send) {
   const go = () => { timer = null; last = performance.now(); send(latest); };
   return (v) => { latest = v; if (timer) return; const wait = 66 - (performance.now() - last); if (wait <= 0) go(); else timer = setTimeout(go, wait); };
 }
-const xpLiveParam = (key) => xpLive((v) => cmd('experience.param', { key, value: v }).catch(() => {}));
+const xpLiveParam = (key, op = 'experience.param') => xpLive((v) => cmd(op, { key, value: v }).catch(() => {}));
+/** The master level while its fader moves (the audio window follows the state; saved once the fader settles). */
+const auLive = (key) => xpLive((v) => cmd('audio.set', { [key]: v }).catch(() => {}));
 /** A layer setting while a fader moves: the whole stack goes out with that one value changed. */
 const xpLiveLayer = (id, key) => xpLive((v) => {
   const layers = structuredClone(store.state.profile.output.layers);
@@ -1285,12 +1287,12 @@ export function experiences(ctx) {
   const pageUrl = OS.url ? `${location.origin}${OS.url}${S.local ? '' : `&k=${encodeURIComponent(S.token || '')}`}` : '';
   if (OS.running) xpKeepFresh();
 
-  const paramRow = (c, p) => {
-    const value = p.key in saved(c) ? saved(c)[p.key] : p.default;
-    const send = (v) => run(cmd('experience.param', { key: p.key, value: v }));
+  const paramRow = (c, p, op = 'experience.param', values = saved(c)) => {
+    const value = p.key in values ? values[p.key] : p.default;
+    const send = (v) => run(cmd(op, { key: p.key, value: v }));
     if (p.type === 'number') {
       const dec = (String(p.step).split('.')[1] || '').length;
-      return fader(p.label, value, { min: p.min, max: p.max, step: p.step, unit: p.unit || '', decimals: dec }, xpLiveParam(p.key), send);
+      return fader(p.label, value, { min: p.min, max: p.max, step: p.step, unit: p.unit || '', decimals: dec }, xpLiveParam(p.key, op), send);
     }
     if (p.type === 'select') return selectField(p.label, value, p.options, send);
     if (p.type === 'bool') return toggle(p.label, !!value, send);
@@ -1408,11 +1410,133 @@ export function experiences(ctx) {
       ] : null);
   };
 
+
+  // ---- the room's sound: devices, the logical channel map, Test per channel, master / mute, then the sound pieces
+  const AU = S.audio || {}, AP = prof.audio, sounds = S.sounds || [];
+  const setAudio = (args) => run(cmd('audio.set', args));
+  const lockIt = (box, note) => {
+    if (!locked) return box;
+    for (const el of box.querySelectorAll('button, select, input')) el.disabled = true;
+    for (const el of box.querySelectorAll('.vfield, .vbox')) { el.setAttribute('aria-disabled', 'true'); el.style.pointerEvents = 'none'; }
+    if (note) box.append(h('p', { class: 'muted' }, 'Locked in Show mode: unlock the room to change this.'));
+    return box;
+  };
+  const chans = Array.from({ length: AP.channels }, (_, k) => k + 1);
+  const roleOf = (c) => {
+    if (AP.sub.channel === c) return 'Sub';
+    const ws = prof.walls.filter((w) => (AP.map[w.id] || []).includes(c)).map((w) => w.name || w.id);
+    return ws.length ? ws.join(', ') : 'Unused';
+  };
+  const deviceOf = (c) => {
+    if (AU.fold || !AU.sinks?.length) return AU.running ? 'Default device (left / right)' : '';
+    const sk = AU.sinks.find((k) => c - 1 >= k.first && c - 1 < k.first + k.count);
+    return sk ? (sk.missing ? `${sk.label} (not found)` : sk.error ? `${sk.label} (error)` : `${sk.label} · output ${c - sk.first}`) : 'No device';
+  };
+
+  const deviceSlots = () => {
+    const names = (AU.devices || []).filter((d) => !d.default).map((d) => d.label);
+    const rows = AP.devices.map((label, i) => {
+      const sk = (AU.sinks || [])[i];
+      const opts = [...new Set([...names, label])].map((n) => [n, n === label && !names.includes(n) ? `${n} (not found)` : n]);
+      return h('div', { class: 'au-slot' },
+        selectField(`Output ${i + 1}`, label, opts, (v) => { const next = [...AP.devices]; next[i] = v; setAudio({ devices: next }); }),
+        h('span', { class: 'muted tnum' }, sk ? `${sk.count} ch` : ''),
+        h('button', { class: 'btn small', 'aria-label': `Remove output ${i + 1}`, onclick: () => setAudio({ devices: AP.devices.filter((_, k) => k !== i) }) }, 'Remove'));
+    });
+    const free = names.filter((n) => !AP.devices.includes(n));
+    return h('div', { class: 'au-devices-set' },
+      AP.devices.length ? rows : h('p', { class: 'muted' }, 'No output devices chosen: everything plays in stereo on the default device of this computer, the channels folded into left and right.'),
+      free.length ? selectField('Add device', '', [['', 'Choose…'], ...free.map((n) => [n, n])], (v) => { if (v) setAudio({ devices: [...AP.devices, v] }); }) : null,
+      AP.devices.length && AU.running && !AU.fold && AU.available < AP.channels
+        ? h('div', { class: 'callout attn' }, `The devices chosen give ${AU.available} channel${AU.available === 1 ? '' : 's'}; the map uses ${AP.channels}. Channels beyond them are silent.`) : null);
+  };
+
+  const wallMap = () => h('div', { class: 'au-map' }, prof.walls.map((w) => {
+    const mine = AP.map[w.id] || [];
+    return h('div', { class: 'row au-wall', 'data-wall': w.id },
+      h('span', { class: 'k' }, w.name || w.id),
+      h('div', { class: 'au-chips' }, chans.filter((c) => c !== AP.sub.channel).map((c) =>
+        h('button', { class: mine.includes(c) ? 'on' : '', 'aria-pressed': mine.includes(c) ? 'true' : 'false', title: `Channel ${c}`,
+          onclick: () => run(cmd('audio.map', { map: { ...AP.map, [w.id]: mine.includes(c) ? mine.filter((x) => x !== c) : [...mine, c].sort((a, b) => a - b) } })) }, String(c)))));
+  }));
+
+  const setup = () => lockIt(h('div', { class: 'xp-set au-setup' },
+    h('h3', {}, 'Outputs', h('small', {}, 'logical channels run on over the devices, in order')),
+    deviceSlots(),
+    selectField('Channels', AP.channels, Array.from({ length: 32 }, (_, k) => [k + 1, String(k + 1)]), (v) => run(cmd('audio.map', { map: AP.map, channels: v })), { numeric: true }),
+    h('h3', {}, 'Walls', h('small', {}, 'speakers of a wall run left to right in channel order')),
+    wallMap(),
+    h('h3', {}, 'Sub and filters'),
+    selectField('Sub channel', AP.sub.channel ?? '', [['', 'No sub'], ...chans.map((c) => [c, `Channel ${c}`])], (v) => run(cmd('audio.map', { map: AP.map, sub: { channel: v === '' ? null : Number(v) } }))),
+    fader('Crossover', AP.sub.crossoverHz, { min: 40, max: 250, step: 1, unit: 'Hz' }, null, (v) => setAudio({ sub: { crossoverHz: v } })),
+    fader('Wall high-pass', AP.wallHighpassHz, { min: 0, max: 500, step: 5, unit: 'Hz' }, null, (v) => setAudio({ wallHighpassHz: v })),
+    h('p', { class: 'muted' }, 'The sub gets everything below the crossover; set the high-pass of the walls to the same frequency (0 = off).'),
+    fader('Limiter ceiling', AP.ceilingDb, { min: -12, max: -1, step: 0.5, unit: 'dB', decimals: 1 }, null, (v) => setAudio({ ceilingDb: v }))), true);
+
+  const channelTable = () => h('div', { class: 'au-chans' },
+    h('h3', {}, 'Channels', h('small', {}, 'Test plays a soft tone on one channel: find which speaker is which')),
+    chans.map((c) => h('div', { class: 'au-ch', 'data-ch': String(c) },
+      h('span', { class: 'n tnum' }, String(c)),
+      h('div', { class: 'who' }, roleOf(c), deviceOf(c) ? h('small', {}, deviceOf(c)) : null),
+      h('button', { class: 'btn small', disabled: !AP.on || locked || undefined, title: locked ? 'Locked in Show mode' : `Test channel ${c}`, 'data-test': String(c),
+        onclick: () => run(cmd('audio.test', { channel: c })) }, 'Test'))));
+
+  const deviceReadout = () => h('div', { class: 'au-devices' },
+    h('h3', {}, 'Devices', h('small', {}, 'every output of this computer and how many channels it offers')),
+    (AU.devices || []).length
+      ? AU.devices.map((d) => h('div', { class: 'au-dev' }, h('span', {}, d.label, d.default ? h('small', {}, ' · default') : null), h('span', { class: 'tnum' }, `${d.channels} ch`)))
+      : h('p', { class: 'muted' }, AP.on ? 'Reading the devices…' : 'Turn audio on to read the devices of this computer.'));
+
+  const audioStatus = () => {
+    if (!AP.on) return null;
+    if (AU.error) return h('div', { class: 'callout bad' }, AU.error);
+    if (!AU.running) return h('p', { class: 'xp-status muted' }, headless ? h('span', {}, 'No desktop app on this computer: open the audio page in a browser tab and keep it open. ', h('a', { href: `${location.origin}${AU.url}${S.local ? '' : `&k=${encodeURIComponent(S.token || '')}`}`, target: '_blank', style: { color: 'var(--ink)' } }, 'Audio page')) : 'Starting…');
+    const lvl = AU.peakDb == null || AU.peakDb <= -90 ? 'silent' : `${AU.peakDb} dB`;
+    const nDev = AU.sinks.filter((k) => !k.missing).length;
+    return h('p', { class: 'xp-status' }, h('b', { class: 'live tnum' }, 'Running'),
+      h('span', { class: 'muted' }, ` · ${AU.fold ? 'stereo, default device' : `${AU.available} channels on ${nDev} device${nDev === 1 ? '' : 's'}`} · peak ${lvl}`));
+  };
+
+  const audioCard = () => h('div', { class: `xp-card xp-audio${AU.running ? ' on' : ''}`, 'data-card': 'audio' },
+    h('div', { class: 'head' },
+      h('div', { class: 't' }, 'Audio — room sound', h('small', {}, 'Sound pieces over the speakers of the room, with the sub, a master level and a limiter that is always on')),
+      AU.running ? badge(AP.mute ? 'muted' : 'live', AP.mute ? 'warn' : 'live') : null),
+    toggle('Audio', AP.on, (on) => setAudio({ on })),
+    audioStatus(),
+    AP.on ? [
+      fader('Master', AP.master, { min: 0, max: 1, step: 0.01, k: 100, unit: '%' }, auLive('master'), (v) => setAudio({ master: v })),
+      toggle('Mute', AP.mute, (mute) => run(cmd('audio.mute', { mute }))),
+    ] : null,
+    channelTable(),
+    setup(),
+    deviceReadout());
+
+  const soundParam = (c, p) => paramRow(c, p, 'sound.param', AP.sound.params?.[c.id] || {});
+  const soundCard = (c) => {
+    const running = AU.sound?.running && AU.sound.id === c.id, selected = AP.sound.id === c.id;
+    return h('div', { class: `xp-card${running ? ' on' : ''}`, 'data-sound': c.id },
+      h('div', { class: 'head' },
+        h('div', { class: 't' }, c.name, c.description ? h('small', {}, c.description) : null),
+        running ? badge(AU.sound.active ? 'playing' : 'starting', 'live') : null,
+        running
+          ? h('button', { class: 'btn small', onclick: () => run(cmd('sound.stop')) }, 'Stop')
+          : h('button', { class: 'btn small primary', onclick: () => run(cmd('sound.play', { id: c.id })) }, 'Play')),
+      running && AU.sound.error ? h('div', { class: 'callout bad' }, AU.sound.error) : null,
+      running || selected ? [
+        c.params.length ? h('div', { class: 'xp-params' }, c.params.map((p) => soundParam(c, p))) : null,
+        lockIt(h('div', { class: 'xp-set' }, toggle('Start with the app', AP.sound.autostart, (on) => run(cmd('sound.set', { autostart: on })))), false),
+      ] : null);
+  };
+
   return [
     sec(null, outputCard()),
     sec(['Experiences', h('span', { class: 'grow' }), h('button', { class: 'btn small', title: 'Look for experiences again', onclick: () => run(cmd('experience.list')) }, 'Rescan')],
       h('p', { class: 'muted' }, 'Interactive pieces that react to the touches. Play one and it becomes the Experience layer of the output above.'),
       cat.length ? h('div', { class: 'xp-list' }, cat.map(card)) : h('p', { class: 'muted' }, 'No experiences found. They live in the experiences folder of the app: one folder each, with a manifest.json.')),
+    sec(null, audioCard()),
+    sec('Sound',
+      h('p', { class: 'muted' }, 'Pieces that only make sound. They play at the same time as the experience above, and react to the hands.'),
+      sounds.length ? h('div', { class: 'xp-list' }, sounds.map(soundCard)) : h('p', { class: 'muted' }, 'No sound pieces found. They live in the experiences folder too: a manifest.json with "kind": "sound".')),
   ];
 }
 

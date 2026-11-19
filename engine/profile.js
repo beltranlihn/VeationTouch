@@ -237,17 +237,66 @@ function normOutput(o, i) {
  * Where it goes (Spout, scale, rate…) is the room output's business: `output`, below.
  */
 function normExperience(e) {
+  return {
+    id: typeof e?.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(e.id) ? e.id : null,
+    autostart: bool(e?.autostart, false),
+    params: normParamValues(e?.params),
+  };
+}
+
+/** { pieceId: { key: value } } — the values the operator chose for each piece (the manifest says what the keys mean). */
+function normParamValues(src) {
   const params = {};
-  for (const [eid, vals] of Object.entries(e?.params && typeof e.params === 'object' ? e.params : {}).slice(0, 64)) {
+  for (const [eid, vals] of Object.entries(src && typeof src === 'object' ? src : {}).slice(0, 64)) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(eid) || !vals || typeof vals !== 'object') continue;
     params[eid] = Object.fromEntries(Object.entries(vals).slice(0, 64)
       .filter(([k, v]) => /^[A-Za-z0-9_.-]{1,40}$/.test(k) && (typeof v === 'boolean' || typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))))
       .map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 200) : v]));
   }
+  return params;
+}
+
+// ---------------------------------------------------------------- room audio (experiences/SOUND-API.md, ARCHITECTURE.md › Room audio)
+
+export const AUDIO_MAX_CHANNELS = 32; // what a ChannelMergerNode takes
+export const AUDIO_DEFAULTS = { crossoverHz: 90, wallHighpassHz: 90, master: 0.5, ceilingDb: -2 };
+
+/**
+ * The room's sound: which output devices, how many logical channels, which channels each wall's speakers are, the sub and its
+ * crossover, the master level, and the sound piece that plays (separate from the visual `experience`). Channels are 1-based.
+ * `devices` are LABELS in order (device ids change between sessions): the logical channels run on over them, each device
+ * taking as many as it has — [] = the computer's default device in stereo, everything folded into left / right.
+ * `map` is { wallId: [channel, …] } (a wall may have several speakers, listed left → right as seen from inside the room);
+ * absent, the walls take channels 1, 2, … in order. A wall missing from a given `map` has no speaker.
+ */
+export function normAudio(a, walls = []) {
+  const channels = int(a?.channels, Math.max(2, Math.min(AUDIO_MAX_CHANNELS, walls.length)), 1, AUDIO_MAX_CHANNELS);
+  const subCh = a?.sub?.channel == null ? null : int(a.sub.channel, 0, 0, channels) || null;
+  const known = new Set(walls.map((w) => w.id));
+  const src = a?.map && typeof a.map === 'object' && !Array.isArray(a.map) ? a.map : Object.fromEntries(walls.slice(0, channels).map((w, i) => [w.id, [i + 1]]));
+  const map = {};
+  for (const [wid, list] of Object.entries(src)) {
+    if (!known.has(wid) || !Array.isArray(list)) continue;
+    const chs = [];
+    for (const c of list.slice(0, 16)) { const n = Math.round(Number(c)); if (n >= 1 && n <= channels && n !== subCh && !chs.includes(n)) chs.push(n); }
+    if (chs.length) map[wid] = chs;
+  }
+  const sound = a?.sound || {};
   return {
-    id: typeof e?.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(e.id) ? e.id : null,
-    autostart: bool(e?.autostart, false),
-    params,
+    on: bool(a?.on, false),
+    devices: (Array.isArray(a?.devices) ? a.devices : []).filter((d) => typeof d === 'string' && d.trim()).slice(0, 16).map((d) => d.trim().slice(0, 200)),
+    channels,
+    map,
+    sub: { channel: subCh, crossoverHz: int(a?.sub?.crossoverHz, AUDIO_DEFAULTS.crossoverHz, 40, 250) },
+    wallHighpassHz: int(a?.wallHighpassHz, AUDIO_DEFAULTS.wallHighpassHz, 0, 500),
+    master: Math.round(num(a?.master, AUDIO_DEFAULTS.master, 0, 1) * 100) / 100,
+    mute: bool(a?.mute, false),
+    ceilingDb: Math.round(num(a?.ceilingDb, AUDIO_DEFAULTS.ceilingDb, -12, -1) * 10) / 10, // never above −1 dBFS
+    sound: {
+      id: typeof sound.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(sound.id) ? sound.id : null,
+      autostart: bool(sound.autostart, false),
+      params: normParamValues(sound.params),
+    },
   };
 }
 
@@ -355,6 +404,7 @@ export function normalizeProfile(input) {
     walls, sensors, zones, outputs,
     experience: normExperience(p.experience),
     output: normRoomOutput(p.output),
+    audio: normAudio(p.audio, walls),
     processing: {
       minQuality: int(pr.minQuality, D.minQuality, 0, 255),
       minRangeMm: int(pr.minRangeMm, D.minRangeMm, 0, 2000),
