@@ -31,6 +31,9 @@ touch the walls in the view.
 | `engine/sim/` | synthetic wall scene + a software S2E (UDP) used by tests |
 | `engine/server.js` | HTTP + WebSocket: serves the UI to the window and to tablets, `/ws/data` for apps |
 | `engine/mdns.js` | mDNS responder: tablets open `http://veation-touch.local:8770/` |
+| `engine/cloud.js` | internet access: the server's outbound link to the relay |
+| `cloud/relay/` | the relay (Cloudflare Worker + Durable Object; `node-relay.mjs` for tests/self-hosting) — `npx wrangler deploy` |
+| `cloud/launcher/` | the rooms page on Vercel (`veation-touch.vercel.app`) — `npx vercel deploy --prod` |
 | `ui/` | operator UI (vanilla JS, no build step): full app (`app.js`), phone calibration remote (`remote.js`), 3D room view (`room3d.js`, WebGL2) and `projection.html` |
 | `sdk/veation-touch.js` | client SDK for web/Electron apps |
 | `profiles/` | bundled room profiles (seeded into the data folder on first run) |

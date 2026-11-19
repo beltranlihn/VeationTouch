@@ -10,15 +10,18 @@ import { WallTracker } from './core/tracker.js';
 import { ZoneEngine, BurstMeter } from './core/zones.js';
 import { CornerLinker } from './core/corners.js';
 import { CalibrationSession, defaultTargets, VerifySession, verifyTargets } from './core/calibration.js';
-import { verifyPassMm } from './core/geometry.js';
+import { verifyPassMm, poseMatrix, apply } from './core/geometry.js';
 import { OutputManager } from './outputs/outputs.js';
+import { overlayOf } from './core/mask.js';
 import { normalizeProfile, blankProfile, wallToUv } from './profile.js';
 import { firewallStatus, fixFirewall, setInterfaceAddress, openHotspotSettings } from './net.js';
 import { autoAlign, backgroundPoints } from './core/autoalign.js';
 import { levelCheck } from './core/levelcheck.js';
 import { Recorder, ReplaySource, ReplayDriver, listRecordings, readHeader } from './record.js';
-import { discover, factoryNetwork, readdress, unconfiguredInterfaces, suggestAddresses, onNetwork, SERVER_SENSOR_IP, FACTORY_IP } from './discover.js';
+import { discover, candidateHosts, factoryNetwork, readdress, unconfiguredInterfaces, suggestAddresses, onNetwork, SERVER_SENSOR_IP, FACTORY_IP, READDRESS_WAIT_MS } from './discover.js';
 import { lanInterfaces } from './mdns.js';
+import { CloudLink, normalizeRelayUrl } from './cloud.js';
+import { cloudSettings } from './store.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -48,6 +51,10 @@ export class Engine extends EventEmitter {
     this.seq = 0;
     this.startedAt = Date.now();
     this.displays = [];
+    // internet access: outbound link to the relay (off unless settings.cloud.enabled)
+    this.cloud = new CloudLink({ cfg: this.settings.cloud, log, version, port: () => this.port || this.settings.httpPort, token: () => this.settings.token, name: () => this.profile?.name || '' });
+    this.cloud.on('change', () => this.emit('state'));
+    this.on('state', () => this.cloud.refreshName());
     this.lastFrame = null;
     this.tickStats = { fps: 0, n: 0, t0: performance.now(), maxMs: 0 };
   }
@@ -62,10 +69,12 @@ export class Engine extends EventEmitter {
     this._activate(prof);
     this._timer = setInterval(() => this._tick(), 1000 / TICK_HZ);
     this.log.info(`engine ${this.version} started with profile "${prof.name}"`);
+    if (this.settings.cloud.enabled) this.cloud.apply();
   }
 
   async stop() {
     clearInterval(this._timer);
+    this.cloud.stop();
     if (this.recorder) await this.recorder.stop().catch(() => {});
     if (this.replay) this.replay.source.stop();
     await Promise.all([...this.sensors.values()].map((s) => s.driver.stop().catch(() => {})));
@@ -139,7 +148,8 @@ export class Engine extends EventEmitter {
   _onScan(rt, scan) {
     const wallId = rt.cfg.wallId;
     const calibrating = this.calib && this.calib.wall.id === wallId && this.calib.sensorIds.includes(rt.cfg.id);
-    const res = rt.pipeline.process(scan, { raw: calibrating, viz: this.listenerCount('viz') > 0 });
+    // raw (no ROI/masks) while calibrating or checking the side: the pose being checked may still be wrong
+    const res = rt.pipeline.process(scan, { raw: calibrating || !!rt.sideCheck, viz: this.listenerCount('viz') > 0 });
     rt.lastScan = scan;
     if (this.recorder && !this.replay) this.recorder.write(scan);
     rt.viz = res.viz;
@@ -177,6 +187,11 @@ export class Engine extends EventEmitter {
     const frame = {
       seq: ++this.seq, t: t0, walls, events, zoneEvents: z.events, zoneCounts: z.counts,
       roomCount: walls.reduce((a, w) => a + w.touches.length, 0), burst: this.burst.value(t0),
+      // the calibration pattern the Texture outputs draw on top (grid on, or a calibration / verification / Fit running)
+      overlay: overlayOf({
+        grid: !!this.grid, calib: this.calib ? this.calib.snapshot(t0) : null,
+        verify: this.verify ? this.verify.snapshot(t0) : null, fit: this.fit ? { wallId: this.fit.wallId, node: this.fit.node } : null,
+      }),
     };
     this.outputs.send(frame, t0);
     this.lastFrame = frame;
@@ -247,8 +262,11 @@ export class Engine extends EventEmitter {
       // fit: the mesh point the calibration remote is moving, highlighted by the projection (never saved)
       // walk: the remote's walk test is open — the projection shows what the outputs send, on every wall (never saved)
       projection: { ...this.settings.projection, fit: this.fit ? { wallId: this.fit.wallId, node: this.fit.node } : null, walk: !!this.walk },
+      // grid: the metre grid (pixel map) is on the walls — projection page and Texture outputs (never saved)
+      grid: !!this.grid,
       displays: this.displays, autostart: this.settings.autostart,
       locked: !!this.settings.locked,
+      cloud: this.cloud.status(), // never the secret
       localName: this.mdns ? { ...this.mdns.info(), port: this.port || null } : null,
       underlay: (() => { const u = this.store.underlayInfo(this.profile.id); return u ? { url: `/api/underlay?p=${encodeURIComponent(this.profile.id)}&v=${u.v}` } : null; })(),
     };
@@ -409,8 +427,11 @@ export class Engine extends EventEmitter {
       case 'sensor.discover': {
         // never probe a unit we are streaming from: any request would interrupt its data
         const running = [...this.sensors.values()].filter((rt) => rt.cfg.driver === 's2e' && rt.status.state === 'scanning').map((rt) => rt.cfg.host);
-        const found = await discover({ skip: running });
         const s2e = this.profile.sensors.filter((s) => s.driver === 's2e');
+        // only the networks where the sensors are (factory address + the profile's S2E hosts), unless asked for every one
+        const everywhere = args?.everywhere === true;
+        const hosts = candidateHosts({ sensorHosts: s2e.map((s) => s.host), everywhere });
+        const found = await discover({ skip: running, hosts });
         const byHost = new Map(s2e.map((s) => [s.host, s.id]));
         this.log.info(`discovery: ${found.length} unit(s) answered${running.length ? `, ${running.length} running sensor(s) not probed` : ''}`);
         const network = factoryNetwork(lanInterfaces()); // can this PC reach a factory-new unit at all?
@@ -426,6 +447,7 @@ export class Engine extends EventEmitter {
           running: running.map((h) => ({ host: h, usedBy: byHost.get(h) })),
           network: { ...network, unconfigured: unconfiguredInterfaces(), serverIp: SERVER_SENSOR_IP },
           suggest,
+          scope: everywhere ? 'every network' : 'sensor network', searched: hosts.length,
         };
       }
       case 'sensor.readdress': {
@@ -434,8 +456,11 @@ export class Engine extends EventEmitter {
         if (!/^127\./.test(ip) && !lanInterfaces().some((i) => onNetwork(i, ip))) {
           throw new Error(`this computer has no address on the network of ${ip}: it could not reach the sensor there. Set up its network card first.`);
         }
-        const r = await readdress({ host: args.host, port, ip, mask: args.mask, gw: args.gw, waitMs: args.waitMs || 20000 });
-        this.log.info(`S2E ${r.serial || ''} moved from ${args.host} to ${r.ip}`.replace('  ', ' '));
+        // a real S2E takes 10–65 s to come back; one still silent at the end is assigned anyway (`pending`): the sensor
+        // runtime keeps trying its new address and starts as soon as it answers
+        const r = await readdress({ host: args.host, port, ip, mask: args.mask, gw: args.gw, waitMs: Number(args.waitMs) || READDRESS_WAIT_MS });
+        if (r.pending) this.log.warn(`S2E ${r.serial || ''} sent to ${r.ip} (from ${args.host}): not answering yet after ${Math.round(r.ms / 1000)} s — assigned, it connects when it answers`.replace('  ', ' '));
+        else this.log.info(`S2E ${r.serial || ''} moved from ${args.host} to ${r.ip} in ${(r.ms / 1000).toFixed(1)} s`.replace('  ', ' '));
         const next = structuredClone(this.profile);
         const a = args.assign || {};
         let s = (a.sensorId && next.sensors.find((x) => x.id === a.sensorId)) || next.sensors.find((x) => x.driver === 's2e' && x.host === args.host);
@@ -458,9 +483,42 @@ export class Engine extends EventEmitter {
         if (!rt) throw new Error('unknown or disabled sensor');
         const wall = this.profile.walls.find((w) => w.id === rt.cfg.wallId);
         const pts = this._staticPoints(rt);
-        const r = autoAlign(pts, rt.cfg.pose, wall);
-        if (r.ok) this.log.info(`auto-align ${rt.cfg.id}: x ${r.pose.x} y ${r.pose.y} rot ${r.pose.rotation}° (${r.xFrom})${r.measuredWidth ? `, wall measures ${r.measuredWidth} m` : ''}`);
+        // `mirror` overrides the approximate pose's side: the empty room looks the same mirrored, so left/right comes
+        // from the approximate pose — after a failed Side check the operator aligns again with the other side
+        const approx = typeof args.mirror === 'boolean' ? { ...rt.cfg.pose, mirror: args.mirror } : rt.cfg.pose;
+        const r = autoAlign(pts, approx, wall);
+        if (r.ok) this.log.info(`auto-align ${rt.cfg.id}: x ${r.pose.x} y ${r.pose.y} rot ${r.pose.rotation}°${r.pose.mirror ? ' mirrored' : ''} (${r.xFrom})${r.measuredWidth ? `, wall measures ${r.measuredWidth} m` : ''}`);
         return { ...r, usedBackground: !!rt.pipeline.bg };
+      }
+
+      case 'sensor.sideCheck': {
+        // Which side is left? A hand held near the LEFT end of the wall, mapped with the pose being checked
+        // (args.pose, else the sensor's): it must come out on the left half. Only that sensor's own data is used.
+        const rt = this.sensors.get(args.id);
+        if (!rt) throw new Error('unknown or disabled sensor');
+        if (rt.status.state !== 'scanning') throw new Error(`${rt.cfg.id} is not scanning`);
+        const wall = this.profile.walls.find((w) => w.id === rt.cfg.wallId);
+        const pose = args.pose && Number.isFinite(args.pose.x) ? args.pose : rt.cfg.pose;
+        const M = poseMatrix(pose);
+        const xs = [];
+        let seen = rt.scans || 0;
+        const until = Date.now() + Math.min(Number(args.timeoutMs) || 20000, 30000);
+        rt.sideCheck = true;
+        try {
+          while (Date.now() < until && xs.length < 6) {
+            await new Promise((r) => setTimeout(r, 40));
+            if ((rt.scans || 0) === seen) continue;
+            seen = rt.scans;
+            const d = rt.lastDetections || [];
+            if (d.length === 1) xs.push(apply(M, d[0].sx, d[0].sy)[0]); else xs.length = 0; // one hand, held still
+          }
+        } finally { rt.sideCheck = false; }
+        if (xs.length < 6) throw new Error(`no hand seen on ${wall.id} — hold ONE hand flat on the wall near its left end (seen from the room) and press again`);
+        xs.sort((a, b) => a - b);
+        const x = Math.round(xs[3] * 100) / 100;
+        const side = x < wall.width / 3 ? 'left' : x > (2 * wall.width) / 3 ? 'right' : 'middle';
+        this.log.info(`side check ${rt.cfg.id}: hand at x ${x} m of ${wall.width} m → ${side}${side === 'right' ? ' (mirrored)' : ''}`);
+        return { x, side, width: wall.width, mirror: !!pose.mirror };
       }
 
       case 'sensor.levelCheck': {
@@ -495,9 +553,14 @@ export class Engine extends EventEmitter {
       }
 
       case 'projection.set': {
+        const only = () => !('fit' in args) && !args.mode && !('displayId' in args) && !('open' in args);
+        if ('grid' in args) {
+          this.grid = args.grid ? { client: args.__client?.id ?? null } : null;
+          if (only() && !('walk' in args)) { this.emit('state'); return {}; }
+        }
         if ('walk' in args) {
           this.walk = args.walk ? { client: args.__client?.id ?? null } : null;
-          if (!('fit' in args) && !args.mode && !('displayId' in args) && !('open' in args)) { this.emit('state'); return {}; }
+          if (only()) { this.emit('state'); return {}; }
         }
         if ('fit' in args) {
           // Fit, from the calibration remote: the projection draws that wall's mesh and highlights one point
@@ -566,6 +629,32 @@ export class Engine extends EventEmitter {
       case 'replay.stop': this._stopReplay(); return {};
 
       case 'logs.get': return { entries: this.log.recent() };
+      case 'cloud.status': return this.cloud.status();
+      case 'cloud.set': {
+        if (!args.__local) throw new Error('internet access is switched on or off at the server itself');
+        const c = this.settings.cloud;
+        const relayUrl = args.relayUrl !== undefined ? normalizeRelayUrl(args.relayUrl) : c.relayUrl;
+        const launcherUrl = args.launcherUrl !== undefined ? (String(args.launcherUrl).trim() ? normalizeRelayUrl(args.launcherUrl) : '') : c.launcherUrl;
+        const enabled = args.enabled !== undefined ? !!args.enabled : c.enabled;
+        if (enabled && !relayUrl) throw new Error('enter the relay address first');
+        const relink = enabled !== c.enabled || relayUrl !== c.relayUrl; // a new public-link base alone keeps the connection
+        Object.assign(c, { relayUrl, launcherUrl, enabled });
+        this.store.saveSettings(this.settings);
+        if (relink) { this.log.info(c.enabled ? `internet access on (${c.relayUrl})` : 'internet access off'); this.cloud.apply(); }
+        this.emit('state');
+        return this.cloud.status();
+      }
+      case 'cloud.reset': {
+        if (!args.__local) throw new Error('the address is renewed at the server itself');
+        const c = this.settings.cloud;
+        const fresh = cloudSettings({ enabled: c.enabled, relayUrl: c.relayUrl, launcherUrl: c.launcherUrl }); // new roomId + secret
+        Object.assign(c, fresh);
+        this.store.saveSettings(this.settings);
+        this.log.info('internet access: new address — the old links stop working');
+        this.cloud.apply();
+        this.emit('state');
+        return this.cloud.status();
+      }
       case 'net.firewall': return firewallStatus(this.port || this.settings.httpPort);
       case 'net.localName': {
         const name = String(args.name || '').trim().toLowerCase();
@@ -726,6 +815,7 @@ export class Engine extends EventEmitter {
     // the device that was fitting a mesh went away: the projection stops highlighting its point
     if (this.fit && this.fit.client === id) { this.fit = null; this._syncWanderers(); this.emit('state'); }
     if (this.walk && this.walk.client === id) { this.walk = null; this.emit('state'); }
+    if (this.grid && this.grid.client === id) { this.grid = null; this.emit('state'); }
     if (this.control?.id !== id || this.control.gone) return;
     this.control.gone = true;
     if (this._owner()) this.log.warn(`${this.control.device} disconnected during the calibration — any device can continue it`);
@@ -779,7 +869,7 @@ const r4 = (v) => Math.round(v * 10000) / 10000;
 const CONTROL_OPS = new Set([
   'calib.start', 'calib.skip', 'calib.back', 'calib.cancel', 'calib.redo', 'calib.apply', 'calib.clear', 'verify.start', 'verify.cancel',
   'profile.update', 'profile.load', 'profile.create', 'profile.import', 'profile.delete', 'profile.restore',
-  'bg.capture', 'bg.clear', 'sensor.autoAlign', 'sensor.setIp', 'sensor.restart', 'replay.start', 'replay.stop', 'app.lock',
+  'bg.capture', 'bg.clear', 'sensor.autoAlign', 'sensor.sideCheck', 'sensor.readdress', 'sensor.restart', 'replay.start', 'replay.stop', 'app.lock',
 ]);
 
 /** Commands refused while the room is locked (Show mode). */

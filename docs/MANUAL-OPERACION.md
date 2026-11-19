@@ -89,7 +89,26 @@ escanear de nuevo) o la red propia de la sala.
 Si no abre:
 - Comprobar que la tablet está en la misma red.
 - Si aparece «No VEATION Touch firewall rule found», pulsar **Fix (administrator)** en el ordenador de la sala.
-- Algunas Wi-Fi aíslan los dispositivos entre sí: usar el punto de acceso de la sala con el aislamiento desactivado.
+- Algunas Wi-Fi aíslan los dispositivos entre sí: usar el punto de acceso de la sala con el aislamiento desactivado,
+  o conectarse **por internet** (abajo).
+
+### Por internet (desde cualquier red)
+
+Sirve cuando el teléfono no llega al ordenador por la Wi-Fi (XR Lab: la Wi-Fi de invitados no llega al servidor), o
+para calibrar con datos móviles. El ordenador de la sala sólo necesita internet: no hay que tocar el router ni el
+cortafuegos, porque es él quien se conecta hacia fuera, al relé de Alma Digital Studio (Cloudflare).
+
+1. En el **propio ordenador de la sala**: **Connect device › Over the internet › Turn on internet access**. El
+   estado pasa a **Online** en unos segundos. Se puede apagar en **System › Network › Internet access**.
+2. Escanear el QR que aparece. Abre **veation-touch.vercel.app**, que recuerda la sala en ese teléfono y lo lleva al
+   mando de calibración a través del relé. La próxima vez basta con abrir veation-touch.vercel.app y pulsar
+   **Open**.
+3. El enlace lleva la clave de acceso: compartirlo sólo con operadores. **New address** (System › Network) cambia
+   la dirección y deja sin acceso a todos los enlaces ya repartidos.
+4. Si la página dice que la sala está *offline*, el ordenador de la sala está apagado, sin internet o con el acceso
+   por internet desactivado.
+5. Por internet funciona todo el mando. Lo que cambia la red o el sistema del ordenador (tarjeta de los sensores,
+   cortafuegos, encender o apagar este acceso) sólo se hace desde el propio ordenador.
 
 ## 5. Crear una sala
 
@@ -129,9 +148,17 @@ Todo se hace desde la app, sin otro programa: **Sensors › Sensor network…**
 2. **Sensors.** Conectar los sensores nuevos **de uno en uno** (todos traen la misma IP): enchufar uno, **Search
    again**, elegir su muro y **Put on P1**. La app le da su dirección (en orden: .11, .12…; o la que el muro ya
    esperaba), espera a que el sensor reinicie y **sólo da el cambio por bueno cuando el sensor responde en la nueva
-   dirección con el mismo número de serie**; si no, dice si se quedó con la anterior. El sensor queda añadido a su
-   muro. Después, el siguiente. **Other address…** permite elegir otra; **Change address…** cambia la de un sensor
-   ya asignado.
+   dirección con el mismo número de serie**. **El reinicio tarda: entre 10 s y algo más de un minuto según la
+   unidad** (medido en XR Lab). La fila cuenta los segundos; no hay que desenchufar nada. Si pasado 1,5 min aún no
+   responde, la app lo deja asignado («not answering yet») y el sensor se conecta solo en cuanto responde. Sólo si
+   tampoco aparece en los 2 minutos siguientes, apagarlo y encenderlo y pulsar **Search again**. Si el sensor vuelve
+   a responder en su dirección anterior, la app dice que no aceptó el cambio. El sensor queda añadido a su muro.
+   Después, el siguiente. **Other address…** permite elegir otra; **Change address…** cambia la de un sensor ya
+   asignado.
+   - Un sensor recién enchufado tarda hasta un minuto en contestar: si **Search** no lo encuentra, esperar y
+     buscar de nuevo. Un S2E nuevo **no gira ni se enciende** hasta que la app lo pone a escanear: es normal.
+   - La búsqueda mira sólo la red de los sensores (la de 192.168.11.2 y la de los sensores del perfil).
+     **Search every network** busca en todas las redes del ordenador (para sensores con direcciones raras).
 3. ¿Cuál es cuál? El que se acaba de enchufar. Con todos funcionando, agitar la mano delante de un sensor: su fila
    en la lista de Sensors muestra **moving**.
 4. Con la **sala vacía**: **Capture background — all sensors** (arriba en **Sensors**, también en la lista previa de
@@ -142,7 +169,13 @@ Todo se hace desde la app, sin otro programa: **Sensors › Sensor network…**
      indica (con la posición) y pide repetirla: lo que quede en el fondo tapa los toques en ese punto.
    - **Auto-align (room empty)**: calcula la posición y el giro del sensor a partir del suelo y los muros
      vecinos, y mide el ancho real del muro. Si el ancho difiere del plano más de 3 cm, lo avisa.
-     Revisar y pulsar **Apply**.
+   - **Izquierda o derecha (Check side)**: la sala vacía se ve igual en espejo, así que Auto-align no puede saber
+     qué lado es la izquierda. Antes de aplicar, poner **una mano plana en el muro cerca de su extremo IZQUIERDO**
+     (mirando el muro desde dentro de la sala) y pulsar **Check side**. Si la mano sale a la derecha, pulsar **Flip
+     left/right and align again**. En XR Lab los cuatro sensores estaban espejados.
+   - Si Auto-align confunde un objeto con la esquina (una pata de truss, un mueble), lo avisa («not the corner») y
+     calcula la posición desde el otro lado.
+   - Revisar y pulsar **Apply**.
 5. En el lienzo de **Sensors** los puntos blancos son lo que ve el láser; los grises, el fondo. La línea del
    suelo debe quedar sobre el borde inferior del muro.
 
@@ -195,6 +228,40 @@ El mapeo cambia dónde caen los toques en coordenadas de lienzo; nunca modifica 
 
 Abajo: lo que muestra la proyección (**Off / Pattern / Debug**) y **Full app**. Mientras una calibración o una
 verificación está en marcha, el mando se queda en su muro y en su paso.
+
+**Cada pantalla del mando es una sola acción:**
+- **Cabecera:** «Step N of 5 · …».
+- **Qué hacer**, empezando por el verbo: el muro por nombre y posición, dónde y cómo tocar. Por ejemplo: «Press
+  the amber ring at the top left (1.9 m up) on the 3rd wall from the left — P2, open palm, hold until the ring is
+  full».
+- **«You should see:»** cómo se ve cuando sale bien.
+- **«If not:»** qué hacer cuando no sale.
+- **Un solo botón principal.**
+- El progreso de los muros siempre a la vista («Walls 2 of 4 done»).
+- Mientras corre una calibración o una verificación, el mando oculta todo lo demás.
+- **Al aceptar un toque:** vibra, el objetivo destella en cian (en rojo si hay que repetirlo) y suena un pitido.
+  **Sound on/off** está en el pie y el teléfono lo recuerda.
+
+Detalles por paso:
+- **Prepare** ofrece sólo lo que falta: reiniciar sensores, capturar el fondo, abrir la proyección o «Next:
+  calibrate Px».
+- **Calibrate:** con el muro ya calibrado, el botón principal pasa a «Next: verify Px».
+- **Verify:** superado, lleva a lo siguiente (otro muro o la prueba de paseo); fallido, a **Fix it with your hand**.
+- El muro se nombra por su orden en la tira, porque el perfil no guarda su orientación física.
+
+**Cuadrícula en los muros (pixel map).**
+- **Encenderla:** **Calibrate › Pixel map › Grid on the walls** en el ordenador, o **Show a grid on the walls** en
+  Verify y Test del teléfono.
+- **Qué proyecta:** sobre cada muro, una retícula en metros (líneas cada 0,5 m y 1 m, con números), el contorno,
+  el centro, las esquinas y el nombre del muro.
+- **Cómo llega a los muros:** va dentro de la **salida Texture** (Spout / NDI / ventana), así que llega aunque los
+  proyectores los alimente el sistema de medios de la sala (como en XR Lab), y también a la ventana de proyección.
+- **Comprobar antes de calibrar:** que el contorno coincide con el muro real y que las líneas de 1 m coinciden con
+  una cinta métrica. Después, con la mano sobre una línea, el disco del toque debe caer encima.
+- **Durante una sesión:** mientras se calibra, se verifica o se usa Fit, los objetivos se dibujan sobre la misma
+  cuadrícula.
+- **Desactivarla en una salida:** en **Outputs › Texture**, **Calibration overlay: Off** deja esa salida sólo con
+  los toques.
 
 **Fit — ajustar con la mano.** Después de calibrar, si en algún sitio el toque cae algo desplazado respecto al
 contenido (pared no del todo plana, proyector que dobla la imagen), se corrige punto a punto:

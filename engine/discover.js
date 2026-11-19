@@ -6,6 +6,7 @@
 import dgram from 'node:dgram';
 import os from 'node:os';
 import * as P from './drivers/s2e-protocol.js';
+import { lanInterfaces } from './mdns.js';
 
 const ip4 = (s) => s.split('.').reduce((a, n) => ((a << 8) | (Number(n) & 255)) >>> 0, 0);
 /** Is `ip` on the network of this interface ({ip, mask})? */
@@ -27,14 +28,39 @@ export function factoryNetwork(ifaces) {
   return { reachable: !!via, via, have: ifaces.map((i) => `${i.ip} (${i.name})`).join(', ') };
 }
 
-/** Candidate hosts: every address of each local /24 (or smaller) network, plus the factory default. */
-export function candidateHosts() {
+/**
+ * The local IPv4 address of this computer that sits on the same network as `host`, or null (loopback hosts, no card
+ * on that network). Binding the socket to it makes the packets leave through the card the sensor is plugged into,
+ * even when the OS would route them through another card. `ifaces` = [{ip, mask}] (lanInterfaces()).
+ */
+export function localAddressFor(host, ifaces = lanInterfaces()) {
+  if (!valid4(host) || host.startsWith('127.')) return null;
+  return ifaces.find((i) => onNetwork(i, host))?.ip || null;
+}
+
+/** Address to bind a socket that talks to all of `hosts`: their common local address, else null (= 0.0.0.0). */
+export function bindAddressFor(hosts, ifaces = lanInterfaces()) {
+  const addrs = new Set(hosts.map((h) => localAddressFor(h, ifaces)));
+  if (addrs.size === 1) return [...addrs][0]; // null when none of them matches
+  // the factory address is always probed, even when no card is on its network: it must not make the others unbindable
+  const rest = new Set(hosts.filter((h) => h !== FACTORY_IP).map((h) => localAddressFor(h, ifaces)));
+  return rest.size === 1 ? [...rest][0] : null;
+}
+
+/**
+ * Candidate hosts: every address of each local network of /22 or smaller, plus the factory default. By default only
+ * the networks where the sensors are: the one holding the factory address or the host of a known sensor
+ * (`sensorHosts`); `everywhere` sweeps every local network (an audio or office network gets probed too).
+ */
+export function candidateHosts({ sensorHosts = [], everywhere = false, interfaces = os.networkInterfaces() } = {}) {
   const out = new Set(['192.168.11.2']);
-  for (const list of Object.values(os.networkInterfaces())) {
+  const targets = [FACTORY_IP, ...sensorHosts.filter((h) => valid4(h) && !h.startsWith('127.'))];
+  for (const list of Object.values(interfaces)) {
     for (const a of list || []) {
       if (a.family !== 'IPv4' || a.internal || a.address.startsWith('169.254.')) continue;
       const mask = ip4(a.netmask || '255.255.255.0');
       if ((~mask >>> 0) > 1023) continue; // bigger than /22: do not sweep
+      if (!everywhere && !targets.some((t) => onNetwork({ ip: a.address, mask: a.netmask || '255.255.255.0' }, t))) continue;
       const net = ip4(a.address) & mask;
       for (let h = 1; h < (~mask >>> 0); h++) { const ip = str4((net | h) >>> 0); if (ip !== a.address) out.add(ip); }
     }
@@ -65,9 +91,9 @@ export function discover({ hosts = candidateHosts(), port = 8089, skip = [], tim
       }
       found.set(r.address, e);
     });
-    sock.bind(0, () => {
+    const list = hosts.filter((h) => !skip.includes(h));
+    sock.bind(0, bindAddressFor(list) || undefined, () => {
       const req = P.request(P.CMD.GET_HEALTH);
-      const list = hosts.filter((h) => !skip.includes(h));
       let i = 0;
       const burst = () => { // pace the sweep: 32 packets per ms-tick
         for (let k = 0; k < 32 && i < list.length; k++, i++) sock.send(req, port, list[i]);
@@ -105,7 +131,7 @@ export function setStaticIp({ host, port = 8089, ip, mask = '255.255.255.0', gw 
       if (result !== 0) return done(new Error(`the unit refused the new address (code ${result})`));
       sock.send(P.request(P.CMD.RESET), port, host, () => done(null, { ip, mask, gw: gateway }));
     });
-    sock.bind(0, () => sock.send(P.setStaticIp(ip, mask, gateway), port, host));
+    sock.bind(0, localAddressFor(host) || undefined, () => sock.send(P.setStaticIp(ip, mask, gateway), port, host));
   });
 }
 
@@ -135,16 +161,23 @@ export function readStaticIp({ host, port = 8089 }, timeoutMs = 1200) {
         return;
       }
     });
-    sock.bind(0, () => sock.send(P.getConf(P.CONF.STATIC_IP, 0), port, host));
+    sock.bind(0, localAddressFor(host) || undefined, () => sock.send(P.getConf(P.CONF.STATIC_IP, 0), port, host));
   });
 }
 
 /**
- * Give the unit at `host` the address `ip` and CONFIRM it: the unit must answer on `ip` with the serial it had before.
- * Resolves {ip, serial, ms} or rejects with what is known: the address is taken, the unit kept its old address, or it
- * answers on neither (power-cycle it and Search).
+ * How long a unit may take to answer again after the RESET that applies a new address. Measured on four real S2E
+ * (XR Lab, firmware 1.02): 11, 34, 60 and 61 s — it varies a lot between units — so 90 s leaves a margin.
  */
-export async function readdress({ host, port = 8089, ip, mask = '255.255.255.0', gw, waitMs = 20000, pollMs = 700 }) {
+export const READDRESS_WAIT_MS = 90000;
+
+/**
+ * Give the unit at `host` the address `ip` and CONFIRM it: the unit must answer on `ip` with the serial it had before.
+ * Resolves {ip, serial, ms} when confirmed, or {ip, serial, ms, pending:true} when after `waitMs` it answers on
+ * neither address yet (still restarting — not reported as a failure: the change most likely worked).
+ * Rejects when the address is taken, or when the unit kept its old address (it answers there again after restarting).
+ */
+export async function readdress({ host, port = 8089, ip, mask = '255.255.255.0', gw, waitMs = READDRESS_WAIT_MS, pollMs = 1000, oldCheckAfterMs = 8000 }) {
   if (![host, ip, mask].every(valid4)) throw new Error('invalid IPv4 address');
   if (ip === host) throw new Error(`the unit is already on ${ip}`);
   const busy = (await discover({ hosts: [ip], port, timeoutMs: 600 }))[0];
@@ -154,13 +187,18 @@ export async function readdress({ host, port = 8089, ip, mask = '255.255.255.0',
   const serial = before.info?.serial || null;
   await setStaticIp({ host, port, ip, mask, gw });
   const t0 = Date.now();
-  while (Date.now() - t0 < waitMs) {
+  const kept = () => new Error(`the unit kept ${host}: it did not accept the new address`);
+  const onOld = async () => { const u = (await discover({ hosts: [host], port, timeoutMs: 500 }))[0]; return !!u && (!serial || u.info?.serial === serial); };
+  for (let k = 0; Date.now() - t0 < waitMs; k++) {
     await sleep(pollMs);
     const back = (await discover({ hosts: [ip], port, timeoutMs: 500 }))[0];
     if (back && (!serial || back.info?.serial === serial)) return { ip, serial: back.info?.serial || serial, ms: Date.now() - t0 };
+    // a unit that refused the change answers on its old address again once it has restarted: stop waiting then
+    // (not right after the command: it may still answer there for a moment before it resets)
+    if (Date.now() - t0 >= oldCheckAfterMs && k % 3 === 2 && await onOld()) throw kept();
   }
-  if ((await discover({ hosts: [host], port, timeoutMs: 800 }))[0]) throw new Error(`the unit kept ${host}: it did not accept the new address`);
-  throw new Error(`the unit did not come back on ${ip} — power-cycle it, wait 30 s and Search again`);
+  if (await onOld()) throw kept();
+  return { ip, serial, ms: Date.now() - t0, pending: true };
 }
 
 /**

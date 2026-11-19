@@ -72,6 +72,27 @@ test('ui: the inspector of every output type opens (TUIO used to throw)', opt, a
   for (const [type, ok] of Object.entries(result)) assert.ok(ok, `inspector of ${type}`);
 });
 
+test('ui: + Add… opens every destination type at once without a page error (its walls were read before the engine filled them in)', opt, async () => {
+  const { result, errors } = await inUi(`
+    const v = window.__vt; v.go('outputs');
+    await new Promise((r) => setTimeout(r, 200));
+    const added = [];
+    for (let k = 0; k < 7; k++) {
+      [...document.querySelectorAll('#panel button')].find((b) => b.innerText === '+ Add…').click();
+      const items = [...document.querySelectorAll('.modal .list .item')];
+      const item = items[k];
+      added.push(item.querySelector('.t').firstChild.textContent);
+      item.click();
+      await new Promise((r) => setTimeout(r, 30)); // the editor opens on the local copy, before the engine answers
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    const { store } = await import('/js/conn.js');
+    return { added, n: store.state.profile.outputs.length };`);
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.equal(result.added.length, 7, `added ${result.added.join(', ')}`);
+  assert.ok(result.n >= 7);
+});
+
 test('ui: a device without the access key is told it is not paired (not an endless "Reconnecting…")', opt, async () => {
   const { result } = await inUi(`
     await new Promise((r) => setTimeout(r, 2500));
@@ -402,6 +423,84 @@ test('ui: the projection draws the point being fitted (whatever its mode)', opt,
   assert.ok(result.other[2] < 120, `not around the others (${result.other})`);
 });
 
+test('ui: pixel map — the Calibrate toggle sends projection.set grid; the Texture editor offers the overlay option', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { store } = await import('/js/conn.js');
+    const v = window.__vt, wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    v.go('calibrate'); await wait(250);
+    const row = () => [...document.querySelectorAll('#panel .row')].find((r) => r.querySelector('label')?.innerText === 'Grid on the walls');
+    const before = { found: !!row(), grid: store.state.grid };
+    row().querySelector('button.switch').click();
+    for (let k = 0; k < 30 && !store.state.grid; k++) await wait(100);
+    await wait(200);
+    const after = { grid: store.state.grid, on: row().querySelector('button.switch').classList.contains('on') };
+    v.go('outputs'); v.select('output', 'TX'); await wait(250);
+    const sel = [...document.querySelectorAll('#panel .row')].find((r) => r.querySelector('label')?.innerText === 'Calibration overlay')?.querySelector('select');
+    const opts = sel ? [...sel.options].map((o) => o.text) : null;
+    if (sel) { sel.value = 'off'; sel.dispatchEvent(new Event('change')); }
+    for (let k = 0; k < 30 && store.state.profile.outputs.find((o) => o.id === 'TX')?.overlay !== 'off'; k++) await wait(100);
+    return { before, after, opts, overlay: store.state.profile.outputs.find((o) => o.id === 'TX')?.overlay };`, { setup: still });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.deepEqual(result.before, { found: true, grid: false });
+  assert.deepEqual(result.after, { grid: true, on: true });
+  assert.deepEqual(result.opts, ['Automatic', 'Off']);
+  assert.equal(result.overlay, 'off');
+});
+
+test('ui: pixel map — the projection page and the full-screen texture page draw the metre grid when it is on', opt, async () => {
+  const noWanderers = async (engine) => { const p = structuredClone(engine.profile); p.simulation.wanderers = 0; await engine.command('profile.update', { profile: p, rev: engine.rev }); };
+  const proj = await inUi(`
+    const { store, cmd } = await import('/js/conn.js');
+    for (let k = 0; k < 50 && !store.state; k++) await new Promise((r) => setTimeout(r, 100));
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const P = store.state.profile, W = P.walls.find((w) => w.id === 'P2');
+    const { wallUvToCanvas } = await import('/shared/geometry.js');
+    const c = document.getElementById('c'), g = c.getContext('2d');
+    const sx = c.width / P.canvas.width, sy = c.height / P.canvas.height;
+    // the 1 m line (x = 1 m) at 1.2 m height, drawn through the wall's mapping
+    const [lx, ly] = wallUvToCanvas(W, 1 / W.width, 1 - 1.2 / W.height);
+    const lit = () => { let m = 0; for (let d = -3; d <= 3; d++) m = Math.max(m, g.getImageData(Math.round(lx * sx) + d, Math.round(ly * sy), 1, 1).data[0]); return m; };
+    window.__proj.draw();
+    const off = lit();
+    await cmd('projection.set', { grid: true });
+    await wait(500);
+    window.__proj.draw();
+    return { off, on: lit(), grid: store.state.grid, mode: store.state.projection.mode };`, { page: '/projection', wait: 'load', setup: noWanderers });
+  assert.deepEqual(proj.errors, []);
+  assert.equal(proj.result.mode, 'off', 'whatever the mode (here: off)');
+  assert.equal(proj.result.off, 0);
+  assert.equal(proj.result.grid, true);
+  assert.ok(proj.result.on > 60, `the 1 m line is lit (${proj.result.on})`);
+
+  const tex = await inUi(`
+    const { store, cmd, editProfile } = await import('/js/conn.js');
+    for (let k = 0; k < 50 && !store.state; k++) await new Promise((r) => setTimeout(r, 100));
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const c = document.getElementById('c'), g = c.getContext('2d');
+    const bright = () => { const d = g.getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 100) n++; return n; };
+    const settle = async () => { await wait(600); window.__tex.frame(); window.__tex.draw(); };
+    await settle();
+    const off = bright();
+    await cmd('projection.set', { grid: true });
+    await settle();
+    const on = bright();
+    await editProfile((p) => { p.outputs.find((o) => o.id === 'TX').overlay = 'off'; }, 'overlay off');
+    await settle();
+    return { off, on, withOverlayOff: bright() };`, {
+    page: '/texture?o=TX', wait: 'load', w: 960, h: 600,
+    setup: async (engine) => {
+      const p = structuredClone(engine.profile); p.simulation.wanderers = 0;
+      p.outputs.push({ id: 'TX', type: 'texture', name: 'Touch texture', radius: 0.08, softness: 0, trailMs: 0 });
+      const o = p.outputs.at(-1); o.enabled = true; o.sink = 'window'; o.scale = 0.25;
+      await engine.command('profile.update', { profile: p, rev: engine.rev });
+    },
+  });
+  assert.deepEqual(tex.errors, []);
+  assert.equal(tex.result.off, 0, 'no touches, no grid: black');
+  assert.ok(tex.result.on > 300, `the grid is on the texture page (${tex.result.on} px)`);
+  assert.equal(tex.result.withOverlayOff, 0, 'overlay Off: pure touches again');
+});
+
 test('ui: no knob-and-dot sliders anywhere — values use the VEATION fader (groove + fill + value box)', opt, async () => {
   const { result, errors } = await inUi(`
     const v = window.__vt, wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -530,7 +629,7 @@ test('ui: Sensor network — sets up the computer’s card with one button, then
   assert.match(result.withNet, /192\.168\.11\.2 \(factory address\)/);
   assert.match(result.withNet, /→ 192\.168\.11\.12/, 'P1 waits for its sensor on .12');
   assert.equal(result.label, 'Put on P1', 'the wall whose sensor is waiting comes first');
-  assert.match(result.busy, /Setting 192\.168\.11\.12… the sensor restarts/);
+  assert.match(result.busy, /Setting 192\.168\.11\.12… the sensor is restarting: \d+ s \(it can take a minute/, 'it counts the seconds (a real S2E takes up to ~1 min)');
   assert.deepEqual(calls, [['net.setSensorNic', 'Ethernet 2'], ['sensor.readdress', '192.168.11.2', '192.168.11.12', { sensorId: 'S1', wallId: 'P1' }]]);
 });
 
@@ -728,6 +827,151 @@ test('ui: in a simulated room the phone rehearses the whole calibration — a vi
   assert.equal(result.apply, true);
 });
 
+test('ui: remote clarity — every screen says "Step N of 5", one sentence with the wall and where, and exactly one primary action', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { store, cmd } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const rc = window.__vt;
+    const shot = () => {
+      const q = (s) => document.querySelector(s);
+      const prim = [...document.querySelectorAll('#rBody .r-primary')];
+      return { title: q('#rBody .r-stepno')?.innerText, say: q('#rBody .r-do')?.innerText, see: q('#rBody .r-see')?.innerText,
+        primary: prim.map((e) => e.innerText.trim()), tall: prim.every((e) => e.getBoundingClientRect().height >= 48 || !e.matches('button')),
+        walls: q('#rBody .r-prog .lbl')?.innerText };
+    };
+    const r = {};
+    rc.setWall('P2');
+    for (const step of ['prepare', 'fit', 'verify', 'test']) { rc.setStep(step); await wait(150); r[step] = shot(); }
+    await cmd('bg.capture', { frames: 5 }); await wait(2000);
+    rc.setStep('prepare'); await wait(100); r.prepareBg = shot();
+    rc.setStep('calibrate'); rc.calibOpt.cols = 2; rc.calibOpt.rows = 2; rc.rerender(); await wait(150);
+    r.calibrate = shot();
+    [...document.querySelectorAll('#rBody button')].find((b) => /^Start calibration/.test(b.innerText)).click();
+    for (let k = 0; k < 30 && !store.status?.calib; k++) await wait(100);
+    await wait(200);
+    r.session = shot();
+    r.shown = { guide: getComputedStyle(document.querySelector('.r-guide')).display, steps: getComputedStyle(document.querySelector('.r-steps')).display };
+    for (let n = 0; n < 4; n++) {
+      const btn = [...document.querySelectorAll('#rBody button')].find((b) => b.innerText === 'Simulated hand on target ' + (n + 1));
+      btn.click();
+      for (let k = 0; k < 60 && (store.status?.calib?.index ?? 0) === n && store.status?.calib?.phase !== 'done'; k++) await wait(100);
+    }
+    for (let k = 0; k < 30 && store.status?.calib?.phase !== 'done'; k++) await wait(100);
+    await wait(200);
+    r.result = shot();
+    return r;`, {
+    mobile: true, w: 390, h: 844, setup: still,
+  });
+  assert.deepEqual(errors, []);
+  const r = result;
+  const n = (k) => `Step ${k} of 5 · `;
+  assert.match(r.prepare.title, new RegExp(`^${n(1)}Prepare P2$`));
+  assert.match(r.fit.title, new RegExp(`^${n(3)}Fit P2$`));
+  assert.match(r.verify.title, new RegExp(`^${n(4)}Verify P2$`));
+  assert.match(r.test.title, new RegExp(`^${n(5)}Walk test$`));
+  assert.match(r.calibrate.title, new RegExp(`^${n(2)}Calibrate P2$`));
+  for (const k of ['prepare', 'fit', 'verify', 'test', 'calibrate', 'session', 'result']) {
+    assert.equal(r[k].primary.length, 1, `${k}: exactly one primary action (${JSON.stringify(r[k].primary)})`);
+    assert.ok(r[k].tall, `${k}: the primary button is at least 48 px tall`);
+    assert.ok(r[k].title.startsWith('Step '), `${k}: a step counter`);
+  }
+  assert.deepEqual(r.prepare.primary, ['Capture background'], 'the first thing missing is the one action');
+  assert.match(r.prepare.walls, /^walls 0 of 4 done$/i, 'progress is always visible');
+  assert.deepEqual(r.prepareBg.primary, ['Waiting for the projection'], 'with the background captured, the next missing thing is the projection');
+  assert.match(r.prepareBg.say, /^Open the projection on the projector, from the computer\.$/);
+  assert.deepEqual(r.fit.primary.map((t) => t.replace(/\d+ × \d+/, 'N × M')), ['Make a N × M mesh']);
+  assert.match(r.calibrate.say, /Stand facing the 3rd wall from the left — P2/, 'the wall by name and position');
+  assert.match(r.calibrate.see, /Touch and hold · 1\/4/, 'what you should see');
+  assert.deepEqual(r.calibrate.primary, ['Start calibration of P2']);
+  assert.match(r.session.title, new RegExp(`^${n(2)}Calibrate P2$`));
+  assert.match(r.session.say, /^Press the amber ring at the (top|bottom|middle) (left|centre|right) \(\d\.\d m up\) on the 3rd wall from the left — P2\. Use your open palm, flat\. Hold until the ring is full\.$/);
+  assert.match(r.session.primary[0], /^Press the amber ring/, 'while a hand is held on the wall, the sentence is the action');
+  assert.deepEqual(r.shown, { guide: 'none', steps: 'none' }, 'a session owns the screen: nothing else to read');
+  assert.deepEqual(r.result.primary, ['Apply & save']);
+  assert.match(r.result.say, /^Check the error, then tap Apply & save\.$/);
+});
+
+test('ui: remote feedback — an accepted touch buzzes, flashes the target and beeps; the sound toggle is remembered', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { store } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const rc = window.__vt;
+    const buzz = [];
+    Object.defineProperty(navigator, 'vibrate', { configurable: true, value: (p) => { buzz.push(p); return true; } });
+    Object.defineProperty(navigator, 'userActivation', { configurable: true, value: { hasBeenActive: true } });
+    rc.setWall('P2'); rc.setStep('calibrate');
+    rc.calibOpt.cols = 2; rc.calibOpt.rows = 2; rc.rerender();
+    [...document.querySelectorAll('#rBody button')].find((b) => /^Start calibration/.test(b.innerText)).click();
+    for (let k = 0; k < 30 && !store.status?.calib; k++) await wait(100);
+    const hold = async (n) => {
+      let flash = null;
+      const btn = [...document.querySelectorAll('#rBody button')].find((b) => b.innerText === 'Simulated hand on target ' + (n + 1));
+      const before = rc.fb.ok;
+      btn.click();
+      for (let k = 0; k < 150 && rc.fb.ok === before; k++) await wait(15);
+      flash = document.querySelector('#rBody .r-target')?.classList.contains('flash') ?? null; // the instant it was accepted
+      for (let k = 0; k < 60 && (store.status?.calib?.index ?? 0) === n; k++) await wait(100);
+      return flash;
+    };
+    const r = { sound0: rc.sound };
+    r.flash = await hold(0);
+    r.afterFirst = { ...rc.fb, buzz: buzz.length, first: buzz[0] };
+    const toggle = [...document.querySelectorAll('.r-foot button')].find((b) => /^Sound/.test(b.innerText));
+    r.label0 = toggle.innerText;
+    toggle.click(); await wait(100);
+    const beepsBefore = rc.fb.beeps;
+    r.label1 = [...document.querySelectorAll('.r-foot button')].find((b) => /^Sound/.test(b.innerText)).innerText;
+    r.stored = localStorage.getItem('vt-remote-sound');
+    await hold(1);
+    r.afterSecond = { ...rc.fb, buzz: buzz.length, silent: rc.fb.beeps === beepsBefore };
+    return r;`, { mobile: true, w: 390, h: 844, setup: async (engine) => { await still(engine); await engine.command('bg.capture', { frames: 5 }); await new Promise((r) => setTimeout(r, 1500)); } });
+  assert.deepEqual(errors, []);
+  assert.equal(result.sound0, true, 'sound is on by default');
+  assert.equal(result.flash, true, 'the target flashes when the touch is accepted');
+  assert.equal(result.afterFirst.ok, 1);
+  assert.equal(result.afterFirst.buzz, 1, 'the phone buzzes once');
+  assert.ok(result.afterFirst.beeps >= 1, 'and beeps');
+  assert.equal(result.label0, 'Sound on');
+  assert.equal(result.label1, 'Sound off');
+  assert.equal(result.stored, 'off', 'remembered on this phone');
+  assert.equal(result.afterSecond.ok, 2);
+  assert.equal(result.afterSecond.buzz, 2, 'still buzzes with the sound off');
+  assert.equal(result.afterSecond.silent, true, 'but no beep');
+});
+
+test('ui: remote grid — Verify and Test toggle the grid on the walls with projection.set {grid}, reading state.grid', opt, async () => {
+  const sent = [];
+  const { result, errors } = await inUi(`
+    const { store } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const rc = window.__vt;
+    const btn = () => [...document.querySelectorAll('#rBody .r-grid')];
+    const r = {};
+    rc.setWall('P2'); rc.setStep('verify'); await wait(150);
+    r.verifyBtns = btn().length; r.verifyText = btn()[0].innerText;
+    btn()[0].click(); await wait(300);
+    store.state.grid = true; rc.rerender(); await wait(100); // the engine reports it on
+    r.onText = btn()[0].innerText; r.pressed = btn()[0].getAttribute('aria-pressed');
+    btn()[0].click(); await wait(300);
+    store.state.grid = false;
+    rc.setStep('test'); await wait(150);
+    r.testBtns = btn().length;
+    btn()[0].click(); await wait(300);
+    return r;`, {
+    mobile: true, w: 390, h: 844, setup: (engine) => {
+      const orig = engine.command.bind(engine);
+      engine.command = (op, a) => { if (op === 'projection.set' && 'grid' in a) { sent.push(a.grid); return Promise.resolve({}); } return orig(op, a); };
+    },
+  });
+  assert.deepEqual(errors, []);
+  assert.equal(result.verifyBtns, 1);
+  assert.equal(result.testBtns, 1);
+  assert.equal(result.verifyText, 'Show a grid on the walls');
+  assert.match(result.onText, /^Grid on the walls: on/);
+  assert.equal(result.pressed, 'true');
+  assert.deepEqual(sent, [true, false, true], 'off → on, on → off (it reads state.grid), and from Test on again');
+});
+
 test('ui: a page that cannot start says so on screen and its error reaches the computer\'s log', opt, async () => {
   // a copy of the UI whose entry module throws while loading — what a phone saw with the QR-key bug
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-broken-ui-'));
@@ -764,4 +1008,36 @@ test('ui: a page that started keeps quiet on screen — a later error is only se
   const line = lines.find((l) => /late failure/.test(l));
   assert.ok(line, JSON.stringify(lines));
   assert.match(line, /^page error on this computer, \/: late failure at \/js\/app\.js:3:9$/, 'started: no "did not start"');
+});
+
+test('ui: Connect device offers Same Wi-Fi and Over the internet; the internet side shows its state and, online, the public link', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { store } = await import('/js/conn.js');
+    const V = await import('/js/views.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    try { localStorage.removeItem('vt-connect-mode'); } catch {}
+    store.state.cloud = { ...store.state.cloud, relayUrl: '' }; // an operator who cleared the relay address
+    const host = document.createElement('div'); document.body.append(host);
+    host.append(V.connectContent());
+    const tabs = () => [...host.querySelectorAll('.seg button')].map((b) => b.innerText);
+    const out = { tabs: tabs(), wifiFirst: !!host.querySelector('.qr') };
+    host.querySelectorAll('.seg button')[1].click();
+    await wait(50);
+    out.offText = host.innerText;
+    out.offButton = [...host.querySelectorAll('button')].some((b) => b.innerText === 'Turn on internet access');
+    // online: the public link is drawn as a QR
+    store.state.cloud = { ...store.state.cloud, enabled: true, state: 'online', link: 'https://launcher.example/#r=abc&k=KEY&relay=x' };
+    await wait(900);
+    out.onText = host.innerText; out.qr = (host.querySelector('.qr img') || {}).src || '';
+    store.state.cloud = { ...store.state.cloud, state: 'error', error: 'Cannot reach the relay (ENOTFOUND).' };
+    await wait(900);
+    out.errText = host.innerText;
+    return out;`);
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.deepEqual(result.tabs, ['Same Wi-Fi', 'Over the internet']);
+  assert.match(result.offText, /Enter the relay address first/, 'no relay address yet: says where to enter it');
+  assert.equal(result.offButton, true);
+  assert.match(result.onText, /Online/);
+  assert.match(decodeURIComponent(result.qr), /launcher\.example\/#r=abc&k=KEY/);
+  assert.match(result.errText, /Cannot reach the relay \(ENOTFOUND\)/);
 });

@@ -272,6 +272,27 @@ test('auto-align: recovers the sensor pose from floor + side walls and measures 
   }
 });
 
+test('auto-align: an object standing in the plane near one corner is not taken for that wall (XR Lab P1)', async () => {
+  const { autoAlign, backgroundPoints } = await import('../engine/core/autoalign.js');
+  const wall = { id: 'W', width: 6.483, height: 3.75, masks: [] };
+  const truth = { x: 2.661, y: 3.817, rotation: -90.6, mirror: true };
+  const configured = { x: 2.79, y: 3.75, rotation: -90, mirror: true };
+  const world = new SimWall(wall, truth, { noiseMm: 4, seed: 9 });
+  // a tall vertical thing 1.70 m from the left corner (a truss leg…): it hides most of the left wall from the sensor
+  for (let y = 0.05; y <= 3.4; y += 0.04) world.obstacles.push({ x: 1.7, y, r: 0.03 });
+  const pipe = new SensorPipeline({ id: 'S', pose: configured }, wall, {});
+  let bg = null;
+  pipe.learnBackground(10, (d) => { bg = d; });
+  for (let k = 0; k < 10; k++) pipe.process({ sensorId: 'S', t: k, count: 3200, ...world.scan(3200, 0.02), hasQuality: true });
+  const r = autoAlign(backgroundPoints(bg, 0.25), configured, wall);
+  assert.ok(r.ok, r.error);
+  assert.equal(r.widthTrusted, false, `the "width" between the object and the right wall (${r.measuredWidth} m) is not offered as the wall width`);
+  assert.equal(r.xFrom, 'right wall');
+  assert.ok(Math.abs(r.pose.x - truth.x) < 0.03, `x ${r.pose.x} vs ${truth.x} (taken from the object it would be ~0.96)`);
+  assert.match(r.xWarn, /not the corner/);
+  assert.equal(r.sideFrom, 'approximate pose', 'and it says where left/right came from');
+});
+
 test('level check: a parallel plane passes; a plane leaning into the wall is located; masks excuse known objects', async () => {
   const { levelCheck } = await import('../engine/core/levelcheck.js');
   const { backgroundPoints } = await import('../engine/core/autoalign.js');
@@ -914,4 +935,79 @@ test('texture: destination Spout / NDI / full screen (Spout by default, as befor
   assert.equal(out({ sink: 'ndi' }).sink, 'ndi');
   assert.deepEqual([out({ sink: 'window', displayId: 2779098405, fit: 'stretch' }).sink, out({ sink: 'window', displayId: 2779098405 }).displayId, out({ fit: 'stretch' }).fit], ['window', 2779098405, 'stretch']);
   assert.equal(out({ sink: 'hdmi' }).sink, 'spout');
+});
+
+test('pixel map: the 1 m line lands on the right canvas column through the wall mapping; the current target is a ring; touches stay untouched', async () => {
+  const { TouchMask, overlayOf, wallPattern } = await import('../engine/core/mask.js');
+  // a 4 × 2 m wall on a 200 × 100 px region of a 400 × 200 canvas, offset (50 px per metre)
+  const prof = normalizeProfile({ canvas: { width: 400, height: 200 }, walls: [{ id: 'A', width: 4, height: 2, pixelRect: { x: 100, y: 20, w: 200, h: 100 } }] });
+  const wall = prof.walls[0];
+  const o = { radius: 0.1, softness: 0, trailMs: 0, sizeMode: 'fixed' };
+  const render = (overlay, touches = []) => { const m = new TouchMask(); m.resize(400, 200); m.render([{ wall, touches }], o, 1, 16, overlay); return m; };
+  const at = (m, x, y) => m.frame[y * m.w + x];
+  const near = (m, x, y, r = 1) => { let v = 0; for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) v = Math.max(v, at(m, x + i, y + j)); return v; };
+
+  const none = render(null);
+  assert.equal(none.frame, none.mask, 'no overlay: the frame is the touch mask itself');
+  assert.ok(none.frame.every((v) => v === 0));
+
+  const grid = render(overlayOf({ grid: true }));
+  // x = 2 m → canvas 100 + 2·50 = 200 (a 1 m line: bright); x = 1 m → 150; the 1.5 m line is thinner; between lines it is black. Row 40 = y 1.6 m.
+  assert.ok(near(grid, 200, 40) >= 200, `the 2 m line is on column 200 (${near(grid, 200, 40)})`);
+  assert.ok(near(grid, 150, 40) >= 200, `the 1 m line is on column 150 (${near(grid, 150, 40)})`);
+  const half = near(grid, 175, 40);
+  assert.ok(half > 0 && half < 200, `the 0.5 m line is fainter (${half})`);
+  assert.equal(near(grid, 162, 40, 2), 0, 'black between the lines');
+  assert.equal(near(grid, 80, 40), 0, 'nothing outside the wall');
+  assert.ok(near(grid, 100, 70) === 255 && near(grid, 300, 70) === 255, 'the wall outline sits on the mapped edges (x 100 and 300)');
+  assert.ok(near(grid, 200, 70, 0) === 255 || near(grid, 201, 70, 1) === 255, 'centre cross');
+  // wallPattern is the same geometry the projection strokes
+  const pat = wallPattern(wall);
+  assert.deepEqual(pat.lines.find((l) => l.axis === 'x' && l.metres === 2).pts[0], [200, 120], 'x = 2 m, y = 0 → canvas (200, 120)');
+  assert.equal(pat.lines.find((l) => l.axis === 'x' && l.metres === 2).label.text, '2m');
+
+  // a calibration session: the current target is a ring (+ crosshair), the others dots; absent without the session
+  const calib = { wallId: 'A', index: 1, phase: 'touch', progress: 0.3, targets: [{ x: 1, y: 1, skipped: false, captured: [] }, { x: 3, y: 1, skipped: false, captured: [] }] };
+  const ring = render(overlayOf({ grid: true, calib }));
+  // target 1 = (3 m, 1 m) → canvas (250, 70); its ring (R = 7 px) passes at 45° through (255, 65), where the grid is black
+  assert.equal(near(grid, 255, 65), 0);
+  assert.equal(near(ring, 255, 65), 255, 'the current target is ringed');
+  assert.ok(near(ring, 150, 70, 1) >= 200, 'the other target is a dot (on (150, 70))');
+  assert.equal(near(render(overlayOf({ grid: true, calib: { ...calib, phase: 'done' } })), 255, 65), 0, 'a finished session has no current target');
+  // verification and Fit draw their own marks
+  const ver = render(overlayOf({ verify: { wallId: 'A', index: 0, phase: 'touch', targets: [{ x: 3, y: 1, measured: null, errMm: null }] } }));
+  assert.equal(near(ver, 255, 65), 255, 'a verification check point is ringed');
+
+  // touches are never disturbed: a disc on top, the same pixels as without the pattern, and the pattern comes back on its own
+  const touch = [{ x: 1, y: 1.6, size: 0.05 }];
+  const withT = render(overlayOf({ grid: true }), touch), plain = render(null, touch);
+  assert.deepEqual(Buffer.from(plain.mask), Buffer.from(withT.mask), 'the touch layer is the same with or without the pattern');
+  assert.equal(at(withT, 150, 40), 255, 'the touch shows over the line');
+  const m = new TouchMask(); m.resize(400, 200);
+  const rend = (ov) => m.render([{ wall, touches: [] }], o, 1, 16, ov);
+  assert.equal(rend(overlayOf({ grid: true })), true);
+  assert.equal(rend(overlayOf({ grid: true })), false, 'nothing changed: no new frame');
+  assert.ok(near(m, 200, 40) >= 200);
+  assert.equal(rend(null), true, 'turning the pattern off redraws once');
+  assert.ok(m.frame.every((v) => v === 0), 'and the output is black again');
+  assert.equal(overlayOf({}), null);
+  // the option: Automatic by default, Off kept, junk falls back
+  const ov = (v) => normalizeProfile({ outputs: [{ type: 'texture', overlay: v }] }).outputs[0].overlay;
+  assert.deepEqual([ov(undefined), ov('off'), ov('on'), ov('auto')], ['auto', 'off', 'auto', 'auto']);
+});
+
+test('pixel map: the Texture output draws the pattern on its Spout / NDI frame, unless its overlay is Off', async () => {
+  const { TextureRenderer } = await import('../engine/outputs/texture.js');
+  const { overlayOf } = await import('../engine/core/mask.js');
+  const prof = normalizeProfile({ canvas: { width: 400, height: 200 }, walls: [{ id: 'A', width: 4, height: 2, pixelRect: { x: 0, y: 0, w: 400, h: 200 } }] });
+  const walls = [{ wall: prof.walls[0], touches: [] }];
+  const lit = (overlay, mode) => {
+    const r = new TextureRenderer();
+    r.configure({ scale: 0.5, radius: 0.1, softness: 0, trailMs: 0, sizeMode: 'fixed', overlay: mode }, prof);
+    r.render(walls, 16, overlay);
+    return r.mask.reduce((n, v) => n + (v > 0), 0) + (r.rgba[0] === r.mask[0] ? 0 : 1);
+  };
+  assert.equal(lit(null, 'auto'), 0, 'no grid, no session: pure touches');
+  assert.ok(lit(overlayOf({ grid: true }), 'auto') > 500, 'grid on: the lines are in the texture');
+  assert.equal(lit(overlayOf({ grid: true }), 'off'), 0, 'overlay Off: never');
 });

@@ -27,6 +27,22 @@ function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
+const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
+/** Alma Digital Studio's relay (cloud/relay, Cloudflare Workers): internet access works with one switch. */
+export const DEFAULT_RELAY_URL = 'https://veation-relay.almadigitalstudio.workers.dev';
+/** Internet access (engine/cloud.js). roomId and secret are made once and kept; "New address" replaces both. */
+export function cloudSettings(c = {}) {
+  c = c && typeof c === 'object' ? c : {};
+  const str = (v, d) => (typeof v === 'string' ? v.trim() : d);
+  return {
+    enabled: !!c.enabled,
+    relayUrl: str(c.relayUrl, DEFAULT_RELAY_URL), // '' only when the operator cleared it
+    launcherUrl: typeof c.launcherUrl === 'string' ? c.launcherUrl.trim() : 'https://veation-touch.vercel.app',
+    roomId: /^[a-z2-7]{10}$/.test(c.roomId) ? c.roomId : [...crypto.randomBytes(10)].map((b) => B32[b & 31]).join(''),
+    secret: typeof c.secret === 'string' && c.secret.length >= 32 ? c.secret : crypto.randomBytes(32).toString('base64url'),
+  };
+}
+
 export class Store {
   /** @param {string} dataDir @param {string} bundledProfilesDir @param {object} log */
   constructor(dataDir, bundledProfilesDir, log) {
@@ -64,6 +80,7 @@ export class Store {
       autostart: !!s.autostart,
       locked: !!s.locked,
       // name answered over mDNS: http://<localName>.local:<port>/
+      cloud: cloudSettings(s.cloud),
       localName: typeof s.localName === 'string' && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(s.localName) ? s.localName : 'veation-touch',
     };
     if (JSON.stringify(out) !== JSON.stringify(s)) this.saveSettings(out);

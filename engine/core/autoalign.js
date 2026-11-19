@@ -7,6 +7,9 @@
 
 import { poseMatrix, apply } from './geometry.js';
 
+/** A wall width measured this far off the plans is not a plan error: one "side wall" line is an object (XR Lab P1). */
+const WIDTH_TRUST_M = 0.25;
+
 /** Total-least-squares line through points: {c:[x,y] centroid, d:[dx,dy] unit direction, rms}. */
 function fitLine(pts) {
   let cx = 0, cy = 0;
@@ -89,12 +92,23 @@ export function autoAlign(pts, pose, wall) {
     // project: the wall line is ~perpendicular to u, so its offset along u is its centroid's
     return t + 0; };
   let x = pose.x, xFrom = 'kept';
-  let measuredWidth = null;
+  let measuredWidth = null, widthTrusted = true, xWarn = null;
   if (left) { x = xOf(left.L); xFrom = 'left wall'; }
   if (right) {
     const xr = wall.width + xOf(right.L);
     if (!left) { x = xr; xFrom = 'right wall'; }
-    if (left) measuredWidth = Math.abs(((right.L.c[0] - left.L.c[0]) * u[0]) + ((right.L.c[1] - left.L.c[1]) * u[1]));
+    if (left) {
+      measuredWidth = Math.abs(((right.L.c[0] - left.L.c[0]) * u[0]) + ((right.L.c[1] - left.L.c[1]) * u[1]));
+      // far off the plans: one of the two "side walls" is something else standing in the plane (a truss, a pillar,
+      // a door frame) — take x from the one that agrees with the approximate pose, and do not offer it as the width
+      if (Math.abs(measuredWidth - wall.width) > WIDTH_TRUST_M) {
+        widthTrusted = false;
+        const xl = x;
+        const fromRight = Math.abs(xr - pose.x) < Math.abs(xl - pose.x);
+        if (fromRight) { x = xr; xFrom = 'right wall'; }
+        xWarn = `the line seen on the ${fromRight ? 'left' : 'right'} is not the corner (the width it gives is ${Math.abs(measuredWidth - wall.width).toFixed(2)} m off the plans: an object in the plane?) — x is taken from the ${fromRight ? 'right' : 'left'} wall`;
+      }
+    }
   }
   // linear part sensor→wall has rows u, v: first column (u.x, v.x) gives θ; det gives the mirror
   const det = u[0] * v[1] - u[1] * v[0];
@@ -106,9 +120,13 @@ export function autoAlign(pts, pose, wall) {
     pose: { x: r(x), y: r(h), rotation: r(rotation, 2), mirror },
     seen: { floor: true, left: !!left, right: !!right, lines: lines.length },
     xFrom,
+    xWarn,
+    // floor + two side walls look the same mirrored: left/right is the approximate pose's — confirm with a hand
+    sideFrom: 'approximate pose',
     floorRmsMm: r(F.rms * 1000, 1),
     measuredWidth: measuredWidth === null ? null : r(measuredWidth),
     widthDiff: measuredWidth === null ? null : r(measuredWidth - wall.width),
+    widthTrusted,
   };
 }
 

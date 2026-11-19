@@ -204,6 +204,7 @@ function normOutput(o, i) {
     scale: [0.125, 0.25, 0.5, 1].includes(o?.scale) ? o.scale : 0.25,
     radius: num(o?.radius, 0.08, 0.01, 1),
     sizeMode: o?.sizeMode === 'touch' ? 'touch' : 'fixed', // 'touch': the disc grows with what touches (radius = the minimum)
+    overlay: o?.overlay === 'off' ? 'off' : 'auto', // the calibration pattern (grid, targets) drawn on top while the walls' "Grid" is on or a calibration runs
     // where the texture goes — only this one runs: Spout (same machine), NDI (network), or a full-screen window
     sink: ['spout', 'ndi', 'window'].includes(o?.sink) ? o.sink : 'spout',
     displayId: Number.isFinite(o?.displayId) ? o.displayId : null, // 'window': the display it fills

@@ -20,7 +20,7 @@ export class TextureRenderer {
   constructor() { this.m = new TouchMask(); this.rgba = null; }
   get w() { return this.m.w; }
   get h() { return this.m.h; }
-  get mask() { return this.m.mask; }
+  get mask() { return this.m.frame; }
 
   configure(o, profile) {
     this.o = o;
@@ -32,10 +32,13 @@ export class TextureRenderer {
     }
   }
 
-  /** @param {{wall:object, touches:object[]}[]} walls @param {number} dtMs since the previous render */
-  render(walls, dtMs) {
-    if (!this.m.render(walls, this.o, this.o.scale, dtMs)) return false; // nothing changed: keep the last (black) frame
-    const { mask } = this.m, rgba = this.rgba;
+  /**
+   * @param {{wall:object, touches:object[]}[]} walls @param {number} dtMs since the previous render
+   * @param {object|null} overlay the calibration pattern to draw on top (core/mask.js overlayOf), null = none
+   */
+  render(walls, dtMs, overlay = null) {
+    if (!this.m.render(walls, this.o, this.o.scale, dtMs, this.o.overlay === 'off' ? null : overlay)) return false; // nothing changed: keep the last (black) frame
+    const mask = this.m.frame, rgba = this.rgba;
     for (let i = 0, j = 0; i < mask.length; i++, j += 4) { const v = mask[i]; rgba[j] = v; rgba[j + 1] = v; rgba[j + 2] = v; }
     return true;
   }
@@ -76,11 +79,11 @@ export class TextureOutput {
   }
 
   /** @returns {boolean} whether a frame was sent */
-  send(walls, nowMs) {
+  send(walls, nowMs, overlay = null) {
     if (!this.started) return false;
     const dt = this.last ? nowMs - this.last : 16;
     this.last = nowMs;
-    this.r.render(walls, dt);
+    this.r.render(walls, dt, overlay);
     if (this.ndi) {
       this.ndi.send(this.r.rgba, this.r.w, this.r.h, this.o.rateHz);
       if (this.n++ % 30 === 0) this.receivers = this.ndi.receivers();

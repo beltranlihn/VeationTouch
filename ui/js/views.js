@@ -507,11 +507,12 @@ export function discoverModal(ctx) {
   const busy = new Map(); // host → 'Setting 192.168.11.11…' while a unit is being re-addressed
   let last = null;
   const check = (ok, ...text) => h('div', { class: `check${ok ? ' done' : ''}` }, h('span', { class: 'mark' }, ok ? '✓' : '!'), h('span', { class: 't' }, ...text));
-  const search = () => {
-    body.replaceChildren(h('p', { class: 'muted', style: { marginTop: 0 } }, 'Searching the networks of this computer for RPLIDAR S2E units…'));
-    cmd('sensor.discover').then((r) => { last = r; show(r); }).catch((e) => body.replaceChildren(h('div', { class: 'callout bad' }, e.message), againRow()));
+  const search = (everywhere = false) => {
+    body.replaceChildren(h('p', { class: 'muted', style: { marginTop: 0 } }, everywhere ? 'Searching every network of this computer for RPLIDAR S2E units…' : 'Searching the sensor network for RPLIDAR S2E units…'));
+    cmd('sensor.discover', everywhere === true ? { everywhere: true } : undefined).then((r) => { last = r; show(r); }).catch((e) => body.replaceChildren(h('div', { class: 'callout bad' }, e.message), againRow()));
   };
-  const againRow = () => h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: search }, 'Search again'));
+  const againRow = () => h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => search() }, 'Search again'),
+    h('button', { class: 'btn small', onclick: () => search(true), title: 'Also probe the other networks of this computer (slower)' }, 'Search every network'));
   const wallLabel = (id) => { const w = P().walls.find((x) => x.id === id); return w ? `${w.id} · ${w.name}` : id; };
 
   function computerPart(net) {
@@ -546,7 +547,7 @@ export function discoverModal(ctx) {
       return h('div', { class: 'item unit', style: { cursor: 'default' } }, head, badge(`${f.usedBy}${s ? ` · ${s.wallId}` : ''}`, 'ok'),
         h('button', { class: 'btn small', onclick: () => otherAddress(f, s?.wallId, s?.id) }, 'Change address…'));
     }
-    if (busy.has(f.host)) return h('div', { class: 'item unit', style: { cursor: 'default' } }, head, h('span', { class: 'muted' }, busy.get(f.host)));
+    if (busy.has(f.host)) return h('div', { class: 'item unit', style: { cursor: 'default' } }, head, busy.get(f.host));
     let wallId = defaultWall(r);
     const ipOf = () => r.suggest?.[wallId]?.ip;
     const to = h('span', { class: 'to tnum' });
@@ -586,13 +587,20 @@ export function discoverModal(ctx) {
       setTimeout(search, 800);
       return;
     }
-    busy.set(f.host, `Setting ${ip}… the sensor restarts (up to 20 s)`);
+    // a real S2E is silent for 10–65 s while it restarts on its new address: count the seconds so it never looks hung
+    const t0 = Date.now();
+    const label = h('span', { class: 'muted tnum restarting' });
+    const tick = () => { label.textContent = `Setting ${ip}… the sensor is restarting: ${Math.round((Date.now() - t0) / 1000)} s (it can take a minute — leave it plugged in)`; };
+    tick();
+    const timer = setInterval(tick, 1000);
+    busy.set(f.host, label);
     show(last);
     cmd('sensor.readdress', { host: f.host, ip, assign: assignTo }).then((x) => {
-      toast(`${x.sensorId} · ${x.wallId}: the sensor answers on ${x.ip} (serial ${x.serial || '—'}) — next: background and Auto-align`, 'ok');
+      if (x.pending) toast(`${x.sensorId || 'The sensor'}${x.wallId ? ` · ${x.wallId}` : ''}: sent to ${x.ip}, not answering yet after ${Math.round(x.ms / 1000)} s — it is still restarting and connects by itself when it answers. Not within 2 minutes? Power-cycle it and Search.`, 'warn');
+      else toast(`${x.sensorId} · ${x.wallId}: the sensor answers on ${x.ip} after ${Math.round(x.ms / 1000)} s (serial ${x.serial || '—'}) — next: background and Auto-align`, 'ok');
     }).catch((e) => {
       toast(e.message, 'bad');
-    }).finally(() => { busy.delete(f.host); search(); });
+    }).finally(() => { clearInterval(timer); busy.delete(f.host); search(); });
   }
 
   function show(r) {
@@ -604,7 +612,7 @@ export function discoverModal(ctx) {
       sec('Sensors',
         h('p', { class: 'muted', style: { marginTop: 0 } }, 'Every new S2E ships with the same address (192.168.11.2), so only one answers there at a time: plug in new sensors ONE at a time — plug one in, Search, put it on its wall; then the next. Which unit is which? The one you just plugged in.'),
         units.length ? h('div', { class: 'list' }, units)
-          : h('p', {}, r.network.reachable ? `No sensor answered on ${r.network.via.name} (${r.network.via.ip}). Check the PoE switch, the cables and that the sensors are powered (the motor spins).` : 'No sensor can answer until this computer is on their network (above).'),
+          : h('p', {}, r.network.reachable ? `No sensor answered on ${r.network.via.name} (${r.network.via.ip}). A sensor that was just plugged in needs up to a minute before it answers: wait and Search again. Still nothing? Check the switch port, the cable and its 12 V supply (a new unit stays still — no spinning, no light — until the app starts it).` : 'No sensor can answer until this computer is on their network (above).'),
         factory > 1 ? h('div', { class: 'callout attn' }, 'More than one unit is on the factory address: unplug all new ones but one.') : null,
         waiting.length ? h('p', { class: 'muted' }, `Walls waiting for their sensor: ${waiting.join(', ')}.`) : null,
         r.running.length ? h('p', { class: 'muted' }, `Running now (not asked, it would interrupt them): ${r.running.map((x) => `${x.host}${x.usedBy ? ` = ${x.usedBy}` : ''}`).join(', ')}`) : null),
@@ -629,13 +637,36 @@ function autoAlignBox(s, t) {
     const wall = P().walls.find((w) => w.id === s.wallId);
     const widthWarn = r.widthDiff !== null && Math.abs(r.widthDiff) > 0.03;
     const done = () => { sensorResults.align.delete(s.id); show(null); };
+    // Left/right: the empty room (floor + two side walls) looks the same mirrored, so Auto-align takes the side from
+    // the approximate pose. A hand near the LEFT end settles it (XR Lab: all four sensors were mirrored).
+    const side = r.side || null;
+    const checkSide = () => {
+      set({ ...r, side: { pending: true } });
+      cmd('sensor.sideCheck', { id: s.id, pose: p }).then((x) => set({ ...r, side: x }))
+        .catch((e) => set({ ...r, side: { error: e.message } }));
+    };
+    const flip = () => {
+      set({ pending: true });
+      cmd('sensor.autoAlign', { id: s.id, mirror: !p.mirror }).then(set).catch((e) => { sensorResults.align.delete(s.id); show(null); toast(e.message, 'bad'); });
+    };
+    const sideRow = !side
+      ? h('div', { class: 'side-check' }, h('span', {}, h('b', {}, 'Left or right? '), `Put one hand flat on ${wall.id} near its LEFT end (seen from the room) and press Check side — the empty room looks the same mirrored.`),
+        h('button', { class: 'btn small', onclick: checkSide }, 'Check side'))
+      : side.pending ? h('div', { class: 'side-check muted' }, `Waiting for one hand near the left end of ${wall.id}…`)
+        : side.error ? h('div', { class: 'side-check' }, h('span', { style: { color: 'var(--attn)' } }, side.error), h('button', { class: 'btn small', onclick: checkSide }, 'Check again'))
+          : side.side === 'left' ? h('div', { class: 'side-check' }, `✓ Your hand is on the left (x ${side.x} m): left and right are right.`)
+            : side.side === 'middle' ? h('div', { class: 'side-check' }, h('span', {}, `Your hand is near the middle (x ${side.x} m of ${side.width}) — touch closer to the left end.`), h('button', { class: 'btn small', onclick: checkSide }, 'Check again'))
+              : h('div', { class: 'side-check' }, h('span', { style: { color: 'var(--attn)' } }, `Your hand came out on the RIGHT (x ${side.x} m): the sensor sees this wall mirrored.`),
+                h('button', { class: 'btn small primary', onclick: flip }, 'Flip left/right and align again'));
     out.replaceChildren(h('div', { class: 'callout ok' },
       h('div', {}, h('b', {}, 'Proposed pose: '), `x ${p.x} m · y ${p.y} m · ${p.rotation}°${p.mirror ? ' · mirrored' : ''}`),
       h('div', { class: 'muted' }, `Seen: floor${r.seen.left ? ' · left wall' : ''}${r.seen.right ? ' · right wall' : ''} · floor fit ${r.floorRmsMm} mm · x from ${r.xFrom}${r.usedBackground ? '' : ' · from a live scan (capture the background for a steadier result)'}`),
-      r.measuredWidth !== null ? h('div', { style: { color: widthWarn ? 'var(--attn)' : undefined } }, `Wall width measured between neighbours: ${r.measuredWidth} m (plans: ${wall.width} m${widthWarn ? ` — ${r.widthDiff > 0 ? '+' : ''}${Math.round(r.widthDiff * 1000)} mm, check the plans or the corners` : ''})`) : null,
+      r.xWarn ? h('div', { style: { color: 'var(--attn)' } }, `Careful: ${r.xWarn}.`) : null,
+      r.measuredWidth !== null && r.widthTrusted !== false ? h('div', { style: { color: widthWarn ? 'var(--attn)' : undefined } }, `Wall width measured between neighbours: ${r.measuredWidth} m (plans: ${wall.width} m${widthWarn ? ` — ${r.widthDiff > 0 ? '+' : ''}${Math.round(r.widthDiff * 1000)} mm, check the plans or the corners` : ''})`) : null,
+      sideRow,
       h('div', { class: 'actions' },
-        h('button', { class: 'btn small primary', onclick: () => editProfile((q) => { q.sensors.find((x) => x.id === s.id).pose = { ...p }; }, 'auto-align sensor').then(() => { done(); toast('Pose applied', 'ok'); }) }, 'Apply'),
-        widthWarn ? h('button', { class: 'btn small', onclick: () => editProfile((q) => { q.walls.find((w) => w.id === s.wallId).width = r.measuredWidth; }, 'wall width from sensor') }, `Use ${r.measuredWidth} m as wall width`) : null,
+        h('button', { class: `btn small${side?.side === 'left' ? ' primary' : ''}`, onclick: () => editProfile((q) => { q.sensors.find((x) => x.id === s.id).pose = { ...p }; }, 'auto-align sensor').then(() => { done(); toast('Pose applied', 'ok'); }) }, side?.side === 'left' ? 'Apply' : 'Apply without checking'),
+        widthWarn && r.widthTrusted !== false ? h('button', { class: 'btn small', onclick: () => editProfile((q) => { q.walls.find((w) => w.id === s.wallId).width = r.measuredWidth; }, 'wall width from sensor') }, `Use ${r.measuredWidth} m as wall width`) : null,
         h('button', { class: 'btn small', onclick: done }, 'Dismiss'))));
   };
   const set = (r) => { if (r) sensorResults.align.set(s.id, r); show(r); };
@@ -702,6 +733,9 @@ export function calibrate(ctx) {
     sec('Wall to calibrate', h('div', { class: 'seg', style: { flexWrap: 'wrap', height: 'auto' } }, prof.walls.map((w) =>
       h('button', { class: w.id === wallId ? 'on' : '', style: { height: 'var(--ctl-h)' }, onclick: () => { ctx.calibWall = w.id; ctx.rerender(); } }, w.id)))),
     calibChecklist(wall),
+    // the pixel map: a metre grid through every wall's mapping, on the projection page and the Texture outputs
+    sec('Pixel map', toggle('Grid on the walls', !!store.state.grid, (on) => run(cmd('projection.set', { grid: on })), '0.5 m / 1 m lines, wall ids, centre cross'),
+      h('p', { class: 'muted' }, 'Check that the grid fits the physical walls before calibrating. The targets of a calibration are drawn on it too.')),
     calibTargets(ctx),
     calibStart(ctx, wall),
     calibCurrent(ctx, wall),
@@ -965,6 +999,7 @@ export function outputs(ctx) {
     editProfile((p) => {
       p.outputs.push({ id, name: { tuio: 'TUIO', triggers: 'Triggers', texture: 'Touch texture', webhook: 'Webhook', artnet: 'Art-Net', sacn: 'sACN' }[type] || 'OSC', type,
         host: { artnet: '255.255.255.255', sacn: 'multicast' }[type] || '127.0.0.1', port: { tuio: 3333, triggers: 7000, artnet: 6454, sacn: 5568 }[type] || 9000,
+        walls: [], // the editor opens on this local copy before the engine has normalised it (it reads walls)
         ...(type === 'sacn' ? { universe: 1 } : {}) });
     }, `add ${type} output`);
     setTimeout(() => ctx.select('output', id));
@@ -1047,10 +1082,11 @@ function wallsPicker(o, set) {
   const prof = P();
   return h('div', { class: 'row' }, h('span', { class: 'k' }, 'Walls'), h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px', flex: 1 } },
     prof.walls.map((w) => {
-      const on = !o.walls.length || o.walls.includes(w.id);
+      const picked = o.walls || []; // [] = all walls
+      const on = !picked.length || picked.includes(w.id);
       return h('button', { class: `ibtn${on ? ' on' : ''}`, onclick: () => set((x) => {
         const all = prof.walls.map((q) => q.id);
-        let sel = x.walls.length ? x.walls.slice() : all.slice();
+        let sel = x.walls?.length ? x.walls.slice() : all.slice();
         sel = on ? sel.filter((q) => q !== w.id) : [...sel, w.id];
         x.walls = sel.length === all.length ? [] : sel;
       }) }, w.id);
@@ -1063,7 +1099,8 @@ const sacnGroupOf = (u) => `239.255.${(u >> 8) & 255}.${u & 255}`;
 function zoneOutputEditor(o, s, ctx) {
   const prof = P();
   const set = (fn) => editProfile((p) => fn(p.outputs.find((x) => x.id === o.id)));
-  const zones = prof.zones.filter((z) => z.enabled !== false && (!o.walls.length || (z.walls || [z.wallId]).some((w) => o.walls.includes(w))));
+  const picked = o.walls || [];
+  const zones = prof.zones.filter((z) => z.enabled !== false && (!picked.length || (z.walls || [z.wallId]).some((w) => picked.includes(w))));
   const hook = o.type === 'webhook';
   const body = hook ? [
     field('URL', o.url, (v) => set((x) => { x.url = v.trim(); }), { placeholder: 'http://192.168.1.50:8000/hook' }),
@@ -1153,7 +1190,9 @@ function textureEditor(o, s, ctx) {
       sink,
       h('div', { class: 'row' }, h('span', { class: 'k' }, 'Resolution'), h('div', { class: 'seg' }, [[0.125, '1/8'], [0.25, '1/4'], [0.5, '1/2'], [1, 'Full']].map(([k, t]) =>
         h('button', { class: o.scale === k ? 'on' : '', title: dims(k), onclick: () => set((x) => { x.scale = k; }, 'texture resolution') }, t)))),
-      h('p', { class: 'muted' }, `${dims(o.scale)} px${pw !== Math.round(prof.canvas.width * o.scale) ? ` · preview here at ${pw} × ${ph}` : ''}.`)),
+      h('p', { class: 'muted' }, `${dims(o.scale)} px${pw !== Math.round(prof.canvas.width * o.scale) ? ` · preview here at ${pw} × ${ph}` : ''}.`),
+      selectField('Calibration overlay', o.overlay || 'auto', [['auto', 'Automatic'], ['off', 'Off']], (v) => set((x) => { x.overlay = v; }, 'texture overlay')),
+      h('p', { class: 'muted' }, 'Automatic draws the grid and the targets of the calibration on top of the touches while “Grid on the walls” is on or a calibration, verification or Fit runs.')),
     sec('Blobs',
       h('div', { class: 'row' }, h('span', { class: 'k' }, 'Size'), h('div', { class: 'seg' }, [['fixed', 'Fixed'], ['touch', 'Follows the touch']].map(([m, t]) =>
         h('button', { class: (o.sizeMode || 'fixed') === m ? 'on' : '', onclick: () => set((x) => { x.sizeMode = m; }, 'blob size') }, t)))),
@@ -1306,7 +1345,62 @@ function projectionControls() {
 let pairIface = null;
 try { pairIface = localStorage.getItem('vt-pair-iface'); } catch { /* ignore */ }
 
+let connectMode = 'wifi';
+try { connectMode = localStorage.getItem('vt-connect-mode') === 'internet' ? 'internet' : 'wifi'; } catch { /* ignore */ }
+
+/** Connect a device: on the same Wi-Fi (the LAN link) or from anywhere over the internet (the relay link). */
 export function connectContent() {
+  const box = h('div', {});
+  const draw = () => {
+    const seg = h('div', { class: 'row' }, h('span', { class: 'k' }, 'How'),
+      h('div', { class: 'seg' }, [['wifi', 'Same Wi-Fi'], ['internet', 'Over the internet']].map(([k, t]) => h('button', { class: k === connectMode ? 'on' : '', onclick: () => {
+        connectMode = k; try { localStorage.setItem('vt-connect-mode', k); } catch { /* ignore */ }
+        draw();
+      } }, t))));
+    box.replaceChildren(seg, connectMode === 'internet' ? internetContent() : lanContent());
+  };
+  draw();
+  return box;
+}
+
+/** Over the internet: state of the relay link and, when online, the public link as a QR. */
+function internetContent() {
+  const box = h('div', { class: 'cloud-box' });
+  let shown = null;
+  const draw = () => {
+    const c = store.state.cloud, local = store.state.local;
+    const sig = JSON.stringify([c, local, (store.status?.clients || []).filter((d) => /^internet \(/.test(d.addr)).length]);
+    if (sig === shown) return;
+    shown = sig;
+    if (!c) { box.replaceChildren(h('p', { class: 'muted' }, 'This server does not offer internet access yet — update VEATION Touch on it.')); return; }
+    const parts = [];
+    if (!c.enabled) {
+      parts.push(h('p', {}, 'Open the calibration remote from any network — mobile data, another Wi-Fi, another country. The room server connects out to a relay; nothing is opened in the router or firewall.'));
+      if (!local) parts.push(h('div', { class: 'callout' }, 'Internet access is turned on at the server itself. Open this panel there.'));
+      else if (!c.relayUrl) parts.push(h('div', { class: 'callout attn' }, 'Enter the relay address first: System › Network › Internet access.'));
+      if (local) parts.push(h('button', { class: 'btn primary', disabled: !c.relayUrl, onclick: (e) => { e.target.disabled = true; run(cmd('cloud.set', { enabled: true }), 'Internet access on').then(() => { shown = null; draw(); }); } }, 'Turn on internet access'));
+    } else if (c.state === 'online') {
+      const who = (store.status?.clients || []).filter((d) => /^internet \(/.test(d.addr));
+      parts.push(
+        h('div', { class: 'check done' }, h('span', { class: 'mark' }, '✓'), h('span', { class: 't' }, 'Online — this room is reachable over the internet.')),
+        h('div', { class: 'qr' }, h('img', { src: `/api/qr.svg?t=${encodeURIComponent(c.link)}`, alt: 'QR code' })),
+        h('p', { class: 'join', style: { textAlign: 'center' } }, 'Scan with the phone or tablet camera — any network works.'),
+        h('p', {}, h('code', {}, c.link)),
+        who.length ? h('div', { class: 'check done' }, h('span', { class: 'mark' }, '✓'), h('span', { class: 't' }, `Connected: ${who.map((d) => `${d.device} (${d.addr})`).join(' · ')}`)) : null,
+        h('p', { class: 'muted' }, 'The link contains the access key of this installation — share it only with operators. “New address” in System › Network cancels every link shared so far.'));
+    } else if (c.state === 'error') {
+      parts.push(h('div', { class: 'callout attn' }, h('b', {}, 'Cannot reach the relay. '), c.error || 'Unknown error.', h('br'), 'Retrying automatically.'));
+    } else parts.push(h('div', { class: 'check' }, h('span', { class: 'mark' }, '…'), h('span', { class: 't muted' }, 'Connecting to the relay…')));
+    if (c.enabled && local) parts.push(h('button', { class: 'btn small', onclick: () => run(cmd('cloud.set', { enabled: false }), 'Internet access off') }, 'Turn off internet access'));
+    box.replaceChildren(...parts.filter(Boolean));
+  };
+  draw();
+  const timer = setInterval(() => { if (!box.isConnected && Date.now() - born > 1500) clearInterval(timer); else draw(); }, 700);
+  const born = Date.now();
+  return box;
+}
+
+function lanContent() {
   const S = store.state;
   const lan = S.lan || [];
   if (!lan.length) return h('p', { class: 'muted' }, 'No network interface found. Connect this computer to the room network.');
@@ -1413,6 +1507,7 @@ function localNameLine(S) {
 function networkBox() {
   const S = store.state, n = S.localName;
   return [
+    ...internetBlock(),
     field('Local name', n ? n.host.replace(/\.local$/, '') : '', (v) => run(cmd('net.localName', { name: v }), 'Local name changed'), { unit: '.local', placeholder: 'veation-touch' }),
     h('p', { class: 'muted' }, n?.running
       ? `Tablets on the same network can open http://${n.host}:${n.port || location.port}/ — answered over mDNS (UDP 5353)${n.answered ? `, ${n.answered} lookups so far` : ''}. One name per server: two rooms on one network need two names.`
@@ -1458,3 +1553,23 @@ function fmtDur(s) {
 }
 
 export { round };
+
+/** System › Network › Internet access: relay address, On/Off, New address. Changed only at the server itself. */
+function internetBlock() {
+  const S = store.state, c = S.cloud;
+  if (!c) return [];
+  const stateText = !c.enabled ? 'Off' : c.state === 'online' ? 'Online' : c.state === 'error' ? `Error — ${c.error || ''}` : 'Connecting…';
+  return [
+    h('h3', { class: 'cloud-h' }, 'Internet access'),
+    field('Relay URL', c.relayUrl, (v) => run(cmd('cloud.set', { relayUrl: v }), 'Relay address saved'), { placeholder: 'https://veation-relay.example.workers.dev', readonly: !S.local }),
+    toggle('Internet access', c.enabled, (on) => run(cmd('cloud.set', { enabled: on }), on ? 'Internet access on' : 'Internet access off'), stateText),
+    S.local ? h('div', { class: 'row' }, h('label', {}, 'Address'), h('div', { style: { flex: 1 } }, h('span', { class: 'muted' }, `Room ${c.roomId}`)),
+      h('button', { class: 'btn small danger', onclick: async () => {
+        if (await confirmBox('Make a new address for this room? Every link and QR code shared so far stops working, and phones must scan the new one.', 'New address', true)) run(cmd('cloud.reset'), 'New address made');
+      } }, 'New address')) : null,
+    h('p', { class: 'muted' }, S.local
+      ? 'The server connects out to a relay, so phones can reach the calibration remote from any network. The link to share is in Connect device › Over the internet.'
+      : 'Internet access is changed at the server itself.'),
+    h('hr', { class: 'cloud-sep' }),
+  ].filter(Boolean);
+}

@@ -104,6 +104,15 @@ Mapping. Each Texture output goes to **one** destination (`sink`), and only that
 
 Options: resolution (1/8 … full canvas), disc radius (m), disc size (`sizeMode`: `fixed`, or `touch` — the disc takes
 half the touch's measured width, never less than the radius), soft edge, trail (ms), rate (default 30 Hz), walls.
+**Calibration overlay** (`overlay`: `auto` (default) or `off`). While the walls' *Grid* is on (`projection.set {grid}`) or a
+calibration, verification or Fit runs, an `auto` output draws a **pixel map** on top of the touches, through each
+wall's Mapping, for the walls the output covers: the wall outline, a grid in wall metres (0.5 m thin, 1 m thicker, with
+the metre numbers), a centre cross, corner marks and the wall id; during a calibration every target is a dot and the
+current one a ring with a crosshair and its number, during a verification its check points, during Fit the mesh node
+being moved. Lines are grey/white on black, so the frame stays a greyscale image; with `off`, or when none of those
+is active, the texture is pure touches exactly as before. Feed a projector from this output and the grid shows whether
+the mapping, and the calibration, line up with the physical wall.
+
 Only one output at a time can use Spout (one sender per process); NDI and full screen have no such limit. NDI uses the
 NDI Runtime installed on the computer (free, ndi.video — not bundled). NDI® is a registered trademark of Vizrt NDI AB.
 

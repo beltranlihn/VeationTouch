@@ -7,6 +7,7 @@ import dgram from 'node:dgram';
 import { EventEmitter } from 'node:events';
 import * as P from './s2e-protocol.js';
 import { ScanBuilder } from './scan.js';
+import { localAddressFor } from '../discover.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => performance.now();
@@ -43,7 +44,8 @@ export class S2EDriver extends EventEmitter {
   get id() { return this.cfg.id; }
 
   setState(state, extra = {}) {
-    Object.assign(this.status, { state }, extra);
+    // a unit that is scanning again has no error any more (the old "no answer…" would stay on screen otherwise)
+    Object.assign(this.status, { state }, state === 'scanning' ? { lastError: null } : {}, extra);
     this.emit('status', this.status);
   }
 
@@ -101,9 +103,14 @@ export class S2EDriver extends EventEmitter {
         resolve();
       });
       s.once('error', reject);
-      s.bind(0);
+      s.bind(0, this._bindAddress() || undefined);
       this.sock = s;
     });
+  }
+
+  /** Local address on the sensor's network (recomputed on every (re)connect: it may be added while the app runs). */
+  _bindAddress() {
+    try { return localAddressFor(this.cfg.host, this.cfg.interfaces ? this.cfg.interfaces() : undefined); } catch { return null; }
   }
 
   _close() {

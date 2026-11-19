@@ -44,5 +44,5 @@ Producto reutilizable: **nada de una sala concreta va en el código** — todo v
 
 ## Pendiente de validar con hardware (ver ARCHITECTURE.md › Validación)
 Distancia plano–pared, ruido real del S2E, interferencia entre muros, comportamiento al desconectar, modo de
-escaneo por defecto, cambio de IP desde la app (`readdress`: confirma por número de serie, pero no se ha probado con un
-S2E real), latencia extremo a extremo.
+escaneo por defecto, latencia extremo a extremo. (Validado en XR Lab el 2026-11-19: el cambio de IP desde la app
+funciona en los 4 S2E reales, que tardan 11–61 s en volver.)

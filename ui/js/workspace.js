@@ -10,7 +10,7 @@
 
 import { store } from './conn.js';
 import { apply as applyM, gridMap, gridInsert, invertMap, densify, planCloses, mappingOutline, wallUvToCanvas } from '/shared/geometry.js';
-import { TouchMask } from '/shared/mask.js';
+import { TouchMask, overlayOf } from '/shared/mask.js';
 import { kindOf, geomOf, withGeom, assignGeom, boundsOfGeom, translateGeom, describeGeom, shapeOutline, pointInShape, polygonArea, canvasToUv, canvasZoneOnWall } from './shapes.js';
 
 const GAP = 0.6;                       // metres between walls in the strip
@@ -1252,7 +1252,7 @@ export class Workspace {
       const out = this.outline(w, w.mapping).map(([x, y]) => [X(x), Y(y)]);
       tracePath(ctx, out);
       ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.stroke();
-      if (o.walls.length && !o.walls.includes(w.id)) hatchPath(ctx, out, 'rgba(255,255,255,0.08)');
+      if (o.walls?.length && !o.walls.includes(w.id)) hatchPath(ctx, out, 'rgba(255,255,255,0.08)');
       const b = boxOf(out);
       ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '600 11px Geist, system-ui'; ctx.textBaseline = 'top';
       ctx.fillText(w.id, b.x0 + 6, b.y0 + 5);
@@ -1279,10 +1279,12 @@ export class Workspace {
     if (pv.t !== null && L.t >= pv.t && L.t - pv.t < 1000 / o.rateHz - 2) return pv; // the output's own rate
     const dt = pv.t === null || L.t < pv.t ? 33 : Math.min(1000, L.t - pv.t);
     pv.t = L.t;
-    const walls = P.walls.filter((x) => !o.walls.length || o.walls.includes(x.id))
+    const walls = P.walls.filter((x) => !o.walls?.length || o.walls.includes(x.id))
       .map((wall) => ({ wall, touches: (L.walls?.[wall.id] || []).map(([, x, y, size]) => ({ x, y, size })) }));
-    if (pv.mask.render(walls, o, scale, dt)) {
-      const m = pv.mask.mask, d = pv.img.data;
+    // the calibration pattern, exactly as the engine sends it (grid on, or a calibration / verification / Fit running)
+    const S = store.state, overlay = o.overlay === 'off' ? null : overlayOf({ grid: S?.grid, calib: store.status?.calib, verify: store.status?.verify, fit: S?.projection?.fit });
+    if (pv.mask.render(walls, o, scale, dt, overlay)) {
+      const m = pv.mask.frame, d = pv.img.data;
       for (let i = 0, j = 0; i < m.length; i++, j += 4) { const v = m[i]; d[j] = v; d[j + 1] = v; d[j + 2] = v; }
       pv.g.putImageData(pv.img, 0, 0);
     }

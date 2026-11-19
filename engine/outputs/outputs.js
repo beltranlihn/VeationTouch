@@ -86,7 +86,7 @@ export class OutputManager {
       const walls = o.walls.length ? frame.walls.filter((w) => o.walls.includes(w.wall.id)) : frame.walls;
       try {
         if (o.type === 'texture') {
-          if (due) { const t = this.textures?.get(o.id); if (t?.send(walls, nowMs)) st.sent++; else if (t?.error) st.lastError = t.error; }
+          if (due) { const t = this.textures?.get(o.id); if (t?.send(walls, nowMs, frame.overlay)) st.sent++; else if (t?.error) st.lastError = t.error; }
         } else if (o.type === 'tuio') { if (due) this._tuio(o, walls); }
         else if (o.type === 'triggers') this._triggers(o, frame);
         else if (o.type === 'webhook') this._webhook(o, frame);

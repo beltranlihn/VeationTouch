@@ -8,7 +8,7 @@
 import { store, on, connect } from './conn.js';
 import { uvToCanvas } from './workspace.js';
 import { shapeOutline, densify } from '/shared/geometry.js';
-import { TouchMask } from '/shared/mask.js';
+import { TouchMask, wallPattern } from '/shared/mask.js';
 
 const c = document.getElementById('c');
 const g = c.getContext('2d');
@@ -27,6 +27,27 @@ requestAnimationFrame(frame);
 
 function poly(pts) { g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); }
 function line([x0, y0], [x1, y1]) { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }
+
+/**
+ * The pixel map of a wall: the metre grid carried through its mapping (0.5 m thin, 1 m thick with its number), the
+ * outline, centre cross, corner marks and the wall id. The geometry is wallPattern() of mask.js — the Texture outputs
+ * rasterise the very same lines.
+ */
+function drawGrid(w) {
+  const pat = wallPattern(w);
+  g.lineJoin = 'round';
+  for (const l of pat.lines) { g.strokeStyle = l.major ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)'; g.lineWidth = l.major ? 4 : 1.5; polyline(l.pts); }
+  g.strokeStyle = '#fff'; g.lineWidth = 5; poly(pat.outline); g.stroke();
+  g.lineWidth = 8; for (const k of pat.corners) polyline(k);
+  g.lineWidth = 4; for (const k of pat.cross) polyline(k);
+  g.fillStyle = '#fff'; g.textBaseline = 'alphabetic';
+  g.font = `600 ${Math.round(pat.textPx)}px Geist, system-ui`; g.textAlign = 'left';
+  for (const l of pat.lines) if (l.label) g.fillText(l.label.text, l.label.at[0], l.label.at[1]);
+  g.font = `600 ${Math.round(pat.textPx * 2)}px Geist, system-ui`; g.textAlign = 'center';
+  g.fillText(w.id, pat.id.at[0], pat.id.at[1]);
+  g.textAlign = 'left';
+}
+function polyline(pts) { g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke(); }
 
 /** A zone outline (already in canvas px): amber, filled while the zone is active. */
 function drawZone(z, pts) {
@@ -47,11 +68,13 @@ function draw() {
   const fit = S.projection?.fit;
   const fitWall = fit && P.walls.find((w) => w.id === fit.wallId && w.mapping?.mode === 'grid');
   const walk = !!S.projection?.walk && !calib && !fitWall;
-  if (mode === 'off' && !calib && !fitWall && !walk) return;
+  const grid = !!S.grid; // the metre grid (pixel map), whatever the mode
+  if (mode === 'off' && !calib && !fitWall && !walk && !grid) return;
   g.setTransform(c.width / P.canvas.width, 0, 0, c.height / P.canvas.height, 0, 0);
-  if (walk) { drawWalk(P); return; }
+  if (walk) { drawWalk(P); if (grid) P.walls.forEach(drawGrid); return; }
 
   for (const w of P.walls) {
+    if (grid) drawGrid(w);
     const Pt = (x, y) => uvToCanvas(w, x / w.width, 1 - y / w.height);
     const pxPerM = w.pixelRect.h / w.height;
     const corners = [Pt(0, w.height), Pt(w.width, w.height), Pt(w.width, 0), Pt(0, 0)];

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#111111">
+<meta name="referrer" content="no-referrer">
+<title>VEATION Touch · Rooms</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <h1>VEATION Touch</h1>
+    <p class="sub">Rooms</p>
+  </header>
+
+  <section id="opening" class="card" hidden aria-live="polite">
+    <p id="opening-msg" class="msg"></p>
+    <div class="row">
+      <button id="retry" class="btn primary" type="button" hidden>Try again</button>
+      <button id="back" class="btn" type="button" hidden>All rooms</button>
+    </div>
+  </section>
+
+  <section id="list-view" hidden>
+    <ul id="rooms" class="rooms"></ul>
+    <p id="empty" class="muted" hidden>No rooms yet. Scan the QR code in the VEATION Touch app on the room's computer, or paste a room link below.</p>
+    <form id="paste" class="paste" autocomplete="off">
+      <label for="link">Room link</label>
+      <div class="row">
+        <input id="link" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://…/#r=…">
+        <button class="btn primary" type="submit">Add</button>
+      </div>
+      <p id="paste-err" class="err" role="alert" hidden></p>
+    </form>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

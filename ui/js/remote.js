@@ -9,14 +9,18 @@
 //   Verify    touch new points and read the real error; when it fails, "Fix" takes the worst point to Fit
 //   Test      walk test: the projection shows what the outputs send under every hand; touch every wall, cross every
 //             corner; "Fix here" takes the point under the hand to Fit
-// Same engine commands and the same panels as the desktop (views.js), sized for a hand-held screen. Parts that
+// Every screen is ONE action (installers, in a dark room, standing at a wall): "Step N of M · what", one plain sentence
+// saying what to do (which wall, where on it, how), "You should see…", "If not: …", and one primary action — a big
+// button, or (while a hand has to be held on the wall) the instruction itself. A touch that is accepted buzzes, flashes
+// the target and can beep. The grid on the walls can be switched on in Verify and Test.
+// Same engine commands as the desktop (views.js), sized for a hand-held screen. Parts that
 // change 30 times a second (progress ring, hand, mini map) are updated in place: buttons are never rebuilt under
 // the finger.
 
 import { store, on, connect, cmd, editProfile, undo, history, otherControl } from './conn.js';
 import { h, sec, toast, confirmBox, switchUi } from './dom.js';
 import * as V from './views.js';
-import { gridFrom, gridSolveNode, gridNearestNode, wallUvToCanvas, mappingOutline, shapeOutline, planCloses } from '/shared/geometry.js';
+import { gridFrom, gridSolveNode, gridNearestNode, wallUvToCanvas, mappingOutline, shapeOutline, planCloses, verifyPassMm } from '/shared/geometry.js';
 import { canvasZoneOnWall } from './shapes.js';
 
 const STEPS = [['prepare', 'Prepare'], ['calibrate', 'Calibrate'], ['fit', 'Fit'], ['verify', 'Verify'], ['test', 'Test']];
@@ -27,8 +31,13 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r1 = (v) => Math.round(v * 10) / 10;
 const mean = (a) => a.reduce((s, x) => s + x, 0) / a.length;
 
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } };
+
 const rc = {
   remote: true,
+  sound: lsGet('vt-remote-sound') !== 'off', // a short beep when a touch is accepted (remembered on this phone)
+  fb: { ok: 0, bad: 0, vibrated: 0, beeps: 0 }, // feedback given so far (also read by the UI tests)
   wall: (() => { try { return localStorage.getItem('vt-remote-wall'); } catch { return null; } })(),
   step: 'prepare',
   node: null,          // Fit: the mesh point being moved (index into mapping.points)
@@ -84,7 +93,7 @@ function setWall(id) {
   if (rc.wall === id) return;
   liftSimHand();
   rc.wall = id; rc.node = null; rc.samples = [];
-  try { localStorage.setItem('vt-remote-wall', id); } catch { /* storage blocked */ }
+  lsSet('vt-remote-wall', id);
   render(true);
 }
 
@@ -127,7 +136,8 @@ function bodyKey(w) {
   const st = store.status?.sensors || {};
   const sensors = V.wallReadiness(w).sensors.map((s) => [s.id, st[s.id]?.state ?? null, !!st[s.id]?.background, s.calibration?.rmsMm ?? null]);
   const pr = store.state.projection;
-  const common = [rc.step, w.id, otherControl()?.id ?? '', !!store.state.locked, sessionKey(), sensors];
+  const common = [rc.step, w.id, otherControl()?.id ?? '', !!store.state.locked, sessionKey(), sensors, gridOn(),
+    P().walls.map((x) => [x.id, wallDone(x), x.verified?.pass ?? null, prepared(x)])];
   const step = {
     prepare: () => [store.status?.projections ?? 0, store.state.displays?.length ?? 0, pr.displayId, pr.open],
     calibrate: () => [rc.calibOpt.cols, rc.calibOpt.rows],
@@ -145,16 +155,17 @@ function render(force = false) {
   const w = curWall();
   renderChrome(w, force);
   const key = bodyKey(w);
-  if (!force && key === lastBody) { live(); return; }
+  if (!force && key === lastBody) { live(); watchFeedback(); return; }
   const a = document.activeElement;
   if (a && el.body.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'SELECT')) { pending = true; return; }
   pending = false;
   lastBody = key;
   const top = el.body.scrollTop;
-  el.body.replaceChildren(...(w ? body(w) : [sec(null, h('p', { class: 'muted' }, 'This room has no walls yet — set it up on the computer.'))]).flat().filter(Boolean));
+  el.body.replaceChildren(...(w ? body(w) : [sec(null, h('p', { class: 'muted' }, 'This room has no walls yet. Set it up on the computer, then reload this page.'))]).flat().filter(Boolean));
   el.body.scrollTop = top;
   applyPendingFix();
   live();
+  watchFeedback();
 }
 el.body.addEventListener('focusout', () => setTimeout(() => { if (pending) render(true); }, 0));
 
@@ -162,7 +173,8 @@ function renderChrome(w, force) {
   renderGuide();
   const session = store.status?.calib || store.status?.verify;
   const ctl = otherControl();
-  const key = JSON.stringify([P().name, P().walls.map((x) => [x.id, x.name, wallDone(x)]), w?.id, rc.step, w && prepared(w), session?.wallId ?? null,
+  document.getElementById('remote')?.classList.toggle('in-session', !!session); // a session owns the screen: only its step
+  const key = JSON.stringify([rc.sound, P().name, P().walls.map((x) => [x.id, x.name, wallDone(x)]), w?.id, rc.step, w && prepared(w), session?.wallId ?? null,
     store.state.projection.mode, ctl?.id ?? '', ctl?.device ?? '', !!store.state.locked, !!store.status?.calib]);
   if (!force && key === lastChrome) return;
   lastChrome = key;
@@ -188,6 +200,7 @@ function renderChrome(w, force) {
     h('div', { class: 'seg' }, [['off', 'Off'], ['identify', 'Pattern'], ['debug', 'Debug']].map(([m, t]) =>
       h('button', { class: mode === m ? 'on' : '', onclick: () => run(cmd('projection.set', { mode: m })) }, t))),
     h('div', { class: 'grow' }),
+    h('button', { class: `btn small${rc.sound ? ' on' : ''}`, title: 'A short beep when a touch is accepted', 'aria-pressed': String(rc.sound), onclick: toggleSound }, rc.sound ? 'Sound on' : 'Sound off'),
     h('button', { class: 'btn small', title: 'The whole app on this device (Room, Mapping, Zones, Outputs…)', onclick: () => switchUi('full') }, 'Full app'));
 }
 
@@ -222,37 +235,261 @@ function live() {
   updateFit();
 }
 
+// ------------------------------------------------------------------ the words: every screen says what to do
+
+const STEP_NAME = { prepare: 'Prepare', calibrate: 'Calibrate', fit: 'Fit', verify: 'Verify', test: 'Walk test' };
+const ORD = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
+
+/** "Step 2 of 5 · Calibrate P2" */
+function stepTitle(step, w) {
+  const k = STEPS.findIndex(([id]) => id === step) + 1;
+  return `Step ${k} of ${STEPS.length} · ${STEP_NAME[step]}${step !== 'test' && w ? ` ${w.id}` : ''}`;
+}
+
+/** The wall by name AND position, as laid out in the strip at the top: "the right wall — P2". */
+function wallWords(w) {
+  const W = P().walls, i = W.findIndex((x) => x.id === w.id), n = W.length;
+  if (n > 3) return `the ${ORD(i + 1)} wall from the left — ${w.id}`;
+  const pos = n <= 1 ? '' : n === 2 ? (i === 0 ? 'left ' : 'right ') : ['left ', 'middle ', 'right '][i];
+  return `the ${pos}wall — ${w.id}`;
+}
+
+/** Where a target is on the wall, said against the other targets: "at the top left (1.9 m up)". */
+function spotWords(targets, t) {
+  const xs = targets.map((q) => q.x), ys = targets.map((q) => q.y);
+  const pick = (v, lo, hi, names) => (hi - lo < 0.05 ? names[1] : (v - lo) / (hi - lo) < 0.34 ? names[0] : (v - lo) / (hi - lo) > 0.66 ? names[2] : names[1]);
+  const col = pick(t.x, Math.min(...xs), Math.max(...xs), ['left', 'centre', 'right']);
+  const row = pick(t.y, Math.min(...ys), Math.max(...ys), ['bottom', 'middle', 'top']);
+  const where = row === 'middle' && col === 'centre' ? 'in the middle' : `at the ${row} ${col}`;
+  return `${where} (${t.y.toFixed(1)} m up)`;
+}
+
+/** Walls done in this step, always visible: "Walls 2 of 4 done · P4 ✓ P1 ✓ P2 P3". */
+function wallsProgress(step) {
+  const W = P().walls.filter((w) => V.wallReadiness(w).sensors.length);
+  const done = { prepare: prepared, calibrate: wallDone, fit: (w) => !!w.verified?.pass, verify: (w) => !!w.verified?.pass, test: (w) => rc.walk.walls.has(w.id) }[step];
+  if (!W.length) return null;
+  return h('div', { class: 'r-prog' }, h('span', { class: 'lbl tnum' }, `Walls ${W.filter(done).length} of ${W.length} done`),
+    ...W.map((w) => h('span', { class: `pw${done(w) ? ' ok' : ''}${w.id === rc.wall ? ' cur' : ''}` }, done(w) ? `${w.id} ✓` : w.id)));
+}
+
+/**
+ * The top of every screen. `act` is the one sentence, the action word first. With `touch` the sentence IS the primary
+ * action (a hand held on the wall: nothing to tap) and it flashes when the touch is accepted.
+ */
+function card(step, w, { title, act, see, fix, tone, touch = false, progress = true }) {
+  return sec(null, h('div', { class: `r-task${tone ? ` ${tone}` : ''}` },
+    h('div', { class: 'r-stepno tnum' }, title || stepTitle(step, w)),
+    act ? h('p', { class: `r-do${touch ? ' r-act r-primary r-target' : ''}` }, act) : null,
+    see ? h('p', { class: 'r-see' }, h('b', {}, 'You should see: '), see) : null,
+    fix ? h('p', { class: 'r-fixit' }, h('b', {}, 'If not: '), fix) : null,
+    progress ? wallsProgress(step) : null));
+}
+
+/** The one primary button of a screen (big, full width). */
+const primary = (label, onclick, { disabled = false } = {}) =>
+  sec(null, h('button', { class: 'btn primary block big r-primary', disabled, onclick }, label));
+
+const secondary = (label, onclick, { disabled = false } = {}) => h('button', { class: 'btn block', disabled, onclick }, label);
+
+// ------------------------------------------------------------------ feedback: a touch was accepted
+
+let actx = null;
+function beep(kind) {
+  rc.fb.beeps++;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    actx ||= new AC();
+    if (actx.state === 'suspended') actx.resume();
+    const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    o.type = 'sine'; o.frequency.value = kind === 'ok' ? 880 : 220;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + (kind === 'ok' ? 0.12 : 0.22));
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + 0.25);
+  } catch { /* no audio on this device */ }
+}
+
+/** Buzz, flash the target, beep (if on). kind: 'ok' = the touch was accepted, 'bad' = it is asked again. */
+function feedback(kind = 'ok') {
+  rc.fb[kind]++;
+  // the browser refuses (and warns) until the page has had a tap: on a phone the operator has always tapped Start by now
+  try { if (navigator.userActivation?.hasBeenActive !== false && navigator.vibrate?.(kind === 'ok' ? 80 : [70, 50, 70])) rc.fb.vibrated++; } catch { /* no vibration here */ }
+  const t = document.querySelector('#rBody .r-target');
+  if (t) { t.classList.remove('flash', 'flash-bad'); void t.offsetWidth; t.classList.add(kind === 'ok' ? 'flash' : 'flash-bad'); }
+  if (rc.sound) beep(kind);
+}
+
+function toggleSound() {
+  rc.sound = !rc.sound;
+  lsSet('vt-remote-sound', rc.sound ? 'on' : 'off');
+  if (rc.sound) beep('ok'); // the tap is a gesture: it also unlocks audio on phones
+  render(true);
+}
+
+/** Calibration / verification: a capture ("take your hand off") is an accepted touch; "did not match" asks again. */
+let fbSession = '', fbPhase = '', fbAuto = '';
+function watchFeedback() {
+  const c = store.status?.calib, v = store.status?.verify, s = c || v;
+  const id = s ? `${c ? 'c' : 'v'}:${s.wallId}` : '';
+  const auto = s?.autoRedo ? `${s.autoRedo.index}:${s.autoRedo.errMm}` : '';
+  if (id !== fbSession) { fbSession = id; fbPhase = s?.phase ?? ''; fbAuto = auto; return; } // a new session: nothing to react to yet
+  if (!s) return;
+  if (s.phase === 'release' && fbPhase !== 'release') feedback('ok');
+  if (auto && auto !== fbAuto) feedback('bad');
+  fbPhase = s.phase; fbAuto = auto;
+}
+
+// ------------------------------------------------------------------ grid on the walls (Verify and Test)
+
+const gridOn = () => !!(store.state?.grid ?? store.state?.projection?.grid);
+/** A grid drawn on every wall, to see whether touches line up. The engine reports whether it is on. */
+function gridButton() {
+  const on = gridOn();
+  return h('button', { class: `btn block r-grid${on ? ' on' : ''}`, 'aria-pressed': String(on),
+    onclick: () => run(cmd('projection.set', { grid: !gridOn() })) }, on ? 'Grid on the walls: on — tap to hide it' : 'Show a grid on the walls');
+}
+
+// ------------------------------------------------------------------ screens
+
 function body(w) {
   const c = store.status?.calib, v = store.status?.verify;
   const other = otherControl();
   const follow = (list) => { // another device drives the session: follow it, its buttons are not ours
-    if (other) for (const s of list) s?.querySelectorAll?.('.actions .btn, .linkish').forEach((b) => { b.disabled = true; });
+    if (other) for (const s of list) s?.querySelectorAll?.('.actions .btn, .linkish, button.r-primary').forEach((b) => { b.disabled = true; });
     return list;
   };
-  if (rc.step === 'calibrate') return c ? follow([...V.calibSession(c, rc), other ? null : simTargetSec(c, 'target', 1300)]) : calibrateBody(w);
-  if (rc.step === 'verify') return v ? follow([...V.verifySession(v, other ? null : rc), other ? null : simTargetSec(v, 'check point', 1600)]) : verifyBody(w);
+  if (rc.step === 'calibrate') return c ? follow([...calibSession(c, w), other ? null : simTargetSec(c, 'target', 1300)]) : calibrateBody(w);
+  if (rc.step === 'verify') return v ? follow([...verifySession(v, w), other ? null : simTargetSec(v, 'check point', 1600)]) : verifyBody(w);
   if (rc.step === 'fit') return fitBody(w);
   if (rc.step === 'test') return testBody();
   return prepareBody(w);
 }
 
 function prepareBody(w) {
-  return [
-    V.calibChecklist(w),
-    sec(null,
-      h('p', { class: 'muted' }, 'Keep the wall clear while the background is captured. The projection must be open on the projector: the targets and the fit points are drawn there.'),
-      h('button', { class: `btn block big${prepared(w) ? ' primary' : ''}`, onclick: () => setStep('calibrate') }, 'Next: calibrate')),
-  ];
+  const r = V.wallReadiness(w), st = store.status?.sensors || {}, pr = store.state.projection;
+  const down = r.sensors.filter((s) => st[s.id]?.state !== 'scanning'), noBg = r.sensors.filter((s) => !st[s.id]?.background);
+  const open = (store.status?.projections ?? 0) > 0, ids = (l) => l.map((s) => s.id).join(', ');
+  const rows = [[r.sensors.length > 0 && !down.length, `Sensors of ${w.id} running`], [r.sensors.length > 0 && !noBg.length, 'Background captured, room empty'], [open, 'Projection open on the projector']];
+  const checks = sec(null, h('div', { class: 'checklist' }, rows.map(([ok, t]) => h('div', { class: `check${ok ? ' done' : ''}` }, h('span', { class: 'mark' }, ok ? '✓' : ''), h('span', { class: 't' }, t)))));
+  if (!r.sensors.length) return [card('prepare', w, { act: `${w.id} has no sensor. On the computer, open Sensors and put one on ${w.id}.`, tone: 'warn' }), checks, primary('Waiting for a sensor', null, { disabled: true })];
+  if (down.length) {
+    return [card('prepare', w, { act: `Check the power and the network cable of ${ids(down)}.`, see: 'The sensor count at the top turns green.',
+      fix: 'Tap Restart. Still not running: on the computer, Sensors says why.', tone: 'warn' }), checks,
+    primary(`Restart ${ids(down)}`, () => down.forEach((s) => run(cmd('sensor.restart', { id: s.id }))))];
+  }
+  if (noBg.length) {
+    return [card('prepare', w, { act: `Clear the wall and step away from ${w.id}. Then tap Capture background.`, see: 'A 5-second countdown, then “Background captured”.',
+      fix: 'Anyone or anything left in front of the sensor becomes part of the background. Capture again with the room empty.' }), checks,
+    primary('Capture background', () => V.captureBackground({ wallId: w.id }, w.id))];
+  }
+  if (!open) {
+    const can = pr.displayId != null;
+    return [card('prepare', w, { act: can ? 'Open the projection on the projector.' : 'Open the projection on the projector, from the computer.', see: 'The projector shows the room’s picture.',
+      fix: can ? 'Nothing appears: check that the projector is on and set to the right input.' : 'On the computer: Calibrate › Before you start › choose the projector’s display, then Open.', tone: 'warn' }), checks,
+    primary(can ? 'Open projection' : 'Waiting for the projection', can ? () => run(cmd('projection.set', { open: true })) : null, { disabled: !can })];
+  }
+  return [card('prepare', w, { act: `All set for ${w.id}. Go on and calibrate it.`, see: 'Three green ticks below.' }), checks, primary(`Next: calibrate ${w.id}`, () => setStep('calibrate'))];
+}
+
+// ------------------------------------------------------------------ Calibrate
+
+const startCalib = (w) => { const o = rc.calibOpt; return run(cmd('calib.start', { wallId: w.id, cols: o.cols, rows: o.rows, top: o.top, bottom: o.bottom, holdMs: o.holdMs })); };
+
+function calibStartButton(w, isPrimary) {
+  const off = !V.wallReadiness(w).running.length, label = `Start calibration of ${w.id}`;
+  return isPrimary ? primary(label, () => startCalib(w), { disabled: off }) : sec(null, secondary(`${label} again — only if a sensor moved`, () => startCalib(w), { disabled: off }));
 }
 
 function calibrateBody(w) {
-  const r = V.wallReadiness(w);
-  const done = r.sensors.length > 0 && r.calibrated.length === r.sensors.length;
+  const { sensors, running, withBg, calibrated } = V.wallReadiness(w);
+  const st = store.status?.sensors || {}, opt = rc.calibOpt, n = opt.cols * opt.rows;
+  const done = sensors.length > 0 && calibrated.length === sensors.length;
+  const options = h('details', { class: 'sec fold r-opts' }, h('summary', {}, `Targets: ${opt.cols} × ${opt.rows} · options`), V.calibTargets(rc));
+  if (done) {
+    return [card('calibrate', w, { act: `${w.id} is calibrated (${calibrated.map((s) => `${s.id}: ${s.calibration.rmsMm} mm`).join(', ')}). Go on and verify it.`, see: 'Under 10 mm is excellent.' }),
+      primary(`Next: verify ${w.id}`, () => setStep('verify')), calibStartButton(w, false), options];
+  }
+  if (!sensors.length) return [card('calibrate', w, { act: `${w.id} has no sensor. On the computer, open Sensors and put one on ${w.id}.`, tone: 'warn' }), calibStartButton(w, true)];
+  if (!running.length) {
+    return [card('calibrate', w, { act: `Fix the sensors of ${w.id} first: ${sensors.map((s) => `${s.id} is ${st[s.id]?.state || 'stopped'}`).join(', ')}.`,
+      fix: 'Check power and network cable, then go to Prepare and tap Restart.', tone: 'warn' }), primary('Go to Prepare', () => setStep('prepare'))];
+  }
+  if (withBg.length !== sensors.length) {
+    return [card('calibrate', w, { act: `Capture the background of ${w.id} first, with nobody in front of the wall.`,
+      fix: 'Without it the floor and the side walls look like hands. Go to Prepare and tap Capture background.', tone: 'warn' }),
+    primary('Go to Prepare', () => setStep('prepare'))];
+  }
+  return [card('calibrate', w, { act: `Stand facing ${wallWords(w)}, an arm’s length away. Tap Start.`, see: `An amber ring on ${w.id}: “Touch and hold · 1/${n}”.`,
+    fix: 'No ring on the wall? Open the projection on the projector (Prepare).' }), calibStartButton(w, true), options];
+}
+
+/** The wall's targets in miniature: the current one amber, the done ones green. */
+function targetMap(w, s) {
+  const W = 300, H = Math.max(60, Math.round((W * w.height) / w.width));
+  const X = (x) => (x / w.width) * W, Y = (y) => H - (y / w.height) * H;
+  const dots = s.targets.map((t, k) => {
+    const cur = k === s.index && s.phase !== 'done', got = t.captured?.length || t.errMm != null;
+    const col = cur ? '#E5B567' : got ? '#7FC4A2' : '#8C8C8C';
+    return `<circle cx="${X(t.x)}" cy="${Y(t.y)}" r="${cur ? 10 : 6}" fill="${cur || got ? col : 'none'}" stroke="${col}" stroke-width="2"/><text x="${X(t.x) + 12}" y="${Y(t.y) + 5}" fill="#B8B8B8" font-size="14" font-family="Geist, system-ui">${k + 1}</text>`;
+  }).join('');
+  return h('div', { class: 'target-map', html: `<svg viewBox="-12 -12 ${W + 24} ${H + 24}" width="100%"><rect x="0" y="0" width="${W}" height="${H}" fill="#161616" stroke="rgba(255,255,255,0.25)"/>${dots}</svg>` });
+}
+
+/** What the person at the wall has to do right now, by phase (shared by Calibrate and Verify). */
+function touchWords(s, w, what) {
+  const t = s.targets[Math.min(s.index, s.targets.length - 1)];
+  if (s.phase === 'release') return { act: 'Got it. Take your hand off the wall.', see: s.index + 1 >= s.targets.length ? 'The result in a moment.' : `The next ${what} appears.` };
+  if (s.phase === 'holding') return { act: 'Hold still. Keep your palm flat on the ring.', see: 'The ring fills up, then turns green.', fix: 'The ring stops filling? Your hand moved: take it off and press again.' };
+  if (s.autoRedo) {
+    return { act: `Target ${s.autoRedo.index + 1} did not match the others (${s.autoRedo.errMm} mm off). Press it again, right on the centre of the ring.`,
+      see: 'The ring fills up, then turns green.', fix: 'Still not matching: stand square to the wall and use your palm, not a finger.', tone: 'warn' };
+  }
+  return { act: `Press the amber ${what} ${spotWords(s.targets, t)} on ${wallWords(w)}. Use your open palm, flat. Hold until the ring is full.`, see: 'The ring fills up, then turns green.',
+    fix: 'Nothing fills? Press closer to the centre of the ring, palm flat, and keep other people away from the wall.' };
+}
+
+function calibSession(c, w) {
+  if (c.phase === 'done') return calibResult(c, w);
+  const total = c.targets.length, k = Math.min(c.index + 1, total), t = touchWords(c, w, 'ring');
+  const got = c.targets.filter((q) => q.captured?.length).length;
   return [
-    done ? sec(null, h('div', { class: 'callout ok' }, `${w.id} is calibrated (${r.calibrated.map((s) => `${s.id}: ${s.calibration.rmsMm} mm`).join(', ')}). Calibrate again only if a sensor moved — or go on to Fit.`),
-      h('div', { class: 'actions' }, h('button', { class: 'btn small', onclick: () => setStep('fit') }, 'Next: fit'))) : null,
-    V.calibStart(rc, w),
-    V.calibTargets(rc),
+    card('calibrate', w, { title: `${stepTitle('calibrate', w)}${c.redoing ? ' · redo' : ''}`, ...t, touch: true, progress: false }),
+    sec(null, h('div', { class: 'calib-big' },
+      h('div', { class: 'ring', html: V.ringSvg(c.phase === 'release' ? 1 : c.progress, c.phase === 'release') }),
+      h('div', { class: 'step tnum' }, `Target ${k} of ${total}`),
+      h('div', { class: 'muted tnum' }, `${got} captured · ${c.sensorIds.join(', ')}`),
+      targetMap(w, c))),
+    sec(null, h('div', { class: 'actions r-row' },
+      h('button', { class: 'btn', disabled: c.index === 0, onclick: () => run(cmd('calib.back')) }, '← Back'),
+      h('button', { class: 'btn', onclick: () => run(cmd('calib.skip')) }, 'Skip target')),
+    h('div', { class: 'actions', style: { justifyContent: 'center' } },
+      h('button', { class: 'linkish danger-ink', onclick: async () => {
+        if (await confirmBox(`Cancel the calibration of ${c.wallId}? The targets captured so far are discarded; the current calibration stays.`, 'Cancel calibration', true)) run(cmd('calib.cancel'));
+      } }, 'Cancel calibration…'))),
+  ];
+}
+
+const quality = (mm) => (mm < 10 ? 'excellent' : mm < 20 ? 'good enough for hands' : 'too loose');
+
+function calibResult(c, w) {
+  const rows = Object.entries(c.result || {}), ok = rows.some(([, r]) => r.ok);
+  const worstMm = Math.max(0, ...rows.filter(([, r]) => r.ok).map(([, r]) => r.maxMm));
+  const lines = rows.map(([sid, r]) => h('div', { class: `check${r.ok ? ' done' : ''}` }, h('span', { class: 'mark' }, r.ok ? '✓' : '!'),
+    h('span', { class: 't tnum' }, r.ok ? `${sid}: ${r.rmsMm} mm average · worst ${r.maxMm} mm — ${quality(r.rmsMm)}` : `${sid}: ${r.error}`)));
+  return [
+    card('calibrate', w, { title: `${stepTitle('calibrate', w)} · result`, progress: false,
+      act: ok ? 'Check the error, then tap Apply & save.' : 'The calibration could not be solved. Start it again.',
+      see: ok ? 'Under 10 mm average is excellent for hands.' : null,
+      fix: ok ? (worstMm > 20 ? `The worst point is ${worstMm} mm off: tap Redo worst point (#${c.worst + 1}) and press it right on its centre.` : null)
+        : 'Too few targets were captured. Tap Back to capture the missing ones, or Start over with nobody walking in front of the wall.',
+      tone: ok ? '' : 'warn' }),
+    sec(null, h('div', { class: 'checklist' }, lines)),
+    ok ? primary('Apply & save', () => run(cmd('calib.apply'), 'Calibration saved — now verify it'))
+      : primary('Start over', async () => { await run(cmd('calib.cancel')); startCalib(w); }),
+    sec(null, h('div', { class: 'actions r-row' },
+      ok && c.worst >= 0 ? h('button', { class: 'btn attn', onclick: () => run(cmd('calib.redo', { index: c.worst })) }, `Redo worst point (#${c.worst + 1})`) : null,
+      h('button', { class: 'btn', onclick: () => run(cmd('calib.back')) }, 'Back'),
+      h('button', { class: 'btn danger', onclick: () => run(cmd('calib.cancel')) }, 'Discard'))),
   ];
 }
 
@@ -288,25 +525,29 @@ const fitEl = {}; // the Fit step's live parts
 function fitBody(w) {
   const m = w.mapping;
   const out = [];
-  if (!((store.status?.projections ?? 0) > 0)) out.push(sec(null, h('div', { class: 'callout attn' }, 'The points and the ring are drawn by the projection: open it on the projector first (Prepare).')));
+  // the points and the ring are drawn by the projection: say so, but let the operator carry on
+  if (!((store.status?.projections ?? 0) > 0)) out.push(sec(null, h('div', { class: 'callout attn' }, 'The projection is closed, so the wall shows nothing. Go to Prepare and open it on the projector.')));
   if (m.mode !== 'grid') {
     const [nx, ny] = meshSize(w);
-    out.push(sec(`Fit ${w.id}`,
-      h('p', {}, 'Fit corrects where touches land, point by point, until the ring drawn on the wall sits under your hand. It works on a mesh of points over the wall.'),
-      h('p', { class: 'muted' }, `${w.id} uses ${m.mode === 'corners' ? 'a corner pin' : 'a rectangle'} now. The mesh starts with exactly the same picture — nothing moves until you adjust a point.`),
-      h('button', { class: 'btn primary block big', onclick: () => makeMesh(w) }, `Make a ${nx} × ${ny} mesh`)));
-    return out;
+    return [...out, card('fit', w, { act: `Tap the button: it lays a ${nx} × ${ny} mesh of points over ${w.id}. Nothing moves yet.`,
+      see: `Amber points on ${w.id}, as many as the mesh.`,
+      fix: `${w.id} uses ${m.mode === 'corners' ? 'a corner pin' : 'a rectangle'} now; the mesh starts with exactly the same picture. Fit is only needed where touches land off.` }),
+    primary(`Make a ${nx} × ${ny} mesh`, () => makeMesh(w)),
+    !w.verified?.pass ? sec(null, secondary(`Skip fit — verify ${w.id}`, () => setStep('verify'))) : null];
   }
   fitEl.map = h('canvas', { class: 'r-map', 'aria-label': 'The mesh of the wall: tap a point to choose it' });
   fitEl.map.addEventListener('pointerdown', pickNode);
-  fitEl.status = h('div', { class: 'r-fit-status' });
+  fitEl.status = h('div', { class: 'r-fit-status r-target' });
   fitEl.node = h('div', { class: 'r-node tnum' });
-  fitEl.match = h('button', { class: 'btn primary block big', onclick: () => matchNode() }, 'Match the point to my hand');
+  fitEl.match = h('button', { class: 'btn primary block big r-primary', onclick: () => matchNode() }, 'Match the point to my hand');
   fitEl.follow = h('button', { class: 'btn small', onclick: () => { rc.follow = !rc.follow; updateFit(); } }, 'Follow my hand');
   fitEl.undo = h('button', { class: 'btn small', onclick: () => undo() }, 'Undo');
   const pad = (dx, dy, t, label) => h('button', { 'aria-label': label, onclick: () => nudgeNode(dx, dy) }, t);
-  out.push(sec(`Fit ${w.id}`,
-    fitEl.map, fitEl.status, fitEl.match,
+  out.push(card('fit', w, { act: `Put one open palm flat on an amber point on ${wallWords(w)}. Keep it still.`,
+    see: 'A cyan ring on the wall: where the system sees your hand. After Match it sits under your palm.',
+    fix: 'Match stays grey? Your hand is too far from the point, or more than one hand is on the wall.' }),
+  sec(null, fitEl.map, fitEl.status, fitEl.match),
+  sec('Fine tuning',
     h('div', { class: 'r-pad' },
       fitEl.node,
       // the centre of the pad is the step: 1 → 5 → 20 px per press
@@ -314,13 +555,8 @@ function fitBody(w) {
         h('button', { class: 'mid tnum', title: 'Pixels per press — tap to change', onclick: () => { rc.nudgeStep = { 1: 5, 5: 20, 20: 1 }[rc.nudgeStep] || 5; render(true); } }, `${rc.nudgeStep} px`),
         pad(1, 0, '→', 'Move the point right'), h('span'), pad(0, 1, '↓', 'Move the point down'), h('span'))),
     h('div', { class: 'actions', style: { justifyContent: 'center' } }, fitEl.follow, fitEl.undo),
-    simWall(w.id) ? simFitButton(w) : null,
-    !w.verified?.pass ? h('button', { class: 'btn block', style: { marginTop: 'var(--sp-12)' }, onclick: () => setStep('verify') }, `Done here — verify ${w.id} again`) : null),
-  sec('How it works', h('ol', { class: 'r-how' },
-    h('li', {}, 'Put one open hand on an amber point on the wall.'),
-    h('li', {}, 'The cyan ring is where the system sees your hand.'),
-    h('li', {}, 'Tap Match — or move the point with the arrows — until the ring sits under your hand.'),
-    h('li', {}, 'Repeat on every point that is off. Undo goes back one step.'))));
+    simWall(w.id) ? simFitButton(w) : null),
+  !w.verified?.pass ? sec(null, secondary(`Done here — verify ${w.id} again`, () => setStep('verify'))) : null);
   return out;
 }
 
@@ -358,13 +594,13 @@ function updateFit() {
   const m = w.mapping, k = rc.node, t = handOnWall(w);
   fitEl.node.textContent = k == null || !m.points[k] ? 'No point chosen' : `Point ${k + 1} of ${m.points.length} · ${Math.round(m.points[k][0])}, ${Math.round(m.points[k][1])} px`;
   let msg, ok = false;
-  if (!t) msg = 'Put one hand on an amber point on the wall.';
-  else if (t === 'many') msg = 'One hand only — there are several touches on this wall.';
-  else if (k == null) msg = 'Choose a point: tap it above, or turn on Follow my hand.';
+  if (!t) msg = 'Put one open palm on an amber point on the wall.';
+  else if (t === 'many') msg = 'Use one hand only. Take the others off this wall.';
+  else if (k == null) msg = 'Tap a point on the map above, or turn on Follow my hand.';
   else {
     const [, x, y] = t;
     ok = !!gridSolveNode(m, k, x / w.width, 1 - y / w.height, m.points[k], MIN_WEIGHT);
-    msg = ok ? `Hand at ${x.toFixed(2)}, ${y.toFixed(2)} m · on point ${k + 1}` : `Your hand is far from point ${k + 1} — put it on the point.`;
+    msg = ok ? `Hand on point ${k + 1} (${x.toFixed(2)}, ${y.toFixed(2)} m). Tap Match.` : `Move your hand onto point ${k + 1}: it is too far from it.`;
   }
   fitEl.status.textContent = msg;
   fitEl.match.disabled = !ok;
@@ -389,19 +625,19 @@ function matchNode() {
   const u = x / w.width, v = 1 - y / w.height;
   const target = m.points[k];
   const np = gridSolveNode(m, k, u, v, target, MIN_WEIGHT);
-  if (!np) { toast(`Your hand is far from point ${k + 1} — put it on the point.`, 'bad'); return; }
+  if (!np) { toast(`Move your hand onto point ${k + 1}, then tap Match again.`, 'bad'); return; }
   const moved = Math.hypot(np[0] - target[0], np[1] - target[1]);
   if (moved > localScale(w, u, v) * 0.6) {
-    toast(`That would move point ${k + 1} by more than 60 cm: check that your hand is on point ${k + 1}, or calibrate ${w.id} again.`, 'bad');
+    toast(`That would move point ${k + 1} by more than 60 cm. Check your hand is on point ${k + 1}; if it is, calibrate ${w.id} again.`, 'bad');
     return;
   }
   editProfile((p) => { p.walls.find((q) => q.id === w.id).mapping.points[k] = [r1(np[0]), r1(np[1])]; }, `fit point ${k + 1}`)
-    .then(() => toast(`Point ${k + 1} moved ${Math.round(moved)} px — the ring should now sit under your hand.`, 'ok'));
+    .then(() => { feedback('ok'); toast(`Point ${k + 1} moved ${Math.round(moved)} px. The ring should now sit under your hand.`, 'ok'); });
 }
 
 function nudgeNode(dx, dy) {
   const w = curWall(), k = rc.node;
-  if (!w || w.mapping.mode !== 'grid' || k == null) { toast('Choose a point first: put your hand on it, or tap it on the mesh.', 'bad'); return; }
+  if (!w || w.mapping.mode !== 'grid' || k == null) { toast('Choose a point first: put your palm on it, or tap it on the map.', 'bad'); return; }
   const s = rc.nudgeStep;
   editProfile((p) => {
     const q = p.walls.find((x) => x.id === w.id).mapping;
@@ -472,12 +708,51 @@ function pickNode(e) {
 // ------------------------------------------------------------------ Verify → Fit
 
 function verifyBody(w) {
-  const vf = w.verified;
+  const vf = w.verified, o = rc.calibOpt, off = !V.wallReadiness(w).running.length;
+  const start = () => run(cmd('verify.start', { wallId: w.id, top: o.top, bottom: o.bottom }));
+  const again = (label) => sec(null, secondary(label, start, { disabled: off }));
+  if (vf && !vf.pass) {
+    return [card('verify', w, { act: `${w.id} is ${vf.maxMm} mm off at one point. Fix it with your hand, then verify again.`,
+      see: 'Fit opens on that point: amber points on the wall and a cyan ring where the system sees your hand.',
+      fix: 'Still failing after Fit? Calibrate the wall again.', tone: 'warn' }),
+    primary('Fix it with your hand', () => fixAt(w, vf.worst)), again(`Verify ${w.id} again`), sec(null, gridButton())];
+  }
+  if (vf) {
+    const nx = nextTask(), go = nx.label && !nx.done ? nx : null;
+    return [card('verify', w, { act: `${w.id} passed: ${vf.meanMm} mm average, worst ${vf.maxMm} mm. Good for hands.`, see: 'A green result.' }),
+      primary(go ? go.label : 'Next: walk test', go ? () => { if (go.go) { setWall(go.go[0]); setStep(go.go[1]); } else go.act?.(); } : () => setStep('test')),
+      again(`Verify ${w.id} again`), sec(null, gridButton())];
+  }
+  return [card('verify', w, { act: `Stand facing ${wallWords(w)}. Tap Start: five check points appear, one at a time.`,
+    see: `An amber ring on ${w.id}: “Check 1 of 5”.`, fix: off ? `${w.id} has no running sensor: go to Prepare.` : 'No ring on the wall? Open the projection on the projector (Prepare).' }),
+  primary(`Verify ${w.id}`, start, { disabled: off }), sec(null, gridButton())];
+}
+
+function verifySession(v, w) {
+  const total = v.targets.length;
+  if (v.phase === 'done') {
+    const s = v.summary, lim = verifyPassMm(w), good = !!s && s.maxMm <= lim;
+    const worst = s ? v.targets.reduce((b, t, k) => (t.errMm !== null && (b < 0 || t.errMm > v.targets[b].errMm) ? k : b), -1) : -1;
+    const lines = v.targets.map((t, k) => h('div', { class: `check${t.errMm !== null && t.errMm <= lim ? ' done' : ''}` }, h('span', { class: 'mark' }, t.errMm !== null && t.errMm <= lim ? '✓' : '!'),
+      h('span', { class: 't tnum' }, `Point ${k + 1}: ${t.errMm !== null ? `${t.errMm} mm` : 'not measured'}`)));
+    return [
+      card('verify', w, { title: `${stepTitle('verify', w)} · result`, progress: false,
+        act: !s ? 'No point was measured. Verify again.' : good ? `Good for hands: ${s.meanMm} mm average, worst ${s.maxMm} mm (limit ${lim} mm).` : `Point ${worst + 1} is ${s.maxMm} mm off (limit ${lim} mm). Fix it with your hand.`,
+        see: good ? 'The wall counts as verified.' : 'Fit opens on that point.', tone: good ? '' : 'warn' }),
+      sec(null, h('div', { class: 'checklist' }, lines)),
+      !good && s ? primary(`Fix point ${worst + 1} with your hand`, () => rc.fixWorst(v, worst)) : primary('Done', () => run(cmd('verify.cancel'))),
+      !good && s ? sec(null, secondary('Done — fix it later', () => run(cmd('verify.cancel')))) : null,
+    ];
+  }
+  const k = Math.min(v.index + 1, total), t = touchWords(v, w, 'check point');
   return [
-    vf ? sec(null, h('div', { class: `callout ${vf.pass ? 'ok' : 'attn'}` }, `Last verification of ${w.id}: mean ${vf.meanMm} mm · worst ${vf.maxMm} mm. `,
-      vf.pass ? 'Good for hands.' : 'Larger than a hand radius somewhere: fix it there with your hand, then verify again.'),
-    !vf.pass ? h('button', { class: 'btn primary block big', onclick: () => fixAt(w, vf.worst) }, 'Fix it with your hand') : null) : null,
-    V.calibCurrent(rc, w),
+    card('verify', w, { ...t, touch: true, progress: false }),
+    sec(null, h('div', { class: 'calib-big' },
+      h('div', { class: 'ring', html: V.ringSvg(v.phase === 'release' ? 1 : v.progress, v.phase === 'release') }),
+      h('div', { class: 'step tnum' }, `Check ${k} of ${total}`),
+      h('div', { class: 'muted tnum' }, v.targets.filter((q) => q.errMm !== null).map((q, i) => `#${i + 1} ${q.errMm} mm`).join(' · ') || `${w.id} · verification`),
+      targetMap(w, v))),
+    sec(null, gridButton(), h('div', { class: 'actions', style: { justifyContent: 'center' } }, h('button', { class: 'linkish danger-ink', onclick: () => run(cmd('verify.cancel')) }, 'Stop verifying'))),
   ];
 }
 
@@ -503,8 +778,7 @@ function applyPendingFix() {
 const walkKey = () => `vt-walk:${P().id}`;
 /** The walk test passed after the last verification of every wall (a new verification asks for it again). */
 function walkDone() {
-  let at = null;
-  try { at = localStorage.getItem(walkKey()); } catch { /* storage blocked */ }
+  const at = lsGet(walkKey());
   return !!at && P().walls.every((w) => !w.verified || w.verified.at <= at);
 }
 
@@ -517,14 +791,14 @@ function nextTask() {
     const en = P().sensors.filter((s) => s.enabled);
     if (!en.length) return { text: 'No sensors yet: on the computer, Sensors › Sensor network… finds them and puts each one on its wall.' };
     const down = en.filter((s) => st[s.id]?.state !== 'scanning');
-    if (down.length) return { text: `${down.map((s) => s.id).join(', ')} not running — check cable and power (Sensors on the computer says why).`, warn: true };
-    if (en.some((s) => !st[s.id]?.background)) return { text: 'Room empty? Capture the background of every sensor.', label: 'Capture background', act: () => V.captureBackground({}, 'all sensors') };
+    if (down.length) return { text: `Check the power and cable of ${down.map((s) => s.id).join(', ')}: not running. Sensors on the computer says why.`, warn: true };
+    if (en.some((s) => !st[s.id]?.background)) return { text: 'Clear the room, then capture the background of every sensor.', label: 'Capture background', act: () => V.captureBackground({}, 'all sensors') };
     if (!((store.status?.projections ?? 0) > 0)) return { text: 'Open the projection on the projector.', label: 'Prepare', go: [rc.wall || first, 'prepare'] };
     const covered = walls.filter((w) => V.wallReadiness(w).sensors.length);
     const uncal = covered.find((w) => !wallDone(w));
-    if (uncal) return { text: `Calibrate ${uncal.id}: touch and hold each amber target with an open hand.`, label: `Calibrate ${uncal.id}`, go: [uncal.id, 'calibrate'] };
+    if (uncal) return { text: `Calibrate ${uncal.id}: press each amber ring with your palm and hold.`, label: `Calibrate ${uncal.id}`, go: [uncal.id, 'calibrate'] };
     const unver = covered.find((w) => !w.verified);
-    if (unver) return { text: `Verify ${unver.id}: 5 check points measure the real error.`, label: `Verify ${unver.id}`, go: [unver.id, 'verify'] };
+    if (unver) return { text: `Verify ${unver.id}: press 5 check points to measure the real error.`, label: `Verify ${unver.id}`, go: [unver.id, 'verify'] };
     const bad = covered.find((w) => !w.verified.pass);
     if (bad) return { text: `${bad.id} is ${bad.verified.maxMm} mm off at one point: fix it there with your hand, then verify again.`, label: `Fix ${bad.id}`, act: () => fixAt(bad, bad.verified.worst), warn: true };
     if (!walkDone()) return { text: 'Walk test: touch every wall and slide a hand across every corner.', label: 'Walk test', go: [rc.wall || first, 'test'] };
@@ -544,8 +818,8 @@ function renderGuide() {
   guideKey = key;
   el.guide.className = `r-guide${t.ok ? ' ok' : t.warn ? ' warn' : ''}`;
   el.guide.replaceChildren(
-    h('div', { class: 'g-text' }, h('span', { class: 'lbl' }, t.done ? 'Ready' : 'Next'), h('span', { class: 'what' }, t.text)),
-    t.label ? h('button', { class: `btn small${t.ok ? '' : ' primary'}`, onclick: () => { if (t.go) { setWall(t.go[0]); setStep(t.go[1]); } else t.act?.(); } }, t.label) : null);
+    h('div', { class: 'g-text' }, h('span', { class: 'lbl' }, t.done ? 'Ready' : 'Room next'), h('span', { class: 'what' }, t.text)),
+    t.label ? h('button', { class: 'btn small', onclick: () => { if (t.go) { setWall(t.go[0]); setStep(t.go[1]); } else t.act?.(); } }, t.label) : null);
 }
 
 // ------------------------------------------------------------------ the room, live (top strip)
@@ -630,21 +904,23 @@ const walkEl = {};
 function testBody() {
   walkEl.key = null;
   walkEl.list = h('div', { class: 'checklist' });
+  walkEl.count = h('span', { class: 'lbl tnum' });
   walkEl.fix = h('button', { class: 'btn block big', onclick: () => { const id = oneHandWall(); if (!id) return; setWall(id); setStep('fit'); } }, 'Fix here');
-  walkEl.finish = h('button', { class: 'btn primary block big', onclick: () => {
-    try { localStorage.setItem(walkKey(), new Date().toISOString()); } catch { /* storage blocked */ }
+  walkEl.finish = h('button', { class: 'btn primary block big r-primary', onclick: () => {
+    lsSet(walkKey(), new Date().toISOString());
     toast('Walk test passed', 'ok');
     render(true);
   } }, 'The room passes the walk test');
-  return [sec('Walk test',
-    h('p', {}, 'The projection shows what the outputs send: a white disc under each hand, and the zones. Walk the room: touch every wall — high, low, near the edges — and slide a hand across every corner.'),
-    walkEl.list,
-    h('p', { class: 'muted' }, 'Where the disc is not under your hand: keep the hand there, alone on the wall, and tap Fix here.'),
-    walkEl.fix, h('div', { style: { height: 'var(--sp-8)' } }), walkEl.finish),
-  testWalls().length && testWalls().every((w) => simWall(w.id)) ? sec(null,
-    h('button', { class: 'btn block sim-hand', onclick: (e) => simCorners(e.currentTarget) }, 'Simulated hand across every corner'),
-    h('p', { class: 'muted' }, SIM_NOTE)) : null,
-  walkDone() ? sec(null, h('div', { class: 'callout ok' }, 'This room passed the walk test after its last verification.')) : null];
+  return [
+    card('test', null, { act: 'Walk along the walls. Press each one with your palm, high and low, and slide your hand across every corner.',
+      see: 'A white disc under your hand on the wall, and the list below ticking off.',
+      fix: 'Disc not under your hand? Keep that hand still, alone on the wall, and tap Fix here.', progress: false }),
+    sec(null, walkEl.count, walkEl.list),
+    sec(null, walkEl.finish, h('div', { style: { height: 'var(--sp-8)' } }), walkEl.fix, h('div', { style: { height: 'var(--sp-8)' } }), gridButton()),
+    testWalls().length && testWalls().every((w) => simWall(w.id)) ? sec(null,
+      h('button', { class: 'btn block sim-hand', onclick: (e) => simCorners(e.currentTarget) }, 'Simulated hand across every corner'),
+      h('p', { class: 'muted' }, SIM_NOTE)) : null,
+    walkDone() ? sec(null, h('div', { class: 'callout ok' }, 'This room passed the walk test after its last verification.')) : null];
 }
 
 function updateWalk() {
@@ -656,10 +932,12 @@ function updateWalk() {
     const row = (ok, text) => h('div', { class: `check${ok ? ' done' : ''}` }, h('span', { class: 'mark' }, ok ? '✓' : ''), h('span', { class: 't' }, text));
     walkEl.list.replaceChildren(...W.map((w) => row(rc.walk.walls.has(w.id), `Touched ${w.id}`)),
       ...C.map(([a, b]) => row(rc.walk.corners.has(cornerKey(a, b)), `Crossed the corner ${a} → ${b}`)));
+    const total = W.length + C.length, got = W.filter((w) => rc.walk.walls.has(w.id)).length + C.filter(([a, b]) => rc.walk.corners.has(cornerKey(a, b))).length;
+    walkEl.count.textContent = `${got} of ${total} done`;
   }
   const one = oneHandWall();
   walkEl.fix.disabled = !one;
-  walkEl.fix.textContent = one ? `Fix here (${one})` : 'Fix here — one hand on the wall';
+  walkEl.fix.textContent = one ? `Fix here (${one})` : 'Fix here — needs one hand on a wall';
   walkEl.finish.disabled = !(W.length && W.every((w) => rc.walk.walls.has(w.id)) && C.every(([a, b]) => rc.walk.corners.has(cornerKey(a, b))));
 }
 
@@ -764,8 +1042,8 @@ on('connection', (ok) => {
   const unpaired = ok === 'unpaired';
   $('connLostTitle').textContent = unpaired ? 'This device is not paired' : 'Connection to the engine lost';
   $('connLostText').textContent = unpaired
-    ? 'On the computer, open Connect device and scan its QR code with this phone (the link carries the access key).'
-    : 'Reconnecting…';
+    ? 'Scan the QR code again: on the computer, open Connect device and point this phone’s camera at it.'
+    : 'Reconnecting… keep this phone on the room’s Wi-Fi.';
   if (ok === true) { fitSent = 'none'; walkSent = 'none'; render(true); }
 });
 connect();

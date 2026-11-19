@@ -128,6 +128,12 @@ function onViz(buf) {
   emit('viz');
 }
 
+/**
+ * Commands that legitimately take longer than the usual 15 s: a real S2E needs up to ~65 s to come back on a new
+ * address (the engine waits 90 s), and the elevated network change waits for the operator to accept Windows' prompt.
+ */
+export const CMD_TIMEOUT_MS = { 'sensor.readdress': 120000, 'net.setSensorNic': 120000, 'net.fixFirewall': 120000, 'sensor.sideCheck': 40000 };
+
 /** Send a command; resolves with the result or rejects with the engine's error. */
 export function cmd(op, args = {}) {
   if (CLEARS_HISTORY.has(op)) history.clear();
@@ -136,7 +142,7 @@ export function cmd(op, args = {}) {
     const id = nextId++;
     pending.set(id, { resolve, reject });
     ws.send(JSON.stringify({ type: 'cmd', id, op, args }));
-    setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error('timeout')); } }, 15000);
+    setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error(`no answer from the engine (${op})`)); } }, CMD_TIMEOUT_MS[op] || 15000);
   });
 }
 

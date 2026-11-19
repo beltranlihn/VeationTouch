@@ -7,6 +7,7 @@
 
 import http from 'node:http';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -62,6 +63,22 @@ export function lanUrls(port, token, sensorHosts = [], ifaces = os.networkInterf
 export function createServer(engine, { port, root, log, trustLocal = true }) {
   // trustLocal: this computer needs no access key (the desktop window). Tests turn it off to act as a tablet.
   const isTrusted = (addr) => trustLocal && isLocal(addr);
+
+  /**
+   * THE place that decides who is asking (HTTP and WebSocket alike). Traffic the relay forwards (engine/cloud.js)
+   * also arrives from 127.0.0.1, stamped with this process's secret x-vt-tunnel token: that is a REMOTE device,
+   * never local, never trusted, always needs the access key. Loopback with a wrong or missing token is the desktop.
+   * → { addr, local, trusted, tunnel }
+   */
+  const peerOf = (req) => {
+    const raw = req.socket.remoteAddress;
+    const have = req.headers['x-vt-tunnel'], want = engine.cloud?.tunnelToken;
+    if (isLocal(raw) && want && typeof have === 'string' && have.length === want.length && crypto.timingSafeEqual(Buffer.from(have), Buffer.from(want))) {
+      const ip = oneLine(req.headers['x-vt-client-ip'], 64).trim() || 'unknown';
+      return { addr: `internet (${ip})`, local: false, trusted: false, tunnel: true };
+    }
+    return { addr: raw, local: isLocal(raw), trusted: isTrusted(raw), tunnel: false };
+  };
   const uiDir = path.join(root, 'ui');
   const sdkDir = path.join(root, 'sdk');
 
@@ -90,8 +107,9 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
   // computer but could not connect" apart from "nothing reached it" (another network, or a Wi-Fi that isolates devices)
   const reached = new Map();
   const noteReached = (req) => {
-    const addr = String(req.socket.remoteAddress || '').replace('::ffff:', '');
-    if (!addr || isLocal(addr)) return;
+    const peer = peerOf(req);
+    const addr = String(peer.addr || '').replace('::ffff:', '');
+    if (!addr || peer.local) return;
     const device = deviceName(String(req.headers['user-agent'] || ''));
     const prev = reached.get(addr);
     if (!prev || Date.now() - prev.at > 600000) log.info(`page opened from ${addr} (${device})`);
@@ -106,7 +124,8 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
   const errorBudget = new Map();
   const oneLine = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, n);
   const clientError = (req, res) => {
-    const addr = String(req.socket.remoteAddress || '').replace('::ffff:', '');
+    const peer = peerOf(req);
+    const addr = String(peer.addr || '').replace('::ffff:', '');
     const chunks = []; let size = 0;
     req.on('data', (c) => { size += c.length; if (size > 4096) { req.destroy(); return; } chunks.push(c); });
     req.on('end', () => {
@@ -118,7 +137,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       errorBudget.set(addr, budget);
       let j = {};
       try { j = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* not JSON: still worth a line */ }
-      const who = isLocal(addr) ? 'this computer' : `${deviceName(String(req.headers['user-agent'] || ''))} (${addr})`;
+      const who = peer.local ? 'this computer' : `${deviceName(String(req.headers['user-agent'] || ''))} (${addr})`;
       log.warn(`page error on ${who}, ${oneLine(j.page, 40) || '?'}${j.started ? '' : ' — the page did not start'}: ${oneLine(j.message, 300)}${j.where ? ` at ${oneLine(j.where, 200)}` : ''}`);
     });
   };
@@ -145,7 +164,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (p === '/api/pair-check') {
       // does this device hold a valid access key? (the UI tells "not paired" apart from "engine down"; never leaks it)
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      return res.end(JSON.stringify({ paired: isTrusted(req.socket.remoteAddress) || url.searchParams.get('k') === engine.settings.token }));
+      return res.end(JSON.stringify({ paired: peerOf(req).trusted || url.searchParams.get('k') === engine.settings.token }));
     }
     if (p === '/api/qr.svg') {
       const text = url.searchParams.get('t') || '';
@@ -165,7 +184,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       }
       if (req.method === 'POST') {
         // same rule as the UI channel: localhost, or the access key
-        if (!isTrusted(req.socket.remoteAddress) && url.searchParams.get('k') !== engine.settings.token) { res.writeHead(401); return res.end(); }
+        if (!peerOf(req).trusted && url.searchParams.get('k') !== engine.settings.token) { res.writeHead(401); return res.end(); }
         if (engine.settings.locked) { res.writeHead(423, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'the room is locked (Show mode)' })); }
         const chunks = []; let size = 0;
         req.on('data', (c) => { size += c.length; if (size > 25 * 1048576) { req.destroy(); return; } chunks.push(c); });
@@ -191,15 +210,18 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, 'http://x');
-    const addr = req.socket.remoteAddress;
+    const peer = peerOf(req);
+    const addr = peer.addr;
     if (url.pathname === '/ws/ui') {
-      if (!isTrusted(addr) && url.searchParams.get('k') !== engine.settings.token) {
+      if (!peer.trusted && url.searchParams.get('k') !== engine.settings.token) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy();
         log.warn(`UI connection refused from ${addr} (missing/wrong access key)`);
         return;
       }
-      wssUi.handleUpgrade(req, socket, head, (ws) => onUi(ws, addr, url, String(req.headers['user-agent'] || '')));
+      wssUi.handleUpgrade(req, socket, head, (ws) => onUi(ws, peer, url, String(req.headers['user-agent'] || '')));
     } else if (url.pathname === '/ws/data') {
+      // apps on the LAN read touches without a key; from the internet the key is required
+      if (peer.tunnel && url.searchParams.get('k') !== engine.settings.token) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
       wssData.handleUpgrade(req, socket, head, (ws) => onData(ws));
     } else socket.destroy();
   });
@@ -210,8 +232,9 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
   const send = (ws, obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
   let clientSeq = 0;
-  function onUi(ws, addr, url, ua = '') {
-    const client = { ws, addr, id: `d${++clientSeq}`, role: url.searchParams.get('role') || 'ui', viz: false, vizEvery: 1, vizN: 0, local: isLocal(addr), ua, since: Date.now() };
+  function onUi(ws, peer, url, ua = '') {
+    const addr = peer.addr;
+    const client = { ws, addr, id: `d${++clientSeq}`, role: url.searchParams.get('role') || 'ui', viz: false, vizEvery: 1, vizN: 0, local: peer.local, ua, since: Date.now() };
     if (!client.local) log.info(`device connected from ${addr.replace('::ffff:', '')} (${deviceName(ua)})`);
     uiClients.add(client);
     updateVizListener();

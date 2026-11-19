@@ -105,6 +105,16 @@ Sequential RANSAC + total least squares finds them (from the learned background,
 configured approximate pose only labels them (floor / left / right) and fixes which way is right. Result: sensor
 height, distance to the left wall, rotation, mirror flag — and the wall width measured between the neighbours,
 flagged when it differs from the plans by > 3 cm. Tested at < 1.5 cm / < 0.4° (normal and upside-down mounts).
+- **Left/right is not measured.** Floor + two side walls look the same mirrored, so the mirror flag is the
+  approximate pose's (`sideFrom: 'approximate pose'`). At XR Lab all four sensors were mirrored and Auto-align
+  returned plausible poses with x ≈ width − x. Hence **Side check** (`sensor.sideCheck {id, pose}`): one hand held
+  near the LEFT end, mapped with the proposed pose, must come out in the left third (6 steady revolutions with a
+  single detection, ROI/masks off while checking). If it comes out on the right the UI offers
+  `sensor.autoAlign {id, mirror: !mirror}`.
+- **An object in the plane is not a wall.** When the width measured between the two side lines is > 25 cm off the
+  plans, one of them is something else (XR Lab P1: a truss leg 1.70 m from the corner gave 4.78 m for a 6.48 m
+  wall): x is taken from the side that agrees with the approximate pose, `xWarn` says so, and the width is not
+  offered as the wall width (`widthTrusted: false`).
 
 ## Level check — `engine/core/levelcheck.js`
 
@@ -162,11 +172,20 @@ outputs behave exactly as in the room. Recording is refused during a replay and 
 
 ## Discovery — `engine/discover.js`
 
-Sweeps every local IPv4 network up to /22 plus the factory address 192.168.11.2 with GET_HEALTH on UDP 8089
-(paced), then GET_INFO for serial and firmware. Sensors that are streaming are never probed: any request stops
+Sweeps the networks where sensors are (the one of the factory address 192.168.11.2 and those of the profile's
+S2E hosts; every local network up to /22 with `sensor.discover {everywhere: true}` — "Search every network")
+with GET_HEALTH on UDP 8089 (paced), then GET_INFO for serial and firmware. Sockets to a sensor (driver and
+discovery) bind to this computer's own address on the sensor's network (`localAddressFor`, recomputed on every
+connect) and fall back to 0.0.0.0 when there is none: at XR Lab the sensors are reached through a second address
+on the Dante card, and Windows' source-address choice is not something to rely on. A sensor's `lastError` is
+cleared when it returns to `scanning`. Sensors that are streaming are never probed: any request stops
 an S2E's stream. Re-addressing (`readdress`): refuse if the new address answers already, note the unit's serial,
-SET_LIDAR_CONF 0x0001CCC0 (ip, mask, gw) + RESET, then poll the new address until the SAME serial answers (20 s);
-otherwise report "kept its old address" or "answers on neither". `readStaticIp` reads the configuration back
+SET_LIDAR_CONF 0x0001CCC0 (ip, mask, gw) + RESET, then poll the new address until the SAME serial answers
+(`READDRESS_WAIT_MS` = 90 s: four real S2E took 11, 34, 60 and 61 s to answer again). A unit that answers on its
+old address again after restarting refused the change ("kept its old address", detected from 8 s on). One still
+silent at the end is `pending`, not an error: the profile follows it anyway and the sensor connects when it
+answers. The UI counts the seconds while it waits, and its command timeout is longer for this command
+(`CMD_TIMEOUT_MS` in `ui/js/conn.js`; the default 15 s would have cut it). `readStaticIp` reads the configuration back
 without changing anything. The engine refuses an address no network card of this computer could reach, and the
 profile follows the unit (its sensor gets the new host, or a new sensor is added on the chosen wall).
 `sensor.discover` also returns, per wall, the address its unit should get (the one its sensor in the profile waits
@@ -286,6 +305,53 @@ and the blob faders preview while dragged without saving. Faders follow VEATION'
 `ui/js/dom.js`: 3 px groove + fill, no knob, value in an s0 box that can be typed in); a UI test fails if a native
 range input appears in any view.
 
+**Pixel map.** In rooms where the projectors are fed by the room's media system from our Texture output (XR Lab),
+our projection window is not on the walls, so the calibration pattern travels in the Texture output itself.
+`projection.set {grid}` (transient, owned by the client that set it, in the state as `grid`), and any running
+calibration, verification or Fit, make the engine attach `frame.overlay` to every frame. A Texture output with
+`overlay: 'auto'` (default; `'off'` keeps it pure touches) passes it to `core/mask.js`, which rasterises
+`wallPattern(wall)` into a cached buffer:
+- the wall outline;
+- 0.5 m and 1 m wall-metre lines carried through the Mapping;
+- a centre cross, corner marks, the wall id and the metre numbers (5×7 bitmap font, sized to the output scale);
+- the session targets (current target ringed and numbered).
+The buffer is composited by maximum over the touch mask, so trails are untouched. The projection page strokes the
+same `wallPattern` geometry. The desktop preview and the full-screen texture page run the same rasteriser from
+`store.state.grid` and `store.status`.
+
+## Internet access — `engine/cloud.js`, `cloud/`
+
+The room can be opened from any network without touching the router or the firewall. With internet access on
+(at the server itself), `engine/cloud.js` keeps an outbound WebSocket to the relay:
+- `cloud/relay`: a Cloudflare Worker with one Durable Object per room, deployed as
+  `veation-relay.almadigitalstudio.workers.dev`;
+- `node-relay.mjs`: the same protocol on Node, for the tests and self-hosting.
+
+The relay forwards a browser's HTTP and WebSocket traffic over that link (`core.mjs`: `req`/`res`, `open`/`msg`/`close`,
+bodies ≤ 4 MB, 8 browser sockets per room). The engine answers by calling its own server on 127.0.0.1, so the UI is
+always the one matching the server's version. `/r/<room>/` sets a `vt_room` cookie, because the UI uses absolute
+paths.
+
+Rooms and secrets:
+- Each room has a random `roomId` and a secret. The first link claims the room; the relay keeps only the
+  secret's hash.
+- `cloud.reset` ("New address") replaces both and kills every link already shared.
+
+Trust: tunnelled traffic is stamped with a per-process secret header, so `peerOf()` in `server.js` treats it as a
+remote device:
+- it needs the pairing key exactly like a phone on the LAN;
+- it is never local;
+- local-only commands (`net.*`, `cloud.set`, `cloud.reset`) are refused.
+
+The shareable link is `https://veation-touch.vercel.app/#r=<room>&k=<key>&relay=<relay>`. The key travels in the
+hash, so the launcher host never sees it. The launcher (`cloud/launcher`, a static Vercel site) remembers rooms on
+the device, shows each one online/offline (`/_relay/status`) and sends the browser to the relay. Tested end to end
+against the deployed relay on 2026-11-19: page + `/ws/ui` state in ~150 ms, refused without the key.
+
+Deploy:
+- relay: `cd cloud/relay && npx wrangler deploy`;
+- launcher: `cd cloud/launcher && npx vercel deploy --prod` (project `veation-touch`).
+
 ## UI tests — `tests/ui.test.mjs`
 
 The operator UI is tested in the real thing: each test starts an engine on a temporary folder (bundled profiles →
@@ -325,4 +391,4 @@ WebSocket frames (Float32), ≤ 10 Hz (5 Hz on touch devices) and only built whi
 | Disconnect/reconnect behaviour, multiple units on one subnet | watchdog timings |
 | Crosstalk between walls at the corners | masks / motor speeds |
 | End-to-end latency (hand → projection) | `predictMs`, `confirmFrames` |
-| `setStaticIp` (SET_LIDAR_CONF 0x0001CCC0) | not yet tried on a real unit — the app only reports success when the unit answers on the new address with the same serial (`readdress`), so a wrong command shows as "kept its address", never as a false success |
+| `setStaticIp` (SET_LIDAR_CONF 0x0001CCC0) | **validated** at XR Lab (2026-11-19, 4 units, fw 1.02): it works; the unit answers again on the new address after 11–61 s |

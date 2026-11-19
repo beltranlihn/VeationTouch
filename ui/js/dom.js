@@ -136,7 +136,7 @@ export function dot(kind) { return h('span', { class: `dot ${kind || ''}` }); }
 export function toast(msg, kind = '') {
   const el = h('div', { class: `toast ${kind}` }, msg);
   document.getElementById('toasts').append(el);
-  setTimeout(() => el.remove(), kind === 'bad' ? 6000 : 3000);
+  setTimeout(() => el.remove(), kind === 'bad' || kind === 'warn' ? 9000 : 3000); // long ones have advice to read
 }
 
 export function modal(title, content, { onClose } = {}) {

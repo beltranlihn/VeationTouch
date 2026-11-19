@@ -613,6 +613,38 @@ test('server: page errors from devices go to the log — one clean line each, a 
   }
 });
 
+test('engine: Side check — a hand near the left end tells a mirrored pose apart; Auto-align can be run with the other side', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-side-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  try {
+    const p = structuredClone(engine.profile);
+    p.simulation.wanderers = 0;
+    await engine.command('profile.update', { profile: p, rev: engine.rev });
+    const wallId = engine.profile.walls[0].id;
+    const s = engine.profile.sensors.find((x) => x.wallId === wallId && x.enabled !== false);
+    await wait(500);
+    await engine.command('sim.touch', { wallId, x: 1.0, y: 1.4, id: 'h', down: true });
+    const right = await engine.command('sensor.sideCheck', { id: s.id });
+    assert.equal(right.side, 'left', `with the true pose the hand is on the left (x ${right.x})`);
+    assert.ok(Math.abs(right.x - 1.0) < 0.15, `x ${right.x}`);
+    const flipped = await engine.command('sensor.sideCheck', { id: s.id, pose: { ...s.pose, mirror: !s.pose.mirror } });
+    assert.equal(flipped.side, 'right', `the same hand with a mirrored pose comes out on the right (x ${flipped.x})`);
+    await engine.command('sim.touch', { wallId, x: 0, y: 0, id: 'h', down: false });
+    await wait(400);
+    await assert.rejects(engine.command('sensor.sideCheck', { id: s.id, timeoutMs: 1200 }), /no hand seen/);
+    const other = await engine.command('sensor.autoAlign', { id: s.id, mirror: !s.pose.mirror });
+    assert.ok(other.ok, other.error);
+    assert.equal(other.pose.mirror, !s.pose.mirror, 'Auto-align takes the side it is given');
+    assert.equal((await engine.command('sensor.autoAlign', { id: s.id })).pose.mirror, !!s.pose.mirror);
+  } finally {
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('engine: a wall whose scan plane stands 12 cm out passes verification with the larger error it reads', async () => {
   const { verifyPassMm } = await import('../engine/core/geometry.js');
   assert.equal(verifyPassMm({ planeOffset: 0.02 }), 25, 'the usual 2–3 cm plane: a hand radius');
@@ -645,6 +677,61 @@ test('engine: a wall whose scan plane stands 12 cm out passes verification with 
     assert.equal(v.pass, true, 'it would fail the 25 mm of a wall touched at 2 cm');
   } finally {
     await engine.command('verify.cancel').catch(() => {});
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('engine: sensor.discover sweeps only the sensor network unless asked for every network', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-disc-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  try {
+    const hostsOf = () => engine.profile.sensors.filter((s) => s.driver === 's2e').map((s) => s.host);
+    const { candidateHosts } = await import('../engine/discover.js');
+    const narrow = await engine.command('sensor.discover', {});
+    const wide = await engine.command('sensor.discover', { everywhere: true });
+    assert.equal(narrow.scope, 'sensor network');
+    assert.equal(wide.scope, 'every network');
+    assert.ok(narrow.searched >= 1 && narrow.searched <= wide.searched, `${narrow.searched} <= ${wide.searched}`);
+    assert.equal(wide.searched, candidateHosts({ everywhere: true, sensorHosts: hostsOf() }).length);
+    assert.equal(narrow.searched, candidateHosts({ sensorHosts: hostsOf() }).length);
+  } finally {
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('engine: projection.set grid shows in the state, reaches the Texture frames as an overlay, and is cleared when its client goes', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-grid-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  try {
+    assert.equal(engine.state().grid, false);
+    assert.equal(engine.lastFrame?.overlay ?? null, null, 'no grid, no session: no overlay');
+    await engine.command('projection.set', { grid: true, __client: { id: 'phone', device: 'phone' } });
+    assert.equal(engine.state().grid, true);
+    await wait(150);
+    assert.equal(engine.lastFrame.overlay?.grid, true, 'the frames carry the overlay to the Texture outputs');
+    // another client leaving changes nothing; the one that asked leaving clears it
+    engine.clientGone('someone-else');
+    assert.equal(engine.state().grid, true);
+    engine.clientGone('phone');
+    assert.equal(engine.state().grid, false);
+    await wait(150);
+    assert.equal(engine.lastFrame.overlay, null);
+    // a calibration switches the overlay on by itself, and its targets travel with it
+    await engine.command('projection.set', { grid: false });
+    assert.equal(engine.state().grid, false);
+    const wall = engine.profile.walls[0];
+    await engine.command('calib.start', { wallId: wall.id, force: true, cols: 2, rows: 2 });
+    await wait(150);
+    assert.equal(engine.lastFrame.overlay?.calib?.wallId, wall.id);
+    assert.equal(engine.lastFrame.overlay.calib.targets.length, 4);
+  } finally {
     await engine.stop();
     fs.rmSync(dir, { recursive: true, force: true });
   }
