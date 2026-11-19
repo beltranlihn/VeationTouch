@@ -412,6 +412,12 @@ MIT, `LICENSE-fluid.txt`) on WebGL2 across the whole strip.
   - **Touch intensity** (default 3× the pointer colour): a hand on a big wall must read more than a mouse.
   - **Touch presence** (default 1; 0 = the website): a soft blot of the hand's colour when it lands, then a gentle
     breath of colour every 0.12 s while it rests.
+  - **Touch colour** fixed (indigo / purple / periwinkle / pink; "palette" = the website, untouched): the hand's own dye is a
+    small addition to a field full of the emitters' palette dye, so in the room a fixed colour did not show (FALLO 8). Each
+    splat of a fixed-colour hand is followed by a TINT at the same place and size, blended ONE / ONE_MINUS_SRC_ALPHA
+    (dye' = mix(dye, target, w·gaussian), no extra pass): it recolours the liquid the hand pushes toward the colour at a
+    saturated brightness (`TINT_LEVEL` 0.6; 0.3 was a pale lilac that made pink strokes paler). Both renderers. Measured
+    (red − green under a stroke): palette ≈ 0, pink without tint +8…+11, with it +28…+32.
   - **Hands are played back, not predicted** (`runtime.js` › `makeHands`, for every experience). A first version
     predicted again on top of the tracker's prediction, and the 10 Hz corrections jerked the liquid (XR Lab, FALLO 7).
     - **Playback.** Each hand is drawn `HAND_DELAY_MS` (150 ms) behind its newest real reading (`rx, ry, seenAt`),
@@ -507,9 +513,11 @@ audio window (hidden BrowserWindow, /audio — COOP/COEP so SharedArrayBuffer ex
   their channels, and the card says "not found". No label → one sink on the default device, stereo, with every channel
   folded into left / right (speakers panned in channel order, equal power; the sub in both).
 - **Walls and speakers.** `map: { wallId: [channel…] }` (1-based; a wall may have several speakers, left → right inside
-  the room, in channel order). `wallInput(wall, u)` shares a mono source over them with equal power; `roomInput()` is
-  equal on every wall (equal power per wall); `subInput()` goes to the sub only — folded into the walls (past their
-  high-pass) when the map has no sub. Wall inputs and the room input also feed the sub sum.
+  the room, in channel order). Walls may SHARE a channel (XR Lab's Q-SYS feeds one channel to P2 and P3) and a room may
+  have no sub. `wallInput(wall, u)` shares a mono source over its speakers with equal power; `roomInput()` is equal on
+  every wall (equal power per wall) and reaches each channel ONCE, however many walls share it; `subInput()` goes to the
+  sub only — folded into the walls (past their high-pass) when the map has no sub. Wall inputs and the room input also
+  feed the sub sum.
 - **Sub.** `sub: { channel, crossoverHz }`: the sum low-passed at the crossover goes to the sub channel; the walls are
   high-passed at `wallHighpassHz` (0 = off). They are independent: set the high-pass to the crossover.
 - **Final stage.** `master` (0..1, never above unity), `mute`, then a linked-channel look-ahead limiter
@@ -539,15 +547,20 @@ audio window (hidden BrowserWindow, /audio — COOP/COEP so SharedArrayBuffer ex
   logical / available channels, peak in 3 dB steps, test, `sound: { running, active, id, error }`) and `sounds` (the
   catalog of `kind: "sound"`; `experiences` has the visual ones only; `experience.play` refuses a sound id and
   `sound.play` a visual one). Commands: `audio.set {on, devices, channels, master, mute, ceilingDb, wallHighpassHz, sub}`,
-  `audio.map {map, channels?, sub?}`, `audio.test {channel}` (a soft ~1 s tone, after the filters, on one logical channel —
-  also the sub; the window plays it when it sees a new `state.audio.test.seq`), `audio.mute`, `audio.report` (from the
-  window, every 500 ms), `sound.play {id}` (turns audio on), `sound.stop`, `sound.set {autostart}`, `sound.param`.
+  `audio.map {map, channels?, sub?}`, `audio.test {channel}` (~1 s on one logical channel, after the filters: three low
+  STRIKES, 110 Hz with harmonics 1–12, 4 ms attack — a steady 880 Hz sine could not be placed in the room, a strike is at
+  once; the sub keeps a soft steady 55 + 110 Hz tone; the window plays it when it sees a new `state.audio.test.seq`), `audio.mute`, `audio.report` (from the
+  window, every 500 ms, with each output's underruns: a device that found its ring short played silence — a dropout,
+  a short cut; every new one is a warning in engine.log and the card shows the count in amber), `sound.play {id}` (turns audio on), `sound.stop`, `sound.set {autostart}`, `sound.param`.
   **Show mode** locks devices, channels, map, sub, filters, ceiling, Test and autostart; play, stop, parameters, master,
   mute and the on/off switch keep working. The audio window is a UI client with role `audio` (no point clouds).
 - **Ambient notes** (`experiences/ambient-notes/`, the first sound piece; own Web Audio synthesis, nothing loaded). A pad
   (a chord of the scale on detuned saws + triangles, slow low-pass, a generated 5 s reverb) plays on every wall, its root
   an octave down on the sub; every "Pad change" seconds the next chord fades in. Each touch is one note on ITS wall: the
-  height picks the note of the scale (`theory.js`), `u` pans it over that wall's speakers and opens its filter. The note
+  height picks the note of the scale (`theory.js`) in METRES — the whole scale between "Floor margin" (0.3 m) and "Reach
+  height" (2.1 m), the top note above it, from the wall's height that `vt.walls` carries (on XR Lab's 3.5 m walls the old
+  share-of-the-wall mapping put the top note at 3.2 m, out of reach); "Note range" goes up to 5 octaves, never above
+  octave 8. `u` pans it over that wall's speakers and opens its filter. The note
   is STRUCK the moment the hand lands ("Attack", 2–80 ms, default 5: the touch is felt), rings down for ~0.6 s, then
   swells and brightens while the hand stays ("Swell", bounded) and leaves a long tail on `up` ("Release"). Notes are
   keyed by stroke (`voices.js`: a repeated `down` never adds a voice), capped per wall and in total (the oldest yields
@@ -558,11 +571,15 @@ audio window (hidden BrowserWindow, /audio — COOP/COEP so SharedArrayBuffer ex
   `tests/audio-ui.test.mjs` (the graph on an `OfflineAudioContext` in Electron's renderer, the writer worklet into rings on
   the isolated page, the runtime against a live engine, the Audio card), `tests/ambient-notes.test.mjs` (the piece on a
   fake host) and `tests/sound-room.test.mjs` — the real parts together, XR Lab's map read from its profile: a touch on P2
-  sounds only on P2's channel; 20 hands at once (and a piece 10x too loud, which goes to +11 dBFS without the limiter)
+  sounds only on P2's channel; a hand 2.1 m up a 3.5 m wall plays the top note; 20 hands at once (and a piece 10x too loud, which goes to +11 dBFS without the limiter)
   stay below the ceiling; a pass the tracker splits into 3 ids is one `down`, one voice, one `up` (three notes without
   the runtime's stitching).
-- **Not verifiable without the hardware:** whether DVS's pairs report `maxChannelCount` 2 and their exact labels (the card's
-  Devices readout shows them), clock drift against the real Dante clock, and the latency of the whole chain.
+- **Measured at XR Lab** (2026-11-19, DVS in WDM 16×16): the pairs show as "DVS Transmit  1-2 (Dante Virtual Soundcard)"
+  … (a DOUBLE space before 1-2 … 9-10; labels are matched with spaces collapsed), 2 channels each; Windows makes
+  "15-16" the default output when DVS starts, which the app never relies on. 180 s of play (164 touches) with Alma liquid
+  at 60 fps: no underrun, no error, peak −18 dBFS at Master 0.3. The Q-SYS does NOT have one speaker per channel: ch1 =
+  left + front, ch2 = back + right, ch3 = front, nothing on 4–8 and no sub (`profiles/xrlab.json` has that map).
+  Not measured yet: the latency from touch to sound.
 
 ## Internet access — `engine/cloud.js`, `cloud/`
 

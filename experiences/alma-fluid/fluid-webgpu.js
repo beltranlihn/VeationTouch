@@ -183,7 +183,9 @@ const DISPLAY = HEAD + `
 // splats: one record of four vec4 per splat — [point.xy, radius, _], [quad centre.xy, quad half size.xy], [velocity xyz, _],
 // [dye rgb, _]. With wrapX every splat is drawn three times (shifted by -1, 0, +1 in u) and the fragment measures the
 // distance the short way round the seam; copies outside the target are clipped away.
-const splatSource = (wrapX, channel) => `
+// A tint record is a splat's with the weight w in the fourth float of the dye vec4: [target rgb x w, w]. A tint draws with blend
+// ONE / ONE_MINUS_SRC_ALPHA, so dye' = mix(dye, target, w * gaussian).
+const splatSource = (wrapX, channel, tint = false) => `
 struct U { invSize: vec2f, texel: vec2f, a: f32, b: f32, c: f32, d: f32, color: vec4f };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> S: array<vec4f>;
@@ -193,6 +195,7 @@ struct VOut {
   @builtin(position) pos: vec4f,
   @location(0) @interpolate(flat) pr: vec4f,
   @location(1) @interpolate(flat) col: vec3f,
+  @location(2) @interpolate(flat) w: f32,
 };
 @vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
   let si = ii / COPIES;
@@ -207,6 +210,7 @@ struct VOut {
   o.pos = vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
   o.pr = a;
   o.col = S[si * 4u + ${channel}u].xyz;
+  o.w = S[si * 4u + ${channel}u].w;
   return o;
 }
 @fragment fn fs(v: VOut) -> @location(0) vec4f {
@@ -214,13 +218,15 @@ struct VOut {
   var p = uv - v.pr.xy;
   if (WRAP_X) { p.x = p.x - floor(p.x + 0.5); }
   p.x = p.x * u.a;
-  return vec4f(exp(-dot(p, p) / v.pr.z) * v.col, 0.0);
+  let g = exp(-dot(p, p) / v.pr.z);
+  ${tint ? 'return vec4f(g * v.col, g * v.w);' : 'return vec4f(g * v.col, 0.0);'}
 }`;
 
 /* ------------------------------------------------------------ the fluid */
 
 const SLOT = { DIV: 0, CLEARP: 1, PRESSURE: 2, GRADIENT: 3, ADV_V: 4, ADV_D: 5, CURL: 6, VORT: 7, DISPLAY: 8, COPY: 9, SPLAT_V: 10, SPLAT_D: 11, COUNT: 12 };
 const SPLAT_CAP = 1024; // splats per batch; more are drawn in a batch of their own
+const TINT_CAP = 256;   // tints per batch (a few per hand per frame)
 
 /**
  * @param gpu   { device, context, format } from requestGpu (the canvas is exactly the render size)
@@ -268,17 +274,19 @@ export function createFluid(gpu, opts) {
     display: fullscreen(mod(DISPLAY), gpu.format),
   };
   const additive = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
-  const splatPipeline = (channel, format) => {
-    const m = mod(splatSource(wrapX, channel));
+  const over = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
+  const splatPipeline = (channel, format, tint = false) => {
+    const m = mod(splatSource(wrapX, channel, tint));
     return device.createRenderPipeline({
       layout: 'auto',
       vertex: { module: m, entryPoint: 'vs' },
-      fragment: { module: m, entryPoint: 'fs', targets: [{ format, blend: additive }] },
+      fragment: { module: m, entryPoint: 'fs', targets: [{ format, blend: tint ? over : additive }] },
       primitive: { topology: 'triangle-strip' },
     });
   };
   PL.splatV = splatPipeline(2, RG);
   PL.splatD = splatPipeline(3, RGBA);
+  PL.tintD = splatPipeline(3, RGBA, true);
 
   // ---- textures ----
   let uid = 0;
@@ -408,26 +416,38 @@ export function createFluid(gpu, opts) {
   const sbuf = device.createBuffer({ size: SPLAT_CAP * 64, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   const sdata = new Float32Array(SPLAT_CAP * 16);
   let splats = 0;
+  const tbuf = device.createBuffer({ size: TINT_CAP * 64, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const tdata = new Float32Array(TINT_CAP * 16);
+  let tints = 0;
   const velGain = () => simRes.height / resolution(CONFIG.SIM_RESOLUTION, false).height;
 
   /** Draw the queued splats into the velocity and dye (into `enc`, or into a submission of their own when null). */
   function flush(enc) {
-    if (!splats || !dye) { splats = 0; return; }
+    if (!dye) { splats = 0; tints = 0; return; }
+    if (!splats && !tints) return;
     const own = !enc;
     if (own) enc = device.createCommandEncoder();
-    queue.writeBuffer(sbuf, 0, sdata, 0, splats * 16);
-    const n = splats * (wrapX ? 3 : 1);
-    splats = 0;
-    const draw = (target, pipeline, slot, key) => {
-      const g = bind(pipeline, `${key}`, [uEntry(slot), { binding: 1, resource: { buffer: sbuf } }]);
+    const draw = (target, pipeline, slot, key, buf, count) => {
+      const g = bind(pipeline, `${key}`, [uEntry(slot), { binding: 1, resource: { buffer: buf } }]);
       const p = enc.beginRenderPass({ colorAttachments: [{ view: target.view, loadOp: 'load', storeOp: 'store' }] });
       p.setPipeline(pipeline);
       p.setBindGroup(0, g);
-      p.draw(4, n);
+      p.draw(4, count * (wrapX ? 3 : 1));
       p.end();
     };
-    draw(velocity.read, PL.splatV, SLOT.SPLAT_V, 'splatV');
-    draw(dye.read, PL.splatD, SLOT.SPLAT_D, 'splatD');
+    if (splats) {
+      queue.writeBuffer(sbuf, 0, sdata, 0, splats * 16);
+      const n = splats;
+      splats = 0;
+      draw(velocity.read, PL.splatV, SLOT.SPLAT_V, 'splatV', sbuf, n);
+      draw(dye.read, PL.splatD, SLOT.SPLAT_D, 'splatD', sbuf, n);
+    }
+    if (tints) { // after the splats: a hand's colour is laid over what they added
+      queue.writeBuffer(tbuf, 0, tdata, 0, tints * 16);
+      const n = tints;
+      tints = 0;
+      draw(dye.read, PL.tintD, SLOT.SPLAT_D, 'tintD', tbuf, n);
+    }
     if (own) submit(enc);
   }
 
@@ -467,6 +487,28 @@ export function createFluid(gpu, opts) {
       sdata[o + 4] = full ? 0.5 : x; sdata[o + 5] = y; sdata[o + 6] = full ? 0.5 : hx; sdata[o + 7] = hy;
       sdata[o + 8] = dx * vg; sdata[o + 9] = dy * vg; sdata[o + 10] = 0; sdata[o + 11] = 0;
       sdata[o + 12] = r; sdata[o + 13] = g; sdata[o + 14] = b; sdata[o + 15] = 0;
+    },
+
+    /**
+     * Tint the dye: pull it toward the colour (r, g, b: dye, as for splat) by w (0..1) at the centre of a gaussian splat,
+     * dye' = mix(dye, target, w * gaussian). Queued like a splat, drawn with blend ONE / ONE_MINUS_SRC_ALPHA; the velocity is untouched.
+     */
+    tint(x, y, r, g, b, w, sigma) {
+      if (!(w > 0)) return;
+      if (wrapX) x -= Math.floor(x);
+      else if (x < -0.5 || x > 1.5) return;
+      if (tints === TINT_CAP) flush(null);
+      w = Math.min(w, 1);
+      const radius = 2 * sigma * sigma;
+      const d = Math.sqrt(8 * radius);
+      const m = 2 * Math.max(1 / simRes.width, 1 / dye.width);
+      const hx = d / aspect + m, hy = d + m;
+      const o = tints++ * 16;
+      const full = wrapX && 2 * hx >= 1;
+      tdata[o] = x; tdata[o + 1] = y; tdata[o + 2] = radius; tdata[o + 3] = 0;
+      tdata[o + 4] = full ? 0.5 : x; tdata[o + 5] = y; tdata[o + 6] = full ? 0.5 : hx; tdata[o + 7] = hy;
+      tdata[o + 8] = 0; tdata[o + 9] = 0; tdata[o + 10] = 0; tdata[o + 11] = 0;
+      tdata[o + 12] = r * w; tdata[o + 13] = g * w; tdata[o + 14] = b * w; tdata[o + 15] = w;
     },
 
     /** Advance the simulation by dt seconds. */
@@ -520,7 +562,7 @@ export function createFluid(gpu, opts) {
 
     /** Zero everything (a fresh liquid). */
     clear() {
-      splats = 0;
+      splats = 0; tints = 0;
       const enc = device.createCommandEncoder();
       for (const t of [dye.read, dye.write, velocity.read, velocity.write, pressure.read, pressure.write]) {
         enc.beginRenderPass({ colorAttachments: [{ view: t.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] }).end();
@@ -532,7 +574,7 @@ export function createFluid(gpu, opts) {
     dispose() {
       dye.dispose(); velocity.dispose(); pressure.dispose();
       divergence.texture.destroy(); curl.texture.destroy(); dither.texture.destroy();
-      sbuf.destroy(); ubuf.destroy();
+      sbuf.destroy(); tbuf.destroy(); ubuf.destroy();
       groups.clear();
     },
   };

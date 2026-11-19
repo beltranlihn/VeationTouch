@@ -15,8 +15,10 @@
 import { speakerGains, foldMatrix, dbToLin } from './audio-core.js';
 
 const SMOOTH_S = 0.03;
-const TONE_WALL_HZ = 880, TONE_SUB_HZ = [55, 110];
-const TONE_LEVEL = 0.07; // −23 dBFS before master and limiter: soft
+const TONE_WALL_HZ = 110, TONE_SUB_HZ = [55, 110];
+const TONE_LEVEL = 0.07;        // the sub's tone: −23 dBFS before master and limiter, soft
+const TONE_STRIKES = 3;         // a wall channel's test: three low strikes in the test's second
+const TONE_STRIKE_LEVEL = 0.12; // each strike's peak (before master and limiter)
 
 /** A mono GainNode (anything connected to it is summed down to one channel). */
 function mono(ctx, gain = 1) {
@@ -113,8 +115,10 @@ export async function buildRoomAudio(ctx, cfg, { workletUrl = '/js/audio-worklet
       return h;
     },
     roomInput() {
-      const node = mono(ctx);
-      for (const chans of speakers.values()) for (const c of chans) { const g = mono(ctx, 1 / Math.sqrt(chans.length)); node.connect(g); g.connect(bus[c]); } // equal power per wall
+      // equal power per wall, ONCE per channel: walls that share a channel (one Q-SYS feed for two walls) do not add up on it
+      const node = mono(ctx), level = new Map();
+      for (const chans of speakers.values()) for (const c of chans) level.set(c, Math.max(level.get(c) || 0, 1 / Math.sqrt(chans.length)));
+      for (const [c, v] of level) { const g = mono(ctx, v); node.connect(g); g.connect(bus[c]); }
       if (hasSub) node.connect(subSum);
       return node;
     },
@@ -129,19 +133,41 @@ export async function buildRoomAudio(ctx, cfg, { workletUrl = '/js/audio-worklet
   const smooth = (param, v) => param.setTargetAtTime(v, ctx.currentTime, SMOOTH_S);
   return {
     audio, output: limiter, channels: N, outputChannels: outN, fold, hasSub,
-    /** A short soft tone on ONE logical channel (1-based), after the filters so a wall test is not cut by its high-pass. */
+    /**
+     * A test signal on ONE logical channel (1-based), after the filters so a wall test is not cut by its high-pass.
+     * A wall channel gets low STRIKES (110 Hz with its harmonics, quick attack, ringing down): in a room a strike is placed
+     * at once, a steady high sine is not. The sub keeps its soft low tone.
+     */
     tone(channel, { seconds = 1, at = ctx.currentTime } = {}) {
       const c = channel - 1;
       if (!(c >= 0 && c < N)) return false;
-      const env = mono(ctx, 0), freqs = c === sub ? TONE_SUB_HZ : [TONE_WALL_HZ];
-      const oscs = freqs.map((f, k) => { const o = ctx.createOscillator(); o.frequency.value = f; const g = mono(ctx, k ? 0.5 : 1); o.connect(g); g.connect(env); return o; });
-      env.gain.setValueAtTime(0, at);
-      env.gain.linearRampToValueAtTime(TONE_LEVEL, at + 0.04);
-      env.gain.setValueAtTime(TONE_LEVEL, at + seconds - 0.12);
-      env.gain.linearRampToValueAtTime(0, at + seconds);
+      const env = mono(ctx, 0), parts = [];
+      if (c === sub) {
+        for (const [k, f] of TONE_SUB_HZ.entries()) { const o = ctx.createOscillator(); o.frequency.value = f; const g = mono(ctx, k ? 0.5 : 1); o.connect(g); g.connect(env); parts.push(o); }
+        env.gain.setValueAtTime(0, at);
+        env.gain.linearRampToValueAtTime(TONE_LEVEL, at + 0.04);
+        env.gain.setValueAtTime(TONE_LEVEL, at + seconds - 0.12);
+        env.gain.linearRampToValueAtTime(0, at + seconds);
+      } else {
+        // a struck string-like tone: harmonics 1..12 at 1/n, through a gentle low-pass, struck STRIKES times
+        const real = new Float32Array(13), imag = new Float32Array(13);
+        for (let n = 1; n <= 12; n++) imag[n] = 1 / n;
+        const o = ctx.createOscillator(); o.setPeriodicWave(ctx.createPeriodicWave(real, imag)); o.frequency.value = TONE_WALL_HZ;
+        const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2500; lp.Q.value = 0.5;
+        o.connect(lp); lp.connect(env); parts.push(o);
+        const every = seconds / TONE_STRIKES;
+        env.gain.setValueAtTime(0, at);
+        for (let k = 0; k < TONE_STRIKES; k++) {
+          const t = at + k * every;
+          env.gain.linearRampToValueAtTime(TONE_STRIKE_LEVEL, t + 0.004);
+          env.gain.setTargetAtTime(0, t + 0.004, every / 5);
+          if (k + 1 < TONE_STRIKES) env.gain.setValueAtTime(TONE_STRIKE_LEVEL * Math.exp(-5 * (every - 0.006) / every), t + every - 0.002);
+        }
+        env.gain.setTargetAtTime(0, at + seconds, 0.01);
+      }
       env.connect(post[c]);
-      for (const o of oscs) { o.start(at); o.stop(at + seconds + 0.02); }
-      oscs[0].onended = () => { env.disconnect(); };
+      for (const o of parts) { o.start(at); o.stop(at + seconds + 0.08); }
+      parts[0].onended = () => { env.disconnect(); };
       return true;
     },
     /** The pieces' level to `to` (0..1) over `ms` (start / stop fades). */

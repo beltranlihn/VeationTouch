@@ -527,7 +527,7 @@ async function connectSound(id) {
     const P = store.state.profile;
     // hands are tracked in a canvas-pixel space (it makes a hand crossing the seam of a closed room one stroke); only u / v leave
     vt.canvas = { ...P.canvas }; vt.scale = 1; vt.size = { width: P.canvas.width, height: P.canvas.height };
-    vt.walls = P.walls.map((w) => ({ id: w.id, name: w.name }));
+    vt.walls = P.walls.map((w) => ({ id: w.id, name: w.name, width: w.width, height: w.height })); // metres: a piece maps heights in metres (a hand reaches ~2.1 m, whatever the wall)
     vt.closedLoop = geo.planCloses(P.walls);
     setParams(vt, paramValues());
   };

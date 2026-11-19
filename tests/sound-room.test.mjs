@@ -22,7 +22,7 @@ const opt = { skip: !electronPath && 'electron is not installed' };
 
 // XR Lab as its profile has it: the walls in order and the audio block (P4, P1, P2, P3 → 1–4, sub on 5 at 90 Hz)
 const XR = normalizeProfile(JSON.parse(fs.readFileSync(path.join(root, 'profiles', 'xrlab.json'), 'utf8')));
-const ROOM = { ...XR.audio, master: 1, mute: false, walls: XR.walls.map((w) => ({ id: w.id, name: w.name })), fold: false };
+const ROOM = { ...XR.audio, master: 1, mute: false, walls: XR.walls.map((w) => ({ id: w.id, name: w.name, width: w.width, height: w.height })), fold: false };
 
 async function inAudioPage(script) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-soundroom-'));
@@ -58,13 +58,14 @@ const { makeHands } = await import('/experiences/runtime.js');
 const piece = (await import('/experiences/ambient-notes/sound.js')).default;
 const T = await import('/experiences/ambient-notes/test-host.js');
 const SR = 48000, ROOM = ${JSON.stringify(ROOM)}, DEF = await T.manifestDefaults();
-const WALLS = ROOM.walls, CH = ROOM.channels, SUB = ROOM.sub.channel - 1;
+const WALLS = ROOM.walls, CH = ROOM.channels, SUB = ROOM.sub.channel ? ROOM.sub.channel - 1 : -1;
+const USED = [...new Set(Object.values(ROOM.map).flat())].map((c) => c - 1);
 const chOf = (wallId) => ROOM.map[wallId].map((c) => c - 1);
 
 // the runtime's side of the contract, without an engine: params, walls, on / emit (makeHands emits into it)
 function hub(params) {
   const L = {}, log = [];
-  return { params, walls: WALLS.map(({ id, name }) => ({ id, name })), closedLoop: false, size: { width: 4000, height: 500 }, log,
+  return { params, walls: WALLS.map(({ id, name, width, height }) => ({ id, name, width, height })), closedLoop: false, size: { width: 4000, height: 500 }, log,
     on(t, fn) { (L[t] ||= new Set()).add(fn); return () => L[t].delete(fn); },
     emit(t, e) { if (t === 'touch') log.push(e.type); for (const fn of [...(L[t] || [])]) fn(e); },
     hands: () => [] };
@@ -114,7 +115,7 @@ test('room sound: a touch on P2 sounds only on P2\'s channels (XR Lab map, real 
       if (own.includes(c) || c === r.sub) return;
       assert.ok(v < mine * 0.003, `${name}: channel ${c + 1} (another wall) stays silent: ${v} vs ${mine} (below −50 dB)`);
     });
-    assert.ok(rms[r.sub] < mine * 0.1, `${name}: the sub only gets the note's low end (${rms[r.sub]})`);
+    if (r.sub >= 0) assert.ok(rms[r.sub] < mine * 0.1, `${name}: the sub only gets the note's low end (${rms[r.sub]})`);
   }
 });
 
@@ -132,13 +133,13 @@ test('room sound: 20 hands at once with every volume up stay below the ceiling �
     const inst = await piece({ ...fake, audio: heat(fake.audio, fake.ctx, 10) });
     twenty((t, e) => fake.touch(t, e.type, e));
     const raw = await fake.render(); await inst.stop(0);
-    return { plain: peakOf(plain.ch), hot: peakOf(hot.ch), unlimited: peakOf(raw), notes: rmsAll(plain.ch, 1, 2.5), ceiling: 10 ** (ROOM.ceilingDb / 20) };`);
+    return { plain: peakOf(plain.ch), hot: peakOf(hot.ch), unlimited: peakOf(raw), notes: rmsAll(plain.ch, 1, 2.5), used: USED, ceiling: 10 ** (ROOM.ceilingDb / 20) };`);
   assert.ok(r.unlimited > 1.2, `without a limiter the hot piece goes far over full scale (${r.unlimited}) — so the check below means something`);
   for (const k of ['plain', 'hot']) {
     assert.ok(r[k] < 1, `${k}: the peak stays below 0 dBFS (${r[k]})`);
     assert.ok(r[k] <= r.ceiling + 1e-4, `${k}: and below the profile's ceiling (${r[k]} ≤ ${r.ceiling})`);
   }
-  assert.ok(r.notes.slice(0, 4).every((v) => v > 1e-3), `every wall plays (${r.notes})`);
+  r.used.forEach((c) => assert.ok(r.notes[c] > 1e-3, `every channel of the map plays (${c + 1}: ${r.notes})`));
 });
 
 test('room sound: a pass the tracker splits into 3 ids is ONE note — the runtime stitches it, the piece plays it once', opt, async () => {
@@ -194,4 +195,20 @@ test('room sound: a pass the tracker splits into 3 ids is ONE note — the runti
   // the control: without the runtime's stitching the same pass would be three notes
   assert.equal(count(r.rawLog, 'down'), 3);
   assert.ok(r.maxRaw >= 2, `tracker ids as strokes overlap into several voices (${r.maxRaw})`);
+});
+
+test('room sound: on XR Lab\'s walls (3.5 m tall, from the profile) a hand at 2.1 m plays the TOP note and one at 0.3 m the lowest', opt, async () => {
+  const r = await inAudioPage(`
+    const { scaleLadder } = await import('/experiences/ambient-notes/theory.js');
+    const p2 = WALLS.find((w) => w.id === 'P2');
+    let notes = null;
+    await roomRender({ seconds: 1, params: { padVolume: 0, key: 'D', scale: 'minor-pentatonic', lowOctave: 3, octaves: 4 } }, ({ vt, inst, at }) => {
+      at(0.1, () => vt.emit('touch', { type: 'down', stroke: 1, wallId: 'P2', u: 0.5, v: 2.1 / p2.height, size: 0.1 }));
+      at(0.1, () => vt.emit('touch', { type: 'down', stroke: 2, wallId: 'P4', u: 0.5, v: 0.3 / WALLS.find((w) => w.id === 'P4').height, size: 0.1 }));
+      at(0.3, () => { notes = [inst._debug.midiOf(1), inst._debug.midiOf(2)]; });
+    });
+    const ladder = scaleLadder('D', 'minor-pentatonic', 3, 4);
+    return { height: p2.height, notes, top: ladder[ladder.length - 1], bottom: ladder[0] };`);
+  assert.equal(r.height, 3.5, 'the wall\'s height comes from the profile');
+  assert.deepEqual(r.notes, [r.top, r.bottom], `2.1 m → the top note, 0.3 m → the lowest (${r.notes} vs ${r.top}, ${r.bottom})`);
 });

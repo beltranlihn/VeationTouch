@@ -129,6 +129,26 @@ test('devices: labels map to logical channels in order — pairs, a mix of chann
   assert.deepEqual(twice.sinks.map((s) => s.missing), [false, true], 'the same pair cannot be used for two outputs');
 });
 
+test('devices: the real DVS names at XR Lab (16×16, a DOUBLE space before the pair, Windows defaulting to 15-16) map 1-2 / 3-4 / 5-6 in order', () => {
+  const pairs = ['1-2', '3-4', '5-6', '7-8', '9-10', '11-12', '13-14', '15-16'];
+  const found = [
+    { deviceId: 'default', label: 'Default - DVS Transmit 15-16 (Dante Virtual Soundcard)', channels: 2 },
+    ...pairs.map((p, k) => ({ deviceId: `dvs${k}`, label: `DVS Transmit ${parseInt(p, 10) < 10 ? ' ' : ''}${p} (Dante Virtual Soundcard)`, channels: 2 })),
+    { deviceId: 'spk', label: 'Speakers (Realtek(R) Audio)', channels: 2 },
+  ];
+  assert.ok(found[1].label.includes('Transmit  1-2'), 'the fixture has the double space the room showed');
+  for (const wanted of [
+    ['DVS Transmit  1-2 (Dante Virtual Soundcard)', 'DVS Transmit  3-4 (Dante Virtual Soundcard)', 'DVS Transmit  5-6 (Dante Virtual Soundcard)'], // as picked in the card
+    ['DVS Transmit 1-2', 'DVS Transmit 3-4', 'DVS Transmit 5-6'],                                                                         // as typed with one space
+  ]) {
+    const L = layoutDevices(wanted, found);
+    assert.equal(L.fold, false);
+    assert.deepEqual(L.sinks.map((s) => [s.deviceId, s.first, s.count, s.missing]), [['dvs0', 0, 2, false], ['dvs1', 2, 2, false], ['dvs2', 4, 2, false]], `${wanted[0]}: the pairs in order, never the default (15-16)`);
+  }
+  assert.equal(matchDevice('DVS Transmit 1-2', found).deviceId, 'dvs0', '"1-2" is not "11-12"');
+  assert.equal(matchDevice('DVS Transmit 11-12', found).deviceId, 'dvs5');
+});
+
 test('devices: no device chosen → the default device in stereo, folded', () => {
   for (const none of [[], undefined, ['', '  ']]) {
     const L = layoutDevices(none, DEVICES);
@@ -294,15 +314,18 @@ test('audio profile: defaults, migration of a profile saved before audio, clampi
   assert.deepEqual(normAudio({ channels: 3, map: {} }, normalizeProfile({ walls }).walls).map, {}, 'an explicit empty map means no wall has a speaker');
 });
 
-test('audio profile: XR Lab has its map as data (4 walls → channels 1–4 in profile order, sub on 5 at 90 Hz); the simulated room has audio off', () => {
+test('audio profile: XR Lab has the map found in the room as data (Q-SYS feeds: P4 → 1, P1 → 3, P2 and P3 share 2, no sub, no high-pass); the simulated room has audio off', () => {
   const load = (f) => normalizeProfile(JSON.parse(fs.readFileSync(path.join(root, 'profiles', f), 'utf8')));
   const xr = load('xrlab.json'), sim = load('xrlab-sim.json');
   assert.deepEqual(xr.walls.map((w) => w.id), ['P4', 'P1', 'P2', 'P3']);
-  assert.deepEqual(xr.audio.map, { P4: [1], P1: [2], P2: [3], P3: [4] });
-  assert.deepEqual(xr.audio.sub, { channel: 5, crossoverHz: 90 });
-  assert.equal(xr.audio.channels, 5);
+  assert.deepEqual(xr.audio.map, { P4: [1], P1: [3], P2: [2], P3: [2] }, 'two walls on one channel is kept, not deduplicated');
+  assert.deepEqual(xr.audio.sub, { channel: null, crossoverHz: 90 }, 'the room has no sub');
+  assert.equal(xr.audio.wallHighpassHz, 0);
+  assert.deepEqual(xr.audio.devices, ['DVS Transmit  1-2 (Dante Virtual Soundcard)', 'DVS Transmit  3-4 (Dante Virtual Soundcard)', 'DVS Transmit  5-6 (Dante Virtual Soundcard)'], 'the DVS pairs by their exact names (double space)');
+  assert.equal(xr.audio.channels, 6);
+  assert.equal(xr.audio.master, 0.3, 'the level tested in the room');
+  assert.deepEqual([xr.audio.on, xr.audio.sound.id, xr.audio.sound.autostart], [true, 'ambient-notes', true], 'Ambient notes starts with the app, with Alma liquid');
   assert.equal(sim.audio.on, false);
-  assert.equal(xr.audio.on, false, 'and so does XR Lab until the operator turns it on and chooses the devices');
 });
 
 // ---------------------------------------------------------------------------------------------- engine
@@ -477,6 +500,36 @@ test('audio engine: the audio window\'s report is cleaned up, announced when som
     await E.command('audio.set', { on: false });
     assert.deepEqual(await E.command('audio.report', rep), {}, 'a report while audio is off is ignored');
     assert.equal(E.state().audio.running, false);
+  } finally { await done(t); }
+});
+
+test('audio engine: underruns (short cuts in the sound) are counted per output in the state and every new one goes to the log', async () => {
+  const t = setup({ audio: { on: true } });
+  const warns = [];
+  t.engine.log = { ...quiet, warn: (m) => warns.push(m) };
+  t.engine.start();
+  try {
+    const E = t.engine;
+    const sinks = (a, b) => [{ label: 'DVS Transmit  1-2 (Dante Virtual Soundcard)', first: 0, count: 2, state: 'play', underruns: a },
+      { label: 'DVS Transmit  3-4 (Dante Virtual Soundcard)', first: 2, count: 2, state: 'play', underruns: b }];
+    const rep = (a, b) => ({ devices: [], sinks: sinks(a, b), logical: 4, available: 4, peakDb: -20, isolated: true, sound: { active: true, id: 'tone' } });
+    await E.command('audio.report', rep(0, 0));
+    assert.deepEqual(warns, [], 'nothing to say while nothing is cut');
+    let states = 0; E.on('state', () => states++);
+    await E.command('audio.report', rep(0, 3));
+    assert.deepEqual(E.state().audio.sinks.map((k) => k.underruns), [0, 3], 'per output, in the state (the card shows it)');
+    assert.ok(states >= 1, 'a new underrun is a new state');
+    assert.equal(warns.length, 1);
+    assert.match(warns[0], /3 underruns on "DVS Transmit {2}3-4 \(Dante Virtual Soundcard\)"/);
+    await E.command('audio.report', rep(0, 3));
+    assert.equal(warns.length, 1, 'the same count is not logged again');
+    await E.command('audio.report', rep(1, 5));
+    assert.equal(warns.length, 3);
+    assert.match(warns[1], /1 underrun on "DVS Transmit {2}1-2/);
+    assert.match(warns[2], /2 underruns on "DVS Transmit {2}3-4.*5 since it opened/);
+    await E.command('audio.report', rep(0, 0)); // the outputs were reopened (a new map): their counts start again
+    await E.command('audio.report', rep(0, 1));
+    assert.equal(warns.length, 4, 'after a reopen a new underrun is logged again');
   } finally { await done(t); }
 });
 

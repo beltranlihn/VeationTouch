@@ -149,12 +149,58 @@ test('audio graph: a test tone sounds on ONE logical channel — the sub too —
     return { t2: await tone(2), t4: await tone(4), sub: await tone(5), nosub: await tone(2, { channels: 4, sub: { channel: null, crossoverHz: 90 } }), faded, none };`);
   assert.deepEqual(errors, [], errors.join(' | '));
   for (const [name, k] of [['t2', 1], ['t4', 3], ['sub', 4]]) {
-    result[name].rms.forEach((v, c) => (c === k ? assert.ok(v > 0.03, `${name}: channel ${c + 1} sounds (${v})`) : assert.ok(v < 1e-3, `${name}: channel ${c + 1} is silent (${v})`)));
+    result[name].rms.forEach((v, c) => (c === k ? assert.ok(v > 0.01, `${name}: channel ${c + 1} sounds (${v})`) : assert.ok(v < 1e-3, `${name}: channel ${c + 1} is silent (${v})`)));
   }
   assert.ok(result.t2.peak < 0.2, 'soft');
   assert.equal(result.nosub.rms.length, 4);
-  assert.ok(result.faded[2] > 0.03, 'the pieces\' fade does not mute a test tone');
+  assert.ok(result.faded[2] > 0.01, 'the pieces\' fade does not mute a test tone');
   assert.ok(result.none.every((v) => v === 0), 'a channel that does not exist plays nothing');
+});
+
+test('audio graph: a wall\'s test signal is a LOW STRIKE with harmonics (placed at once in a room), not a steady high sine; the sub keeps its low tone', opt, async () => {
+  const { result, errors } = await inUi(`${PRE}
+    const one = async (ch) => {
+      const ctx = new OfflineAudioContext(5, 48000, 48000);
+      const room = await buildRoomAudio(ctx, BASE, {});
+      room.tone(ch, { at: 0 });
+      room.output.connect(ctx.destination);
+      return (await ctx.startRendering()).getChannelData(ch - 1);
+    };
+    const goertzel = (d, f, a = 0, b = d.length) => { const w = 2 * Math.PI * f / 48000, cw = 2 * Math.cos(w); let s1 = 0, s2 = 0;
+      for (let i = a; i < b; i++) { const s = d[i] + cw * s1 - s2; s2 = s1; s1 = s; } return Math.sqrt(Math.max(0, s1 * s1 + s2 * s2 - cw * s1 * s2)) / (b - a); };
+    const peakIn = (d, t0, t1) => { let m = 0; for (let i = Math.floor(t0 * 48000); i < Math.floor(t1 * 48000); i++) m = Math.max(m, Math.abs(d[i])); return m; };
+    const wall = await one(2), sub = await one(5);
+    const bins = (d) => Object.fromEntries([55, 110, 220, 330, 880].map((f) => [f, goertzel(d, f)]));
+    return { wall: bins(wall), sub: bins(sub), first: peakIn(wall, 0, 0.012), all: peakIn(wall, 0, 1), before2nd: peakIn(wall, 0.29, 0.33), second: peakIn(wall, 0.334, 0.36),
+             subSteady: peakIn(sub, 0.45, 0.55) / peakIn(sub, 0.1, 0.2) };`);
+  assert.deepEqual(errors, [], errors.join(' | '));
+  const w = result.wall;
+  assert.ok(w[110] > w[880] * 4 && w[110] > w[55] * 4, `the fundamental is 110 Hz (${JSON.stringify(w)})`);
+  assert.ok(w[220] > w[110] * 0.25 && w[330] > w[110] * 0.15, `with its harmonics (${JSON.stringify(w)})`);
+  assert.ok(result.first > result.all * 0.6, `struck: loud within the first 12 ms (${result.first} of ${result.all})`);
+  assert.ok(result.before2nd < result.all * 0.15 && result.second > result.all * 0.6, `it rings down and is struck again (${result.before2nd} → ${result.second})`);
+  assert.ok(result.sub[55] > result.sub[880] * 10 && result.subSteady > 0.8, `the sub keeps a steady low tone (${JSON.stringify(result.sub)})`);
+});
+
+test('audio graph: walls that SHARE a channel (one feed for two walls, no sub, no high-pass) — each wall sounds there, the pad is not doubled on it', opt, async () => {
+  const { result, errors } = await inUi(`${PRE}
+    // the map set at XR Lab: P4 → 1, P1 → 3, P2 and P3 both → 2, no sub, wall high-pass off
+    const shared = { channels: 4, map: { P4: [1], P1: [3], P2: [2], P3: [2] }, sub: { channel: null, crossoverHz: 90 }, wallHighpassHz: 0,
+      walls: [{ id: 'P4', name: 'P4' }, { id: 'P1', name: 'P1' }, { id: 'P2', name: 'P2' }, { id: 'P3', name: 'P3' }] };
+    const out = {};
+    out.p3 = (await render(shared, (r, c) => osc(c, 1000, 0.5, r.audio.wallInput('P3').node))).rms;
+    out.p1 = (await render(shared, (r, c) => osc(c, 1000, 0.5, r.audio.wallInput('P1').node))).rms;
+    out.room = (await render(shared, (r, c) => osc(c, 1000, 0.5, r.audio.roomInput()))).rms;
+    out.low = (await render(shared, (r, c) => osc(c, 60, 0.5, r.audio.subInput()))).rms;
+    out.walls = await render(shared, (r) => { out.listed = r.audio.walls; }).then(() => out.listed);
+    return out;`);
+  assert.deepEqual(errors, [], errors.join(' | '));
+  const only = (rms, k) => rms.forEach((v, c) => (c === k ? assert.ok(Math.abs(v - 0.35) < 0.04, `channel ${c + 1} carries it (${v})`) : assert.ok(v < 1e-3, `channel ${c + 1} is silent (${v})`)));
+  only(result.p3, 1); only(result.p1, 2);
+  [0, 1, 2].forEach((c) => assert.ok(Math.abs(result.room[c] - 0.35) < 0.04, `the pad is at the same level on channel ${c + 1} (${result.room.map((v) => v.toFixed(3))}) — not doubled where two walls share`));
+  assert.ok(result.room[3] < 1e-3, 'a channel no wall uses stays silent');
+  assert.ok([0, 1, 2].every((c) => result.low[c] > 0.05) && result.low[3] < 1e-3, `no sub: the low end is heard on the walls' channels (${result.low})`);
+  assert.deepEqual(result.walls.map((w) => w.id), ['P4', 'P1', 'P2', 'P3'], 'every wall is there for the pieces');
 });
 
 test('audio graph: with no multichannel device the channels fold into left and right — walls in order from left to right, the sub in both', opt, async () => {
@@ -219,7 +265,7 @@ test('audio chain: the ring writer worklet puts each logical channel on its own 
 });
 
 test('sound mode of the runtime, against a live engine: a hand lands as a down with wall, u, v and size; params follow the profile', opt, async () => {
-  const { result, errors } = await inUi(`
+  const { result, errors, engine } = await inUi(`
     const { connectExperience } = await import('/experiences/runtime.js');
     const vt = await connectExperience({ sound: true, id: 'tone' });
     const events = [];
@@ -238,6 +284,8 @@ test('sound mode of the runtime, against a live engine: a hand lands as a down w
   assert.deepEqual(errors, [], errors.join(' | '));
   assert.equal(result.sink, 'sound');
   assert.deepEqual(result.walls.map((w) => w.id), ['P4', 'P1', 'P2', 'P3']);
+  const prof = engine.profile.walls;
+  assert.deepEqual(result.walls.map((w) => [w.width, w.height]), prof.map((w) => [w.width, w.height]), 'each wall\'s size in metres, from the profile (a piece maps heights in metres)');
   assert.equal(result.closed, true);
   assert.deepEqual(result.keys.filter((k) => !['size,stroke,type,u,v,wallId'].includes(k)), [], 'every event has the contract\'s shape and nothing else');
   const downs = result.events.filter((e) => e.type === 'down');
@@ -306,4 +354,37 @@ test('audio card: faders (no range inputs), Test per channel sends audio.test, t
   assert.ok(locked.result.selects.length && locked.result.selects.every(Boolean) && locked.result.chips, 'the setup is locked');
   assert.ok(locked.result.master, 'master is outside the locked setup');
   assert.ok(locked.result.note);
+});
+
+test('audio window: a real dropout (the synthesis stalls, the device runs dry) reaches the engine\'s state and its log', opt, async () => {
+  const warns = [];
+  const { result, errors, engine } = await inUi(`
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let k = 0; k < 80 && !(window.__vtAudio?.room?.sinks?.[0]?.state === 'play'); k++) await wait(100);
+    const room = window.__vtAudio.room, before = room.sinks[0].underruns;
+    await room.synth.suspend(); await wait(400); await room.synth.resume(); // the writer stops: the device's ring runs dry
+    await wait(1600);                                                        // a report or two (every 500 ms)
+    return { state: room.sinks[0].state, before, after: room.sinks[0].underruns };`,
+  { page: '/audio', wait: 'load', setup: async (e) => { e.log = { ...e.log, warn: (m) => warns.push(m) }; await e.command('audio.set', { on: true }); } });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.equal(result.before, 0);
+  assert.ok(result.after >= 1, `the device counted the cut (${result.after})`);
+  const sinks = engine.aud.report?.sinks || [];
+  assert.ok(sinks[0]?.underruns >= 1, `the engine has it, per output (${JSON.stringify(sinks)})`);
+  assert.ok(warns.some((m) => /underrun.* on "Default device"/.test(m)), `and it is in the log (${warns.join(' | ')})`);
+});
+
+test('audio card: dropouts (underruns) show on the output that had them and in the status line', opt, async () => {
+  const D1 = 'DVS Transmit  1-2 (Dante Virtual Soundcard)', D2 = 'DVS Transmit  3-4 (Dante Virtual Soundcard)';
+  const report = (a, b) => ({ devices: [{ label: D1, channels: 2 }, { label: D2, channels: 2 }], logical: 4, available: 4, fold: false, peakDb: -18, isolated: true,
+    sinks: [{ label: D1, first: 0, count: 2, state: 'play', underruns: a }, { label: D2, first: 2, count: 2, state: 'play', underruns: b }] });
+  const { result, errors } = await inUi(`
+    const v = window.__vt; v.go('experiences');
+    await new Promise((r) => setTimeout(r, 500));
+    const card = document.querySelector('[data-card="audio"]');
+    return { drops: [...card.querySelectorAll('[data-drop]')].map((e) => [e.dataset.drop, e.textContent.trim(), getComputedStyle(e).color]) };`,
+  { setup: async (e) => { await e.command('audio.set', { on: true, devices: [D1, D2] }); await e.command('audio.report', report(0, 3)); } });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.deepEqual(result.drops.map((d) => d.slice(0, 2)).sort(), [['2', '3 dropouts'], ['total', '· 3 dropouts']], `only the output that had them, and the total (${JSON.stringify(result.drops)})`);
+  assert.ok(result.drops.every((d) => d[2] === 'rgb(229, 181, 103)'), 'in amber: it needs attention');
 });

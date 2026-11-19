@@ -38,7 +38,8 @@ export default async function start(host) {
 
 ## `vt` (the runtime in sound mode: `experiences/runtime.js`)
 - `vt.params`, `vt.on('params', fn)` — as for visual experiences.
-- `vt.walls` — `[{ id, name }]`; `vt.closedLoop`.
+- `vt.walls` — `[{ id, name, width, height }]` (metres, from the profile: a hand reaches ~2.1 m up a wall whatever its
+  height, so a piece that maps height to something works in metres, `v × height`); `vt.closedLoop`.
 - `vt.hands()` → `[{ stroke, wallId, u, v, size }]`: the hands down now. `u` 0..1 along the wall (left → right seen
   from the room), `v` 0..1 height (0 = floor, 1 = top of the wall), `size` in metres.
 - `vt.on('touch', e)` with `e = { type: 'down' | 'move' | 'up', stroke, wallId, u, v, size }`:

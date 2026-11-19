@@ -222,7 +222,8 @@ function report() {
   const iso = !crossOriginIsolated ? 'This page is not cross-origin isolated, so the audio contexts cannot share memory (the server must send COOP and COEP).' : null;
   cmd('audio.report', {
     devices: devices.map((d) => ({ label: d.label, channels: d.channels, default: d.default })),
-    sinks: (room?.sinks || []).map((s) => ({ label: s.label, first: s.first, count: s.count, missing: s.missing, error: s.error, state: s.state })),
+    // underruns: blocks a device found its ring short of (it played silence: a short cut in the sound), since it opened
+    sinks: (room?.sinks || []).map((s) => ({ label: s.label, first: s.first, count: s.count, missing: s.missing, error: s.error, state: s.state, underruns: s.underruns || 0 })),
     logical: A().channels, available: room?.layout.total ?? 0, fold: room ? room.layout.fold : A().devices.length === 0,
     peakDb: peak > 0 ? linToDb(peak) : -120, rate: room?.synth.sampleRate ?? 0, isolated: !!crossOriginIsolated,
     error: error || iso,

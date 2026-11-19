@@ -1183,7 +1183,7 @@ export class Engine extends EventEmitter {
     const peak = Number(r.peakDb);
     const rep = {
       devices: list(r.devices, (d) => ({ label: txt(d?.label), channels: num(d?.channels), default: !!d?.default })),
-      sinks: list(r.sinks, (k) => ({ label: txt(k?.label), first: num(k?.first), count: num(k?.count), missing: !!k?.missing, error: txt(k?.error) || null, state: txt(k?.state, 20) })),
+      sinks: list(r.sinks, (k) => ({ label: txt(k?.label), first: num(k?.first), count: num(k?.count), missing: !!k?.missing, error: txt(k?.error) || null, state: txt(k?.state, 20), underruns: num(k?.underruns) })),
       logical: num(r.logical), available: num(r.available), fold: !!r.fold,
       peakDb: Number.isFinite(peak) ? Math.max(-120, Math.min(6, Math.round(peak / 3) * 3)) : null, // 3 dB steps: a number that changes with every beat would rebuild the UI
       rate: num(r.rate), isolated: r.isolated !== false,
@@ -1195,6 +1195,14 @@ export class Engine extends EventEmitter {
     if (rep.error && rep.error !== this.aud.lastError) this.log.warn(`room audio: ${rep.error}`);
     if (rep.sound.error && rep.sound.error !== this.aud.lastSoundError) this.log.warn(`sound "${rep.sound.id}": ${rep.sound.error}`);
     this.aud.lastError = rep.error; this.aud.lastSoundError = rep.sound.error;
+    // an underrun is a short cut in the sound (a device found nothing to play for a moment): every one goes to the log, so a
+    // cut heard in the room can be found afterwards. Counts are per output since it opened (a reopened one starts at 0).
+    const seen = this.aud.underruns || (this.aud.underruns = new Map());
+    for (const k of rep.sinks) {
+      const was = seen.get(k.label) ?? 0;
+      if (k.underruns > was) this.log.warn(`room audio: ${k.underruns - was} underrun${k.underruns - was === 1 ? '' : 's'} on "${k.label}" (a short cut in the sound; ${k.underruns} since it opened)`);
+      seen.set(k.label, k.underruns);
+    }
     if (JSON.stringify(rep) !== before) this.emit('state');
   }
 

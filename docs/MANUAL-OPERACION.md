@@ -440,6 +440,8 @@ WebGL2 de respaldo) sobre toda la tira de muros, con los valores de la web. Las 
 logo flota en el muro elegido. La mano:
 - Al moverse por el muro, pinta y empuja el líquido como el ratón en la web, con más color (**Touch intensity**).
 - Al apoyarse quieta deja una mancha suave y va respirando color (**Touch presence**; 0 = como en la web).
+- **Touch colour**: con «Palette» cada trazo toma un color de la paleta, como en la web. Con un color fijo (índigo,
+  púrpura, periwinkle o rosa) la mano tiñe de ese color el líquido que empuja, así el trazo se ve claramente de ese color.
 - **Sigue a la mano con unos 0,15 s de retraso, a propósito.** Los sensores leen la mano sólo unas 10 veces por
   segundo, así que el trazo se dibuja sobre una curva suave entre lecturas reales, sin tirones.
 - Si el sensor pierde una lectura o el seguimiento cambia de identificador, sigue siendo el mismo trazo: no salta,
@@ -504,20 +506,30 @@ y **Start with the app**.
    ordenador (los canales se reparten de izquierda a derecha y el sub va a los dos lados): sirve para probar en el portátil.
 2. **Dispositivos.** Debajo de **Devices** aparecen todas las salidas del ordenador con su número de canales. Con
    **Dante Virtual Soundcard en modo WDM, Windows no ve un dispositivo de 8 canales, sino varios estéreo**: «DVS Transmit 1-2»,
-   «3-4», «5-6»… Se añaden en **Outputs** en orden con **Add device**: los canales lógicos van encadenados (el primer par
+   «3-4», «5-6»… (en XR Lab se llaman «DVS Transmit  1-2 (Dante Virtual Soundcard)», con dos espacios: la app los
+   reconoce igual). Se añaden en **Outputs** en orden con **Add device**: los canales lógicos van encadenados (el primer par
    son los canales 1 y 2, el segundo el 3 y 4…). Los dispositivos se guardan por su nombre. Si uno no está, la tarjeta lo
-   dice («not found»), su par queda en silencio y los demás siguen con sus canales.
+   dice («not found»), su par queda en silencio y los demás siguen con sus canales. Al arrancar DVS, Windows suele poner
+   «DVS Transmit 15-16» como salida por defecto: no importa, la app no usa la salida por defecto cuando hay dispositivos
+   elegidos.
 3. **Mapa.** En **Walls**, cada muro marca el canal (o canales) de sus altavoces; si tiene varios, van de izquierda a
-   derecha, vistos desde dentro, en orden de canal. **Sub channel** y **Crossover** definen el sub (todo lo grave va a él);
+   derecha, vistos desde dentro, en orden de canal. Dos muros pueden compartir canal (un mismo envío del Q-SYS para los
+   dos): cada uno suena allí y el pad no se duplica. **Sub channel** y **Crossover** definen el sub (todo lo grave va a él;
+   **No sub** si la sala no tiene, y el grave queda en los muros);
    **Wall high-pass** quita el grave a los muros (conviene la misma frecuencia que el crossover; 0 = sin filtro).
    **Limiter ceiling** es el techo del limitador, que está siempre activo y nunca deja pasar más de −1 dBFS.
-   En XR Lab el perfil trae los muros en los canales 1 a 4 y el sub en el 5, pero **los números reales dependen de la
-   programación de Q-SYS**: hay que comprobarlos.
-4. **Test.** Cada canal tiene un botón **Test** que emite un tono suave de 1 s sólo por ese canal (el sub incluido, con un
-   tono grave): sirve para saber qué altavoz es cuál y corregir el mapa.
-5. **Master** y **Mute** ajustan el volumen general, también en modo Show. En modo **Show** quedan bloqueados los
+   **Los números reales dependen de la programación de Q-SYS**: hay que comprobarlos con Test. En XR Lab (comprobado en la
+   sala) el Q-SYS no tiene un altavoz por canal: canal 1 = izquierdo + frontal, canal 2 = trasero + derecho, canal 3 =
+   frontal, nada del 4 al 8 y sin sub. El perfil trae P4 → 1, P1 → 3, P2 y P3 → 2, sin sub y Wall high-pass 0.
+4. **Test.** Cada canal tiene un botón **Test** que da tres golpes graves en un segundo (110 Hz con armónicos) sólo por ese
+   canal: un golpe se localiza en la sala al momento, un pitido agudo no. El sub da un tono grave continuo. Sirve para
+   saber qué altavoz es cuál y corregir el mapa.
+5. **Cortes (dropouts).** Si una salida se queda un instante sin sonido que reproducir (un corte breve), la tarjeta lo
+   cuenta en ámbar junto a esa salida y en la línea de estado, y cada corte queda en el registro (engine.log, «underrun on
+   …»). Si se oye un corte en la sala, ahí se ve cuándo y en qué salida fue.
+6. **Master** y **Mute** ajustan el volumen general, también en modo Show. En modo **Show** quedan bloqueados los
    dispositivos, el mapa, los filtros y Test; se puede reproducir, parar y mover parámetros.
-6. Sin la app de escritorio hay que abrir la página de audio en una pestaña del navegador y dejarla abierta (y pulsar
+7. Sin la app de escritorio hay que abrir la página de audio en una pestaña del navegador y dejarla abierta (y pulsar
    una vez en ella).
 
 **Ambient notes.** Un colchón (pad) suena siempre de fondo en toda la sala y cada persona que toca un muro toca una nota
@@ -527,7 +539,10 @@ de la escala; la posición a lo largo del muro la reparte entre los altavoces de
 defecto las personas mandan: el pad va bajo (20 %) y las notas altas (85 %), así un toque queda claramente por encima.
 Parámetros:
 - **Key** y **Scale**: tonalidad y escala (pentatónica por defecto: cualquier combinación de notas suena bien).
-- **Lowest octave** y **Note range**: desde qué octava y cuántas octavas abarca la altura del muro.
+- **Lowest octave** y **Note range**: desde qué octava y cuántas octavas (hasta 5) abarca la escala.
+- **Reach height** y **Floor margin**: entre qué alturas, en metros, cabe TODA la escala (2,1 m y 0,3 m por defecto, sea
+  cual sea la altura del muro). A la altura que alcanza la mano suena la nota más aguda; por encima, también. Si la gente
+  no llega a las agudas, se baja Reach height.
 - **Attack**: lo que tarda el golpe de la nota, en milisegundos (5 ms por defecto; corto para que el toque se sienta).
 - **Swell**: lo que tarda en crecer la nota mientras la mano sigue en el muro.
 - **Release**: lo que dura la cola al soltar.

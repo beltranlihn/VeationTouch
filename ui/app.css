@@ -417,6 +417,7 @@ kbd{font:500 11px/1 Geist, system-ui;color:var(--ink);background:var(--s2);borde
 .au-ch .who small{display:block;color:var(--ink-3);font-size:var(--fs-s);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .au-slot{display:flex;align-items:center;gap:var(--sp-8);}
 .au-slot .row{flex:1;min-width:0;}
+.au-drop{color:var(--attn);white-space:nowrap;}
 .au-chips{display:flex;flex-wrap:wrap;gap:var(--sp-4);flex:1;}
 .au-chips button{min-width:2.2em;height:calc(var(--ctl-h) - 4px);border-radius:var(--r);background:var(--s2);border:.5px solid var(--line);color:var(--ink-2);font-weight:500;}
 .au-chips button.on{background:var(--state-on);color:var(--ink);}

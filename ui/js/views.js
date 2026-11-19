@@ -1268,6 +1268,9 @@ function xpLive(send) {
 const xpLiveParam = (key, op = 'experience.param') => xpLive((v) => cmd(op, { key, value: v }).catch(() => {}));
 /** The master level while its fader moves (the audio window follows the state; saved once the fader settles). */
 const auLive = (key) => xpLive((v) => cmd('audio.set', { [key]: v }).catch(() => {}));
+// an underrun is a dropout: the device had nothing to play for a moment (a short cut in the sound); counted since it opened
+const DROP_TITLE = 'Short cuts in the sound: the device had nothing to play for a moment (counted since it opened; each one is in the log)';
+const dropouts = (n) => `${n} dropout${n === 1 ? '' : 's'}`;
 /** A layer setting while a fader moves: the whole stack goes out with that one value changed. */
 const xpLiveLayer = (id, key) => xpLive((v) => {
   const layers = structuredClone(store.state.profile.output.layers);
@@ -1441,6 +1444,7 @@ export function experiences(ctx) {
       return h('div', { class: 'au-slot' },
         selectField(`Output ${i + 1}`, label, opts, (v) => { const next = [...AP.devices]; next[i] = v; setAudio({ devices: next }); }),
         h('span', { class: 'muted tnum' }, sk ? `${sk.count} ch` : ''),
+        sk?.underruns ? h('span', { class: 'au-drop tnum', 'data-drop': String(i + 1), title: DROP_TITLE }, dropouts(sk.underruns)) : null,
         h('button', { class: 'btn small', 'aria-label': `Remove output ${i + 1}`, onclick: () => setAudio({ devices: AP.devices.filter((_, k) => k !== i) }) }, 'Remove'));
     });
     const free = names.filter((n) => !AP.devices.includes(n));
@@ -1493,8 +1497,10 @@ export function experiences(ctx) {
     if (!AU.running) return h('p', { class: 'xp-status muted' }, headless ? h('span', {}, 'No desktop app on this computer: open the audio page in a browser tab and keep it open. ', h('a', { href: `${location.origin}${AU.url}${S.local ? '' : `&k=${encodeURIComponent(S.token || '')}`}`, target: '_blank', style: { color: 'var(--ink)' } }, 'Audio page')) : 'Starting…');
     const lvl = AU.peakDb == null || AU.peakDb <= -90 ? 'silent' : `${AU.peakDb} dB`;
     const nDev = AU.sinks.filter((k) => !k.missing).length;
+    const drops = AU.sinks.reduce((n, k) => n + (k.underruns || 0), 0);
     return h('p', { class: 'xp-status' }, h('b', { class: 'live tnum' }, 'Running'),
-      h('span', { class: 'muted' }, ` · ${AU.fold ? 'stereo, default device' : `${AU.available} channels on ${nDev} device${nDev === 1 ? '' : 's'}`} · peak ${lvl}`));
+      h('span', { class: 'muted' }, ` · ${AU.fold ? 'stereo, default device' : `${AU.available} channels on ${nDev} device${nDev === 1 ? '' : 's'}`} · peak ${lvl}`),
+      drops ? h('span', { class: 'au-drop tnum', 'data-drop': 'total', title: DROP_TITLE }, ` · ${dropouts(drops)}`) : null);
   };
 
   const audioCard = () => h('div', { class: `xp-card xp-audio${AU.running ? ' on' : ''}`, 'data-card': 'audio' },

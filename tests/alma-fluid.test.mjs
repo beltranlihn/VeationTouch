@@ -707,3 +707,54 @@ for (const overlap of [false, true]) {
     }
   });
 }
+
+/* ------------------------------------------------------------------ a fixed Touch colour reads as that colour (FALLO 8) */
+// In the room the field is full of the emitters' palette dye (indigo x3), and a hand's own dye is a small addition to it, so the
+// stroke of "Touch colour = pink" used to look like the palette. A fixed colour now also tints the dye under the hand toward it.
+// The same stroke (same path, same random numbers) is drawn with the palette, with pink, and with pink and the tint switched off
+// (dev().tintOn = false: the code as it was); the mean colour of the pixels the stroke passed over is compared.
+
+const STROKE = `
+  let seed = 424242;
+  Math.random = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  // the emitters are made again from the seeded numbers, so that every run starts from the very same field
+  vt.setParams({ emitters: 0 }); vt.frame(1 / 60, 1); vt.setParams({ emitters: 12 });
+  vt.frame(1 / 30, 120); // the emitters' dye has built up: the field is full of palette colour
+  const region = [440, 50, 120, 20]; // the core of the stroke
+  // and the worst case of the room: a band of dense indigo (the palette's heaviest colour) all along the stroke's way
+  if (window.__dense !== false) { const f = dev().fluid; for (let x = 360; x <= 640; x += 10) f.splat(x / W, 0.5, 0, 0, 0.03, 0.027, 0.09, 0.09); for (let i = 0; i < 6; i++) { f.step(1 / 60, 0.2, 0.999); } }
+  const before = read(...region);
+  if (window.__tintOff) dev().tintOn = false;
+  touch('down', 1, 410, 60, { wallId: 'P3' });
+  for (let k = 1; k <= 16; k++) { touch('move', 1, 410 + k * 10, 60, { wallId: 'P3' }); vt.frame(1 / 60, 2); }
+  vt.frame(1 / 60, 10);
+  const p = read(...region), n = p.length / 4, mean = [0, 0, 0];
+  for (let i = 0; i < p.length; i += 4) for (let c = 0; c < 3; c++) mean[c] += p[i + c] / n;
+  return { mean, change: sumDiff(before, p) / n / 3 };`;
+// the run with the tint off sets a flag before the stroke
+const strokeOff = STROKE.replace('if (window.__tintOff)', 'if (true)');
+
+pageTest('alma-fluid: a fixed Touch colour (pink) reads as pink under the stroke on a field full of palette dye; palette is untouched', async (inPage, renderer) => {
+  // how PINK a colour reads: red over green. The website's background (173, 200, 237) is −27, the palette's indigo field
+  // about 0, pink #de79ff +101 when saturated. (A pale lilac — pink at a low brightness over the background — is ~+10: a tint
+  // toward that, as first tried, made the stroke LESS pink than no tint at all.)
+  const pinkness = (m) => m[0] - m[1];
+  const sets = { 'defaults': {}, 'operator values': { touchIntensity: 4, touchPresence: 2.9, fade: 1.45 } };
+  for (const [name, extra] of Object.entries(sets)) {
+    const q = (touchColor) => `walls=4&ww=200&wh=120&closed=1&${asQuery({ logo: false, ...extra, touchColor })}`;
+    const palette = await inPage(STROKE, q('palette'));
+    const pink = await inPage(STROKE, q('pink'));
+    const pinkOld = await inPage(strokeOff, q('pink'));
+    const paletteOld = await inPage(strokeOff, q('palette'));
+    const r = (m) => m.mean.map((v) => v.toFixed(1)).join(',');
+    const [pNew, pOld, pPal] = [pink, pinkOld, palette].map((x) => pinkness(x.mean));
+    if (process.env.VT_VERBOSE) console.log(`[${renderer}] ${name}: palette ${r(palette)} (${pPal.toFixed(1)}) | pink ${r(pink)} (${pNew.toFixed(1)}) | pink, tint off ${r(pinkOld)} (${pOld.toFixed(1)})`);
+    assert.ok(pink.change > 1 && palette.change > 1, `${name}: both strokes changed the picture`);
+    // palette mode is the website's: the tint never touches it (a switched-off tint gives the very same pixels)
+    assert.deepEqual(palette.mean, paletteOld.mean, `${name}: palette mode is unchanged by the tint`);
+    // the pink stroke as it was (tint off: what the room saw) and now
+    assert.ok(pNew > pOld + 10, `${name}: the tint makes the stroke clearly pinker (${pNew.toFixed(1)} vs ${pOld.toFixed(1)} without it)`);
+    assert.ok(pNew > pPal + 20, `${name}: the pink stroke is clearly pink next to the palette's (${pNew.toFixed(1)} vs ${pPal.toFixed(1)})`);
+    assert.ok(pNew > 20, `${name}: and it reads as pink, not lilac (${pNew.toFixed(1)})`);
+  }
+});

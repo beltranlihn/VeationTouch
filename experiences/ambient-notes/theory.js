@@ -48,9 +48,26 @@ export function scaleLadder(key, scale, lowOctave = 3, octaves = 3) {
   return out;
 }
 
-/** Height (0 = floor, 1 = top) → a note of the ladder: low hand = low note. */
+/** Height (0 = floor, 1 = top) → a note of the ladder: low hand = low note. (When the wall's height is not known.) */
 export function noteForHeight(v, ladder) {
   const x = Math.min(1, Math.max(0, ((Number.isFinite(v) ? v : 0.5) - V_LOW) / (V_HIGH - V_LOW)));
+  return ladder[Math.min(ladder.length - 1, Math.floor(x * ladder.length))];
+}
+
+// Where hands are: a person reaches ~2.1 m up a wall and rarely plays below ~0.3 m. The scale lives between the two, in
+// METRES, whatever the wall's height (on a 3.5 m wall the top of the wall is out of reach and must not hold notes).
+export const REACH_M = 2.1;
+export const FLOOR_M = 0.3;
+const MIN_SPAN_M = 0.3;
+
+/**
+ * Height in metres above the floor → a note of the ladder: the WHOLE ladder between `floor` and `reach` (low hand = low
+ * note); a hand above `reach` plays the top note, one below `floor` the lowest.
+ */
+export function noteForHeightM(y, ladder, floor = FLOOR_M, reach = REACH_M) {
+  const lo = Math.max(0, Number.isFinite(floor) ? floor : FLOOR_M);
+  const hi = Math.max(lo + MIN_SPAN_M, Number.isFinite(reach) ? reach : REACH_M);
+  const x = Math.min(1, Math.max(0, ((Number.isFinite(y) ? y : (lo + hi) / 2) - lo) / (hi - lo)));
   return ladder[Math.min(ladder.length - 1, Math.floor(x * ladder.length))];
 }
 

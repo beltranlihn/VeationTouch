@@ -43,6 +43,21 @@ const HOLD_EVERY = 0.12;       // s between the breaths of a resting hand
 const HOLD_DYE = 0.35;         // a breath, x the moving pointer's colour
 const HOLD_PUSH = 25;          // a breath's small push in a random direction (website velocity units)
 const BREATH_PERIOD = 9;       // s
+// A FIXED touch colour (not "palette") must read as that colour: the hand's own dye is a small addition (colour x 0.119 x 0.162 x
+// intensity) to a field full of the emitters' palette dye, so what is seen under a hand is mostly the palette dye it pushes. Each
+// splat of a fixed-colour hand is therefore followed by a tint at the same place and size that pulls the dye already there toward
+// the hand's colour: dye' = mix(dye, target, w * gaussian). "Palette" mode never tints: it is the website's, untouched.
+// The target is the hand's colour at TINT_LEVEL of dye brightness (its largest channel): a SATURATED colour, about what a hand's
+// own dye builds up to on the website. (0.3 was tried first: over the light background that is a pale lilac, and mixing toward it
+// made a pink stroke paler than no tint at all — seen on the room output and measured in tests/alma-fluid.test.mjs.) w is x Touch
+// intensity / 3 (its default) for the moving hand, x Touch presence for the landing blot and the breaths; the target brightness
+// also follows Touch intensity / 3 (up to 1.5x).
+const TINT_LEVEL = 0.6;
+const TINT_MOVE = 0.5;        // w of a moving splat at Touch intensity 3
+const TINT_LAND = 0.6;         // w of the landing blot at Touch presence 1
+const TINT_HOLD = 0.25;        // w of a breath at Touch presence 1
+const TINT_MAX = 0.9;
+const TINT_GAIN_MAX = 1.5;     // the brightness stops growing with Touch intensity above 4.5
 
 const P = Object.assign({}, vt.params);
 let fluid = null, logo = null, alive = true;
@@ -61,6 +76,7 @@ const hooks = (window.__almaFluid = {
   vt,
   // what the liquid has seen of the hands: strokes started (each picks one colour) and landing blots dropped (test and debugging)
   stats: { strokes: 0, landings: 0 },
+  tintOn: true, // false = the tint off, as before it existed (a test switches it to prove it matters)
   get hands() { return active.map((t) => ({ stroke: t.stroke, x: t.x, y: t.y, color: [...t.color], ended: t.ended })); },
 });
 
@@ -180,6 +196,14 @@ function dyeOf(t, gain) {
   return scratch;
 }
 
+/** A fixed-colour hand pulls the dye under it toward its colour (w = how much, at the centre). Palette hands never do. */
+function tintOf(t, x, y, w) {
+  if (!t.base || !hooks.tintOn || !(w > 0)) return;
+  const gain = Math.min((P.touchIntensity == null ? 3 : P.touchIntensity) / 3, TINT_GAIN_MAX); // the brightness follows Touch intensity, like the dye
+  const m = Math.max(t.color[0], t.color[1], t.color[2]) || 1, k = (TINT_LEVEL * gain) / m;
+  fluid.tint(x, y, t.color[0] * k, t.color[1] * k, t.color[2] * k, Math.min(w, TINT_MAX), EMITTER_SIGMA);
+}
+
 /** A hand that rests: a soft blot when it lands, then a gentle breath of its colour now and then. */
 function presence(t) {
   const k = P.touchPresence == null ? 1 : P.touchPresence;
@@ -191,6 +215,7 @@ function presence(t) {
     t.landed = true; hooks.stats.landings++;
     const d = dyeOf(t, LAND_DYE * k);
     fluid.splat(x, y, 0, 0, d[0], d[1], d[2], EMITTER_SIGMA);
+    tintOf(t, x, y, TINT_LAND * k);
     return;
   }
   if (clock - t.lastHold < HOLD_EVERY) return;
@@ -198,6 +223,7 @@ function presence(t) {
   const a = Math.random() * Math.PI * 2, push = HOLD_PUSH * k * (P.turbulence == null ? 1 : P.turbulence);
   const d = dyeOf(t, HOLD_DYE * k);
   fluid.splat(x, y, Math.cos(a) * push, Math.sin(a) * push, d[0], d[1], d[2], EMITTER_SIGMA);
+  tintOf(t, x, y, TINT_HOLD * k);
 }
 
 /** The website's splatPointer, at most every 33 ms per hand: the move since its last splat, at the (smoothed) hand. */
@@ -218,7 +244,9 @@ function stir(t, dt) {
   if (builtWrap) x -= Math.floor(x);
   // the website's pointer colour x "Touch intensity" (default 3: a hand on a big wall must read more than a mouse)
   const d = dyeOf(t, 1);
-  fluid.splat(x, 1 - t.y / H, ddx * k, -ddy * k, d[0], d[1], d[2], EMITTER_SIGMA);
+  const yy = 1 - t.y / H;
+  fluid.splat(x, yy, ddx * k, -ddy * k, d[0], d[1], d[2], EMITTER_SIGMA);
+  tintOf(t, x, yy, TINT_MOVE * (P.touchIntensity == null ? 3 : P.touchIntensity) / 3);
   t.px = t.x; t.py = t.y; t.lastSplat = clock;
 }
 

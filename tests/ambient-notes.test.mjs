@@ -41,7 +41,7 @@ const PRELUDE = `
   const SR = 48000;
   // run({ over, seconds, speakers, wallIds, sub }, (host, piece) => { host.touch(...); host.at(...) }) → { host, piece, ch }
   const run = async (o, plan) => {
-    const host = await T.fakeHost({ seconds: o.seconds ?? 6, speakers: o.speakers ?? 2, wallIds: o.wallIds, sub: o.sub ?? true, overrides: o.over || {} });
+    const host = await T.fakeHost({ seconds: o.seconds ?? 6, speakers: o.speakers ?? 2, wallIds: o.wallIds, sub: o.sub ?? true, overrides: o.over || {}, wallHeight: o.wallHeight ?? null });
     const piece = await mod.default(host);
     if (plan) await plan(host, piece);
     const ch = await host.render();
@@ -85,7 +85,8 @@ test('ambient-notes: manifest, files and rules of the project', () => {
   assert.equal(m.id, 'ambient-notes');
   assert.equal(m.kind, 'sound');
   assert.equal(m.entry, 'sound.js');
-  assert.deepEqual(m.params.map((p) => p.key), ['key', 'scale', 'lowOctave', 'octaves', 'attack', 'swell', 'release', 'reverbMix', 'padVolume', 'notesVolume', 'padChange', 'positionFilter', 'maxPerWall', 'maxNotes']);
+  assert.deepEqual(m.params.map((p) => p.key), ['key', 'scale', 'lowOctave', 'octaves', 'reachHeight', 'floorMargin', 'attack', 'swell', 'release', 'reverbMix', 'padVolume', 'notesVolume', 'padChange', 'positionFilter', 'maxPerWall', 'maxNotes']);
+  assert.ok(m.params.find((p) => p.key === 'octaves').max >= 5, 'Note range goes up to 5 octaves');
   for (const p of m.params) {
     assert.ok(['number', 'select', 'bool', 'wall'].includes(p.type), `${p.key}: type ${p.type}`);
     assert.ok(p.label && /^[\x20-\x7e]+$/.test(p.label), `${p.key}: English label`);
@@ -104,6 +105,35 @@ test('ambient-notes: manifest, files and rules of the project', () => {
 });
 
 /* ------------------------------------------------------------------ scales, notes and chords */
+
+test('ambient-notes: the WHOLE scale lies between Floor margin and Reach height, in metres — the top note is where a hand reaches', async () => {
+  const { scaleLadder, noteForHeightM, noteForHeight, REACH_M, FLOOR_M } = await load('theory.js');
+  const { settings } = await load('sound.js');
+  assert.equal(REACH_M, 2.1); assert.equal(FLOOR_M, 0.3);
+  const ladder = scaleLadder('D', 'minor-pentatonic', 3, 4), top = ladder[ladder.length - 1];
+  // XR Lab's walls are 3.5 m tall: a hand reaches ~2.1 m
+  assert.equal(noteForHeightM(2.1, ladder), top, 'at Reach height: the top note');
+  assert.equal(noteForHeightM(3.4, ladder), top, 'above it: still the top note');
+  assert.equal(noteForHeightM(0.3, ladder), ladder[0], 'at Floor margin: the lowest');
+  assert.equal(noteForHeightM(0.05, ladder), ladder[0], 'below it: still the lowest');
+  const mid = noteForHeightM(1.2, ladder);
+  assert.ok(Math.abs(ladder.indexOf(mid) - (ladder.length - 1) / 2) <= 1, `half way up the reach: the middle of the scale (${ladder.indexOf(mid)} of ${ladder.length})`);
+  let last = -1;
+  for (let y = 0; y <= 3.5; y += 0.01) { const n = noteForHeightM(y, ladder); assert.ok(n >= last, 'never goes down as the hand goes up'); last = n; }
+  const reachable = new Set(); for (let y = 0.3; y <= 2.1; y += 0.005) reachable.add(noteForHeightM(y, ladder));
+  assert.equal(reachable.size, ladder.length, 'every note of the scale is within reach');
+  // what it was: the share of the wall's height (8 %..92 %) — on a 3.5 m wall a hand at 2.1 m is only ~60 % up the scale
+  const old = new Set(); for (let y = 0; y <= 2.1; y += 0.005) old.add(noteForHeight(y / 3.5, ladder));
+  assert.ok(old.size < ladder.length * 0.7, `the old mapping left the high notes out of reach (${old.size} of ${ladder.length})`);
+  // the parameters move the band; a band too thin is widened, never inverted
+  assert.equal(noteForHeightM(1.6, ladder, 0.3, 1.6), top);
+  assert.equal(noteForHeightM(1.0, ladder, 1.0, 0.5), ladder[0]);
+  assert.equal(noteForHeightM(1.3, ladder, 1.0, 0.5), top, 'reach below floor: a 0.3 m band above the floor');
+  const s = settings({ reachHeight: 1.0, floorMargin: 0.9, octaves: 5, lowOctave: 5 });
+  assert.ok(s.reach >= s.floor + 0.3 - 1e-9, 'Reach height stays above Floor margin');
+  assert.equal(s.octaves, 3, 'never above octave 8');
+  assert.equal(settings({ octaves: 5 }).octaves, 5, 'Note range goes up to 5');
+});
 
 test('ambient-notes: height picks a note of the scale — low is low, high is high — in every key and scale', async () => {
   const { KEYS, SCALES, scaleLadder, noteForHeight, inScale, V_LOW, V_HIGH } = await load('theory.js');
@@ -292,6 +322,29 @@ test('ambient-notes: a held hand makes a long note that grows, and lifting it fa
   assert.ok(r.tapLate > r.held * 0.9, `held without lifting for 3 s it is as loud as the held note (${r.tapLate} vs ${r.held})`);
   assert.ok(r.stepsHeld < r.peakHeld * 0.35, `no clicks while it is held (largest step ${r.stepsHeld}, peak ${r.peakHeld})`);
   assert.equal(r.live.live, 0, 'once the tail is over its nodes are gone');
+});
+
+test('ambient-notes: on a 3.5 m wall a hand at 2.1 m plays the TOP note (the wall\'s height in metres comes from the runtime)', opt, async () => {
+  const r = await inPage(`
+    const { scaleLadder } = await import('/experiences/ambient-notes/theory.js');
+    const r = await run({ seconds: 2, wallHeight: 3.5, over: { padVolume: 0, key: 'D', scale: 'minor-pentatonic', lowOctave: 3, octaves: 4 } }, (h, piece) => {
+      h.touch(0.2, 'down', { stroke: 1, wallId: 'P1', u: 0.5, v: 2.1 / 3.5 });
+      h.touch(0.2, 'down', { stroke: 2, wallId: 'P2', u: 0.5, v: 0.3 / 3.5 });
+      h.touch(0.2, 'down', { stroke: 3, wallId: 'P3', u: 0.5, v: 3.3 / 3.5 });
+      h.at(0.5, () => { window.__n = [1, 2, 3].map((s) => piece._debug.midiOf(s)); });
+    });
+    // the reach follows the parameter live
+    const r2 = await run({ seconds: 2, wallHeight: 3.5, over: { padVolume: 0, key: 'D', scale: 'minor-pentatonic', lowOctave: 3, octaves: 4 } }, (h, piece) => {
+      h.at(0.1, () => piece.setParams({ reachHeight: 1.6 }));
+      h.touch(0.2, 'down', { stroke: 1, wallId: 'P1', u: 0.5, v: 1.6 / 3.5 });
+      h.at(0.5, () => { window.__m = piece._debug.midiOf(1); });
+    });
+    const ladder = scaleLadder('D', 'minor-pentatonic', 3, 4);
+    return { notes: window.__n, reach16: window.__m, top: ladder[ladder.length - 1], bottom: ladder[0] };`);
+  assert.equal(r.notes[0], r.top, `2.1 m up a 3.5 m wall: the top note (${r.notes[0]} vs ${r.top})`);
+  assert.equal(r.notes[1], r.bottom, '0.3 m: the lowest');
+  assert.equal(r.notes[2], r.top, 'above the reach: the top note');
+  assert.equal(r.reach16, r.top, 'Reach height 1.6 m: the top note at 1.6 m');
 });
 
 test('ambient-notes: two touches at different heights play two DIFFERENT notes of the scale — and the key follows the parameters live', opt, async () => {

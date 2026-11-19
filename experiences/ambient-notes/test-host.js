@@ -30,7 +30,7 @@ export async function manifestDefaults() {
 }
 
 /** { audio, vt, params, ctx, … } — `params` are the manifest defaults plus `overrides`. */
-export async function fakeHost({ seconds = 6, wallIds = WALLS, speakers = 2, sub = true, sampleRate = 48000, overrides = {} } = {}) {
+export async function fakeHost({ seconds = 6, wallIds = WALLS, speakers = 2, sub = true, sampleRate = 48000, overrides = {}, wallHeight = null } = {}) {
   const params = { ...(await manifestDefaults()), ...overrides };
   const layout = wallIds.map((id) => ({ id, name: id, speakers }));
   const total = layout.reduce((a, w) => a + w.speakers, 0) + (sub ? 1 : 0);
@@ -105,7 +105,7 @@ export async function fakeHost({ seconds = 6, wallIds = WALLS, speakers = 2, sub
   const listeners = {}, hands = new Map();
   const vt = {
     params,
-    walls: layout.map(({ id, name }) => ({ id, name })),
+    walls: layout.map(({ id, name }) => ({ id, name, ...(wallHeight ? { width: 6, height: wallHeight } : {}) })), // metres, as the runtime gives them (wallHeight: null = not known)
     closedLoop: true,
     on(type, fn) { (listeners[type] ||= new Set()).add(fn); return () => listeners[type].delete(fn); },
     hands: () => [...hands.values()].map((h) => ({ stroke: h.stroke, wallId: h.wallId, u: h.u, v: h.v, size: h.size ?? 0.1 })),

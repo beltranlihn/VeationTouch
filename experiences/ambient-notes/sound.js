@@ -11,12 +11,12 @@
 //    yields (with a quick fade) at the per-wall and total caps.
 //  * Headroom: one note peaks around −21 dBFS, the pad around −20 dBFS; every gain change is a ramp.
 
-import { KEYS, SCALES, scaleLadder, noteForHeight, midiToHz, chordFor } from './theory.js';
+import { KEYS, SCALES, scaleLadder, noteForHeight, noteForHeightM, REACH_M, FLOOR_M, midiToHz, chordFor } from './theory.js';
 import { VoiceBook } from './voices.js';
 import { impulseBuffer, noiseBuffer } from './ir.js';
 
 export const DEFAULTS = {
-  key: 'D', scale: 'minor-pentatonic', lowOctave: 3, octaves: 3,
+  key: 'D', scale: 'minor-pentatonic', lowOctave: 3, octaves: 3, reachHeight: REACH_M, floorMargin: FLOOR_M,
   attack: 5, swell: 3, release: 5, reverbMix: 45, padVolume: 20, notesVolume: 85, padChange: 45, positionFilter: 50,
   maxPerWall: 4, maxNotes: 12,
 };
@@ -40,7 +40,11 @@ export function settings(p = {}) {
     key: KEYS.includes(q.key) ? q.key : DEFAULTS.key,
     scale: SCALES[q.scale] ? q.scale : DEFAULTS.scale,
     lowOctave: Math.round(num(q.lowOctave, DEFAULTS.lowOctave, 1, 6)),
-    octaves: Math.round(num(q.octaves, DEFAULTS.octaves, 1, 4)),
+    // up to 5 octaves, never above octave 8 (C8 ≈ 4.2 kHz)
+    octaves: Math.min(Math.round(num(q.octaves, DEFAULTS.octaves, 1, 5)), Math.max(1, 8 - Math.round(num(q.lowOctave, DEFAULTS.lowOctave, 1, 6)))),
+    // the heights the scale spans, in metres: the whole scale between "Floor margin" and "Reach height"
+    floor: num(q.floorMargin, DEFAULTS.floorMargin, 0, 1.5),
+    reach: Math.max(num(q.floorMargin, DEFAULTS.floorMargin, 0, 1.5) + 0.3, num(q.reachHeight, DEFAULTS.reachHeight, 0.8, 4)),
     // the strike is always quick (a touch must be felt the moment it lands): "Attack" is in ms and stays short
     attack: num(q.attack, DEFAULTS.attack, 2, 80) / 1000,
     swell: num(q.swell, DEFAULTS.swell, 0.5, 15),
@@ -283,7 +287,10 @@ export default async function start(host) {
     const r = book.add({ stroke: e.stroke, wallId: e.wallId, t });
     if (r.duplicate) return; // this hand already has its note
     for (const y of r.evict) releaseNote(y, FAST_RELEASE);
-    const midi = noteForHeight(e.v, ladder);
+    // the hand's height in metres (the wall's real height, from the runtime) → the whole scale between Floor margin and
+    // Reach height; a wall whose height is not known falls back to the share of its height
+    const h = (vt.walls || []).find((w) => w.id === e.wallId)?.height;
+    const midi = Number.isFinite(h) && h > 0 && Number.isFinite(e.v) ? noteForHeightM(e.v * h, ladder, P.floor, P.reach) : noteForHeight(e.v, ladder);
     const v = buildVoice(e.stroke, e.wallId, midi, Number.isFinite(e.u) ? e.u : 0.5, r.voice.id);
     r.voice.audio = v;
     v.book = r.voice;

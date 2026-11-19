@@ -235,12 +235,14 @@ const splatSource = `
     uniform vec2 point;
     uniform float radius;
     uniform float wrapX;
+    uniform float tintW;
     void main () {
         vec2 p = vUv - point.xy;
         p.x -= wrapX * floor(p.x + 0.5);
         p.x *= aspectRatio;
-        vec3 splat = exp(-dot(p, p) / radius) * color;
-        gl_FragColor = vec4(splat, 0.0);
+        float g = exp(-dot(p, p) / radius);
+        // tintW 0: the plain additive splat. tintW > 0 (a tint, blended ONE / ONE_MINUS_SRC_ALPHA): colour = target * w, alpha = w
+        gl_FragColor = vec4(g * color, g * tintW);
     }
 `;
 
@@ -586,6 +588,7 @@ export function createFluid(gl, opts) {
       gl.uniform2f(P.splat.u.point, x, y);
       gl.uniform1f(P.splat.u.radius, radius);
       gl.uniform1f(P.splat.u.wrapX, wrapX ? 1 : 0);
+      gl.uniform1f(P.splat.u.tintW, 0);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE);
       gl.enable(gl.SCISSOR_TEST);
@@ -593,6 +596,33 @@ export function createFluid(gl, opts) {
       gl.uniform3f(P.splat.u.color, dx * vg, dy * vg, 0);
       splatBox(velocity.read, x, y, d);
       gl.uniform3f(P.splat.u.color, r, g, b);
+      splatBox(dye.read, x, y, d);
+      gl.disable(gl.SCISSOR_TEST);
+      gl.disable(gl.BLEND);
+    },
+
+    /**
+     * Tint the dye: pull it toward the colour (r, g, b: dye, as for splat) by w (0..1) at the centre of a gaussian splat,
+     * dye' = mix(dye, target, w * gaussian). One small scissored draw with blend ONE / ONE_MINUS_SRC_ALPHA; the velocity is untouched.
+     */
+    tint(x, y, r, g, b, w, sigma) {
+      if (!(w > 0)) return;
+      if (wrapX) x -= Math.floor(x);
+      else if (x < -0.5 || x > 1.5) return;
+      w = Math.min(w, 1);
+      gl.bindVertexArray(vao);
+      const radius = 2 * sigma * sigma;
+      const d = Math.sqrt(8 * radius);
+      P.splat.bind();
+      gl.uniform1f(P.splat.u.aspectRatio, aspect);
+      gl.uniform2f(P.splat.u.point, x, y);
+      gl.uniform1f(P.splat.u.radius, radius);
+      gl.uniform1f(P.splat.u.wrapX, wrapX ? 1 : 0);
+      gl.uniform1f(P.splat.u.tintW, w);
+      gl.uniform3f(P.splat.u.color, r * w, g * w, b * w);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.enable(gl.SCISSOR_TEST);
       splatBox(dye.read, x, y, d);
       gl.disable(gl.SCISSOR_TEST);
       gl.disable(gl.BLEND);
