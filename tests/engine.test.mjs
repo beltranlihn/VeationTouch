@@ -736,3 +736,110 @@ test('engine: projection.set grid shows in the state, reaches the Texture frames
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('engine: calib.arm works from any paired device; calib.start {armed:true} starts armed', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-arm-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const A = { id: 'dA', device: 'iPad (10.0.0.5)' }, B = { id: 'dB', device: 'the desktop' };
+  try {
+    await engine.command('calib.start', { wallId: 'W1', force: true, __client: A });
+    assert.equal(engine.calib.armed, false, 'a started session waits for the operator');
+    assert.equal(engine.status().calib.armed, false);
+    assert.equal(engine.status().calib.captureRadiusM, 0.75);
+    await assert.rejects(engine.command('calib.skip', { __client: B }), /in progress on iPad/);
+    await engine.command('calib.arm', { __client: B }); // not the owner, still allowed
+    assert.equal(engine.calib.armed, true);
+    assert.equal(engine.status().calib.armed, true);
+    await engine.command('calib.cancel', { __client: A });
+    await assert.rejects(engine.command('calib.arm', { __client: B }), /no calibration/);
+    await engine.command('calib.start', { wallId: 'W1', force: true, armed: true, captureRadiusM: 0.5 });
+    assert.equal(engine.calib.armed, true);
+    assert.equal(engine.calib.opt.captureRadiusM, 0.5);
+  } finally {
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('engine: any paired device can cancel a session it does not drive; refused commands are logged once per 10 s', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-ctlx-'));
+  const lines = [];
+  const log = { info: (m) => lines.push(['info', m]), warn: (m) => lines.push(['warn', m]), error() {}, recent: () => [] };
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log, version: 'test' });
+  engine.start();
+  const desktop = { id: 'dD', device: 'the desktop' }, phone = { id: 'dP', device: 'iPhone (10.0.0.9)' };
+  try {
+    await engine.command('calib.start', { wallId: 'W1', force: true, __client: desktop });
+    lines.length = 0;
+    await assert.rejects(engine.command('calib.apply', { __client: phone }), /in progress on the desktop/);
+    await assert.rejects(engine.command('calib.apply', { __client: phone }), /in progress on the desktop/); // repeat within 10 s
+    const refused = lines.filter(([, m]) => /refused/.test(m));
+    assert.equal(refused.length, 1, 'one log line for a repeated refusal');
+    assert.match(refused[0][1], /calib\.apply from iPhone.*in progress on the desktop/, 'device, op and reason');
+    await assert.rejects(engine.command('calib.redo', { __client: phone }), /in progress/);
+    assert.equal(lines.filter(([, m]) => /refused/.test(m)).length, 2, 'another op is another line');
+
+    await engine.command('calib.cancel', { __client: phone }); // the way out is never blocked
+    assert.equal(engine.calib, null);
+    assert.ok(lines.some(([, m]) => /cancelled from iPhone/.test(m)), 'who cancelled is logged');
+    assert.equal(engine.status().notice?.to, 'dD', 'the owner is told');
+    assert.match(engine.status().notice.text, /cancelled from iPhone/);
+
+    await engine.command('verify.start', { wallId: 'W1', __client: desktop });
+    await engine.command('verify.cancel', { __client: phone });
+    assert.equal(engine.verify, null);
+  } finally {
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('engine: while a wall is calibrated the live message carries its raw detections (calibHands) in wall metres — not as touches', async () => {
+  const { createServer } = await import('../engine/server.js');
+  const { WebSocket } = await import('ws');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-hands-'));
+  const store = new Store(dir, null, quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test' });
+  engine.start();
+  const server = await createServer(engine, { port: 0, root: path.resolve(import.meta.dirname, '..'), log: quiet });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const lives = [];
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws/ui`);
+  ws.on('message', (raw, bin) => { if (!bin) { const m = JSON.parse(raw); if (m.type === 'live') lives.push(m); } });
+  try {
+    const p = structuredClone(engine.profile); p.simulation.wanderers = 0;
+    await engine.command('profile.update', { profile: p, rev: engine.rev });
+    await wait(500);
+    assert.ok(lives.length > 0, 'live messages arrive');
+    assert.ok(lives.every((m) => !('calibHands' in m) || m.calibHands === undefined), 'no calibration: no calibHands');
+    lives.length = 0;
+    await engine.command('calib.start', { wallId: 'W1', force: true });
+    const tg = engine.calib.targets[0];
+    await engine.command('sim.touch', { wallId: 'W1', x: tg.x + 0.12, y: tg.y - 0.07, id: 'h', down: true });
+    await wait(700);
+    const withHand = lives.filter((m) => m.calibHands?.W1?.length);
+    assert.ok(withHand.length >= 5, `the wall's detections reach the live message (${withHand.length} of ${lives.length})`);
+    const [x, y, size] = withHand.at(-1).calibHands.W1[0];
+    assert.ok(Math.hypot(x - (tg.x + 0.12), y - (tg.y - 0.07)) < 0.05, `at the hand's place in wall metres: ${x}, ${y} vs ${tg.x + 0.12}, ${tg.y - 0.07}`);
+    assert.ok(size > 0 && size < 0.5, `with a size (${size})`);
+    assert.equal(x, Math.round(x * 1000) / 1000, 'rounded to millimetres');
+    assert.deepEqual(withHand.at(-1).walls.W1, [], 'they are NOT touches: the tracker does not get them while calibrating');
+    assert.ok(withHand.at(-1).calib, 'and the session snapshot is in the same message');
+    // the hand leaves: nothing is sent for it; the calibration ends: no field at all
+    await engine.command('sim.touch', { wallId: 'W1', x: 0, y: 0, id: 'h', down: false });
+    await wait(900);
+    assert.deepEqual(lives.at(-1).calibHands, {}, 'no hand, no detections');
+    await engine.command('calib.cancel');
+    lives.length = 0;
+    await wait(300);
+    assert.ok(lives.length > 0 && lives.every((m) => m.calibHands === undefined), 'calibration over: the field is gone');
+  } finally {
+    ws.close();
+    server.close();
+    await engine.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

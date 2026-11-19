@@ -9,10 +9,12 @@ import { store, on, connect } from './conn.js';
 import { uvToCanvas } from './workspace.js';
 import { shapeOutline, densify } from '/shared/geometry.js';
 import { TouchMask, wallPattern } from '/shared/mask.js';
+import { drawHands, drawSessionFeedback } from './feedback.js';
 
 const c = document.getElementById('c');
 const g = c.getContext('2d');
-const AMBER = '#E5B567', CYAN = '#4FC3E8', GREEN = '#7FC4A2';
+const AMBER = '#E5B567', CYAN = '#4FC3E8'; // (cyan = live and accepted; amber = attention)
+const noMark = () => {};
 let pulse = 0;
 
 function resize() {
@@ -138,25 +140,27 @@ function draw() {
         if (cur) {
           const R = pxPerM * 0.14;
           const breathe = 1 + 0.08 * Math.sin(pulse * 4);
-          g.strokeStyle = calib.phase === 'release' ? GREEN : AMBER;
+          g.strokeStyle = calib.phase === 'release' ? CYAN : AMBER;
           g.lineWidth = 6;
           g.beginPath(); g.arc(x, y, R * breathe, 0, Math.PI * 2); g.stroke();
           g.lineWidth = 3;
           line([x - R * 1.8, y], [x - R * 0.4, y]); line([x + R * 0.4, y], [x + R * 1.8, y]);
           line([x, y - R * 1.8], [x, y - R * 0.4]); line([x, y + R * 0.4], [x, y + R * 1.8]);
-          const p = calib.phase === 'release' ? 1 : calib.progress;
-          if (p > 0) { g.lineWidth = 12; g.beginPath(); g.arc(x, y, R * 1.35, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); g.stroke(); }
           g.fillStyle = 'rgba(255,255,255,0.85)';
           g.font = `500 ${Math.round(pxPerM * 0.075)}px Geist, system-ui`;
           g.textAlign = 'center';
           g.fillText(calib.phase === 'release' ? 'Release' : `Touch and hold · ${k + 1}/${calib.targets.length}`, x, y + R * 2.4);
           g.textAlign = 'left';
         } else {
-          g.strokeStyle = done ? GREEN : 'rgba(255,255,255,0.35)';
+          g.strokeStyle = done ? CYAN : 'rgba(255,255,255,0.35)';
           g.lineWidth = 3;
           g.beginPath(); g.arc(x, y, pxPerM * 0.045, 0, Math.PI * 2); g.stroke();
         }
       });
+      // what moves: the raw detections (the hand), the filling ring, the capture radius, the flash
+      const fo = { pt: Pt, pm: pxPerM, lw: (px) => px, mark: noMark, textPx: pxPerM * 0.12 };
+      drawHands(g, store.live?.calibHands?.[w.id], fo);
+      drawSessionFeedback(g, calib, 'calib', fo);
     }
 
     // verification: check points, and where the tracked touch really landed + its error
@@ -165,11 +169,10 @@ function draw() {
       ver.targets.forEach((t, k) => {
         const [x, y] = Pt(t.x, t.y);
         const cur = k === ver.index && ver.phase !== 'done';
-        g.strokeStyle = cur ? (ver.phase === 'release' ? GREEN : AMBER) : t.errMm !== null ? GREEN : 'rgba(255,255,255,0.35)';
+        g.strokeStyle = cur ? (ver.phase === 'release' ? CYAN : AMBER) : t.errMm !== null ? CYAN : 'rgba(255,255,255,0.35)';
         g.lineWidth = cur ? 6 : 3;
         const R = pxPerM * (cur ? 0.1 : 0.04);
         g.beginPath(); g.arc(x, y, R, 0, Math.PI * 2); g.stroke();
-        if (cur && ver.progress > 0) { g.lineWidth = 10; g.beginPath(); g.arc(x, y, R * 1.4, -Math.PI / 2, -Math.PI / 2 + ver.progress * Math.PI * 2); g.stroke(); }
         if (t.measured) {
           const [mx, my] = Pt(t.measured[0], t.measured[1]);
           g.fillStyle = CYAN; g.beginPath(); g.arc(mx, my, pxPerM * 0.02, 0, Math.PI * 2); g.fill();
@@ -177,6 +180,7 @@ function draw() {
           g.fillText(`${t.errMm} mm`, x, y + pxPerM * 0.16); g.textAlign = 'left';
         }
       });
+      drawSessionFeedback(g, ver, 'verify', { pt: Pt, pm: pxPerM, lw: (px) => px, mark: noMark, textPx: pxPerM * 0.12 });
     }
   }
   if (fitWall) drawFit(fitWall, fit.node);

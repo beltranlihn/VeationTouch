@@ -1627,3 +1627,402 @@ test('ui: Experiences › Output card — on/off, layer switches, reorder, opaci
   assert.equal(result.badge, 'calibration');
   assert.equal(result.bannerAfter, false);
 });
+
+// ---------------------------------------------------------------------------------------------------- calibration feedback on the wall
+
+/** Page helpers for reading pixels of a feedback canvas (output page: canvas.fb, projection page: #c) — as a script prefix. */
+const FB_PROBE = `
+  const px = (g, x, y) => { const d = g.getImageData(Math.round(x), Math.round(y), 1, 1).data; return { r: d[0], g: d[1], b: d[2], a: d[3] }; };
+  const isCyan = (q) => q.a > 140 && q.b > 170 && q.g > 140 && q.r < 140;
+  const isAmber = (q) => q.a > 140 && q.r > 190 && q.g > 140 && q.g < 215 && q.b < 150;
+  /** Fraction of the points of an arc (turns from 12 o'clock, clockwise) that are lit. Samples sit between the crosshair's axes. */
+  const arcLit = (g, cx, cy, r, f0, f1, test, n = 36) => { let hit = 0, tot = 0; for (let i = 0; i < n; i++) { const f = f0 + (f1 - f0) * (i + 0.5) / n, a = -Math.PI / 2 + f * 2 * Math.PI; tot++; if (test(px(g, cx + r * Math.cos(a), cy + r * Math.sin(a)))) hit++; } return hit / tot; };
+  const centroid = (g, w, h, test) => { const d = g.getImageData(0, 0, w, h).data; let n = 0, sx = 0, sy = 0; for (let i = 0; i < d.length; i += 4) if (test({ r: d[i], g: d[i + 1], b: d[i + 2], a: d[i + 3] })) { n++; sx += (i / 4) % w; sy += Math.floor(i / 4 / w); } return { n, x: n ? sx / n : null, y: n ? sy / n : null }; };
+  const handFar = (wall, tgt) => ({ x: tgt.x + (tgt.x + 0.5 < wall.width - 0.15 ? 0.5 : -0.5), y: tgt.y });
+`;
+
+test('ui: output page — during a calibration the wall shows the hand, the filling ring, the capture radius, WAITING and the flash, on a layer of its own; the grid is not redrawn for them', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { store, cmd } = await import('/js/conn.js');
+    const { wallUvToCanvas } = await import('/shared/geometry.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    ${FB_PROBE}
+    for (let k = 0; k < 150 && !(window.__out && store.state && window.__out.layers().length >= 1); k++) await wait(100);
+    const P = store.state.profile, s = P.output.scale, wall = P.walls[0], stage = document.getElementById('stage');
+    const toPx = (x, y) => { const [cx, cy] = wallUvToCanvas(wall, x / wall.width, 1 - y / wall.height); return [cx * s, cy * s]; };
+    await cmd('calib.start', { wallId: wall.id, force: true });
+    for (let k = 0; k < 80 && !(store.status?.calib && window.__out.layers().length === 2); k++) await wait(100);
+    const fb = stage.querySelector('canvas.fb'), g = fb.getContext('2d'), grid = stage.querySelector('[data-layer=grid]');
+    const out = { fbAbove: Number(getComputedStyle(fb).zIndex), maxLayerZ: Math.max(...[...stage.querySelectorAll('.layer')].map((el) => Number(getComputedStyle(el).zIndex))), size: [fb.width, fb.height], gridSize: [grid.width, grid.height] };
+    const base = structuredClone(store.status.calib), tgt = base.targets[base.index];
+    out.pm = wall.pixelRect.h / wall.height;
+    const [tx, ty] = toPx(tgt.x, tgt.y), R = out.pm * 0.14 * s;
+
+    // (1) the REAL path: a hand away from the target -> the engine sends its detections -> cyan on the feedback layer at its place
+    const hand = handFar(wall, tgt), [hx, hy] = toPx(hand.x, hand.y);
+    out.cyanBefore = centroid(g, fb.width, fb.height, isCyan).n;
+    await cmd('sim.touch', { wallId: wall.id, x: hand.x, y: hand.y, id: 'h', down: true });
+    for (let k = 0; k < 60 && !(store.live?.calibHands?.[wall.id]?.length); k++) await wait(50);
+    await wait(150);
+    out.liveHands = store.live?.calibHands?.[wall.id] || null;
+    out.hand = centroid(g, fb.width, fb.height, isCyan); out.handAt = [hx, hy];
+    out.gridCyan = centroid(grid.getContext('2d'), grid.width, grid.height, isCyan).n;
+    await cmd('sim.touch', { wallId: wall.id, x: 0, y: 0, id: 'h', down: false });
+    for (let k = 0; k < 60 && store.live?.calibHands?.[wall.id]?.length; k++) await wait(50);
+    await wait(150);
+    out.cyanAfter = centroid(g, fb.width, fb.height, isCyan).n;
+
+    // (2) synthetic snapshots, drawn synchronously (no live message can interleave): what each field of the session draws
+    const draw = (patch) => { store.status = { ...store.status, calib: { ...base, captureRadiusM: 0.05, ...patch } }; store.live = { ...store.live, calibHands: undefined }; window.__out.drawFeedback(); };
+    const lit = (p) => { draw({ progress: p, phase: 'holding' }); return arcLit(g, tx, ty, R * 1.35, 0, 1, isAmber); };
+    out.ring = [0, 0.25, 0.5, 0.75, 1].map(lit);
+    draw({ progress: 0.25, phase: 'holding' });
+    out.quarter = { first: arcLit(g, tx, ty, R * 1.35, 0.02, 0.23, isAmber), rest: arcLit(g, tx, ty, R * 1.35, 0.27, 0.98, isAmber) };
+    draw({ progress: 0, phase: 'release' }); out.release = arcLit(g, tx, ty, R * 1.35, 0, 1, isAmber);
+    // capture radius
+    const ringAt = (m) => { let m2 = 0; for (let dx = -1; dx <= 1; dx++) m2 = Math.max(m2, px(g, tx + m * out.pm * s + dx, ty).a); return m2; };
+    draw({ progress: 0, captureRadiusM: 0.3 }); out.radiusOn = ringAt(0.3); draw({ progress: 0, captureRadiusM: 0.05 }); out.radiusMoved = ringAt(0.3);
+    // WAITING
+    const white = () => { const x0 = Math.round(tx - R * 3), y0 = Math.round(ty + R * 2.2); const d = g.getImageData(x0, y0, Math.round(R * 6), Math.round(R * 2.6)).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 150 && d[i] > 200 && d[i + 1] > 200 && d[i + 2] > 200) n++; return n; };
+    draw({ progress: 0, armed: false, phase: 'waiting' }); out.waiting = white();
+    draw({ progress: 0, armed: true, phase: 'waiting' }); out.armed = white();
+    // the flash: cyan when accepted, red-ish when it must be repeated, fading over 1.5 s
+    const flashPx = (kind, ageMs) => { draw({ progress: 0, flash: { kind, index: base.index, ageMs } }); return px(g, tx + R * (1.1 + 1.8 * ageMs / 1500), ty); };
+    out.flashAccept = flashPx('accept', 100); out.flashRetry = flashPx('retry', 100);
+    out.flashLate = flashPx('accept', 1450);
+    draw({ progress: 0 }); out.flashGone = px(g, tx + R * 1.2, ty).a;
+    // a flash belongs to the target it was about, even after the session moved on to the next one
+    draw({ progress: 0, index: base.targets.length > 1 ? 1 : 0, flash: { kind: 'accept', index: base.index, ageMs: 100 } }); out.flashOld = px(g, tx + R * (1.1 + 1.8 * 100 / 1500), ty);
+    draw({ progress: 0 });
+
+    // (3) the cost: dirty rectangles only, and the grid stays still while the feedback moves
+    const calls = []; const orig = g.clearRect.bind(g); g.clearRect = (...a) => { calls.push(a); return orig(...a); };
+    const nx = base.targets[base.index].x + 0.3, ny = base.targets[base.index].y;
+    const step = (k) => {
+      store.status = { ...store.status, calib: { ...base, progress: (k % 100) / 100, phase: 'holding', armed: true, captureRadiusM: 0.1, near: { x: nx, y: ny, distM: 0.3 - k / 1000 }, flash: k % 40 < 20 ? { kind: 'accept', index: base.index, ageMs: (k % 20) * 70 } : null } };
+      store.live = { ...store.live, calibHands: { [wall.id]: [[nx, ny, 0.06]] } };
+      window.__out.drawGrid(); window.__out.drawFeedback();
+    };
+    step(0); // (the first message of a phase may change what the grid shows)
+    const stats0 = { ...window.__out.stats };
+    const N = 120, t0 = performance.now();
+    for (let k = 1; k <= N; k++) step(k);
+    const ms = (performance.now() - t0) / N;
+    g.clearRect = orig;
+    const stats1 = window.__out.stats;
+    out.redraws = { grid: stats1.grid - stats0.grid, feedback: stats1.feedback - stats0.feedback };
+    out.perFrameMs = ms; out.clears = calls.length; out.biggestClear = Math.max(0, ...calls.map((c) => c[2] * c[3])); out.canvasArea = fb.width * fb.height;
+    // a message with nothing new draws nothing
+    const f0 = window.__out.stats.feedback; window.__out.drawFeedback(); window.__out.drawFeedback(); out.idleRedraws = window.__out.stats.feedback - f0;
+    // the session ends: the operator's layers return (the grid is off here, so the feedback canvas goes with it)
+    await cmd('calib.cancel');
+    for (let k = 0; k < 60 && (store.status?.calib || window.__out.layers().length !== 1); k++) await wait(50);
+    out.after = { inPage: document.contains(fb), canvases: stage.querySelectorAll('canvas').length };
+    return out;`, {
+    page: '/output?run=1', wait: 'load',
+    setup: (e) => withLayers(e, [{ id: 'experience', on: true }, { id: 'touches', on: false }, { id: 'grid', on: false }]),
+  });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.ok(result.fbAbove > result.maxLayerZ, 'the feedback canvas sits above every layer');
+  assert.deepEqual(result.size, result.gridSize, 'and covers the same render size');
+  assert.equal(result.cyanBefore, 0, 'no hand: nothing cyan');
+  assert.ok(result.liveHands?.length >= 1, `the engine sends the hand (${JSON.stringify(result.liveHands)})`);
+  assert.ok(result.hand.n >= 8, `a cyan disc is drawn for the hand (${result.hand.n} px)`);
+  assert.ok(Math.hypot(result.hand.x - result.handAt[0], result.hand.y - result.handAt[1]) < 4, `at the hand's place: ${result.hand.x?.toFixed(1)}, ${result.hand.y?.toFixed(1)} vs ${result.handAt.map((v) => v.toFixed(1))}`);
+  assert.equal(result.gridCyan, 0, 'the grid layer itself carries none of it');
+  assert.equal(result.cyanAfter, 0, 'the hand leaves: its disc is cleared');
+  assert.ok(result.ring[0] < 0.05 && result.ring[1] > 0.15 && result.ring[2] > result.ring[1] + 0.15 && result.ring[3] > result.ring[2] + 0.15 && result.ring[4] > 0.9, `the ring fills with progress: ${result.ring.map((v) => v.toFixed(2))}`);
+  assert.ok(result.quarter.first > 0.8 && result.quarter.rest < 0.1, `from 12 o'clock, clockwise: ${JSON.stringify(result.quarter)}`);
+  assert.ok(result.release > 0.9, `full while releasing (${result.release})`);
+  assert.ok(result.radiusOn > 40 && result.radiusMoved < 10, `the capture radius is a faint ring at the radius given (${result.radiusOn} / ${result.radiusMoved})`);
+  assert.ok(result.waiting > 20, `WAITING at the target when not armed (${result.waiting} px)`);
+  assert.equal(result.armed, 0, 'and nothing once armed');
+  assert.ok(result.flashAccept.b > result.flashAccept.r + 60 && result.flashAccept.a > 140, `accept flashes cyan ${JSON.stringify(result.flashAccept)}`);
+  assert.ok(result.flashRetry.r > result.flashRetry.b + 50 && result.flashRetry.a > 140, `retry flashes another colour ${JSON.stringify(result.flashRetry)}`);
+  assert.ok(result.flashLate.a < result.flashAccept.a * 0.5, 'the flash fades');
+  assert.equal(result.flashGone, 0, 'and is cleared when the snapshot has none');
+  assert.ok(result.flashOld.a > 20, 'a flash stays on the target it was about, after the session moved on');
+  assert.deepEqual(result.redraws, { grid: 0, feedback: 120 }, 'the grid is NOT redrawn while the feedback moves; the feedback is, every time');
+  assert.ok(result.clears >= 100 && result.biggestClear < result.canvasArea * 0.2, `only small rectangles are cleared (largest ${result.biggestClear} of ${result.canvasArea} px)`);
+  assert.equal(result.idleRedraws, 0, 'a message that changes nothing redraws nothing');
+  assert.ok(result.perFrameMs < 3, `cost per frame ${result.perFrameMs.toFixed(3)} ms`);
+  assert.deepEqual(result.after, { inPage: false, canvases: 0 }, 'session over: the feedback canvas goes with the calibration layers');
+  console.log(`  output feedback: ${result.perFrameMs.toFixed(3)} ms per frame (canvas ${result.size.join('x')})`);
+});
+
+test('ui: output page — verification: the ring fills and the flash answers on the check point', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { store, cmd } = await import('/js/conn.js');
+    const { wallUvToCanvas } = await import('/shared/geometry.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    ${FB_PROBE}
+    for (let k = 0; k < 150 && !(window.__out && store.state && window.__out.layers().length >= 1); k++) await wait(100);
+    const P = store.state.profile, s = P.output.scale, wall = P.walls[0], stage = document.getElementById('stage');
+    await cmd('verify.start', { wallId: wall.id });
+    for (let k = 0; k < 80 && !(store.status?.verify && window.__out.layers().length === 2); k++) await wait(100);
+    const g = stage.querySelector('canvas.fb').getContext('2d');
+    const base = structuredClone(store.status.verify), tgt = base.targets[base.index];
+    const [cx, cy] = wallUvToCanvas(wall, tgt.x / wall.width, 1 - tgt.y / wall.height), tx = cx * s, ty = cy * s, R = (wall.pixelRect.h / wall.height) * 0.1 * s;
+    const draw = (patch) => { store.status = { ...store.status, verify: { ...base, ...patch } }; window.__out.drawFeedback(); };
+    const out = {};
+    draw({ progress: 0.5, phase: 'holding' }); out.half = arcLit(g, tx, ty, R * 1.35, 0, 1, isAmber); out.firstHalf = arcLit(g, tx, ty, R * 1.35, 0.02, 0.48, isAmber);
+    draw({ progress: 0.9 }); out.most = arcLit(g, tx, ty, R * 1.35, 0, 1, isAmber);
+    draw({ progress: 0, flash: { kind: 'accept', index: base.index, ageMs: 0 } }); out.accept = px(g, tx + R * 1.1, ty);
+    draw({ progress: 0, flash: { kind: 'retry', index: base.index, ageMs: 0 } }); out.retry = px(g, tx + R * 1.1, ty);
+    await cmd('verify.cancel');
+    return out;`, {
+    page: '/output?run=1', wait: 'load',
+    setup: (e) => withLayers(e, [{ id: 'experience', on: true }, { id: 'touches', on: false }, { id: 'grid', on: false }]),
+  });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.ok(result.half > 0.35 && result.half < 0.65 && result.firstHalf > 0.8, `half ring at 50% (${result.half}, first half ${result.firstHalf})`);
+  assert.ok(result.most > result.half + 0.25, 'and more at 90%');
+  assert.ok(result.accept.b > result.accept.r + 60 && result.accept.a > 140, `accepted: cyan ${JSON.stringify(result.accept)}`);
+  assert.ok(result.retry.r > result.retry.b + 50 && result.retry.a > 140, `repeat: red-ish ${JSON.stringify(result.retry)}`);
+});
+
+test('ui: projection page — the same feedback: the hand under calibration, the filling ring, the flash', opt, async () => {
+  const noWanderers = async (engine) => { const p = structuredClone(engine.profile); p.simulation.wanderers = 0; await engine.command('profile.update', { profile: p, rev: engine.rev }); };
+  const { result, errors } = await inUi(`
+    const { store, cmd } = await import('/js/conn.js');
+    const { uvToCanvas } = await import('/js/workspace.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    ${FB_PROBE}
+    for (let k = 0; k < 50 && !store.state; k++) await wait(100);
+    const P = store.state.profile, wall = P.walls[0], c = document.getElementById('c'), g = c.getContext('2d');
+    const sx = () => c.width / P.canvas.width, sy = () => c.height / P.canvas.height;
+    const toPx = (x, y) => { const [cx, cy] = uvToCanvas(wall, x / wall.width, 1 - y / wall.height); return [cx * sx(), cy * sy()]; };
+    await cmd('calib.start', { wallId: wall.id, force: true });
+    for (let k = 0; k < 80 && !store.status?.calib; k++) await wait(100);
+    const base = structuredClone(store.status.calib), tgt = base.targets[base.index], out = {};
+    window.__proj.draw();
+    out.cyanBefore = centroid(g, c.width, c.height, isCyan).n;
+    const hand = handFar(wall, tgt), [hx, hy] = toPx(hand.x, hand.y);
+    await cmd('sim.touch', { wallId: wall.id, x: hand.x, y: hand.y, id: 'h', down: true });
+    for (let k = 0; k < 60 && !(store.live?.calibHands?.[wall.id]?.length); k++) await wait(50);
+    window.__proj.draw();
+    out.hand = centroid(g, c.width, c.height, isCyan); out.handAt = [hx, hy];
+    await cmd('sim.touch', { wallId: wall.id, x: 0, y: 0, id: 'h', down: false });
+    for (let k = 0; k < 60 && store.live?.calibHands?.[wall.id]?.length; k++) await wait(50);
+    // synthetic snapshots, drawn synchronously
+    const [tx, ty] = toPx(tgt.x, tgt.y), R = (wall.pixelRect.h / wall.height) * 0.14 * sx();
+    const draw = (patch) => { store.status = { ...store.status, calib: { ...base, captureRadiusM: 0.05, ...patch } }; store.live = { ...store.live, calibHands: undefined }; window.__proj.draw(); };
+    out.ring = [0, 0.25, 0.5, 0.75].map((p) => { draw({ progress: p, phase: 'holding' }); return arcLit(g, tx, ty, R * 1.35, 0, 1, isAmber, 72); });
+    draw({ progress: 0.25, phase: 'holding' }); out.quarter = { first: arcLit(g, tx, ty, R * 1.35, 0.02, 0.23, isAmber, 24), rest: arcLit(g, tx, ty, R * 1.35, 0.27, 0.98, isAmber, 24) };
+    draw({ progress: 0, flash: { kind: 'accept', index: base.index, ageMs: 100 } }); out.accept = px(g, tx + R * (1.1 + 1.8 * 100 / 1500), ty);
+    draw({ progress: 0, flash: { kind: 'retry', index: base.index, ageMs: 100 } }); out.retry = px(g, tx + R * (1.1 + 1.8 * 100 / 1500), ty);
+    return out;`, { page: '/projection', wait: 'load', w: 2400, h: 304, setup: noWanderers }); // (the window keeps the canvas' aspect, so rings stay round)
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.equal(result.cyanBefore, 0);
+  assert.ok(result.hand.n >= 12, `the hand is a cyan disc (${result.hand.n} px)`);
+  assert.ok(Math.hypot(result.hand.x - result.handAt[0], result.hand.y - result.handAt[1]) < 8, `at its place: ${result.hand.x?.toFixed(1)}, ${result.hand.y?.toFixed(1)} vs ${result.handAt.map((v) => v.toFixed(1))}`);
+  assert.ok(result.ring[0] < 0.05 && result.ring[1] > 0.15 && result.ring[2] > result.ring[1] + 0.15 && result.ring[3] > result.ring[2] + 0.15, `the ring fills with progress: ${result.ring.map((v) => v.toFixed(2))}`);
+  assert.ok(result.quarter.first > 0.7 && result.quarter.rest < 0.12, `clockwise from 12 o'clock: ${JSON.stringify(result.quarter)}`);
+  assert.ok(result.accept.b > result.accept.r + 60 && result.accept.a > 140, `accepted: cyan ${JSON.stringify(result.accept)}`);
+  assert.ok(result.retry.r > result.retry.b + 50 && result.retry.a > 140, `repeat: red-ish ${JSON.stringify(result.retry)}`);
+});
+
+// ---- calibration from a phone that does not drive the session: take control in the same tap, always a way out, a bad result is not the default
+
+const OTHER_DEVICE = { id: 'other-device', device: 'the desktop' };
+const fakeResult = (sid, rmsMm, maxMm, errs) => ({ [sid]: { ok: true, kind: 'homography', points: errs.length, rmsMm, maxMm, pairs: errs.map((errMm, index) => ({ index, sensor: [0, 0], wall: [0, 0], errMm })) } });
+
+/** Engine setup: a calibration on P2 sitting at its result (a made-up one), driven by `owner` (null = nobody: this page is free to act). */
+function resultSetup({ owner = OTHER_DEVICE, rms, max, errs }) {
+  return async (engine) => {
+    await engine.command('bg.capture', { frames: 5 });
+    await new Promise((r) => setTimeout(r, 1500));
+    engine.ops = [];
+    const orig = engine.command.bind(engine);
+    engine.command = (op, args) => { if (!/^(sim|projection|bg)\./.test(op)) engine.ops.push([op, { ...(args || {}), __client: undefined }]); return orig(op, args); };
+    engine._applyCalibration = () => ({ applied: [] }); // the made-up result cannot be applied for real
+    await orig('calib.start', { wallId: 'P2', cols: 2, rows: 2, force: true, __client: owner || undefined });
+    const c = engine.calib, sid = c.sensorIds[0];
+    c.feed = () => {};
+    c.targets.forEach((t) => { t.captured = { [sid]: [0, 0] }; });
+    c.phase = 'done'; c.index = c.targets.length;
+    c.result = fakeResult(sid, rms, max, errs);
+  };
+}
+
+const PAGE_HELPERS = `
+  const { store } = await import('/js/conn.js');
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const btns = () => [...document.querySelectorAll('#rBody button')];
+  const find = (re) => btns().find((b) => re.test(b.innerText.trim()));
+  const info = (b) => b ? { text: b.innerText.trim(), primary: b.classList.contains('r-primary'), h: b.getBoundingClientRect().height } : null;
+  const until = async (f, n = 60) => { for (let k = 0; k < n && !f(); k++) await wait(100); };
+  await until(() => document.querySelector('#rBody .r-primary'));
+  const primaries = () => [...document.querySelectorAll('#rBody .r-primary')].map((e) => e.innerText.trim());
+  const overlay = () => { const o = document.getElementById('overlay'); return o && !o.hidden ? o.innerText : null; };
+  const overlayBtn = (re) => [...document.getElementById('overlay').querySelectorAll('button')].find((b) => re.test(b.innerText.trim()));
+`;
+const opNames = (engine) => engine.ops.map(([op]) => op);
+
+test('ui: remote without control — a very bad result offers "Take control and start over": one tap does control.take, then the rest', opt, async () => {
+  const { result, errors, engine } = await inUi(`${PAGE_HELPERS}
+    const r = { primary: primaries(), apply: info(find(/apply & save/i)), exit: info(find(/^Exit calibration$/)) };
+    find(/^Take control and start over$/).click();
+    await until(() => store.status?.calib && store.status.calib.phase !== 'done' && store.status.control?.id === store.state.you);
+    r.control = store.status?.control?.id === store.state?.you;
+    r.restarted = !!store.status?.calib && store.status.calib.phase !== 'done';
+    return r;`, { mobile: true, w: 390, h: 844, setup: resultSetup({ rms: 598, max: 818, errs: [818, 600, 400, 200] }) });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(result.primary, ['Take control and start over'], 'a bad result is not saved by default; the button that is bound to fail is not shown as such');
+  assert.equal(result.apply.primary, false, 'Apply & save is not the primary action');
+  assert.match(result.apply.text, /^Take control and apply/i);
+  assert.ok(result.exit && result.exit.h >= 48, `Exit calibration is there and finger-sized: ${JSON.stringify(result.exit)}`);
+  assert.equal(result.control, true, 'this phone took control');
+  assert.equal(result.restarted, true);
+  const ops = opNames(engine);
+  assert.ok(ops.indexOf('control.take') >= 0 && ops.indexOf('control.take') < ops.indexOf('calib.cancel') && ops.indexOf('calib.cancel') < ops.indexOf('calib.start'), `control first: ${ops}`);
+  assert.equal(engine.ops.find(([op]) => op === 'calib.start')[1].armed, true, 'a phone starts armed: it is at the wall');
+});
+
+test('ui: remote without control — a few bad points: "Take control and redo worst point" is primary; Apply & save is secondary and asks first', opt, async () => {
+  const { result, errors, engine } = await inUi(`${PAGE_HELPERS}
+    const r = { primary: primaries(), apply: info(find(/apply & save/i)) };
+    find(/apply & save/i).click();
+    await until(() => overlay());
+    r.asked = overlay();
+    overlayBtn(/^Cancel$/).click();
+    await wait(300);
+    r.opsAfterDecline = true;
+    find(/^Take control and redo worst point/).click();
+    await until(() => store.status?.calib?.phase !== 'done');
+    return r;`, { mobile: true, w: 390, h: 844, setup: resultSetup({ rms: 62, max: 130, errs: [130, 20, 20, 30] }) });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(result.primary, ['Take control and redo worst point (#1)']);
+  assert.equal(result.apply.primary, false);
+  assert.match(result.asked, /off by 62 mm on average — hands will land 62 mm away\. Save it anyway\?/);
+  const ops = opNames(engine);
+  assert.ok(!ops.includes('calib.apply'), 'declining the question saves nothing');
+  assert.equal(ops.filter((o) => o === 'control.take').length, 1, 'declining did not take control either; only the redo did');
+  assert.ok(ops.indexOf('control.take') < ops.indexOf('calib.redo'), `control.take then calib.redo: ${ops}`);
+  assert.equal(engine.ops.find(([op]) => op === 'calib.redo')[1].index, 0, 'the worst point');
+});
+
+test('ui: remote — with control, a bad result asks before saving; without control a good one is "Take control and apply & save"', opt, async () => {
+  const bad = await inUi(`${PAGE_HELPERS}
+    const r = { primary: primaries(), apply: info(find(/^Apply & save$/)) };
+    find(/^Apply & save$/).click();
+    await until(() => overlay());
+    r.asked = overlay();
+    overlayBtn(/^Save it anyway$/).click();
+    await wait(500);
+    return r;`, { mobile: true, w: 390, h: 844, setup: resultSetup({ owner: null, rms: 62, max: 130, errs: [130, 20, 20, 30] }) });
+  assert.deepEqual(bad.errors, []);
+  assert.deepEqual(bad.result.primary, ['Redo worst point (#1)']);
+  assert.equal(bad.result.apply.primary, false);
+  assert.match(bad.result.asked, /off by 62 mm/);
+  assert.ok(opNames(bad.engine).includes('calib.apply'), 'saved once the operator insisted');
+  assert.ok(!opNames(bad.engine).includes('control.take'), 'nothing to take: this phone is free to act');
+
+  const good = await inUi(`${PAGE_HELPERS}
+    const r = { primary: primaries() };
+    find(/^Take control and apply & save$/).click();
+    await until(() => store.status?.control?.id === store.state.you);
+    await wait(300);
+    r.overlay = overlay();
+    return r;`, { mobile: true, w: 390, h: 844, setup: resultSetup({ rms: 6, max: 9, errs: [9, 5, 4, 3] }) });
+  assert.deepEqual(good.errors, []);
+  assert.deepEqual(good.result.primary, ['Take control and apply & save']);
+  assert.equal(good.result.overlay, null, 'a good result is saved without a question');
+  const ops = opNames(good.engine);
+  assert.ok(ops.indexOf('control.take') >= 0 && ops.indexOf('control.take') < ops.indexOf('calib.apply'), `control.take then calib.apply: ${ops}`);
+});
+
+test('ui: remote — "Exit calibration" is on every screen of a session (waiting, holding, release, result, verify) and cancels, with or without control', opt, async () => {
+  const OTHER = OTHER_DEVICE;
+  const { result, errors, engine } = await inUi(`${PAGE_HELPERS}
+    const { cmd } = await import('/js/conn.js');
+    const step = async () => { await cmd('sim.touch', { wallId: 'P2', x: 1, y: 1, id: '__step', down: false }); await wait(700); };
+    const snap = () => ({ exit: info(find(/^Exit calibration$/)), primary: primaries(), near: document.querySelector('#rBody .r-near')?.innerText || '', nearShown: !document.querySelector('#rBody .r-near')?.hidden });
+    const r = {};
+    await until(() => document.querySelector('#rBody .r-primary'));
+    r.waiting = snap();                                   // armed:false → "I'm at the wall — start"
+    find(/^I.m at the wall/).click(); await wait(600);
+    await step(); r.holding = snap();                     // the hand is 1.4 m from the target
+    await step(); r.release = snap();
+    find(/^Exit calibration$/).click(); await until(() => overlay());
+    r.confirm = overlay();
+    overlayBtn(/^Exit calibration$/).click();
+    await until(() => !store.status?.calib);
+    r.afterExit = { calib: !!store.status?.calib };
+    await step(); r.result = snap();                      // a result the operator does not want
+    await step(); r.verify = snap();
+    await step(); r.verifyDone = snap();
+    find(/^Exit calibration$/).click();
+    await until(() => !store.status?.verify);
+    r.afterVerifyExit = { verify: !!store.status?.verify };
+    return r;`, {
+    mobile: true, w: 390, h: 844,
+    setup: async (engine) => {
+      await engine.command('bg.capture', { frames: 5 });
+      await new Promise((r) => setTimeout(r, 1500));
+      engine.ops = [];
+      const orig = engine.command.bind(engine);
+      let n = 0;
+      const steps = [
+        () => { const c = engine.calib; c.feed = () => {}; c.phase = 'holding'; c.nearest = () => ({ x: 1, y: 1, distM: 1.4 }); },
+        () => { const c = engine.calib, sid = c.sensorIds[0]; c.phase = 'release'; c.targets[0].captured = { [sid]: [0, 0] }; c.nearest = () => null; },
+        async () => {
+          await orig('calib.start', { wallId: 'P2', cols: 2, rows: 2, force: true, __client: OTHER });
+          const c = engine.calib, sid = c.sensorIds[0];
+          c.feed = () => {};
+          c.targets.forEach((t) => { t.captured = { [sid]: [0, 0] }; });
+          c.phase = 'done'; c.index = c.targets.length; c.result = fakeResult(sid, 598, 818, [818, 600, 400, 200]);
+        },
+        async () => { await orig('calib.cancel'); await orig('verify.start', { wallId: 'P2', __client: OTHER }); engine.verify.feed = () => {}; },
+        () => { const v = engine.verify; v.targets.forEach((t, k) => { t.errMm = 10 + k; }); v.phase = 'done'; v.index = v.targets.length; },
+      ];
+      engine.command = async (op, args) => {
+        if (op === 'sim.touch' && args?.id === '__step') { await steps[n++](); return {}; }
+        if (!/^(sim|projection|bg)\./.test(op)) engine.ops.push([op, { ...(args || {}), __client: undefined }]);
+        return orig(op, args);
+      };
+      await orig('calib.start', { wallId: 'P2', cols: 2, rows: 2, force: true, __client: OTHER }); // armed:false, like a session begun at the desktop
+      engine.calib.feed = () => {};
+    },
+  });
+  assert.deepEqual(errors, []);
+  for (const k of ['waiting', 'holding', 'release', 'result', 'verify', 'verifyDone']) {
+    assert.ok(result[k].exit, `${k}: "Exit calibration" is on the screen`);
+    assert.ok(result[k].exit.h >= 48, `${k}: and at least 48 px tall (${result[k].exit.h})`);
+    assert.equal(result[k].primary.length, 1, `${k}: still exactly one primary action (${JSON.stringify(result[k].primary)})`);
+  }
+  assert.deepEqual(result.waiting.primary, ['I’m at the wall — start']);
+  assert.ok(opNames(engine).includes('calib.arm'), 'the button arms the session');
+  assert.equal(result.holding.near, 'Your hand is 1.4 m from target 1 — move to the amber ring');
+  assert.equal(result.release.near === '' || !result.release.nearShown, true, 'no hint once the hand is in place');
+  assert.match(result.confirm, /Exit calibration of P2\? The 1 point captured so far is discarded/, 'asks first when points were captured');
+  assert.equal(result.afterExit.calib, false, 'and cancels, although another device drives it');
+  assert.deepEqual(result.result.primary, ['Take control and start over']);
+  assert.equal(result.afterVerifyExit.verify, false);
+  const ops = opNames(engine);
+  assert.ok(!ops.includes('control.take'), 'leaving never needs control');
+});
+
+test('ui: desktop calibration result — a bad result makes Redo worst point / Start over the primary action; Apply & save asks first', opt, async () => {
+  const run = (rms, max, errs) => inUi(`
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const v = window.__vt; v.go('calibrate');
+    for (let k = 0; k < 40 && ![...document.querySelectorAll('#panel button')].some((b) => /Apply/.test(b.innerText)); k++) { await wait(100); v.go('calibrate'); }
+    const panel = () => [...document.querySelectorAll('#panel button')];
+    const r = { primary: panel().filter((b) => b.classList.contains('primary')).map((b) => b.innerText.trim()) };
+    panel().find((b) => b.innerText.trim() === 'Apply & save' && !b.classList.contains('primary'))?.click();
+    await wait(300);
+    const o = document.getElementById('overlay');
+    r.asked = o && !o.hidden ? o.innerText : null;
+    if (r.asked) [...o.querySelectorAll('button')].find((b) => /^Cancel$/.test(b.innerText.trim())).click();
+    return r;`, { setup: resultSetup({ owner: null, rms, max, errs }) });
+  const few = await run(62, 130, [130, 20, 20, 30]);
+  assert.deepEqual(few.errors, []);
+  assert.deepEqual(few.result.primary, ['Redo worst point (#1)']);
+  assert.match(few.result.asked, /off by 62 mm on average — hands will land 62 mm away\. Save it anyway\?/);
+  assert.ok(!opNames(few.engine).includes('calib.apply'), 'declined: nothing saved');
+  const many = await run(598, 818, [818, 600, 400, 200]);
+  assert.deepEqual(many.errors, []);
+  assert.deepEqual(many.result.primary, ['Start over']);
+  assert.match(many.result.asked, /off by 598 mm/);
+});

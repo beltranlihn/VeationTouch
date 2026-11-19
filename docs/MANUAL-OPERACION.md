@@ -249,6 +249,39 @@ Detalles por paso:
 - **Verify:** superado, lleva a lo siguiente (otro muro o la prueba de paseo); fallido, a **Fix it with your hand**.
 - El muro se nombra por su orden en la tira, porque el perfil no guarda su orientación física.
 
+**Captura: sólo cerca del objetivo, y cuando estás en el muro** (cambios tras la primera calibración real en XR Lab).
+- **Armado.** Una calibración iniciada desde el ordenador empieza *sin armar*: no captura nada mientras alguien camina
+  hacia el muro o entra por una puerta. Se arma de tres maneras:
+  - con **I'm at the wall — start** en el teléfono;
+  - manteniendo la mano quieta sobre el objetivo 1 (esa pausa ya cuenta como su captura);
+  - iniciándola desde el teléfono, que empieza armada.
+
+  En la pared, el objetivo sin armar muestra **WAITING**.
+- **Radio de captura.** En cada vuelta del sensor sólo cuenta la detección **más cercana al objetivo**, y sólo si está
+  dentro del radio de captura: 0,75 m por defecto, `processing.calibCaptureM` del perfil, entre 0,2 y 2 m.
+  - La otra mano, los dedos, el teléfono, el cuerpo o alguien al fondo se **ignoran** en lugar de reiniciar la espera.
+  - Si la mano está fuera del radio, el teléfono dice a qué distancia está («Your hand is 1.4 m from target 3»).
+- **En la pared** (salida Spout y ventana de proyección), sobre el objetivo actual:
+  - la mano como un disco **cian**, donde la ven los sensores;
+  - el radio de captura como un círculo ámbar tenue;
+  - el anillo ámbar que **se llena** mientras mantienes la mano;
+  - un **destello cian** al aceptar el punto, o **rojo** si hay que repetirlo, y el paso al siguiente objetivo
+    (**RELEASE** mientras espera que retires la mano).
+  - Lo mismo en Verify.
+
+**Tomar el control, salir y resultados malos.**
+- **Tomar el control.** Si la calibración la empezó otro dispositivo (por ejemplo el ordenador), el teléfono la sigue en
+  modo lectura. Sus botones dicen **Take control and …** (por ejemplo «Take control and apply & save») y un toque toma
+  el control y hace la acción.
+- **Exit calibration** está siempre visible, en cualquier fase y desde cualquier dispositivo emparejado, con o sin
+  control. Descarta los puntos (pregunta antes si ya había alguno) y avisa al dispositivo que la dirigía.
+- **Resultado malo.** Si el error medio supera **50 mm** (o el peor punto 100 mm), la app **no propone guardar**:
+  - el botón principal pasa a **Redo worst point**, o a **Start over** si falla más de un tercio de los puntos;
+  - **Apply & save** queda en segundo plano y pide confirmación («hands will land N mm away»).
+- **Registro.** Cada orden rechazada queda en `engine.log` con el dispositivo, la orden y el motivo, una línea cada
+  10 s como máximo. La calibración también anota el armado, cada punto aceptado (con su distancia al objetivo) y las
+  detecciones ignoradas.
+
 **Cuadrícula en los muros (pixel map).**
 - **Encenderla:** **Calibrate › Pixel map › Grid on the walls** en el ordenador, o **Show a grid on the walls** en
   Verify y Test del teléfono.

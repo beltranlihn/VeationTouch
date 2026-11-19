@@ -353,6 +353,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
         events: evs.length ? evs.slice(-50).map((e) => ({ type: e.type, id: e.id, wallId: e.wallId, x: r3(e.x), y: r3(e.y), ...(e.from ? { from: e.from } : {}) })) : undefined,
         calib: engine.calib ? engine.calib.snapshot(frame.t) : null, // smooth progress ring on the tablet
         verify: engine.verify ? engine.verify.snapshot(frame.t) : null,
+        calibHands: engine.calib ? engine.calibHandsSnapshot() : undefined, // the hands the wall shows while it is calibrated: raw detections [x, y, size] per wall
       };
       broadcast(live);
     }

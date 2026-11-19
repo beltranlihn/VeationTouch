@@ -430,3 +430,26 @@ export function invertMap(map, x, y) {
   }
   return best;
 }
+
+/** A calibration whose average error is above this (mm RMS) is not saved by default: hands would land that far away. */
+export const CALIB_BAD_RMS_MM = 50;
+/** ...and so is one whose worst single point is above this (mm): that point was touched off-centre. */
+export const CALIB_BAD_MAX_MM = 100;
+
+/**
+ * Is a calibration result fit to save? `result` is the calibration snapshot's per-sensor result.
+ * Returns the worst sensor's numbers and the advice the UIs follow:
+ *   redo       — a few points are off: "Redo worst point" is the primary action
+ *   startOver  — more than about a third of the points are off: "Start over" is the primary action
+ * Apply & save stays available in both cases, as the secondary action behind a confirmation.
+ */
+export function calibVerdict(result) {
+  const rows = Object.values(result || {}).filter((r) => r && r.ok);
+  if (!rows.length) return { ok: false, bad: false, redo: false, startOver: false, rmsMm: 0, maxMm: 0, badCount: 0, total: 0 };
+  const rmsMm = Math.max(...rows.map((r) => r.rmsMm || 0)), maxMm = Math.max(...rows.map((r) => r.maxMm || 0));
+  const pairs = rows.flatMap((r) => r.pairs || []);
+  const total = pairs.length, badCount = pairs.filter((p) => p.errMm > CALIB_BAD_RMS_MM).length;
+  const bad = rmsMm > CALIB_BAD_RMS_MM || maxMm > CALIB_BAD_MAX_MM;
+  const startOver = bad && (total ? badCount * 3 > total : rmsMm > CALIB_BAD_RMS_MM * 2);
+  return { ok: true, bad, redo: bad && !startOver, startOver, rmsMm, maxMm, badCount, total };
+}

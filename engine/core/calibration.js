@@ -26,11 +26,18 @@ export class CalibrationSession {
    * @param {string[]} sensorIds
    * @param {{x:number,y:number}[]} targets
    */
-  constructor(wall, sensorIds, targets, { holdMs = 700, tolerance = 0.025, releaseMs = 500, settleMs = 1500 } = {}) {
+  constructor(wall, sensorIds, targets, { holdMs = 700, tolerance = 0.025, releaseMs = 500, settleMs = 1500, captureRadiusM = 0.75, armed = false, log = null } = {}) {
     this.wall = wall;
     this.sensorIds = sensorIds;
     this.targets = targets.map((t) => ({ ...t, captured: {}, skipped: false }));
-    this.opt = { holdMs, tolerance, releaseMs, settleMs };
+    const radius = Number.isFinite(captureRadiusM) ? Math.min(2, Math.max(0.2, captureRadiusM)) : 0.75;
+    this.opt = { holdMs, tolerance, releaseMs, settleMs, captureRadiusM: radius };
+    this.log = log;
+    this.armed = !!armed;          // nothing is captured until the operator is at the wall (arm() or a hold at target 1)
+    this.nearBy = {};              // sensorId → {x, y, distM, t}: the detection nearest to the current target, last revolution
+    this.flashEv = null;           // {kind, index, t}
+    this.lastT = 0;
+    this.lastIgnoredLog = -Infinity;
     this.index = 0;
     this.phase = 'waiting';
     this.cand = {}; // sensorId → {t0, pts:[[x,y]]}
@@ -43,18 +50,45 @@ export class CalibrationSession {
 
   get current() { return this.targets[this.index] || null; }
 
+  /** Arm the session (the operator is at the wall): from now on holds near the current target are captured. */
+  arm(how = 'arm command') {
+    if (this.armed) return;
+    this.armed = true;
+    this.log?.info(`calibration armed on ${this.wall.id} (${how})`);
+  }
+
   /** Feed the raw (sensor-frame) detections of one sensor revolution. */
   feed(sensorId, dets, tMs) {
     if (this.phase === 'done' || !this.sensorIds.includes(sensorId)) return;
-    if (dets.length) this.lastDetection = tMs;
+    this.lastT = tMs;
+    const tgt = this.current;
+    // Only the detection NEAREST to the current target counts; any others (the other hand, a phone, a person at the
+    // door) are ignored instead of restarting the hold.
+    let best = null, bestD = Infinity;
+    if (tgt) {
+      for (const d of dets) {
+        const dist = Number.isFinite(d.x) && Number.isFinite(d.y) ? Math.hypot(d.x - tgt.x, d.y - tgt.y) : 0;
+        if (dist < bestD) { bestD = dist; best = d; }
+      }
+    }
+    if (best) this.nearBy[sensorId] = { x: best.x, y: best.y, distM: bestD, t: tMs }; else delete this.nearBy[sensorId];
+    const inReach = best && bestD <= this.opt.captureRadiusM ? best : null;
+    // the release of a captured target waits for the hand to leave it (a person elsewhere does not hold it back)
+    if (inReach) this.lastDetection = tMs;
+    if (tgt && dets.length > (inReach ? 1 : 0) && tMs - this.lastIgnoredLog >= 5000) {
+      const far = dets.filter((d) => d !== inReach).map((d) => Math.hypot(d.x - tgt.x, d.y - tgt.y)).filter(Number.isFinite);
+      if (far.length) {
+        this.lastIgnoredLog = tMs;
+        this.log?.info(`calibration: ignored a detection ${Math.min(...far).toFixed(1)} m from target ${this.index + 1}`);
+      }
+    }
     if (this.phase === 'release') {
       if (tMs - this.lastDetection >= this.opt.releaseMs) this._next();
       return;
     }
-    const tgt = this.current;
     if (!tgt || tgt.captured[sensorId]) { this._maybeAdvance(tMs); return; }
-    if (dets.length !== 1) { delete this.cand[sensorId]; this._maybeAdvance(tMs); return; }
-    const p = [dets[0].sx, dets[0].sy];
+    if (!inReach) { delete this.cand[sensorId]; this._maybeAdvance(tMs); return; }
+    const p = [inReach.sx, inReach.sy];
     const c = this.cand[sensorId];
     if (c) {
       const m = mean(c.pts);
@@ -64,7 +98,14 @@ export class CalibrationSession {
     const cc = this.cand[sensorId];
     this.phase = 'holding';
     if (tMs - cc.t0 >= this.opt.holdMs && cc.pts.length >= 3) {
+      // a steady hand within reach of target 1 arms the session (and counts); a person passing by does not hold still
+      if (!this.armed) {
+        if (this.index !== 0) { delete this.cand[sensorId]; this.phase = 'waiting'; return; }
+        this.arm(`a hand held steady ${bestD.toFixed(2)} m from target 1`);
+      }
       tgt.captured[sensorId] = median(cc.pts);
+      this.flashEv = { kind: 'accept', index: this.index, t: tMs };
+      this.log?.info(`calibration: target ${this.index + 1} accepted on ${sensorId}, ${bestD.toFixed(2)} m from the target`);
       delete this.cand[sensorId];
       if (!this.firstCaptureAt) this.firstCaptureAt = tMs;
     }
@@ -138,6 +179,7 @@ export class CalibrationSession {
     this.autoRedo = null;
     this.targets[i].captured = {};
     this.targets[i].skipped = false;
+    this.flashEv = { kind: 'retry', index: i, t: this.lastT };
     this.index = i;
     this.cand = {};
     this.firstCaptureAt = 0;
@@ -163,6 +205,7 @@ export class CalibrationSession {
   skip() {
     const t = this.current;
     if (!t) return;
+    this.arm('skip'); // the operator is driving the session
     t.skipped = true;
     t.captured = {};
     this._next();
@@ -177,6 +220,23 @@ export class CalibrationSession {
     this.cand = {};
     this.firstCaptureAt = 0;
     this.phase = 'waiting';
+  }
+
+  /** The detection nearest to the current target in the last revolution of any sensor (wall metres), or null. */
+  nearest(tMs) {
+    let best = null;
+    for (const n of Object.values(this.nearBy)) {
+      if (tMs - n.t > 1500) continue; // a sensor that stopped reporting
+      if (!best || n.distM < best.distM) best = n;
+    }
+    return best ? { x: best.x, y: best.y, distM: best.distM } : null;
+  }
+
+  flash(tMs) {
+    const f = this.flashEv;
+    if (!f) return null;
+    const ageMs = Math.max(0, tMs - f.t);
+    return ageMs <= 1500 ? { kind: f.kind, index: f.index, ageMs } : null;
   }
 
   progress(tMs) {
@@ -208,6 +268,7 @@ export class CalibrationSession {
     return {
       wallId: this.wall.id, sensorIds: this.sensorIds, index: this.index, phase: this.phase,
       progress: this.progress(tMs), redoing: !!this.returnToDone, autoRedo: this.autoRedo,
+      armed: this.armed, captureRadiusM: this.opt.captureRadiusM, near: this.nearest(tMs), flash: this.flash(tMs),
       targets: this.targets.map((t) => ({ x: t.x, y: t.y, skipped: t.skipped, captured: Object.keys(t.captured) })),
       result: this.result,
       worst: this.phase === 'done' ? this.worstTarget() : -1,
@@ -232,7 +293,11 @@ export function verifyTargets(wall, { top = 1.9, bottom = 0.45, inset = 0.12 } =
 }
 
 export class VerifySession {
-  constructor(wall, targets, { holdMs = 600, radius = 0.3, releaseMs = 400 } = {}) {
+  constructor(wall, targets, { holdMs = 600, radius = 0.3, releaseMs = 400, log = null } = {}) {
+    this.log = log;
+    this.nearPt = null;
+    this.flashEv = null;
+    this.lastIgnoredLog = -Infinity;
     this.wall = wall;
     this.targets = targets.map((t) => ({ ...t, measured: null, errMm: null }));
     this.opt = { holdMs, radius, releaseMs };
@@ -254,9 +319,14 @@ export class VerifySession {
       return;
     }
     const t = this.targets[this.index];
-    const near = touches.filter((q) => Math.hypot(q.x - t.x, q.y - t.y) <= this.opt.radius);
-    if (near.length !== 1) { this.cand = null; this.phase = 'waiting'; return; }
-    const q = near[0];
+    // the touch nearest to the target counts; the others (a second hand, someone passing) are ignored
+    let q = null, qd = Infinity;
+    for (const c of touches) { const d = Math.hypot(c.x - t.x, c.y - t.y); if (d < qd) { qd = d; q = c; } }
+    this.nearPt = q ? { x: q.x, y: q.y, distM: qd } : null;
+    if (!q || qd > this.opt.radius) {
+      if (q && tMs - this.lastIgnoredLog >= 5000) { this.lastIgnoredLog = tMs; this.log?.info(`verification: ignored a touch ${qd.toFixed(1)} m from target ${this.index + 1}`); }
+      this.cand = null; this.phase = 'waiting'; return;
+    }
     if (!this.cand || this.cand.id !== q.id) this.cand = { id: q.id, t0: tMs, xs: [], ys: [] };
     this.cand.xs.push(q.x); this.cand.ys.push(q.y);
     this.phase = 'holding';
@@ -264,6 +334,7 @@ export class VerifySession {
       const mx = median(this.cand.xs.map((x) => [x, 0]))[0], my = median(this.cand.ys.map((y) => [y, 0]))[0];
       t.measured = [round(mx), round(my)];
       t.errMm = Math.round(Math.hypot(mx - t.x, my - t.y) * 10000) / 10;
+      this.flashEv = { kind: 'accept', index: this.index, t: tMs };
       this.cand = null;
       this.phase = 'release';
     }
@@ -280,6 +351,8 @@ export class VerifySession {
   snapshot(tMs) {
     return {
       kind: 'verify', wallId: this.wall.id, index: this.index, phase: this.phase, progress: this.progress(tMs),
+      near: this.phase === 'done' ? null : this.nearPt,
+      flash: this.flashEv && tMs - this.flashEv.t <= 1500 ? { kind: 'accept', index: this.flashEv.index, ageMs: Math.max(0, tMs - this.flashEv.t) } : null,
       targets: this.targets.map((t) => ({ x: t.x, y: t.y, measured: t.measured, errMm: t.errMm })),
       summary: this.phase === 'done' ? this.summary() : null,
     };

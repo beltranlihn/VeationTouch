@@ -88,9 +88,26 @@ become one touch; a hand lifted while heading into a corner ends a moment later 
 
 1. Capture the background with the room empty (per sensor).
 2. The projection shows targets on the wall (default 3×3 between 0.45 m and 1.9 m — within reach).
-3. For each target, every sensor of the wall records a **stable single detection** held for 0.7 s
-   (median of the samples), then waits for the hand to leave. A sensor that cannot see a target does not block
-   the wizard (it advances 1.5 s after the first sensor captured).
+3. For each target, every sensor of the wall records a **stable detection** held for 0.7 s (median of the
+   samples), then waits for the hand to leave. A sensor that cannot see a target does not block the wizard (it
+   advances 1.5 s after the first sensor captured).
+   - **Only the detection nearest to the current target counts**, and only within the capture radius
+     (`processing.calibCaptureM`, 0.75 m; detections carry wall metres through the sensor's measured pose). The others
+     are ignored rather than resetting the hold. Before this, at the first real calibration at XR Lab, exactly one
+     detection was required anywhere on the wall: palm + fingers kept resetting, and a person at the P4 door was
+     captured (RMS 598 mm).
+   - **Armed:** a session started from the desktop captures nothing until `calib.arm` (any paired device: "I'm at
+     the wall — start") or a steady hold within the radius of target 1. One started from the phone passes
+     `armed: true`.
+   - The snapshot carries `armed`, `captureRadiusM`, `near {x, y, distM}` and `flash {kind: accept|retry, index,
+     ageMs}`; the live message carries the wall's raw detections as `calibHands`.
+   - The wall shows them (`ui/js/feedback.js`, on both the output page and the projection page): the hand, the
+     radius, the filling ring, the flash, WAITING / RELEASE. It draws on its own canvas, clearing only small dirty
+     rectangles, so the full-size grid is not redrawn per frame: 7196 × 912 stays at 60 fps over Spout during a
+     calibration, with frame gaps ≤ 21 ms.
+   - `calib.cancel` / `verify.cancel` work from any paired device. Every refused command is logged (device, op,
+     reason; once per 10 s). A result over `CALIB_BAD_RMS_MM` (50) or `CALIB_BAD_MAX_MM` (100) is not offered for
+     saving: Redo worst point / Start over come first, and Apply asks first.
 4. Per sensor: **homography** (≥ 4 points, normalised DLT) or affine (3). Residual RMS and worst point are
    shown; *Back* redoes a target. *Apply* stores the matrix in the profile.
 

@@ -1012,3 +1012,109 @@ test('pixel map: the Texture output draws the pattern on its NDI frame, unless i
   assert.ok(lit(overlayOf({ grid: true }), 'auto') > 500, 'grid on: the lines are in the texture');
   assert.equal(lit(overlayOf({ grid: true }), 'off'), 0, 'overlay Off: never');
 });
+
+// ---- calibration: capture only near the target, ignore the rest, armed session ----
+const calibRun = (cal, pipe, scanOf, world, x, y, tRef, { steps = 6, down = 8 } = {}) => {
+  world.injected.set('h', { x, y });
+  for (let k = 0; k < steps; k++) { cal.feed('S', pipe.process(scanOf(tRef.t), { raw: true }).detections, tRef.t); tRef.t += 100; }
+  world.injected.delete('h');
+  for (let k = 0; k < down; k++) { cal.feed('S', pipe.process(scanOf(tRef.t), { raw: true }).detections, tRef.t); tRef.t += 100; }
+};
+
+test('calibration: a person standing far from the target (at the door) does not reset or spoil the capture', () => {
+  const { wall, world, pipe, scanOf } = wallSetup({ x: 0.03, y: 0.02, rotation: -1.5 });
+  const targets = defaultTargets(wall);
+  const cal = new CalibrationSession(wall, ['S'], targets, { holdMs: 300 });
+  const tRef = { t: 1000 };
+  world.injected.set('door', { x: 0.15, y: 3.0 }); // steady, in the scan plane, > 1 m from every target
+  targets.forEach((tg) => calibRun(cal, pipe, scanOf, world, tg.x, tg.y, tRef));
+  assert.equal(cal.phase, 'done');
+  const r = cal.result.S;
+  assert.ok(r.ok, r.error);
+  assert.ok(r.points === targets.length, `all ${targets.length} targets captured, got ${r.points}`);
+  assert.ok(r.rmsMm < 15, `rms ${r.rmsMm} mm`);
+});
+
+test('calibration: two detections near the target (palm + finger) still capture, on the nearest', () => {
+  const wall = { id: 'W', width: 6, height: 3.5 };
+  const targets = [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }];
+  const cal = new CalibrationSession(wall, ['S'], targets, { holdMs: 300 });
+  let t = 0;
+  for (let k = 0; k < 6; k++) {
+    cal.feed('S', [
+      { x: 1.05, y: 1.0, sx: 1.05, sy: 1.0 }, // finger, 5 cm further
+      { x: 1.0, y: 1.0, sx: 1.0, sy: 1.0 },   // palm
+    ], t); t += 100;
+  }
+  assert.deepEqual(cal.targets[0].captured.S, [1.0, 1.0], 'the nearest one was taken');
+});
+
+test('calibration: an unarmed session captures nothing until armed or a hold near target 1', () => {
+  const wall = { id: 'W', width: 6, height: 3.5 };
+  const targets = [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }];
+  const far = { x: 4, y: 3, sx: 4, sy: 3 };
+  const feed = (cal, dets, n, t0) => { for (let k = 0; k < n; k++) cal.feed('S', dets, t0 + k * 100); return t0 + n * 100; };
+
+  const a = new CalibrationSession(wall, ['S'], targets, { holdMs: 300 });
+  assert.equal(a.armed, false);
+  feed(a, [far], 30, 0); // someone steady far from target 1
+  assert.equal(a.armed, false, 'a steady person far away does not arm it');
+  assert.deepEqual(a.targets[0].captured, {});
+  // a person walking through the radius of target 1 does not hold still
+  for (let k = 0; k < 10; k++) a.feed('S', [{ x: 0.5 + k * 0.1, y: 1, sx: 0.5 + k * 0.1, sy: 1 }], 4000 + k * 100);
+  assert.equal(a.armed, false, 'a passer-by does not arm it');
+  // a steady hand within the radius of target 1 arms it and counts
+  feed(a, [{ x: 1.3, y: 1.1, sx: 1.3, sy: 1.1 }], 6, 6000);
+  assert.equal(a.armed, true);
+  assert.deepEqual(a.targets[0].captured.S, [1.3, 1.1]);
+
+  // explicit arm()
+  const b = new CalibrationSession(wall, ['S'], targets, { holdMs: 300 });
+  b.arm();
+  feed(b, [{ x: 1.2, y: 1.0, sx: 1.2, sy: 1.0 }], 6, 0);
+  assert.ok(b.targets[0].captured.S);
+  // armed, but the hand is beyond the radius: not captured
+  const c = new CalibrationSession(wall, ['S'], targets, { holdMs: 300, captureRadiusM: 0.5, armed: true });
+  feed(c, [{ x: 1.6, y: 1.0, sx: 1.6, sy: 1.0 }], 10, 0);
+  assert.deepEqual(c.targets[0].captured, {});
+});
+
+test('calibration: snapshot carries armed, captureRadiusM, near and flash (accept, retry)', () => {
+  const wall = { id: 'W', width: 6, height: 3.5 };
+  const targets = [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }];
+  const cal = new CalibrationSession(wall, ['S'], targets, { holdMs: 300, captureRadiusM: 0.6 });
+  let s = cal.snapshot(0);
+  assert.equal(s.armed, false);
+  assert.equal(s.captureRadiusM, 0.6);
+  assert.equal(s.near, null);
+  assert.equal(s.flash, null);
+  cal.feed('S', [{ x: 1, y: 2, sx: 1, sy: 2 }, { x: 4, y: 1, sx: 4, sy: 1 }], 0);
+  s = cal.snapshot(10);
+  assert.ok(Math.abs(s.near.distM - 1) < 1e-9 && s.near.x === 1 && s.near.y === 2, 'nearest to target 1, in wall metres');
+  let t = 100;
+  for (let k = 0; k < 6; k++) { cal.feed('S', [{ x: 1, y: 1, sx: 1, sy: 1 }], t); t += 100; }
+  s = cal.snapshot(t);
+  assert.equal(s.armed, true);
+  assert.equal(s.flash.kind, 'accept');
+  assert.equal(s.flash.index, 0);
+  assert.ok(s.flash.ageMs >= 0 && s.flash.ageMs < 1000);
+  assert.equal(cal.snapshot(t + 2000).flash, null, 'the flash lasts 1.5 s');
+  cal.redoTarget(0);
+  s = cal.snapshot(t + 50);
+  assert.equal(s.flash.kind, 'retry');
+  assert.equal(s.flash.index, 0);
+});
+
+test('verification: the nearest touch counts, a second one elsewhere is ignored; near and flash in the snapshot', async () => {
+  const { VerifySession } = await import('../engine/core/calibration.js');
+  const wall = { id: 'W', width: 6, height: 3.5 };
+  const vs = new VerifySession(wall, [{ x: 1, y: 1 }, { x: 2, y: 1 }], { holdMs: 300 });
+  let t = 0;
+  for (let k = 0; k < 8; k++) {
+    vs.feed([{ id: 1, x: 4, y: 3 }, { id: 2, x: 1.01, y: 1.0 }], t); t += 100;
+    if (k === 1) assert.ok(vs.snapshot(t).near.distM < 0.02);
+  }
+  assert.ok(vs.targets[0].measured, 'measured despite the second touch');
+  assert.equal(vs.snapshot(t).flash.kind, 'accept');
+  assert.equal(vs.snapshot(t).flash.index, 0);
+});

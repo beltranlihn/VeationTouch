@@ -367,6 +367,7 @@ export function normalizeProfile(input) {
       minSize: num(pr.minSize, D.minSize, 0, 1),
       maxSize: num(pr.maxSize, D.maxSize, 0.02, 3),
       contactCorrection: num(pr.contactCorrection, D.contactCorrection, 0, 1.5),
+      calibCaptureM: num(pr.calibCaptureM, 0.75, 0.2, 2), // calibration: a hand counts only within this distance of the target
     },
     tracking: {
       mergeDist: num(tr.mergeDist, T.mergeDist, 0, 1),

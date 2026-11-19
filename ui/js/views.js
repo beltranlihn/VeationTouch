@@ -1,13 +1,22 @@
 // Panel views. Each returns DOM for the right-hand panel (bottom sheet on phones).
 // They read from `store` and write through `editProfile` / `cmd` only.
 
-import { store, cmd, editProfile, upload, otherControl, isCoarse } from './conn.js';
+import { store, on, cmd, editProfile, upload, otherControl, isCoarse } from './conn.js';
 import { h, sec, field, selectField, toggle, nudgeField, fader, badge, dot, toast, confirmBox, promptBox, stateKind, round, modal, switchUi } from './dom.js';
-import { gridMap, gridFrom, gridInsert, verifyPassMm } from '/shared/geometry.js';
+import { gridMap, gridFrom, gridInsert, verifyPassMm, calibVerdict } from '/shared/geometry.js';
 import { uvToCanvas, texturePreviewSize } from './workspace.js';
 
 const run = (p, okMsg) => p.then((r) => { if (okMsg) toast(okMsg, 'ok'); return r; }).catch((e) => toast(e.message, 'bad'));
 const P = () => store.state.profile;
+
+// The device that was driving a calibration is told when another device cancelled it (the desktop and the phone both load this file).
+let noticeSeen = 0;
+on('status', () => {
+  const n = store.status?.notice;
+  if (!n || n.at === noticeSeen) return;
+  noticeSeen = n.at;
+  if (n.to && n.to === store.state?.you) toast(n.text, 'warn');
+});
 
 /** Background capture with a 5 s countdown: the operator is often the one holding the tablet in front of the wall. */
 export function captureBackground(args, what) {
@@ -717,7 +726,7 @@ export function calibrate(ctx) {
   if ((c || vs) && other) {
     // view-only: follow the session, but its controls belong to the device that drives it
     const view = c ? calibSession(c, ctx) : verifySession(vs);
-    for (const s of view) s.querySelectorAll?.('.actions .btn').forEach((b) => { b.disabled = true; });
+    for (const s of view) s.querySelectorAll?.('.actions .btn:not([data-always])').forEach((b) => { b.disabled = true; }); // (Discard / Exit always work)
     return [sec(null, h('p', {}, h('b', { style: { color: 'var(--attn)' } }, `${c ? 'Calibration' : 'Verification'} driven by ${other.device}.`),
       ' You can follow it here; to drive it from this device, take control.'),
       h('div', { class: 'actions' }, h('button', { class: 'btn attn', onclick: () => ctx.takeControl() }, 'Take control'))), ...view];
@@ -828,7 +837,7 @@ export function verifySession(v, ctx) {
       h('div', { class: 'step tnum' }, `Check ${Math.min(v.index + 1, total)} / ${total}`),
       h('div', { class: 'msg' }, msg),
       h('div', { class: 'muted' }, v.targets.filter((t) => t.errMm !== null).map((t, k) => `#${k + 1} ${t.errMm} mm`).join(' · ') || `${v.wallId} · verification`))),
-    sec(null, h('div', { class: 'actions', style: { justifyContent: 'center' } }, h('button', { class: 'btn danger', onclick: () => run(cmd('verify.cancel')) }, 'Stop'))),
+    sec(null, h('div', { class: 'actions', style: { justifyContent: 'center' } }, h('button', { class: 'btn danger', 'data-always': '', onclick: () => run(cmd('verify.cancel')) }, 'Stop'))),
   ];
 }
 
@@ -838,18 +847,34 @@ export function calibSession(c, ctx) {
   if (c.phase === 'done') {
     const rows = Object.entries(c.result || {});
     const ok = rows.some(([, r]) => r.ok);
+    const vd = calibVerdict(c.result), rms = Math.round(vd.rmsMm);
+    const canRedo = ok && c.worst >= 0, startOver = ok && vd.bad && (vd.startOver || !canRedo), redoFirst = ok && vd.bad && !startOver; // a bad result is never saved by default
+    const apply = () => run(cmd('calib.apply'), 'Calibration saved — verify it with “Verify”');
+    const applyAnyway = async () => {
+      if (!await confirmBox(`This calibration is off by ${rms} mm on average — hands will land ${rms} mm away. Save it anyway?`, 'Save it anyway', true)) return;
+      apply();
+    };
+    const redoBtn = (cls) => h('button', { class: `btn ${cls}`.trim(), onclick: () => run(cmd('calib.redo', { index: c.worst })) }, `Redo worst point (#${c.worst + 1})`);
+    const o = ctx?.calibOpt;
+    const startOverBtn = (cls) => h('button', { class: `btn ${cls}`.trim(), onclick: async () => {
+      await run(cmd('calib.cancel'));
+      if (o) run(cmd('calib.start', { wallId: c.wallId, cols: o.cols, rows: o.rows, top: o.top, bottom: o.bottom, holdMs: o.holdMs }));
+    } }, 'Start over');
     return [
       sec(`Calibration of ${c.wallId} — result`,
         h('table', { class: 'calib-table' },
           h('tr', {}, h('th', {}, 'Sensor'), h('th', {}, 'Type'), h('th', {}, 'Points'), h('th', {}, 'RMS'), h('th', {}, 'Worst')),
           rows.map(([sid, r]) => h('tr', {}, h('td', {}, sid), h('td', {}, r.ok ? r.kind : h('span', { style: { color: 'var(--danger)' } }, r.error)),
             h('td', {}, String(r.points)), h('td', {}, r.ok ? `${r.rmsMm} mm` : '—'), h('td', {}, r.ok ? `${r.maxMm} mm` : '—')))),
-        h('p', { class: 'muted' }, 'Below ~10 mm RMS is excellent for hands. A single large worst point usually means that target was touched off-centre — redo it with “Redo worst point”.'),
+        vd.bad ? h('p', { style: { color: 'var(--attn)' } }, `This calibration is off by ${rms} mm on average (worst ${vd.maxMm} mm): hands would land that far from where they touch. ${startOver ? 'Too many points are off — start over.' : `Redo the worst point (#${c.worst + 1}) before saving.`}`)
+          : h('p', { class: 'muted' }, 'Below ~10 mm RMS is excellent for hands. A single large worst point usually means that target was touched off-centre — redo it with “Redo worst point”.'),
         h('div', { class: 'actions' },
-          h('button', { class: 'btn primary', disabled: !ok, onclick: () => run(cmd('calib.apply'), 'Calibration saved — verify it with “Verify”') }, 'Apply & save'),
-          c.worst >= 0 ? h('button', { class: 'btn attn', onclick: () => run(cmd('calib.redo', { index: c.worst })) }, `Redo worst point (#${c.worst + 1})`) : null,
+          startOver ? startOverBtn('primary') : redoFirst ? redoBtn('primary') : h('button', { class: 'btn primary', disabled: !ok, onclick: apply }, 'Apply & save'),
+          ok && vd.bad ? h('button', { class: 'btn', onclick: applyAnyway }, 'Apply & save') : null,
+          canRedo && !redoFirst && !startOver ? redoBtn('attn') : null,
+          canRedo && startOver ? redoBtn('') : null,
           h('button', { class: 'btn', onclick: () => run(cmd('calib.back')) }, 'Back'),
-          h('button', { class: 'btn danger', onclick: () => run(cmd('calib.cancel')) }, 'Discard'))),
+          h('button', { class: 'btn danger', 'data-always': '', onclick: () => run(cmd('calib.cancel')) }, 'Discard'))),
     ];
   }
   const msg = c.phase === 'release' ? 'Captured — take your hand off the wall.'

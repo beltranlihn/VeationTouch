@@ -20,7 +20,7 @@
 import { store, on, connect, cmd, editProfile, undo, history, otherControl } from './conn.js';
 import { h, sec, toast, confirmBox, switchUi } from './dom.js';
 import * as V from './views.js';
-import { gridFrom, gridSolveNode, gridNearestNode, wallUvToCanvas, mappingOutline, shapeOutline, planCloses, verifyPassMm } from '/shared/geometry.js';
+import { gridFrom, gridSolveNode, gridNearestNode, wallUvToCanvas, mappingOutline, shapeOutline, planCloses, verifyPassMm, calibVerdict } from '/shared/geometry.js';
 import { canvasZoneOnWall } from './shapes.js';
 
 const STEPS = [['prepare', 'Prepare'], ['calibrate', 'Calibrate'], ['fit', 'Fit'], ['verify', 'Verify'], ['test', 'Test']];
@@ -128,7 +128,7 @@ function sessionKey() {
   const c = store.status?.calib, v = store.status?.verify, s = c || v;
   if (!s) return '';
   return JSON.stringify([c ? 'c' : 'v', s.wallId, s.phase, s.index, s.redoing ?? null, s.worst ?? null,
-    s.targets.map((t) => [t.captured?.length ?? 0, t.skipped ? 1 : 0, t.errMm ?? null]), s.summary ?? null, c?.result ? Object.keys(c.result) : null]);
+    s.targets.map((t) => [t.captured?.length ?? 0, t.skipped ? 1 : 0, t.errMm ?? null]), s.summary ?? null, c?.result ? Object.entries(c.result).map(([k, r]) => [k, r.ok, r.rmsMm ?? null]) : null, c?.armed ?? null]);
 }
 
 function bodyKey(w) {
@@ -231,6 +231,8 @@ function live() {
   const s = store.status?.calib || store.status?.verify;
   const ring = el.body.querySelector('.calib-big .ring');
   if (s && ring && s.phase !== 'done') ring.innerHTML = V.ringSvg(s.phase === 'release' ? 1 : s.progress, s.phase === 'release');
+  const near = el.body.querySelector('.r-near'); // how far the hand is from the target: changes every scan, updated in place
+  if (near) { const t = nearText(store.status?.calib); if (near.textContent !== t) near.textContent = t; near.hidden = !t; }
   sendFit();
   updateFit();
 }
@@ -354,12 +356,12 @@ function gridButton() {
 function body(w) {
   const c = store.status?.calib, v = store.status?.verify;
   const other = otherControl();
-  const follow = (list) => { // another device drives the session: follow it, its buttons are not ours
-    if (other) for (const s of list) s?.querySelectorAll?.('.actions .btn, .linkish, button.r-primary').forEach((b) => { b.disabled = true; });
-    return list;
-  };
-  if (rc.step === 'calibrate') return c ? follow([...calibSession(c, w), other ? null : simTargetSec(c, 'target', 1300)]) : calibrateBody(w);
-  if (rc.step === 'verify') return v ? follow([...verifySession(v, w), other ? null : simTargetSec(v, 'check point', 1600)]) : verifyBody(w);
+  // A running session owns the screen whatever step this phone was on: its way out (Exit calibration) must always be reachable.
+  // Another device drives it: the buttons that change it offer "Take control and …" in the same tap (see gate()).
+  if (c) return [...calibSession(c, P().walls.find((x) => x.id === c.wallId) || w), other ? null : simTargetSec(c, 'target', 1300)];
+  if (v) return [...verifySession(v, P().walls.find((x) => x.id === v.wallId) || w), other ? null : simTargetSec(v, 'check point', 1600)];
+  if (rc.step === 'calibrate') return calibrateBody(w);
+  if (rc.step === 'verify') return verifyBody(w);
   if (rc.step === 'fit') return fitBody(w);
   if (rc.step === 'test') return testBody();
   return prepareBody(w);
@@ -393,7 +395,7 @@ function prepareBody(w) {
 
 // ------------------------------------------------------------------ Calibrate
 
-const startCalib = (w) => { const o = rc.calibOpt; return run(cmd('calib.start', { wallId: w.id, cols: o.cols, rows: o.rows, top: o.top, bottom: o.bottom, holdMs: o.holdMs })); };
+const startCalib = (w) => { const o = rc.calibOpt; return run(cmd('calib.start', { wallId: w.id, cols: o.cols, rows: o.rows, top: o.top, bottom: o.bottom, holdMs: o.holdMs, armed: true })); }; // the phone is at the wall
 
 function calibStartButton(w, isPrimary) {
   const off = !V.wallReadiness(w).running.length, label = `Start calibration of ${w.id}`;
@@ -448,24 +450,60 @@ function touchWords(s, w, what) {
     fix: 'Nothing fills? Press closer to the centre of the ring, palm flat, and keep other people away from the wall.' };
 }
 
+/**
+ * A button that changes a session another device drives: it says "Take control and …" and one tap does control.take, then
+ * the op. A button that is bound to fail is never shown. Returns [label, onclick] for primary() / gbtn().
+ * `as` is the wording after "Take control and" when the label alone does not read well there; `pre` is a question asked
+ * BEFORE taking control (declining it leaves everything as it was).
+ */
+function gate(label, fn, as = label, pre = null) {
+  if (!otherControl()) return [label, pre ? async () => { if (await pre()) return fn(); } : fn];
+  return [`Take control and ${as.charAt(0).toLowerCase()}${as.slice(1)}`, async () => {
+    if (pre && !await pre()) return;
+    try { await cmd('control.take'); } catch (e) { toast(e.message, 'bad'); return; }
+    return fn();
+  }];
+}
+const gbtn = (cls, label, fn, as, extra = {}, pre = null) => { const [t, f] = gate(label, fn, as, pre); return h('button', { class: `btn ${cls}`.trim(), onclick: f, ...extra }, t); };
+
+/** The way out of calibration mode: always there, in every phase, with or without control. Cancelling is open to every paired device. */
+function exitButton(kind, wallId, captured = 0) {
+  const op = kind === 'verify' ? 'verify.cancel' : 'calib.cancel';
+  return h('div', { class: 'actions', style: { justifyContent: 'center' } }, h('button', { class: 'linkish danger-ink r-exit', onclick: async () => {
+    if (captured > 0 && !await confirmBox(`Exit calibration of ${wallId}? The ${captured} point${captured === 1 ? '' : 's'} captured so far ${captured === 1 ? 'is' : 'are'} discarded; the current calibration stays.`, 'Exit calibration', true)) return;
+    run(cmd(op));
+  } }, 'Exit calibration'));
+}
+
+/** How far the hand is from the target. Empty while the hand is in reach, or when the engine does not say. */
+function nearText(s) {
+  const n = s?.near, r = s?.captureRadiusM;
+  if (!n || !Number.isFinite(n.distM) || !(r > 0) || n.distM <= r || s.phase === 'done' || s.armed === false) return '';
+  return `Your hand is ${n.distM.toFixed(1)} m from target ${Math.min(s.index + 1, s.targets.length)} — move to the amber ring`;
+}
+
 function calibSession(c, w) {
   if (c.phase === 'done') return calibResult(c, w);
   const total = c.targets.length, k = Math.min(c.index + 1, total), t = touchWords(c, w, 'ring');
   const got = c.targets.filter((q) => q.captured?.length).length;
+  const waiting = c.armed === false; // the engine says nothing is captured until the operator is at the wall
+  const head = waiting
+    ? card('calibrate', w, { title: stepTitle('calibrate', w), progress: false, act: `Stand at ${wallWords(w)}, an arm’s length away, facing it. Then tap the button.`,
+      see: `An amber ring on ${w.id}: “Touch and hold · ${k}/${total}”.`, fix: 'Nothing is captured until you tap: walking past the wall does nothing.' })
+    : card('calibrate', w, { title: `${stepTitle('calibrate', w)}${c.redoing ? ' · redo' : ''}`, ...t, touch: true, progress: false });
   return [
-    card('calibrate', w, { title: `${stepTitle('calibrate', w)}${c.redoing ? ' · redo' : ''}`, ...t, touch: true, progress: false }),
+    head,
+    waiting ? primary('I’m at the wall — start', () => run(cmd('calib.arm'))) : null,
     sec(null, h('div', { class: 'calib-big' },
       h('div', { class: 'ring', html: V.ringSvg(c.phase === 'release' ? 1 : c.progress, c.phase === 'release') }),
       h('div', { class: 'step tnum' }, `Target ${k} of ${total}`),
+      h('div', { class: 'r-near tnum', role: 'status', hidden: !nearText(c) }, nearText(c)),
       h('div', { class: 'muted tnum' }, `${got} captured · ${c.sensorIds.join(', ')}`),
       targetMap(w, c))),
     sec(null, h('div', { class: 'actions r-row' },
-      h('button', { class: 'btn', disabled: c.index === 0, onclick: () => run(cmd('calib.back')) }, '← Back'),
-      h('button', { class: 'btn', onclick: () => run(cmd('calib.skip')) }, 'Skip target')),
-    h('div', { class: 'actions', style: { justifyContent: 'center' } },
-      h('button', { class: 'linkish danger-ink', onclick: async () => {
-        if (await confirmBox(`Cancel the calibration of ${c.wallId}? The targets captured so far are discarded; the current calibration stays.`, 'Cancel calibration', true)) run(cmd('calib.cancel'));
-      } }, 'Cancel calibration…'))),
+      gbtn('', '← Back', () => run(cmd('calib.back')), 'go back', { disabled: c.index === 0 }),
+      gbtn('', 'Skip target', () => run(cmd('calib.skip')))),
+    exitButton('calib', c.wallId, got)),
   ];
 }
 
@@ -474,22 +512,33 @@ const quality = (mm) => (mm < 10 ? 'excellent' : mm < 20 ? 'good enough for hand
 function calibResult(c, w) {
   const rows = Object.entries(c.result || {}), ok = rows.some(([, r]) => r.ok);
   const worstMm = Math.max(0, ...rows.filter(([, r]) => r.ok).map(([, r]) => r.maxMm));
+  const vd = calibVerdict(c.result), rms = Math.round(vd.rmsMm);
+  const canRedo = ok && c.worst >= 0;
+  const startOver = !ok || vd.startOver || (vd.bad && !canRedo), redoFirst = !startOver && vd.bad; // a bad result is never saved by default
   const lines = rows.map(([sid, r]) => h('div', { class: `check${r.ok ? ' done' : ''}` }, h('span', { class: 'mark' }, r.ok ? '✓' : '!'),
     h('span', { class: 't tnum' }, r.ok ? `${sid}: ${r.rmsMm} mm average · worst ${r.maxMm} mm — ${quality(r.rmsMm)}` : `${sid}: ${r.error}`)));
+  const apply = () => run(cmd('calib.apply'), 'Calibration saved — now verify it');
+  const sure = () => confirmBox(`This calibration is off by ${rms} mm on average — hands will land ${rms} mm away. Save it anyway?`, 'Save it anyway', true);
+  const redoWorst = () => run(cmd('calib.redo', { index: c.worst }));
+  const again = async () => { await run(cmd('calib.cancel')); startCalib(w); };
+  const act = !ok ? 'The calibration could not be solved. Start it again.'
+    : startOver ? `This calibration is off by ${rms} mm on average (worst ${vd.maxMm} mm): too many points are off. Start over.`
+      : redoFirst ? `This calibration is off by ${rms} mm on average (worst ${vd.maxMm} mm). Redo the worst point, #${c.worst + 1}.`
+        : 'Check the error, then tap Apply & save.';
+  const [pl, pf] = startOver ? gate('Start over', again) : redoFirst ? gate(`Redo worst point (#${c.worst + 1})`, redoWorst) : gate('Apply & save', apply);
   return [
-    card('calibrate', w, { title: `${stepTitle('calibrate', w)} · result`, progress: false,
-      act: ok ? 'Check the error, then tap Apply & save.' : 'The calibration could not be solved. Start it again.',
-      see: ok ? 'Under 10 mm average is excellent for hands.' : null,
-      fix: ok ? (worstMm > 20 ? `The worst point is ${worstMm} mm off: tap Redo worst point (#${c.worst + 1}) and press it right on its centre.` : null)
+    card('calibrate', w, { title: `${stepTitle('calibrate', w)} · result`, progress: false, act,
+      see: ok ? (vd.bad ? 'Press the ring right on its centre, palm flat. The error should drop under 10 mm.' : 'Under 10 mm average is excellent for hands.') : null,
+      fix: ok ? (!vd.bad && worstMm > 20 ? `The worst point is ${worstMm} mm off: tap Redo worst point (#${c.worst + 1}) and press it right on its centre.` : null)
         : 'Too few targets were captured. Tap Back to capture the missing ones, or Start over with nobody walking in front of the wall.',
-      tone: ok ? '' : 'warn' }),
+      tone: ok && !vd.bad ? '' : 'warn' }),
     sec(null, h('div', { class: 'checklist' }, lines)),
-    ok ? primary('Apply & save', () => run(cmd('calib.apply'), 'Calibration saved — now verify it'))
-      : primary('Start over', async () => { await run(cmd('calib.cancel')); startCalib(w); }),
+    primary(pl, pf),
     sec(null, h('div', { class: 'actions r-row' },
-      ok && c.worst >= 0 ? h('button', { class: 'btn attn', onclick: () => run(cmd('calib.redo', { index: c.worst })) }, `Redo worst point (#${c.worst + 1})`) : null,
-      h('button', { class: 'btn', onclick: () => run(cmd('calib.back')) }, 'Back'),
-      h('button', { class: 'btn danger', onclick: () => run(cmd('calib.cancel')) }, 'Discard'))),
+      ok && vd.bad ? gbtn('', 'Apply & save', apply, undefined, {}, sure) : null,
+      canRedo && !redoFirst ? gbtn('attn', `Redo worst point (#${c.worst + 1})`, redoWorst) : null,
+      gbtn('', 'Back', () => run(cmd('calib.back')), 'go back')),
+    exitButton('calib', c.wallId, c.targets.filter((q) => q.captured?.length).length)),
   ];
 }
 
@@ -740,8 +789,9 @@ function verifySession(v, w) {
         act: !s ? 'No point was measured. Verify again.' : good ? `Good for hands: ${s.meanMm} mm average, worst ${s.maxMm} mm (limit ${lim} mm).` : `Point ${worst + 1} is ${s.maxMm} mm off (limit ${lim} mm). Fix it with your hand.`,
         see: good ? 'The wall counts as verified.' : 'Fit opens on that point.', tone: good ? '' : 'warn' }),
       sec(null, h('div', { class: 'checklist' }, lines)),
-      !good && s ? primary(`Fix point ${worst + 1} with your hand`, () => rc.fixWorst(v, worst)) : primary('Done', () => run(cmd('verify.cancel'))),
+      !good && s ? primary(`Fix point ${worst + 1} with your hand`, () => rc.fixWorst(v, worst)) : primary('Done', () => run(cmd('verify.cancel'))), // (closing is open to every device)
       !good && s ? sec(null, secondary('Done — fix it later', () => run(cmd('verify.cancel')))) : null,
+      exitButton('verify', v.wallId),
     ];
   }
   const k = Math.min(v.index + 1, total), t = touchWords(v, w, 'check point');
@@ -752,7 +802,8 @@ function verifySession(v, w) {
       h('div', { class: 'step tnum' }, `Check ${k} of ${total}`),
       h('div', { class: 'muted tnum' }, v.targets.filter((q) => q.errMm !== null).map((q, i) => `#${i + 1} ${q.errMm} mm`).join(' · ') || `${w.id} · verification`),
       targetMap(w, v))),
-    sec(null, gridButton(), h('div', { class: 'actions', style: { justifyContent: 'center' } }, h('button', { class: 'linkish danger-ink', onclick: () => run(cmd('verify.cancel')) }, 'Stop verifying'))),
+    sec(null, gridButton()),
+    exitButton('verify', v.wallId),
   ];
 }
 

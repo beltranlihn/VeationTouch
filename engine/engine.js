@@ -179,7 +179,12 @@ export class Engine extends EventEmitter {
     rt.rejected = res.rejected;
     rt.lastDetections = res.detections;
     rt.scans = (rt.scans || 0) + 1;
-    if (calibrating) { this.calib.feed(rt.cfg.id, res.detections, scan.t); return; }
+    if (calibrating) {
+      this.calib.feed(rt.cfg.id, res.detections, scan.t);
+      // where the hand IS on this wall, for the wall's own feedback (live.calibHands): the raw detections, in wall metres
+      (this.calibHands ??= new Map()).set(rt.cfg.id, { wallId, at: performance.now(), dets: res.detections.map((d) => [d.x, d.y, d.size]) });
+      return;
+    }
     const tr = this.trackers.get(wallId);
     if (tr) tr.ingest(res.detections, scan.t);
   }
@@ -222,6 +227,21 @@ export class Engine extends EventEmitter {
     const s = this.tickStats;
     s.n++; s.maxMs = Math.max(s.maxMs, performance.now() - t0);
     if (t0 - s.t0 >= 1000) { s.fps = Math.round((s.n * 1000) / (t0 - s.t0)); s.n = 0; s.t0 = t0; s.lastMax = s.maxMs; s.maxMs = 0; }
+  }
+
+  /**
+   * The raw detections of the sensors of the wall being calibrated — what the tracker does NOT get meanwhile — as
+   * `{ [wallId]: [[x, y, size], …] }` in wall metres, 3 decimals; null when no calibration runs. A sensor that stopped
+   * reporting (its last revolution is older than 400 ms) contributes nothing. Sent in the live message as `calibHands`.
+   */
+  calibHandsSnapshot(now = performance.now()) {
+    if (!this.calib) { this.calibHands?.clear(); return null; }
+    const out = {};
+    for (const h of this.calibHands?.values() || []) {
+      if (now - h.at > 400 || !h.dets.length) continue;
+      (out[h.wallId] ??= []).push(...h.dets.map(([x, y, sz]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000, Math.round(sz * 1000) / 1000]));
+    }
+    return out;
   }
 
   /** Frame in the public JSON shape used by the WebSocket output and the UI. */
@@ -274,6 +294,7 @@ export class Engine extends EventEmitter {
       calib: this.calib ? this.calib.snapshot(now) : null,
       verify: this.verify ? this.verify.snapshot(now) : null,
       control: this._owner() ? { ...this.control } : null,
+      notice: this.notice && Date.now() - this.notice.at < 20000 ? this.notice : null, // "your session was cancelled from another device"
       recording: this.recorder ? { file: path.basename(this.recorder.file), seconds: Math.round(this.recorder.elapsed / 1000), frames: this.recorder.frames, mb: Math.round(this.recorder.bytes / 1e5) / 10 } : null,
       replay: this.replay ? { file: this.replay.file, pos: Math.round(this.replay.source.pos / 1000), duration: Math.round(this.replay.source.duration / 1000), from: this.replay.source.header?.profileName || null } : null,
     };
@@ -305,14 +326,21 @@ export class Engine extends EventEmitter {
   async command(op, args = {}) {
     const P = this.profile;
     // SHOW mode: the room is locked against edits; operation commands keep working.
-    if (this.settings.locked && LOCKED_OPS.has(op)) throw new Error('the room is locked (Show mode) — unlock it first');
+    if (this.settings.locked && LOCKED_OPS.has(op)) this._refuse(args.__client, op, 'the room is locked (Show mode) — unlock it first');
     // While a calibration / verification runs, ONE device drives it and the others are view-only (they can take over).
     // `__client` is set by the server, never by the client; commands without it (tests, the engine itself) pass.
     const who = args.__client;
     const owner = this._owner();
     if (who && owner && CONTROL_OPS.has(op) && owner.id !== who.id) {
       if (owner.gone) this._takeControl(who, 'the device that was calibrating disconnected');
-      else throw new Error(`calibration in progress on ${owner.device} — take control on this device to make changes`);
+      else this._refuse(who, op, `calibration in progress on ${owner.device} — take control on this device to make changes`);
+    }
+    // Discarding / leaving a session is allowed from ANY paired device (the way out must never be blocked);
+    // the device that was driving it is told (status.notice).
+    if (who && owner && !owner.gone && owner.id !== who.id && (op === 'calib.cancel' || op === 'verify.cancel') && (this.calib || this.verify)) {
+      const what = this.calib ? 'calibration' : 'verification';
+      this.log.info(`${what} cancelled from ${who.device || 'a device'} (it was driven by ${owner.device})`);
+      this.notice = { to: owner.id, text: `The ${what} was cancelled from ${who.device || 'another device'}.`, at: Date.now() };
     }
     switch (op) {
       case 'control.take': {
@@ -393,6 +421,11 @@ export class Engine extends EventEmitter {
       }
 
       case 'calib.start': return this._startCalibration(args);
+      case 'calib.arm': { // any paired device: "I am at the wall" (not a control command)
+        if (!this.calib) throw new Error('no calibration running');
+        this.calib.arm(`armed from ${who?.device || 'the engine'}`);
+        return { armed: true };
+      }
       case 'calib.skip': this.calib?.skip(); return {};
       case 'calib.back': this.calib?.redoPrevious(); return {};
       case 'calib.cancel': this._cancelCalibration(); return {};
@@ -407,7 +440,7 @@ export class Engine extends EventEmitter {
         const wall = this.profile.walls.find((w) => w.id === args.wallId);
         if (!wall) throw new Error('unknown wall');
         if (this.calib) throw new Error('finish or cancel the calibration first');
-        this.verify = new VerifySession(wall, verifyTargets(wall, args));
+        this.verify = new VerifySession(wall, verifyTargets(wall, args), { log: this.log });
         this._setOwner(who);
         this._syncWanderers();
         this.log.info(`verification started on ${wall.id}${who ? ` from ${who.device}` : ''}`);
@@ -893,7 +926,11 @@ export class Engine extends EventEmitter {
     const missingBg = ids.filter((id) => !this.sensors.get(id).pipeline.bg);
     if (missingBg.length && !args.force) throw new Error(`capture the background first (${missingBg.join(', ')})`);
     const targets = Array.isArray(args.targets) && args.targets.length >= 3 ? args.targets : defaultTargets(wall, args);
-    this.calib = new CalibrationSession(wall, ids, targets, { holdMs: args.holdMs ?? 700 });
+    this.calib = new CalibrationSession(wall, ids, targets, {
+      holdMs: args.holdMs ?? 700, log: this.log,
+      captureRadiusM: args.captureRadiusM ?? this.profile.processing?.calibCaptureM ?? 0.75,
+      armed: args.armed === true, // the phone remote starts at the wall; from the desktop the operator is not there yet
+    });
     this._setOwner(args.__client);
     this._syncWanderers();
     this.trackers.get(wall.id)?.clear();
@@ -1027,6 +1064,18 @@ export class Engine extends EventEmitter {
   // ------------------------------------------------------------------ control of a calibration session
 
   /** The device driving the running session (null when none runs or it was started without a device). */
+  /** A command refused by a gate: logged (device, op, reason; the same line at most once per 10 s), then thrown back to the caller. */
+  _refuse(who, op, reason) {
+    const device = who?.device || (who ? 'a device' : 'the engine'), key = `${device}|${op}|${reason}`, now = Date.now();
+    this._refusals ||= new Map();
+    if (!(now - (this._refusals.get(key) || 0) < 10000)) {
+      this._refusals.set(key, now);
+      this.log.warn(`command refused: ${op} from ${device} — ${reason}`);
+      if (this._refusals.size > 200) for (const [k, t] of this._refusals) if (now - t > 10000) this._refusals.delete(k);
+    }
+    throw new Error(reason);
+  }
+
   _owner() {
     if (!this.calib && !this.verify) this.control = null;
     return this.control;
@@ -1100,7 +1149,7 @@ const r4 = (v) => Math.round(v * 10000) / 10000;
 
 /** Commands only the device driving a calibration / verification may send while it runs. */
 const CONTROL_OPS = new Set([
-  'calib.start', 'calib.skip', 'calib.back', 'calib.cancel', 'calib.redo', 'calib.apply', 'calib.clear', 'verify.start', 'verify.cancel',
+  'calib.start', 'calib.skip', 'calib.back', 'calib.redo', 'calib.apply', 'calib.clear', 'verify.start', // (calib.cancel / verify.cancel: open to every paired device)
   'profile.update', 'profile.load', 'profile.create', 'profile.import', 'profile.delete', 'profile.restore',
   'bg.capture', 'bg.clear', 'sensor.autoAlign', 'sensor.sideCheck', 'sensor.readdress', 'sensor.restart', 'replay.start', 'replay.stop', 'app.lock',
 ]);

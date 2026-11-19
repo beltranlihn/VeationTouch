@@ -202,7 +202,7 @@ export class TouchMask {
     const mask = this.mask;
     const any = walls.some((x) => x.touches.length);
     // the pattern changes with the walls' geometry and the session, not with the touches: redrawn only then
-    const key = overlay ? JSON.stringify([overlay, walls.map((x) => [x.wall.id, x.wall.width, x.wall.height, x.wall.mapping, x.wall.pixelRect]), scale, this.w, this.h], (name, v) => (name === 'progress' ? undefined : v)) : null;
+    const key = overlay ? JSON.stringify([overlay, walls.map((x) => [x.wall.id, x.wall.width, x.wall.height, x.wall.mapping, x.wall.pixelRect]), scale, this.w, this.h], (name, v) => (name === 'progress' || name === 'flash' || name === 'armed' || name === 'near' ? undefined : v)) : null; // (live feedback of the session, not the pattern)
     if (!any && this.idle && key === this.patKey) return false;
     if (o.trailMs > 0) {
       const k = Math.exp(-dtMs / o.trailMs);
