@@ -14,6 +14,26 @@
       "default": 1
     },
     {
+      "key": "touchIntensity",
+      "label": "Touch intensity",
+      "type": "number",
+      "min": 0.5,
+      "max": 4,
+      "step": 0.1,
+      "default": 3,
+      "unit": "x"
+    },
+    {
+      "key": "touchPresence",
+      "label": "Touch presence",
+      "type": "number",
+      "min": 0,
+      "max": 3,
+      "step": 0.1,
+      "default": 1,
+      "unit": "x"
+    },
+    {
       "key": "touchColor",
       "label": "Touch colour",
       "type": "select",

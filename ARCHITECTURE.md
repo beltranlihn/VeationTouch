@@ -378,6 +378,15 @@ MIT, `LICENSE-fluid.txt`) on WebGL2 across the whole strip.
   Each wall is that screen: its height is the screen height, its width the 16:9 width of that height. A hand on a
   wall therefore stirs as a finger does on the website. `turbulence` scales the force (1 = the website). A first
   version with vortex bursts, 3× dye and swirls while held was judged ugly next to the website and removed.
+
+  Three additions on top of the website, asked for on the wall:
+  - **Touch intensity** (default 3× the pointer colour): a hand on a big wall must read more than a mouse.
+  - **Touch presence** (default 1; 0 = the website): a soft blot of the hand's colour when it lands, then a gentle
+    breath of colour every 0.12 s while it rests.
+  - **Smoothing.** Readings come at the sensors' ~10 Hz (the engine extrapolates ≤ 60 ms) and reach pages at 30 Hz,
+    so the hand the liquid sees is smoothed every frame: it follows the last reading, led by the hand's velocity
+    for ≤ 100 ms, through a 50 ms low-pass. The stroke is then continuous rather than dots at each reading
+    (`tests/alma-fluid.test.mjs`: readings 30 px apart give splats < 20 px apart).
 - The logo (the website's wordmark layers) is drawn over the liquid on the chosen wall.
 - **Renderer** (`renderer` param: `auto` / `webgpu` / `webgl2`). `fluid-webgpu.js` + `logo-webgpu.js` are the same fluid and
   logo in WGSL (rgba16float textures, splats batched as instanced additive quads, one submit per `step()` and per `render()`).

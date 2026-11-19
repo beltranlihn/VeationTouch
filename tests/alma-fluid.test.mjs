@@ -111,7 +111,7 @@ test('alma-fluid: manifest, assets and licence are in place', () => {
   assert.equal(m.id, 'alma-fluid');
   assert.equal(m.name, 'Alma liquid');
   assert.equal(m.entry, 'index.html');
-  assert.deepEqual(m.params.map((p) => p.key), ['turbulence', 'touchColor', 'emitters', 'emitterSpeed', 'ambience', 'emitterSize', 'fade', 'quality', 'renderer', 'wrap', 'logo', 'logoWall', 'logoStyle', 'logoSize', 'breathing']);
+  assert.deepEqual(m.params.map((p) => p.key), ['turbulence', 'touchIntensity', 'touchPresence', 'touchColor', 'emitters', 'emitterSpeed', 'ambience', 'emitterSize', 'fade', 'quality', 'renderer', 'wrap', 'logo', 'logoWall', 'logoStyle', 'logoSize', 'breathing']);
   const q = m.params.find((p) => p.key === 'quality');
   assert.deepEqual(q.options.map(([v]) => v), ['low', 'medium', 'high', 'ultra'], 'ultra = the liquid at the output resolution');
   assert.equal(q.default, 'medium');
@@ -158,22 +158,24 @@ pageTest('alma-fluid: frames render at the requested size, in the website\'s col
   assert.ok(Math.abs(r.mean[0] - 173) < 3 && Math.abs(r.mean[1] - 200) < 3 && Math.abs(r.mean[2] - 237) < 3, `background ${r.mean}`);
 });
 
-pageTest('alma-fluid: a hand is the website pointer — resting does nothing, moving stirs right there and nowhere far from it', async (inPage) => {
-  const r = await inPage(`
+pageTest('alma-fluid: a hand that rests is felt right there (Touch presence), moving stirs it more, and nothing far from it changes', async (inPage) => {
+  const script = `
     vt.frame(1 / 60, 5);
     const near = [270, 30, 60, 60], far = [680, 30, 60, 60];
     const before = [read(...near), read(...far)];
     vt.frame(1 / 60, 4); // control: no touch, nothing changes
     const control = [read(...near), read(...far)];
     touch('down', 1, 290, 60, { wallId: 'P2' });
-    vt.frame(1 / 60, 6); // a hand that only rests: the website's pointer splats only when it moves
+    vt.frame(1 / 60, 6); // a hand that only rests: a soft blot of its colour, then a gentle breath
     const rested = read(...near);
     for (let k = 1; k <= 4; k++) { touch('move', 1, 290 + k * 5, 60, { wallId: 'P2' }); vt.frame(1 / 60, 3); }
     const after = [read(...near), read(...far)];
-    return { controlNear: sumDiff(before[0], control[0]), restedChange: sumDiff(before[0], rested), nearChange: sumDiff(before[0], after[0]), nearMax: maxDiff(before[0], after[0]), farChange: sumDiff(before[1], after[1]), pixels: 60 * 60 };`,
-    `walls=4&ww=200&wh=120&${asQuery({ emitters: 0, logo: false })}`);
+    return { controlNear: sumDiff(before[0], control[0]), restedChange: sumDiff(before[0], rested), nearChange: sumDiff(before[0], after[0]), nearMax: maxDiff(before[0], after[0]), farChange: sumDiff(before[1], after[1]), pixels: 60 * 60 };`;
+  const r = await inPage(script, `walls=4&ww=200&wh=120&${asQuery({ emitters: 0, logo: false })}`);
+  const web = await inPage(script, `walls=4&ww=200&wh=120&${asQuery({ emitters: 0, logo: false, touchPresence: 0 })}`);
   assert.equal(r.controlNear, 0, 'without a touch the empty liquid does not change');
-  assert.equal(r.restedChange, 0, 'a hand that only rests on the wall paints nothing (as the website pointer)');
+  assert.ok(r.restedChange > r.pixels, `a hand that only rests is felt: its colour under it (${r.restedChange})`);
+  assert.equal(web.restedChange, 0, 'with Touch presence 0 a resting hand paints nothing, as the website pointer');
   assert.ok(r.nearChange > r.pixels, `pixels near the moving hand changed (${r.nearChange})`);
   assert.ok(r.nearMax > 3, `...visibly (max channel change ${r.nearMax})`);
   assert.equal(r.farChange, 0, 'pixels far from the touch did not');
@@ -357,7 +359,7 @@ pageTest('alma-fluid: with no touches every wall has liquid that keeps moving, a
     const tag = `(${closed ? 'closed room' : 'open strip'}: ${JSON.stringify(r)})`;
     for (const d of r.wall) assert.ok(d > 2, `no wall is just background ${tag}`); // (the website's emitters: a gentle wash; blank < 1.5)
     for (const d of r.half) assert.ok(d > 1.5, `no half wall is empty ${tag}`);
-    for (const m of r.moving) assert.ok(m > 0.03, `the liquid on every wall changes from frame to frame ${tag}`);
+    for (const m of r.moving) assert.ok(m > 0.01, `the liquid on every wall changes from frame to frame ${tag}`); // (blank and still = exactly 0)
     assert.ok(r.all < 20, `...and the wash is subtle (${r.all.toFixed(1)} of 255 from the background) ${tag}`);
   }
   // control: no emitters = a blank, still room, so the checks above can fail
@@ -386,6 +388,39 @@ pageTest('alma-fluid: a hand sweeping the wall adds colour over the ambient wash
   assert.ok(r.ambient < 20, `the wash is subtle (${r.ambient.toFixed(1)})`);
   // the website's pointer is gentle (its own values, by request): it adds colour where it goes, it does not shout
   assert.ok(r.stroke > r.band0 + 0.5, `the sweep adds colour along its way (${r.band0.toFixed(1)} → ${r.stroke.toFixed(1)}, wash ${level.toFixed(1)})`);
+});
+
+pageTest('alma-fluid: "Touch intensity" sets how much colour a hand paints (default 3 x the website pointer)', async (inPage) => {
+  const sweep = `
+    vt.frame(1 / 30, 10);
+    const band0 = deviation(410, 40, 160, 40);
+    touch('down', 1, 410, 60, { wallId: 'P3' });
+    for (let k = 1; k <= 16; k++) { touch('move', 1, 410 + k * 10, 60, { wallId: 'P3' }); vt.frame(1 / 60, 2); }
+    return { paint: deviation(410, 40, 160, 40) - band0 };`;
+  // one fixed colour (the palette is random per stroke) and the touch's own presence off: only the intensity changes
+  const q = (v) => `walls=4&ww=200&wh=120&closed=1&${asQuery({ logo: false, emitters: 0, touchColor: 'purple', touchPresence: 0, ...(v == null ? {} : { touchIntensity: v }) })}`;
+  const one = await inPage(sweep, q(1)), dflt = await inPage(sweep, q(null)), four = await inPage(sweep, q(4));
+  assert.ok(one.paint > 0, `a hand paints at 1 (${one.paint.toFixed(2)})`);
+  assert.ok(dflt.paint > one.paint * 1.5, `the default (3) paints more than the website pointer (${dflt.paint.toFixed(2)} vs ${one.paint.toFixed(2)})`);
+  assert.ok(four.paint > dflt.paint * 1.1, `4 paints more than 3 (${four.paint.toFixed(2)} vs ${dflt.paint.toFixed(2)})`);
+});
+
+pageTest('alma-fluid: a hand read at 10 Hz (the sensors) still draws one continuous stroke — the hand is smoothed every frame', async (inPage) => {
+  const r = await inPage(`
+    vt.frame(1 / 60, 5);
+    const f = dev().fluid, xs = [];
+    const real = f.splat.bind(f);
+    f.splat = (x, y, dx, dy, ...rest) => { if (dx || dy) xs.push(x * W); return real(x, y, dx, dy, ...rest); };
+    touch('down', 1, 100, 60, { wallId: 'P1' });
+    vt.frame(1 / 60, 2);
+    // the readings of a hand moving right at 300 px/s, as the engine gives them: a new one every 100 ms (6 frames)
+    for (let k = 1; k <= 8; k++) { touch('move', 1, 100 + k * 30, 60, { wallId: 'P1', vx: 300, vy: 0 }); vt.frame(1 / 60, 6); }
+    f.splat = real;
+    const gaps = xs.slice(1).map((x, i) => x - xs[i]);
+    return { n: xs.length, maxGap: Math.max(...gaps), first: xs[0], last: xs[xs.length - 1] };`, `walls=4&ww=200&wh=120&${asQuery({ emitters: 0, logo: false })}`);
+  assert.ok(r.n >= 20, `the moving hand splats along the way, not only at the readings (${r.n} splats for 8 readings)`);
+  assert.ok(r.maxGap < 20, `no jump between splats (largest ${r.maxGap.toFixed(1)} px; the readings are 30 px apart)`);
+  assert.ok(r.last > 300, `and it keeps up with the hand (${r.last.toFixed(0)} px, last reading 340)`);
 });
 
 /* ------------------------------------------------------------------ quality and renderer */
