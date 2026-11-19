@@ -15,6 +15,7 @@ export async function connectExperience() {
   const params = {};
   for (const p of manifest.params) params[p.key] = p.default;
   Object.assign(params, q.has('params') ? JSON.parse(q.get('params')) : {});
+  if (q.has('renderer')) params.renderer = q.get('renderer'); // ?renderer=webgl2|webgpu|auto
 
   const handlers = { params: [], touch: [] };
   const down = new Map();
@@ -29,7 +30,8 @@ export async function connectExperience() {
     params,
     on: (name, fn) => { (handlers[name] ||= []).push(fn); },
     touches: () => [...down.values()],
-    loop: (fn, gl) => { frameFn = fn; vt.gl = gl; if (q.get('raf') === '1') { let last = performance.now(); const tick = (t) => { fn((t - last) / 1000); last = t; requestAnimationFrame(tick); }; requestAnimationFrame(tick); } },
+    // `src`: a WebGL context, or the canvas element when the page draws with WebGPU (vt.gl is then null)
+    loop: (fn, src) => { frameFn = fn; vt.src = src; vt.gl = typeof src.drawingBufferWidth === 'number' ? src : null; if (q.get('raf') === '1') { let last = performance.now(); const tick = (t) => { fn((t - last) / 1000); last = t; requestAnimationFrame(tick); }; requestAnimationFrame(tick); } },
     sink: 'browser',
     fit: 'fit',
     standalone: true,

@@ -199,14 +199,15 @@ function normOutput(o, i) {
   return {
     id: id(o?.id, `O${i + 1}`),
     name: str(o?.name, { tuio: 'TUIO', triggers: 'Triggers', texture: 'Touch texture', webhook: 'Webhook', artnet: 'Art-Net', sacn: 'sACN' }[type] || 'OSC'),
-    // texture (Spout) options
+    // texture (NDI source name) options
     senderName: str(o?.senderName, 'VEATION Touch').replace(/[^\w .-]/g, '').slice(0, 60) || 'VEATION Touch',
     scale: [0.125, 0.25, 0.5, 1].includes(o?.scale) ? o.scale : 0.25,
     radius: num(o?.radius, 0.08, 0.01, 1),
     sizeMode: o?.sizeMode === 'touch' ? 'touch' : 'fixed', // 'touch': the disc grows with what touches (radius = the minimum)
     overlay: o?.overlay === 'off' ? 'off' : 'auto', // the calibration pattern (grid, targets) drawn on top while the walls' "Grid" is on or a calibration runs
-    // where the texture goes — only this one runs: Spout (same machine), NDI (network), or a full-screen window
-    sink: ['spout', 'ndi', 'window'].includes(o?.sink) ? o.sink : 'spout',
+    // where the texture goes — only this one runs: NDI (network) or a full-screen window. Spout is not here: the whole
+    // app has ONE Spout sender, the room output (`output`, below), which can carry this mask as its "touches" layer
+    sink: ['ndi', 'window'].includes(o?.sink) ? o.sink : 'ndi',
     displayId: Number.isFinite(o?.displayId) ? o.displayId : null, // 'window': the display it fills
     fit: o?.fit === 'stretch' ? 'stretch' : 'fit',                  // 'window': keep the canvas proportions, or fill
     softness: num(o?.softness, 0.5, 0, 1),
@@ -231,8 +232,9 @@ function normOutput(o, i) {
 }
 
 /**
- * The experience loaded in this room (Experiences tab): which one, where it goes and how, and the parameter values
- * the operator chose for each experience (keyed by experience id — the manifest says what the keys mean).
+ * The experience loaded in this room (Experiences tab): which one, whether it starts with the app, and the parameter
+ * values the operator chose for each experience (keyed by experience id — the manifest says what the keys mean).
+ * Where it goes (Spout, scale, rate…) is the room output's business: `output`, below.
  */
 function normExperience(e) {
   const params = {};
@@ -245,14 +247,89 @@ function normExperience(e) {
   return {
     id: typeof e?.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(e.id) ? e.id : null,
     autostart: bool(e?.autostart, false),
-    sink: e?.sink === 'window' ? 'window' : 'spout',
-    senderName: str(e?.senderName, 'VEATION Touch Experience').replace(/[^\w .-]/g, '').slice(0, 60) || 'VEATION Touch Experience',
-    displayId: Number.isFinite(e?.displayId) ? e.displayId : null,
-    fit: e?.fit === 'stretch' ? 'stretch' : 'fit',
-    scale: [0.25, 0.5, 0.75, 1].includes(e?.scale) ? e.scale : 0.5,
-    fps: e?.fps === 30 ? 30 : 60,
     params,
   };
+}
+
+// ---------------------------------------------------------------- the room output (ONE Spout sender for the whole app)
+
+export const OUTPUT_LAYERS = ['experience', 'touches', 'grid']; // default order, bottom → top
+export const OUTPUT_BLENDS = ['normal', 'screen', 'add', 'multiply'];
+export const OUTPUT_SCALES = [0.25, 0.5, 0.75, 1];
+export const OUTPUT_FPS = [30, 60];
+export const TOUCH_LAYER_SCALES = [0.125, 0.25, 0.5, 1];
+const LAYER_DEFAULTS = { experience: { on: true, blend: 'normal' }, touches: { on: false, blend: 'screen' }, grid: { on: false, blend: 'screen' } };
+
+function normLayer(l, lid) {
+  const d = LAYER_DEFAULTS[lid];
+  const out = {
+    id: lid,
+    on: bool(l?.on, d.on),
+    opacity: Math.round(num(l?.opacity, 1, 0, 1) * 100) / 100,
+    blend: OUTPUT_BLENDS.includes(l?.blend) ? l.blend : d.blend,
+  };
+  if (lid === 'touches') { // the same fields and meaning as a Texture output
+    Object.assign(out, {
+      radius: num(l?.radius, 0.08, 0.01, 1),
+      sizeMode: l?.sizeMode === 'touch' ? 'touch' : 'fixed',
+      softness: num(l?.softness, 0.5, 0, 1),
+      trailMs: int(l?.trailMs, 0, 0, 10000),
+      walls: Array.isArray(l?.walls) ? l.walls.filter((w) => typeof w === 'string').slice(0, 32) : [], // [] = all walls
+      scale: TOUCH_LAYER_SCALES.includes(l?.scale) ? l.scale : 0.25, // of the canvas: the CPU rasteriser's resolution
+    });
+  }
+  return out;
+}
+
+/**
+ * The room output: what leaves the app as ONE image (the single Spout sender, or a full-screen window) and the layers
+ * it is made of, bottom → top (array order). Each layer: on, opacity, blend; `touches` also carries the mask settings.
+ */
+export function normRoomOutput(o) {
+  const seen = new Set(), layers = [];
+  for (const l of Array.isArray(o?.layers) ? o.layers : []) {
+    if (l && OUTPUT_LAYERS.includes(l.id) && !seen.has(l.id)) { seen.add(l.id); layers.push(normLayer(l, l.id)); }
+  }
+  for (const lid of OUTPUT_LAYERS) if (!seen.has(lid)) layers[lid === 'experience' ? 'unshift' : 'push'](normLayer(null, lid));
+  return {
+    on: bool(o?.on, false),
+    sink: o?.sink === 'window' ? 'window' : 'spout',
+    senderName: str(o?.senderName, 'VEATION Touch').replace(/[^\w .-]/g, '').trim().slice(0, 60) || 'VEATION Touch',
+    displayId: Number.isFinite(o?.displayId) ? o.displayId : null,
+    fit: o?.fit === 'stretch' ? 'stretch' : 'fit',
+    scale: OUTPUT_SCALES.includes(o?.scale) ? o.scale : 0.5,
+    fps: o?.fps === 30 ? 30 : 60,
+    layers,
+  };
+}
+
+/**
+ * Profiles saved before the room output existed: where the experience went (sink, display, fit, scale, rate) moves from
+ * `experience` to `output`, and a Texture output sent over Spout becomes the touches layer (on, with its settings — the
+ * sender name is kept if it was customised). Any other Texture-over-Spout output is dropped: there is only one Spout
+ * sender now. Runs once: a profile that has `output` is left alone.
+ */
+function migrateRoomOutput(p) {
+  if (p.output && typeof p.output === 'object') return;
+  const e = p.experience && typeof p.experience === 'object' ? p.experience : {};
+  const out = {};
+  for (const k of ['sink', 'displayId', 'fit', 'scale', 'fps']) if (k in e) out[k] = e[k];
+  const outputs = Array.isArray(p.outputs) ? p.outputs : [];
+  const isSpoutTexture = (o) => o && o.type === 'texture' && (o.sink === undefined || o.sink === 'spout');
+  const tex = outputs.find(isSpoutTexture);
+  const custom = (n, dflt) => (typeof n === 'string' && n.trim() && n !== dflt ? n : null);
+  out.senderName = custom(tex?.senderName, 'VEATION Touch') || custom(e.senderName, 'VEATION Touch Experience') || 'VEATION Touch';
+  const playing = !!(e.autostart && e.id);
+  out.layers = [{ id: 'experience', on: playing }];
+  if (tex) {
+    const { radius, sizeMode, softness, trailMs, walls, scale } = tex;
+    out.layers.push({ id: 'touches', on: tex.enabled !== false, radius, sizeMode, softness, trailMs, walls, scale });
+  }
+  out.on = playing || (!!tex && tex.enabled !== false);
+  p.output = out;
+  // the one that became the touches layer leaves the list; any other Spout texture is KEPT with its settings, switched
+  // off and moved to NDI (there is one Spout sender now) — never deleted behind the operator's back
+  p.outputs = outputs.filter((o) => o !== tex).map((o) => (isSpoutTexture(o) ? { ...o, sink: 'ndi', enabled: false } : o));
 }
 
 export function normalizeProfile(input) {
@@ -277,6 +354,7 @@ export function normalizeProfile(input) {
     canvas,
     walls, sensors, zones, outputs,
     experience: normExperience(p.experience),
+    output: normRoomOutput(p.output),
     processing: {
       minQuality: int(pr.minQuality, D.minQuality, 0, 255),
       minRangeMm: int(pr.minRangeMm, D.minRangeMm, 0, 2000),
@@ -317,6 +395,7 @@ export function normalizeProfile(input) {
 function migrate(p) {
   // schema 1 is the first one; future versions transform `p` here step by step.
   if (!p.schema) p.schema = 1;
+  migrateRoomOutput(p); // keyed on the field itself: only profiles saved before the room output existed
   return p;
 }
 

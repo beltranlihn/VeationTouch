@@ -402,18 +402,39 @@ con el emisor «VEATION Touch».
 ## 10 bis. Experiencias (tecla 8)
 
 Piezas interactivas que corren dentro de VEATION Touch y salen directo a la sala: no hace falta otro programa
-que reciba los toques. La primera es **Alma liquid**, el líquido de la web de Alma Digital: corre en la GPU sobre
-toda la tira de muros, cada toque mete un remolino de turbulencia y el logo flota en el muro elegido.
+que reciba los toques. La primera es **Alma liquid**, el líquido de la web de Alma Digital: corre en la GPU (WebGPU, con
+WebGL2 de respaldo) sobre toda la tira de muros, con los valores de la web. Las manchas de fondo están siempre vivas y una
+mano que se mueve por el muro pinta y empuja el líquido como el ratón en la web; una mano quieta no pinta. El logo
+flota en el muro elegido.
 
-1. **Experiences › Play** en la experiencia. Sale por:
-   - **Spout**: el emisor «VEATION Touch Experience», que lee el servidor de medios (Smode, TouchDesigner,
-     Resolume…) en el mismo ordenador. Es lo normal en XR Lab.
+**Salida de la sala (Experiences › Output — VEATION Touch).**
+- La app envía **una sola imagen**: la fuente Spout **«VEATION Touch»**, que toma Resolume.
+- En la tarjeta Output se elige:
+  - encendido o apagado;
+  - el destino: Spout con su nombre, o pantalla completa en un monitor;
+  - la escala y los fps;
+  - y se ve la vista previa.
+- **Capas**, de arriba abajo en la lista (la primera fila es la capa de encima):
+  - **Experience**: la pieza;
+  - **Touches**: la máscara blanco y negro de los toques, con sus ajustes plegados (radio, borde, estela, tamaño);
+  - **Grid**: el pixel map, con contornos, rejilla en metros, nombres de muro y objetivos.
+- Cada capa tiene interruptor, opacidad, mezcla (Normal, Screen, Add, Multiply) y flechas ↑/↓ para el orden. Pueden ir
+  las tres a la vez.
+- **Modo calibración:** mientras se calibra, se verifica, se hace Fit o la prueba de paseo, o está encendida la
+  rejilla, la salida muestra sola únicamente la rejilla y los toques, sobre negro. La pieza se oculta pero sigue viva, y
+  al terminar vuelven tus capas. La tarjeta lo avisa.
+- La salida Texture de Outputs ya no usa Spout (sólo NDI y pantalla completa): para Spout está esta salida única.
+
+1. **Experiences › Play** en la experiencia la pone en la capa Experience y enciende la salida. Sale por:
+   - **Spout**: el emisor «VEATION Touch», que lee el servidor de medios del mismo ordenador (en XR Lab, Resolume).
    - **Full screen**: a pantalla completa en el monitor o proyector elegido. **Fit** mantiene las proporciones;
      **Stretch** rellena la pantalla.
-2. **Scale** fija el tamaño real en píxeles:
-   - **0,5** (3598 × 456 en XR Lab) va a 60 fps en un portátil con RTX 4060;
-   - **1** (tamaño completo) ronda los 20 fps, porque copia 26 MB por fotograma hacia Spout.
-   - El servidor de medios escala la imagen al lienzo.
+2. **Scale** fija el tamaño real en píxeles. Con **1** (tamaño completo, 7196 × 912 en XR Lab) la imagen sale nítida,
+   píxel a píxel, y va a 60 fps en un portátil con RTX 4060. Spout se alimenta directamente en la GPU, sin pasar por la
+   CPU. Con **0,5** el servidor de medios la amplía ×2 y se ve más suave.
+   - Si en un ordenador ese camino por GPU no funciona (por ejemplo, un portátil con dos tarjetas gráficas), la app
+     pasa sola al camino por CPU y lo anota en el registro («using the CPU path»). Ahí, con escala 1, va a ~20 fps:
+     usar 0,5.
 3. **Start with the app**: la experiencia arranca sola al abrir VEATION Touch, sin tocar nada. En el perfil de XR
    Lab viene activado, con el logo en P1.
 4. **Parámetros**, en directo y guardados en el perfil:

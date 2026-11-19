@@ -45,9 +45,9 @@ export async function upload(pathname, body, extra = '') {
 let ws = null, nextId = 1, retry = 0, unpaired = false;
 let serverProfile = null;
 const pending = new Map();
-// the pages that only draw (projection, full-screen texture, an experience) never need point clouds
+// the pages that only draw (projection, full-screen texture, the room output, an experience) never need point clouds
 const pageRole = location.pathname.startsWith('/projection') ? 'projection' : location.pathname.startsWith('/texture') ? 'texture'
-  : location.pathname.startsWith('/experiences/') ? 'experience' : null;
+  : location.pathname.startsWith('/output') ? 'output' : location.pathname.startsWith('/experiences/') ? 'experience' : null;
 const role = pageRole || params.get('role') || 'ui';
 let wantViz = !pageRole;
 

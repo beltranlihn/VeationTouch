@@ -91,30 +91,59 @@ data packets: universe 1–63999, *Priority* 0–200 (default 100), START code 0
 time out after 2.5 s). Destination `multicast` (default) = the universe's group `239.255.<hi>.<lo>`; or a receiver's
 IP for unicast.
 
-## Texture (Spout, NDI or full screen)
+## The room output (Spout) — source "VEATION Touch"
+
+VEATION Touch has **one Spout sender**, and it carries **the room's image**: one picture at the render size (output
+canvas × the output's *scale*, e.g. 7196 × 912 at scale 1), at 30 or 60 fps, on the GPU. A media server (Resolume,
+MadMapper, TouchDesigner *Syphon Spout In TOP*, Unreal's Spout plugin) takes it as a single source; its default name is
+**`VEATION Touch`** (`senderName` of the output, editable in Experiences › Output). Same computer only: Spout shares a
+GPU texture. The same image can instead fill a display (`sink: window`, `fit` = canvas proportions with black around, or
+`stretch`) or open in a browser at `/output?run=1`.
+
+The image is made of up to three **layers** stacked on black, in the order the operator chooses (the first of the list
+in the app is the top layer). Each layer has a switch, an opacity (0–1) and a blend (`normal`, `screen`, `add`,
+`multiply`):
+
+| Layer | What it draws |
+|---|---|
+| `experience` | the experience that is playing (Experiences tab), at the render size |
+| `touches` | the greyscale mask of the touches described below: white discs on black, through each wall's Mapping. Its own settings: resolution of the mask (`scale`, a fraction of the canvas, default 1/4, stretched up to the render size), disc radius, `sizeMode`, soft edge, trail, walls |
+| `grid` | the **pixel map**: each wall's outline, a grid in wall metres (0.5 m thin, 1 m thicker with its number), a centre cross, corner marks and the wall id, and the targets of a running calibration (every target a dot, the current one a ring with a crosshair and its number), verification (its check points and where the touch landed) or Fit (the mesh node being moved) |
+
+With **only the `touches` layer on**, the Spout source is exactly the mask the Texture output used to send: white on
+black, same resolution rules.
+
+**Calibration mode.** While a calibration, a verification, Fit or the phone's walk test runs, or the walls' *Grid* is on
+(`projection.set {grid}`), the output **switches by itself** to what calibration needs: the `grid` (with the targets)
+on top of the `touches`, on black, with no experience, whatever the operator's layers are. When that ends it goes back
+to the operator's layers. The UI shows it (`state.output.calibrating`); the layers the operator set are never changed.
+
+Control (UI channel commands, not OSC): `output.set {on, sink, senderName, displayId, fit, scale, fps}` (Show mode locks
+everything but `on`), `output.layers {layers}` (all three layers, bottom to top, each `{id, on, opacity, blend}`; `touches`
+also `radius, sizeMode, softness, trailMs, walls, scale`), `experience.play` / `experience.stop` (select the experience
+and switch its layer on or off). State: `state.output = {running, calibrating, layersEffective, …}`.
+
+## Texture (NDI or full screen)
 
 A greyscale mask of the touches — white discs on black — rendered in output-canvas pixels through each wall's
 Mapping. Each Texture output goes to **one** destination (`sink`), and only that one runs:
 
 | `sink` | Where | Receive it with |
 |---|---|---|
-| `spout` (default) | this computer — a Spout sender named `senderName` (default `VEATION Touch`) | TouchDesigner *Syphon Spout In TOP*, Resolume / MadMapper Spout source, Unreal Spout plugin |
-| `ndi` | the network — the NDI source `<COMPUTER> (<senderName>)`, BGRA frames at `rateHz` | TouchDesigner *NDI In TOP*, Resolume / MadMapper / OBS NDI source, Unreal NDI plugin |
+| `ndi` (default) | the network — the NDI source `<COMPUTER> (<senderName>)`, BGRA frames at `rateHz` | TouchDesigner *NDI In TOP*, Resolume / MadMapper / OBS NDI source, Unreal NDI plugin |
 | `window` | a full-screen window on display `displayId` (desktop app), `fit` = `fit` (canvas proportions, black around) or `stretch` | a capture card or another machine's video input; any browser can open `/texture?o=<id>` |
+
+**Spout is not a destination of a Texture output.** The app has a single Spout sender, the room output above, whose
+`touches` layer is this same mask. Profiles saved with a Texture output over Spout are migrated when they load: that output
+becomes the `touches` layer (on, with its settings, and its sender name if it had a custom one).
 
 Options: resolution (1/8 … full canvas), disc radius (m), disc size (`sizeMode`: `fixed`, or `touch` — the disc takes
 half the touch's measured width, never less than the radius), soft edge, trail (ms), rate (default 30 Hz), walls.
 **Calibration overlay** (`overlay`: `auto` (default) or `off`). While the walls' *Grid* is on (`projection.set {grid}`) or a
-calibration, verification or Fit runs, an `auto` output draws a **pixel map** on top of the touches, through each
-wall's Mapping, for the walls the output covers: the wall outline, a grid in wall metres (0.5 m thin, 1 m thicker, with
-the metre numbers), a centre cross, corner marks and the wall id; during a calibration every target is a dot and the
-current one a ring with a crosshair and its number, during a verification its check points, during Fit the mesh node
-being moved. Lines are grey/white on black, so the frame stays a greyscale image; with `off`, or when none of those
-is active, the texture is pure touches exactly as before. Feed a projector from this output and the grid shows whether
-the mapping, and the calibration, line up with the physical wall.
-
-Only one output at a time can use Spout (one sender per process); NDI and full screen have no such limit. NDI uses the
-NDI Runtime installed on the computer (free, ndi.video — not bundled). NDI® is a registered trademark of Vizrt NDI AB.
+calibration, verification or Fit runs, an `auto` output draws the same **pixel map** as the `grid` layer on top of the
+touches, in grey and white so the frame stays a greyscale image; with `off`, or when none of those is active, the texture is
+pure touches. NDI uses the NDI Runtime installed on the computer (free, ndi.video — not bundled). NDI® is a registered
+trademark of Vizrt NDI AB.
 
 ## Canvas coordinates and Mapping
 

@@ -335,11 +335,19 @@ in the state as `experience` (running, fps, error, previewAt) and `experiences` 
 - Writes to disk are debounced (700 ms) so a fader drag does not make a backup per tick.
 
 **Windows.** The engine emits `experienceWindow` (also in `ready`); the Electron main opens it.
-- **Spout:** an off-screen-rendered window (`webPreferences.offscreen`, `setFrameRate(fps)`). A merely hidden window
-  gets no rAF, and its timers tick at Windows' 15.6 ms: measured 26 fps for a 60 fps piece. Off-screen: 60 fps at
-  3598 × 456 on an RTX 4060 laptop.
-- The window's preload (`app/experience-preload.cjs`) exposes the native Spout sender as `window.vtOut`. One sender
-  per process: this renderer is its own process, apart from the Texture output's.
+- **Spout** uses an off-screen-rendered window (`setFrameRate(fps)`). A merely hidden window gets no rAF, and its
+  timers tick at Windows' 15.6 ms: measured 26 fps for a 60 fps piece. Two paths:
+  - **GPU** (default). The window is the render size and uses `offscreen: { useSharedTexture: true }`. Every
+    `paint` hands the main process a shared D3D11 texture (NT handle, BGRA), which the native sender copies
+    GPU→GPU into Spout (`sendShared`, `native/spout-send`). The page only pins its canvas 1:1 at the top-left
+    (`vtOut.kind = 'spout-gpu'`) and never reads its pixels.
+  - **Measured:** 7196 × 912 at 60 fps on an RTX 4060 laptop. A Spout receiver gets 7196 × 912 with the right
+    colours (`tests/spout.test.mjs` round-trips a known colour through an Electron paint).
+  - **CPU** (fallback). If `sendShared` fails for a second (e.g. the texture is on another GPU of a two-GPU laptop),
+    `app/main.js` remakes the window on this path for the rest of the run. The window is tiny, and the page
+    `readPixels` into the preload's `window.vtOut.send`. At scale 1 that copy (26 MB/frame) limits it to ≈ 20 fps.
+  - The sender lives in the main process for the GPU path and in the renderer for the CPU path: one per process,
+    apart from the engine's Texture sender either way.
 - **Window:** a frameless full-screen window on the chosen display.
 
 **Runtime** (`experiences/runtime.js`). It gives the page:
@@ -353,16 +361,36 @@ in the state as `experience` (running, fps, error, previewAt) and `experiences` 
 - posts a ≤ 640 px JPEG per second to `/api/experience/preview` (this computer only, ≤ 300 KB);
 - reports fps and errors every 2 s.
 
-At scale 1 (7196 × 912) the CPU copy (26 MB/frame) limits it to ≈ 20 fps. Sharing a D3D11 texture with Spout
-would remove that copy (a change to the native sender).
+On the GPU path `frame` sends nothing itself: the main process takes the window's paints.
 
 **Alma liquid** (`experiences/alma-fluid`). The website's fluid (fork of PavelDoGreat/WebGL-Fluid-Simulation,
 MIT, `LICENSE-fluid.txt`) on WebGL2 across the whole strip.
 - With a closed loop (or the `wrap` param On) the textures REPEAT on x, so the liquid is one seamless 360° texture.
   Splats and emitters cross the seam, and a hand crossing it (last wall → first) is a short stroke.
   `tests/alma-fluid.test.mjs` checks the seam column steps no more than the liquid does elsewhere.
-- Touches: down = a vortex ring, move = splats along the path, held still = a periodic swirl.
+- **Touches are the website's pointer, with its values** (Fluid Lab's `updatePointerDownData` / `splatPointer`). A hand
+  going down picks one colour for its whole stroke and paints nothing. While it moves, it splats at most every 33 ms,
+  at the hand, with:
+  - the move since its last splat × `SPLAT_FORCE` (1200), in units of the screen's width;
+  - its colour × `POINTER_INTENSITY` (0.162);
+  - the website's splat size.
+
+  Each wall is that screen: its height is the screen height, its width the 16:9 width of that height. A hand on a
+  wall therefore stirs as a finger does on the website. `turbulence` scales the force (1 = the website). A first
+  version with vortex bursts, 3× dye and swirls while held was judged ugly next to the website and removed.
 - The logo (the website's wordmark layers) is drawn over the liquid on the chosen wall.
+- **Renderer** (`renderer` param: `auto` / `webgpu` / `webgl2`). `fluid-webgpu.js` + `logo-webgpu.js` are the same fluid and
+  logo in WGSL (rgba16float textures, splats batched as instanced additive quads, one submit per `step()` and per `render()`).
+  `auto` takes WebGPU when the machine has an adapter and device. The canvas keeps the kind of context it first gets, so a
+  change of renderer reloads the page, and a lost device is rebuilt on a new one (reload if none comes). The two renderers
+  draw the same picture (`tests/alma-fluid.test.mjs` compares them to < 0.5 level). `vt.loop(fn, src)` / `vt.frame(src)` take a
+  WebGL context or the canvas element; the CPU Spout fallback draws a WebGPU canvas into a 2D canvas to read it.
+- **Quality** `low/medium/high/ultra`: dye short side 384/512/768/render height, simulation 128 (256 on `ultra`). Velocities are
+  rescaled for the finer grid, so the liquid moves alike at every quality.
+- **Ambience.** `emitters` is the count per 16:9 screen (the website's density, 12); a strip gets `round(n × aspect / (16/9))`.
+  Their size, colour and push are the website's (`EMITTER_SIZE_GAIN` 1, `EMITTER_FLOW` 0.15). They are spread over the
+  whole strip and wrap round a closed room, and the first 3 s are run before the first picture, so the room is never
+  blank. `ambience` (0–2) scales their colour and push, `emitterSize` (0.5–2) their radius.
 
 **Viewer (simulation in the app's views).** The Live strip, the focus views and the 3D room show the profile's
 experience live on the walls. `ui/js/expview.js` hosts a hidden same-origin iframe of
@@ -374,6 +402,37 @@ experience live on the walls. `ui/js/expview.js` hosts a hidden same-origin ifra
 Each frame reaches the parent as an `ImageBitmap` (`vt-experience-frame`). The workspace draws it per wall from
 `pixelRect` in place of the content image, and the 3D room redraws its wall textures at ≤ 15 Hz. The "Experience"
 toggle (on by default) removes the iframe when off. It is desktop only, and the room's real output is unaffected.
+
+## Room output — ONE image, ONE Spout sender (`profile.output`, `ui/js/output.js`, `app/main.js`)
+
+The room output is the app's single image; Resolume takes it as the Spout source "VEATION Touch". `profile.output`
+holds:
+- whether it is on;
+- where it goes (Spout, or a full-screen window);
+- its render size (canvas × scale);
+- its layers, bottom → top: `experience`, `touches` (the black-and-white mask, same settings as a Texture output) and
+  `grid` (the pixel map), each with on, opacity and blend.
+
+**Window and sender.** The desktop app opens `/output?run=1` in an off-screen window of the render size and sends
+what Chromium paints 1:1 to the only Spout sender of the app, in the main process. The GPU shared-texture path
+(`sendShared`) is the default; the CPU path (the paint bitmap, BGRA) is used when the texture cannot be shared. No
+other file loads the addon, which a test checks. Texture outputs keep NDI and full screen only.
+
+**Composition.** `ui/js/output.js` stacks the layers as DOM elements (z-index, `mix-blend-mode`, opacity):
+- an iframe of the experience in layer mode (`?run=1&layer=1`: no Spout, no preview of its own);
+- a canvas of the mask (`TouchMask`);
+- a full-size Canvas 2D grid from `wallPattern`, redrawn only when the profile, session or target changes.
+
+**Calibration mode.** While a calibration, verification, Fit or walk test runs, or the grid is on,
+`state.output.layersEffective` is `[touches, grid]` on black. The experience is only hidden, not torn down, so it comes
+back as it was. When the session ends, the operator's layers return.
+
+**Preview and saving.** The main process captures a ≤ 640 px JPEG of the whole output once a second, and only while
+someone requests it (`/api/experience/preview.jpg` in the last 5 s). It reports fps and errors every second
+regardless. Output, layer and parameter changes move the profile revision on, so a stale edit from another device is
+refused. Switches are saved at once; faders are saved 700 ms after they settle.
+
+**Measured** on an RTX 4060 laptop: 7196 × 912 at 59–60 fps, with frame gaps ≤ 15 ms over 5 s.
 
 ## Internet access — `engine/cloud.js`, `cloud/`
 

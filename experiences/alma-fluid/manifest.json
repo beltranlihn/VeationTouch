@@ -43,7 +43,7 @@
     },
     {
       "key": "emitters",
-      "label": "Emitters",
+      "label": "Emitters per screen",
       "type": "number",
       "min": 0,
       "max": 24,
@@ -57,6 +57,24 @@
       "min": 0,
       "max": 4,
       "step": 0.1,
+      "default": 1
+    },
+    {
+      "key": "ambience",
+      "label": "Ambience",
+      "type": "number",
+      "min": 0,
+      "max": 2,
+      "step": 0.05,
+      "default": 1
+    },
+    {
+      "key": "emitterSize",
+      "label": "Emitter size",
+      "type": "number",
+      "min": 0.5,
+      "max": 2,
+      "step": 0.05,
       "default": 1
     },
     {
@@ -85,6 +103,30 @@
         [
           "high",
           "High"
+        ],
+        [
+          "ultra",
+          "Ultra - liquid at the output resolution"
+        ]
+      ]
+    },
+    {
+      "key": "renderer",
+      "label": "Renderer",
+      "type": "select",
+      "default": "auto",
+      "options": [
+        [
+          "auto",
+          "Automatic - WebGPU when available"
+        ],
+        [
+          "webgpu",
+          "WebGPU"
+        ],
+        [
+          "webgl2",
+          "WebGL 2"
         ]
       ]
     },

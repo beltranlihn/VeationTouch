@@ -161,14 +161,45 @@
   "experience": {
     "id": "alma-fluid",
     "autostart": false,
-    "sink": "spout",
-    "senderName": "VEATION Touch Experience",
-    "scale": 0.5,
-    "fps": 60,
     "params": {
       "alma-fluid": {
         "logoWall": "P1"
       }
     }
+  },
+  "output": {
+    "on": false,
+    "sink": "spout",
+    "senderName": "VEATION Touch",
+    "displayId": null,
+    "fit": "fit",
+    "scale": 0.5,
+    "fps": 60,
+    "layers": [
+      {
+        "id": "experience",
+        "on": true,
+        "opacity": 1,
+        "blend": "normal"
+      },
+      {
+        "id": "touches",
+        "on": false,
+        "opacity": 1,
+        "blend": "screen",
+        "radius": 0.08,
+        "sizeMode": "fixed",
+        "softness": 0.5,
+        "trailMs": 0,
+        "walls": [],
+        "scale": 0.25
+      },
+      {
+        "id": "grid",
+        "on": false,
+        "opacity": 1,
+        "blend": "screen"
+      }
+    ]
   }
 }

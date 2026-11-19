@@ -1248,7 +1248,7 @@ export class Workspace {
     ctx.strokeStyle = 'rgba(255,255,255,0.35)';
     ctx.strokeRect(X(0) + 0.5, Y(0) + 0.5, P.canvas.width * k, P.canvas.height * k);
     ctx.fillStyle = '#8C8C8C'; ctx.font = '500 11px Geist, system-ui'; ctx.textBaseline = 'bottom'; ctx.textAlign = 'left';
-    const where = o.sink === 'ndi' ? `NDI “${o.senderName}”` : o.sink === 'window' ? 'Full screen' : `Spout “${o.senderName}”`;
+    const where = o.sink === 'window' ? 'Full screen' : `NDI “${o.senderName}”`;
     ctx.fillText(`${where} · ${Math.round(P.canvas.width * o.scale)} × ${Math.round(P.canvas.height * o.scale)} px${o.enabled ? '' : ' · output off'}`, X(0), Y(0) - 6);
     // where each wall lands, for reference (walls the output leaves out are hatched)
     for (const w of P.walls) {

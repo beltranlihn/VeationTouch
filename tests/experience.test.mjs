@@ -22,11 +22,12 @@ function setup(dirs = [FIX], { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-e
   if (fresh) { // the bundled rooms may come with an experience chosen: start these tests from none
     const sim = store.listProfiles().find((q) => q.id.endsWith('-sim')).id, prof = store.loadProfile(sim);
     prof.experience = normalizeProfile({}).experience;
+    prof.output = normalizeProfile({}).output;
     store.saveProfile(prof);
   }
   const engine = new Engine({ store, log: quiet, version: 'test', experienceDirs: dirs });
   const msgs = [];
-  engine.on('experienceWindow', (m) => msgs.push(m));
+  engine.on('outputWindow', (m) => msgs.push(m));
   return { dir, store, engine, msgs };
 }
 
@@ -86,19 +87,24 @@ test('experiences: the fixture is in the catalog with its manifest', async () =>
   } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('experiences: play and stop send the window message the desktop app opens (and nothing when nothing changes)', async () => {
+test('experiences: play and stop drive the experience layer of the room output; the window message is the output\'s (and nothing is sent when nothing changes)', async () => {
   const { engine, dir, msgs } = setup();
   engine.start();
   try {
     assert.equal(engine.state().experience.running, false);
+    assert.equal(engine.state().output.running, false);
     await assert.rejects(engine.command('experience.play', { id: 'nope' }), /unknown experience/);
     assert.equal(msgs.length, 0);
 
     await engine.command('experience.play', { id: 'touch-probe' });
-    assert.deepEqual(msgs.at(-1), { id: 'touch-probe', url: '/experiences/touch-probe/index.html?run=1', sink: 'spout', displayId: null, fit: 'fit', scale: 0.5, fps: 60, senderName: 'VEATION Touch Experience' });
+    const c = engine.profile.canvas; // the render size travels too: the Spout window paints at it, 1:1, on the GPU
+    assert.deepEqual(msgs.at(-1), { url: '/output?run=1', sink: 'spout', displayId: null, fit: 'fit', scale: 0.5, fps: 60, senderName: 'VEATION Touch',
+      width: Math.round(c.width * 0.5), height: Math.round(c.height * 0.5) });
     const st = engine.state().experience;
     assert.equal(st.running, true);
     assert.equal(st.url, '/experiences/touch-probe/index.html?run=1');
+    assert.equal(engine.state().output.running, true, 'playing switches the output on: an experience that goes nowhere is no use');
+    assert.equal(engine.state().profile.output.layers.find((l) => l.id === 'experience').on, true);
     assert.equal(engine.state().profile.experience.id, 'touch-probe', 'the choice is in the profile');
 
     const n = msgs.length;
@@ -106,31 +112,43 @@ test('experiences: play and stop send the window message the desktop app opens (
     assert.equal(msgs.length, n);
 
     // where it goes: a change that matters sends a new message
-    await engine.command('experience.set', { sink: 'window', displayId: 3, fit: 'stretch', scale: 0.25, fps: 30, senderName: 'Wall A' });
-    assert.deepEqual(msgs.at(-1), { id: 'touch-probe', url: '/experiences/touch-probe/index.html?run=1', sink: 'window', displayId: 3, fit: 'stretch', scale: 0.25, fps: 30, senderName: 'Wall A' });
+    await engine.command('output.set', { sink: 'window', displayId: 3, fit: 'stretch', scale: 0.25, fps: 30, senderName: 'Wall A' });
+    assert.deepEqual(msgs.at(-1), { url: '/output?run=1', sink: 'window', displayId: 3, fit: 'stretch', scale: 0.25, fps: 30, senderName: 'Wall A',
+      width: Math.round(c.width * 0.25), height: Math.round(c.height * 0.25) });
 
+    // Stop takes the experience off the output; the output itself stays (its other layers keep showing)
+    const before = msgs.length;
     await engine.command('experience.stop');
-    assert.equal(msgs.at(-1), null);
+    assert.equal(msgs.length, before, 'the window stays');
     assert.equal(engine.state().experience.running, false);
     assert.equal(engine.state().experience.url, null);
+    assert.equal(engine.state().output.running, true);
+    assert.equal(engine.state().profile.output.layers.find((l) => l.id === 'experience').on, false);
     assert.equal(engine.state().profile.experience.id, 'touch-probe', 'stopping keeps the choice');
-    assert.equal(engine.experienceWindow(), null);
+    assert.notEqual(engine.outputWindow(), null);
+
+    await engine.command('output.set', { on: false });
+    assert.equal(msgs.at(-1), null, 'the output off: the window closes');
+    assert.equal(engine.outputWindow(), null);
   } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('experiences: experience.set validates, and a running page reports its fps and error', async () => {
+test('experiences: output.set validates; experience.set only keeps autostart; a running page reports its fps and error', async () => {
   const { engine, dir } = setup();
   engine.start();
   try {
-    await assert.rejects(engine.command('experience.set', { scale: 0.3 }), /scale/);
-    await assert.rejects(engine.command('experience.set', { fps: 144 }), /fps/);
-    await assert.rejects(engine.command('experience.set', { sink: 'ndi' }), /sink/);
-    await assert.rejects(engine.command('experience.set', { fit: 'zoom' }), /fit/);
-    await assert.rejects(engine.command('experience.set', { senderName: '***' }), /sender name/);
-    await assert.rejects(engine.command('experience.set', { displayId: 'x' }), /displayId/);
-    assert.equal(engine.profile.experience.scale, 0.5, 'a refused set changes nothing');
-    await engine.command('experience.set', { senderName: 'My <Wall>' });
-    assert.equal(engine.profile.experience.senderName, 'My Wall', 'the name is cleaned like a Texture sender name');
+    await assert.rejects(engine.command('output.set', { scale: 0.3 }), /scale/);
+    await assert.rejects(engine.command('output.set', { fps: 144 }), /fps/);
+    await assert.rejects(engine.command('output.set', { sink: 'ndi' }), /sink/);
+    await assert.rejects(engine.command('output.set', { fit: 'zoom' }), /fit/);
+    await assert.rejects(engine.command('output.set', { senderName: '***' }), /sender name/);
+    await assert.rejects(engine.command('output.set', { displayId: 'x' }), /displayId/);
+    assert.equal(engine.profile.output.scale, 0.5, 'a refused set changes nothing');
+    await engine.command('output.set', { senderName: 'My <Wall>' });
+    assert.equal(engine.profile.output.senderName, 'My Wall', 'the name is cleaned like a Texture sender name');
+    await assert.rejects(engine.command('experience.set', { scale: 1 }), /output\.set/, 'where it goes is the output\'s now');
+    await engine.command('experience.set', { autostart: true });
+    assert.equal(engine.profile.experience.autostart, true);
 
     await engine.command('experience.report', { fps: 59.4, error: 'x' }); // not running: ignored
     assert.equal(engine.state().experience.fps, 0);
@@ -146,7 +164,8 @@ test('experiences: experience.set validates, and a running page reports its fps 
 test('experiences: autostart runs the saved experience when the engine starts (and only then)', async () => {
   const a = setup();
   a.engine.start();
-  await a.engine.command('experience.set', { autostart: true, sink: 'window', displayId: 7 });
+  await a.engine.command('experience.set', { autostart: true });
+  await a.engine.command('output.set', { sink: 'window', displayId: 7 });
   await a.engine.command('experience.play', { id: 'touch-probe' });
   await a.engine.stop(); // writes the profile
   try {
@@ -154,17 +173,19 @@ test('experiences: autostart runs the saved experience when the engine starts (a
     b.engine.start();
     assert.equal(b.engine.state().experience.running, true, 'it runs without anyone pressing Play');
     assert.equal(b.msgs.length, 1);
-    assert.equal(b.msgs[0].id, 'touch-probe');
+    assert.equal(b.msgs[0].url, '/output?run=1');
     assert.equal(b.msgs[0].sink, 'window');
     assert.equal(b.msgs[0].displayId, 7);
     await b.engine.command('experience.set', { autostart: false });
     await b.engine.command('experience.stop');
+    await b.engine.command('output.set', { on: false });
     await b.engine.stop();
 
     const c = setup([FIX], { dir: a.dir, fresh: false });
     c.engine.start();
     assert.equal(c.engine.state().experience.running, false, 'autostart off: the choice is remembered, nothing runs');
     assert.equal(c.engine.state().experience.id, 'touch-probe');
+    assert.equal(c.engine.state().output.running, false, 'the output was left off');
     assert.equal(c.msgs.length, 0);
     await c.engine.stop();
 
@@ -172,9 +193,11 @@ test('experiences: autostart runs the saved experience when the engine starts (a
     const d = setup([], { dir: a.dir, fresh: false });
     const prof = d.store.loadProfile(d.engine.settings.activeProfile);
     prof.experience.autostart = true;
+    prof.output.on = false;
     d.store.saveProfile(prof);
     d.engine.start();
     assert.equal(d.engine.state().experience.running, false);
+    assert.equal(d.engine.state().output.running, false, 'nothing to play: the output is not switched on either');
     await d.engine.stop();
   } finally { fs.rmSync(a.dir, { recursive: true, force: true }); }
 });
@@ -214,29 +237,36 @@ test('experiences: parameters are checked against the manifest, saved in the pro
   } finally { if (!stopped) await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('experiences: in Show mode play, stop and parameters work; where it goes (experience.set) is locked', async () => {
+test('experiences: in Show mode play, stop, parameters, the layers and the output switch work; where it goes (output.set) is locked', async () => {
   const { engine, dir } = setup();
   engine.start();
   try {
     await engine.command('app.lock', { locked: true });
     await engine.command('experience.play', { id: 'touch-probe' });
     await engine.command('experience.param', { key: 'gain', value: 0.5 });
-    await assert.rejects(engine.command('experience.set', { fps: 30 }), /locked/);
-    assert.equal(engine.profile.experience.fps, 60);
+    await assert.rejects(engine.command('experience.set', { autostart: true }), /locked/);
+    await assert.rejects(engine.command('output.set', { fps: 30 }), /locked/, 'where it goes is locked…');
+    await assert.rejects(engine.command('output.set', { on: false, scale: 1 }), /locked/);
+    assert.equal(engine.profile.output.fps, 60);
+    await engine.command('output.layers', { layers: engine.profile.output.layers.map((l) => ({ ...l, opacity: 0.5 })) }); // …what is seen is not
+    await engine.command('output.set', { on: false }); // …and neither is the switch
+    assert.equal(engine.state().output.running, false);
+    await engine.command('output.set', { on: true });
     await engine.command('experience.stop');
     await engine.command('app.lock', { locked: false });
-    await engine.command('experience.set', { fps: 30 });
-    assert.equal(engine.profile.experience.fps, 30);
+    await engine.command('output.set', { fps: 30 });
+    assert.equal(engine.profile.output.fps, 30);
   } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('experiences: the profile field is normalised', () => {
-  const p = normalizeProfile({ experience: { id: '../x', autostart: 'yes', sink: 'ndi', senderName: '<>', displayId: 'a', fit: 'zoom', scale: 0.3, fps: 24,
+test('experiences: the profile field is normalised (it keeps the choice, autostart and the parameters; where it goes moved to the output)', () => {
+  const p = normalizeProfile({ output: {}, experience: { id: '../x', autostart: 'yes', sink: 'ndi', senderName: '<>', displayId: 'a', fit: 'zoom', scale: 0.3, fps: 24,
     params: { 'ok-id': { a: 1, b: 'x', c: true, d: null, e: {}, 'bad key': 1 }, 'bad id!': { a: 1 }, str: 'nope' } } });
-  assert.deepEqual(p.experience, { id: null, autostart: false, sink: 'spout', senderName: 'VEATION Touch Experience', displayId: null, fit: 'fit', scale: 0.5, fps: 60, params: { 'ok-id': { a: 1, b: 'x', c: true } } });
+  assert.deepEqual(p.experience, { id: null, autostart: false, params: { 'ok-id': { a: 1, b: 'x', c: true } } });
   assert.deepEqual(normalizeProfile({}).experience.params, {});
-  const q = normalizeProfile({ experience: { id: 'fluid', autostart: true, sink: 'window', displayId: 2, fit: 'stretch', scale: 1, fps: 30 } });
-  assert.deepEqual([q.experience.id, q.experience.autostart, q.experience.sink, q.experience.displayId, q.experience.fit, q.experience.scale, q.experience.fps], ['fluid', true, 'window', 2, 'stretch', 1, 30]);
+  const q = normalizeProfile({ output: {}, experience: { id: 'fluid', autostart: true, sink: 'window', displayId: 2, fit: 'stretch', scale: 1, fps: 30 } });
+  assert.deepEqual([q.experience.id, q.experience.autostart], ['fluid', true]);
+  assert.equal('sink' in q.experience, false, 'the destination is not the experience\'s any more');
 });
 
 test('experiences: the server serves experience folders like the UI files, and nothing outside them', async () => {
@@ -300,7 +330,7 @@ test('experiences: the preview is posted by the page on this computer only, and 
     // from the internet relay (stamped tunnel traffic) it is refused: the page that renders runs here
     const tunnel = { 'x-vt-tunnel': engine.cloud.tunnelToken, 'x-vt-client-ip': '203.0.113.9' };
     assert.equal((await post(jpeg, tunnel)).status, 403);
-    assert.equal(engine.expPreview, null);
+    assert.equal(engine.outPreview, null);
     // …and from another machine on the network (this computer's LAN address is not loopback)
     const lan = Object.values(os.networkInterfaces()).flat().find((a) => a && a.family === 'IPv4' && !a.internal);
     if (lan) {
@@ -311,15 +341,15 @@ test('experiences: the preview is posted by the page on this computer only, and 
       });
       if (r !== null) assert.equal(r, 403, 'a LAN peer cannot post a preview');
     }
-    assert.equal(engine.expPreview, null);
+    assert.equal(engine.outPreview, null);
 
     assert.equal((await post(Buffer.from('<html>not a jpeg</html>'))).status, 400);
     assert.equal((await post(jpeg)).status, 204);
-    assert.ok(engine.exp.previewAt > 0);
+    assert.ok(engine.out.previewAt > 0);
     const big = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(301 * 1024)]);
     const rBig = await post(big).catch((e) => ({ status: e.code }));
     assert.notEqual(rBig.status, 204, 'over 300 KB is refused');
-    assert.equal(engine.expPreview.buf.length, jpeg.length, 'the refused frame did not replace the kept one');
+    assert.equal(engine.outPreview.buf.length, jpeg.length, 'the refused frame did not replace the kept one');
 
     const got = await raw(server.port, '/api/experience/preview.jpg');
     assert.equal(got.status, 200);
@@ -327,10 +357,17 @@ test('experiences: the preview is posted by the page on this computer only, and 
     assert.equal(got.headers['cache-control'], 'no-store');
     assert.deepEqual(got.body, jpeg);
     await engine.command('experience.report', { fps: 60 });
-    assert.ok(engine.state().experience.previewAt > 0, 'the state tells the UI a frame exists');
+    assert.ok(engine.state().output.previewAt > 0, 'the state tells the UI a frame exists');
 
     await engine.command('experience.stop');
-    assert.equal((await raw(server.port, '/api/experience/preview.jpg')).status, 404, 'stopping drops the frame');
+    assert.equal((await raw(server.port, '/api/experience/preview.jpg')).status, 200, 'the output goes on without the experience: its frame stays');
+    // the desktop app sends the preview (and how the window is doing) through the engine's parent port
+    assert.equal(engine.setOutputPreview(jpeg, { fps: 59.96, error: 'x' }), true);
+    assert.equal(engine.state().output.fps, 60);
+    assert.equal(engine.state().output.error, 'x');
+    await engine.command('output.set', { on: false });
+    assert.equal((await raw(server.port, '/api/experience/preview.jpg')).status, 404, 'the output off drops the frame');
+    assert.equal(engine.setOutputPreview(jpeg), false, 'and nothing to preview');
   } finally { server.close(); await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
 
   // a device that is not this computer needs the access key to see it (the same rule as the other APIs)
@@ -339,7 +376,7 @@ test('experiences: the preview is posted by the page on this computer only, and 
   const s2 = await createServer(t.engine, { port: 0, root, log: quiet, trustLocal: false });
   try {
     await t.engine.command('experience.play', { id: 'touch-probe' });
-    t.engine.setExperiencePreview(jpeg);
+    t.engine.setOutputPreview(jpeg);
     assert.equal((await raw(s2.port, '/api/experience/preview.jpg')).status, 401);
     assert.equal((await raw(s2.port, '/api/experience/preview.jpg?k=wrong')).status, 401);
     assert.equal((await raw(s2.port, `/api/experience/preview.jpg?k=${t.engine.settings.token}`)).status, 200);

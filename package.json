@@ -47,6 +47,7 @@
       "profiles/**",
       "build/icon.png",
       "native/**",
+      "!native/spout-send/src/**",
       "licenses/**",
       "package.json",
       "node_modules/ws/**",

@@ -1,21 +1,15 @@
 // "Texture" output: a black-and-white (greyscale) mask of the touches, rendered in OUTPUT-CANVAS
-// pixels through each wall's mapping, sent over Spout, NDI or shown full screen (one of them, chosen per output) so
+// pixels through each wall's mapping, sent over NDI or shown full screen (one of them, chosen per output) so
 // TouchDesigner / Unreal / Resolume use it directly as a texture (particles, fluids, masks…). Rendered on the CPU by core/mask.js (the same code draws
 // the live preview in the UI) — at the default quarter resolution (960×600 for a 3840×2400 canvas) a frame
 // costs a few milliseconds.
+// There is NO Spout here: the whole app has one Spout sender, the room output (app/main.js), whose "touches" layer is
+// this same mask (ui/js/output.js draws it with the same TouchMask).
 
-import { createRequire } from 'node:module';
 import { TouchMask } from '../core/mask.js';
 import { NdiSender } from './ndi.js';
 
-let spout = null, spoutError = null, spoutOwner = null;
-function loadSpout() {
-  if (spout || spoutError) return spout;
-  try { spout = createRequire(import.meta.url)('../../native/spout-send/dsp_spout.node'); } catch (e) { spoutError = e.message; }
-  return spout;
-}
-
-/** The mask at the output's resolution (canvas × scale), expanded to opaque grey RGBA for Spout. */
+/** The mask at the output's resolution (canvas × scale), expanded to opaque grey RGBA for NDI. */
 export class TextureRenderer {
   constructor() { this.m = new TouchMask(); this.rgba = null; }
   get w() { return this.m.w; }
@@ -45,9 +39,9 @@ export class TextureRenderer {
 }
 
 /**
- * One Texture output → ONE sink, the one chosen in the output (`sink`): a Spout sender (same machine), an NDI source
- * (the network, through the installed NDI runtime) or a full-screen window (drawn by the window itself from the live
- * touches — the engine sends nothing). Only the chosen sink runs; a disabled output runs none.
+ * One Texture output → ONE sink, the one chosen in the output (`sink`): an NDI source (the network, through the installed
+ * NDI runtime) or a full-screen window (drawn by the window itself from the live touches — the engine sends nothing).
+ * Only the chosen sink runs; a disabled output runs none.
  */
 export class TextureOutput {
   constructor(log) { this.log = log; this.r = new TextureRenderer(); this.started = false; this.last = 0; this.error = null; this.key = ''; this.n = 0; this.receivers = null; }
@@ -59,23 +53,13 @@ export class TextureOutput {
     if (key === this.key && !this.error) return;
     this._stop();
     this.key = key;
-    if (o.sink === 'window') return; // the full-screen window renders the mask itself (ui/js/texture.js)
-    if (o.sink === 'ndi') {
-      this.ndi = new NdiSender();
-      this.error = this.ndi.start(o.senderName);
-      this.started = !this.error;
-      this.receivers = this.started ? 0 : null;
-      if (this.started) this.log.info(`NDI source "${o.senderName}" ${this.r.w}×${this.r.h}`);
-      else this.ndi = null;
-      return;
-    }
-    if (spoutOwner && spoutOwner !== this) { this.error = 'only one Texture output can send over Spout'; return; }
-    const sp = loadSpout();
-    if (!sp) { this.error = `Spout not available (${spoutError})`; return; }
-    this.started = sp.start(o.senderName);
-    spoutOwner = this.started ? this : null;
-    this.error = this.started ? null : 'Spout sender could not start (DirectX 11 unavailable?)';
-    if (this.started) this.log.info(`Spout sender "${o.senderName}" ${this.r.w}×${this.r.h}`);
+    if (o.sink !== 'ndi') return; // 'window': the full-screen window renders the mask itself (ui/js/texture.js)
+    this.ndi = new NdiSender();
+    this.error = this.ndi.start(o.senderName);
+    this.started = !this.error;
+    this.receivers = this.started ? 0 : null;
+    if (this.started) this.log.info(`NDI source "${o.senderName}" ${this.r.w}×${this.r.h}`);
+    else this.ndi = null;
   }
 
   /** @returns {boolean} whether a frame was sent */
@@ -84,17 +68,14 @@ export class TextureOutput {
     const dt = this.last ? nowMs - this.last : 16;
     this.last = nowMs;
     this.r.render(walls, dt, overlay);
-    if (this.ndi) {
-      this.ndi.send(this.r.rgba, this.r.w, this.r.h, this.o.rateHz);
-      if (this.n++ % 30 === 0) this.receivers = this.ndi.receivers();
-      return true;
-    }
-    return spout.send(this.r.rgba, this.r.w, this.r.h, false);
+    if (!this.ndi) return false;
+    this.ndi.send(this.r.rgba, this.r.w, this.r.h, this.o.rateHz);
+    if (this.n++ % 30 === 0) this.receivers = this.ndi.receivers();
+    return true;
   }
 
   _stop() {
     if (this.ndi) { this.ndi.stop(); this.ndi = null; }
-    if (spoutOwner === this) { try { spout.stop(); } catch { /* ignore */ } spoutOwner = null; }
     this.started = false; this.error = null; this.receivers = null; this.last = 0;
   }
 

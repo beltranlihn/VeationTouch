@@ -14,7 +14,9 @@ const q = new URLSearchParams(location.search);
 const KEY_PREVIEW_MS = 1000, REPORT_MS = 2000, PREVIEW_MAX_W = 640;
 // Viewer mode (?run=1&view=1): the app's own window hosts the page in a hidden iframe to show the piece on the walls of its
 // views. A second instance that is only looked at: no Spout, no preview, no report, a small render, frames posted to the parent.
-const VIEW_SCALE_MAX = 0.25, VIEW_FPS = 30;
+// 0.5: a wall shown alone in the app (focus view, ~1000 px wide) needs about that much to look like the room's output;
+// at 0.25 the logo and the liquid's edges were visibly blurred there
+const VIEW_SCALE_MAX = 0.5, VIEW_FPS = 30;
 
 /** Wait for `ms`, or until `p` settles. */
 const within = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r(undefined), ms))]);
@@ -24,12 +26,12 @@ async function engineReachable() {
   try { const r = await within(fetch('/api/health', { cache: 'no-store' }), 2500); return !!r?.ok; } catch { return false; }
 }
 
-/** A fake Spout bridge for tests (`?fakeOut=1`): records what the runtime would send. */
-function installFakeOut() {
+/** A fake Spout bridge for tests (`?fakeOut=1`, or `?fakeOut=gpu` for the GPU path): records what the runtime would send. */
+function installFakeOut(kind = 'spout') {
   const calls = { start: [], send: [], stop: 0 };
   window.__vtOutCalls = calls;
   window.vtOut = {
-    kind: 'spout', ok: true, error: null,
+    kind, ok: true, error: null,
     start(name) { calls.start.push(name); return true; },
     send(u8, w, h, flipY) { calls.send.push({ bytes: u8.length, w, h, flipY }); return true; },
     stop() { calls.stop++; },
@@ -39,11 +41,12 @@ function installFakeOut() {
 /** @returns {Promise<object>} the runtime handle (see the property list in ARCHITECTURE.md › Experiences) */
 export async function connectExperience() {
   if (q.get('fakeOut') === '1' && !window.vtOut) installFakeOut();
+  if (q.get('fakeOut') === 'gpu' && !window.vtOut) installFakeOut('spout-gpu');
   const run = q.get('run') === '1';
   const id = (location.pathname.match(/\/experiences\/([^/]+)\//) || [])[1] || null;
   let engine = await engineReachable();
   for (let k = 0; !engine && run && k < 30; k++) { await new Promise((r) => setTimeout(r, 500)); engine = await engineReachable(); } // the app is still starting
-  return engine ? connectEngine(id, run, run && q.get('view') === '1') : connectStandalone(id);
+  return engine ? connectEngine(id, run, run && q.get('view') === '1', run && q.get('layer') === '1') : connectStandalone(id);
 }
 
 // ---------------------------------------------------------------------------------------------- shared part
@@ -57,8 +60,8 @@ function makeHandle(base) {
     emit(type, e) { for (const fn of listeners[type] || []) { try { fn(e); } catch (err) { console.error(err); } } },
     toPx: () => [0, 0],
     touches: () => [],
-    loop: (fn, gl) => runLoop(vt, fn, gl),
-    frame: (gl) => frameOut(vt, gl),
+    loop: (fn, src) => runLoop(vt, fn, src),
+    frame: (src) => frameOut(vt, src),
     ...base,
   };
   vt._out = { frames: 0, last: performance.now(), lastPreview: 0, lastReport: 0, lastBitmap: 0, pixels: null, pixelsFor: '', started: false, error: null, pageError: null, pvBusy: false };
@@ -68,7 +71,10 @@ function makeHandle(base) {
   return vt;
 }
 
-/** Calls fn(dt) every frame (rAF while the page is visible, a timer at vt.fps otherwise), then vt.frame(gl). */
+/**
+ * Calls fn(dt) every frame (rAF while the page is visible, a timer at vt.fps otherwise), then vt.frame(src).
+ * `src`, here and in vt.frame: what the page drew with — a WebGL context, or the canvas element itself (WebGPU).
+ */
 function runLoop(vt, fn, gl) {
   let last = performance.now(), raf = 0, tm = 0, fb = 0, timerSteps = 0;
   const step = (fromRaf) => {
@@ -93,22 +99,47 @@ function runLoop(vt, fn, gl) {
   return () => { cancelAnimationFrame(raf); clearTimeout(tm); clearTimeout(fb); };
 }
 
+const isGl = (src) => typeof src.drawingBufferWidth === 'number';
+/** The canvas element behind a WebGL context or a WebGPU canvas. */
+const canvasOf = (src) => (isGl(src) ? src.canvas : src);
+
+/**
+ * The frame of a canvas that cannot be read back directly (WebGPU) as RGBA bytes, top row first: drawn into a 2D canvas in the
+ * same task as the draw. Slow at room size: it is only the CPU Spout fallback.
+ */
+function canvasPixels(o, canvas) {
+  const w = canvas.width, h = canvas.height;
+  const c = (o.rbCanvas ??= document.createElement('canvas'));
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; o.rbCtx = null; }
+  const g = (o.rbCtx ??= c.getContext('2d', { willReadFrequently: true }));
+  g.drawImage(canvas, 0, 0);
+  const data = g.getImageData(0, 0, w, h).data;
+  return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+}
+
 /** The frame is drawn: take it to the Spout sender, the preview and the report. Must run in the same task as the draw. */
 function frameOut(vt, gl) {
   const o = vt._out, now = performance.now();
   o.frames++;
   if (vt.sink === 'viewer') { viewerFrame(vt, gl, now); return; }
   const out = window.vtOut;
-  if (vt.sink === 'spout' && out) {
+  if (vt.sink === 'spout' && out && out.kind === 'spout-gpu') {
+    // the desktop app takes the window's paints to Spout on the GPU: no pixels to read here
+  } else if (vt.sink === 'spout' && out) {
     if (!out.ok) o.error = `Spout is not available (${out.error || 'unknown'})`;
     else {
-      const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+      const gl2 = isGl(gl), cv = canvasOf(gl);
+      const w = gl2 ? gl.drawingBufferWidth : cv.width, h = gl2 ? gl.drawingBufferHeight : cv.height;
       if (!o.started) { o.started = !!out.start(vt._senderName?.() || 'VEATION Touch Experience'); o.error = o.started ? null : 'The Spout sender could not start (DirectX 11 unavailable?)'; }
       if (o.started) {
-        const key = `${w}x${h}`;
-        if (o.pixelsFor !== key) { o.pixels = new Uint8Array(w * h * 4); o.pixelsFor = key; }
-        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, o.pixels);
-        out.send(o.pixels, w, h, true); // GL rows run bottom-up
+        if (gl2) {
+          const key = `${w}x${h}`;
+          if (o.pixelsFor !== key) { o.pixels = new Uint8Array(w * h * 4); o.pixelsFor = key; }
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, o.pixels);
+          out.send(o.pixels, w, h, true); // GL rows run bottom-up
+        } else {
+          out.send(canvasPixels(o, cv), w, h, false); // a 2D canvas reads top row first
+        }
       }
     }
   }
@@ -120,7 +151,7 @@ function viewerFrame(vt, gl, now) {
   const o = vt._out;
   if (window.parent === window || now - o.lastBitmap < 1000 / VIEW_FPS - 2) return;
   o.lastBitmap = now;
-  createImageBitmap(gl.canvas).then((bitmap) => {
+  createImageBitmap(canvasOf(gl)).then((bitmap) => {
     try { window.parent.postMessage({ type: 'vt-experience-frame', id: vt.id, bitmap }, location.origin, [bitmap]); } catch { bitmap.close(); }
   }).catch(() => {});
 }
@@ -129,7 +160,7 @@ function viewerFrame(vt, gl, now) {
 function preview(vt, gl) {
   const o = vt._out;
   if (o.pvBusy) return;
-  const src = gl.canvas, w = src.width || gl.drawingBufferWidth, h = src.height || gl.drawingBufferHeight;
+  const src = canvasOf(gl), w = src.width || gl.drawingBufferWidth, h = src.height || gl.drawingBufferHeight;
   if (!w || !h) return;
   const c = (o.pvCanvas ??= document.createElement('canvas'));
   c.width = Math.min(PREVIEW_MAX_W, w); c.height = Math.max(1, Math.round(h * c.width / w));
@@ -191,7 +222,8 @@ function setParams(vt, next) {
 
 // ---------------------------------------------------------------------------------------------- with the engine
 
-async function connectEngine(id, run, viewer = false) {
+// layer (?run=1&layer=1): this page is one layer of the room output (ui/output.html composes it with the others in an iframe)
+async function connectEngine(id, run, viewer = false, layer = false) {
   const conn = await import('/js/conn.js');
   const geo = await import('/shared/geometry.js');
   const { store, on, connect, cmd } = conn;
@@ -205,7 +237,7 @@ async function connectEngine(id, run, viewer = false) {
 
   const scaleOf = (x) => (viewer ? Math.min(x.scale, VIEW_SCALE_MAX) : x.scale); // a viewer stays cheap next to the real instance
   const sizeOf = (P, x) => ({ width: Math.max(1, Math.round(P.canvas.width * scaleOf(x))), height: Math.max(1, Math.round(P.canvas.height * scaleOf(x))) });
-  let P = store.state.profile, X = P.experience;
+  let P = store.state.profile, X = P.output; // where it goes (scale, rate, destination) is the room output's: the experience only has its parameters
   vt.canvas = { ...P.canvas }; vt.scale = scaleOf(X); vt.size = sizeOf(P, X);
 
   const manifestParams = () => (store.state.experiences || []).find((e) => e.id === id)?.params || [];
@@ -215,7 +247,7 @@ async function connectEngine(id, run, viewer = false) {
   };
 
   const refresh = () => {
-    P = store.state.profile; X = P.experience;
+    P = store.state.profile; X = P.output;
     const s = vt.scale;
     vt.walls = P.walls.map((w) => ({ id: w.id, name: w.name, rect: { x: Math.round(w.pixelRect.x * s), y: Math.round(w.pixelRect.y * s), w: Math.round(w.pixelRect.w * s), h: Math.round(w.pixelRect.h * s) } }));
     vt.closedLoop = geo.planCloses(P.walls);
@@ -230,9 +262,13 @@ async function connectEngine(id, run, viewer = false) {
   // where a page is drawn: Spout needs the desktop app's bridge; otherwise the canvas is shown (window / browser)
   vt._sink = () => {
     if (viewer) { vt.sink = 'viewer'; return; } // never Spout, never the full-screen styling: the app's views show the frames
+    // a layer of the room output: no Spout, no bridge (the output window sends the composed image), the canvas 1:1 in the layer's
+    // render-size frame, and no preview of its own (the output's preview is taken by the desktop app, of the whole image)
+    if (layer) { vt.sink = 'layer'; vt._out.lastPreview = Infinity; pinCanvas(vt); return; }
     const spout = X.sink === 'spout' && window.vtOut;
     vt.sink = spout ? 'spout' : X.sink === 'window' ? 'window' : 'browser';
     if (vt.sink !== 'spout') fillWindow(vt);
+    else if (window.vtOut.kind === 'spout-gpu') pinCanvas(vt);
   };
   vt._senderName = () => X.senderName;
 
@@ -271,6 +307,22 @@ async function connectEngine(id, run, viewer = false) {
 }
 
 /** The canvas fills the window (fit = keep its proportions, stretch = fill), on black. Only where the page IS the output. */
+/**
+ * Spout on the GPU: the desktop app sends this window's own paints (a shared texture, render size) to Spout, so the
+ * canvas must cover it exactly, 1:1 device pixels at the top-left — nothing scaled, nothing else drawn.
+ */
+function pinCanvas(vt) {
+  const apply = () => {
+    const c = document.querySelector('canvas');
+    if (!c) return;
+    const de = document.documentElement.style, b = document.body.style;
+    de.background = b.background = '#000'; b.margin = '0'; b.overflow = 'hidden';
+    const dpr = devicePixelRatio || 1;
+    Object.assign(c.style, { position: 'fixed', left: '0', top: '0', width: `${vt.size.width / dpr}px`, height: `${vt.size.height / dpr}px`, display: 'block', objectFit: 'fill' });
+  };
+  if (document.body) apply(); else addEventListener('DOMContentLoaded', apply, { once: true });
+}
+
 function fillWindow(vt) {
   if (vt.standalone) return;
   const apply = () => {

@@ -13,7 +13,7 @@ import { CalibrationSession, defaultTargets, VerifySession, verifyTargets } from
 import { verifyPassMm, poseMatrix, apply } from './core/geometry.js';
 import { OutputManager } from './outputs/outputs.js';
 import { overlayOf } from './core/mask.js';
-import { normalizeProfile, blankProfile, wallToUv } from './profile.js';
+import { normalizeProfile, blankProfile, wallToUv, OUTPUT_SCALES, OUTPUT_FPS, OUTPUT_BLENDS, OUTPUT_LAYERS, TOUCH_LAYER_SCALES, normRoomOutput } from './profile.js';
 import { firewallStatus, fixFirewall, setInterfaceAddress, openHotspotSettings } from './net.js';
 import { autoAlign, backgroundPoints } from './core/autoalign.js';
 import { levelCheck } from './core/levelcheck.js';
@@ -22,7 +22,7 @@ import { discover, candidateHosts, factoryNetwork, readdress, unconfiguredInterf
 import { lanInterfaces } from './mdns.js';
 import { CloudLink, normalizeRelayUrl } from './cloud.js';
 import { cloudSettings } from './store.js';
-import { scanCatalog, publicCatalog, checkParam, SCALES, FPS } from './experiences.js';
+import { scanCatalog, publicCatalog, checkParam } from './experiences.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,9 +61,10 @@ export class Engine extends EventEmitter {
     this.on('state', () => this.cloud.refreshName());
     this.experienceDirs = [EXPERIENCES_DIR, ...experienceDirs];
     this.catalog = [];          // experiences found on disk (engine/experiences.js)
-    this.exp = { running: false, fps: 0, error: null, previewAt: null }; // the running experience (transient, never saved)
-    this.expPreview = null;     // the last JPEG the running page posted: { buf, at }
-    this._expKey = 'null';
+    this.exp = { fps: 0, error: null };                  // how the experience layer's page is doing (transient, never saved)
+    this.out = { fps: 0, error: null, previewAt: null }; // how the room output's window is doing, as the desktop app reports it
+    this.outPreview = null;     // the last JPEG of the whole output: { buf, at } (from the desktop app, 1 per second)
+    this._outKey = 'null';
     this.lastFrame = null;
     this.tickStats = { fps: 0, n: 0, t0: performance.now(), maxMs: 0 };
   }
@@ -79,6 +80,7 @@ export class Engine extends EventEmitter {
     this._activate(prof);
     const x = this.profile.experience;
     if (x.autostart && x.id && this.catalog.some((e) => e.id === x.id)) { this._experienceRun(); this.log.info(`experience "${x.id}" started with the app`); }
+    else if (this.profile.output.on) this.log.info(`room output "${this.profile.output.senderName}" on`);
     this._timer = setInterval(() => this._tick(), 1000 / TICK_HZ);
     this.log.info(`engine ${this.version} started with profile "${prof.name}"`);
     if (this.settings.cloud.enabled) this.cloud.apply();
@@ -154,10 +156,10 @@ export class Engine extends EventEmitter {
     this.zones.configure(profile.zones, profile.walls);
     this._syncTextureWindows();
     if (prev && prev.id !== profile.id) { // another room: its own experience (it runs only if that room starts it with the app)
-      this.exp = { running: false, fps: 0, error: null, previewAt: null }; this.expPreview = null;
+      this.exp = { fps: 0, error: null }; this.out = { fps: 0, error: null, previewAt: null }; this.outPreview = null;
       if (profile.experience.autostart && this.catalog.some((e) => e.id === profile.experience.id)) this._experienceRun();
     }
-    this._syncExperienceWindow();
+    this._syncOutputWindow();
     this.outputs.configure(profile);
     if (this.calib && !profile.walls.some((w) => w.id === this.calib.wall.id)) this.calib = null;
     if (this.verify && !profile.walls.some((w) => w.id === this.verify.wall.id)) this.verify = null;
@@ -286,6 +288,7 @@ export class Engine extends EventEmitter {
       // grid: the metre grid (pixel map) is on the walls — projection page and Texture outputs (never saved)
       grid: !!this.grid,
       experience: this.experienceState(),
+      output: this.outputState(),
       experiences: publicCatalog(this.catalog),
       displays: this.displays, autostart: this.settings.autostart,
       locked: !!this.settings.locked,
@@ -688,21 +691,34 @@ export class Engine extends EventEmitter {
         if (!e) throw new Error(`unknown experience "${args.id}"`);
         P.experience.id = e.id;
         this._experienceRun();
-        this.log.info(`experience "${e.id}" started (${P.experience.sink === 'spout' ? `Spout "${P.experience.senderName}"` : 'full screen'})`);
+        const O = P.output;
+        this.log.info(`experience "${e.id}" started (${O.sink === 'spout' ? `Spout "${O.senderName}"` : 'full screen'})`);
         return {};
       }
       case 'experience.stop': {
-        if (this.exp.running) this.log.info('experience stopped');
-        this.exp = { running: false, fps: 0, error: null, previewAt: null };
-        this.expPreview = null;
-        this._saveExperience();
-        this._syncExperienceWindow();
+        // the experience layer goes off; the room output itself stays as it is (the other layers keep showing)
+        if (this.experienceState().running) this.log.info('experience stopped');
+        this._layer('experience').on = false;
+        this.exp = { fps: 0, error: null };
+        this._saveExperience(true);
+        this._syncOutputWindow();
         this.emit('state');
         return {};
       }
       case 'experience.set': {
-        const x = P.experience, next = {};
-        if ('autostart' in args) next.autostart = !!args.autostart;
+        // what is left of the experience's own settings; where it goes lives in output.set
+        const moved = ['sink', 'senderName', 'displayId', 'fit', 'scale', 'fps'].filter((k) => k in args);
+        if (moved.length) throw new Error(`${moved.join(', ')}: set on the room output (output.set)`);
+        if ('autostart' in args) P.experience.autostart = !!args.autostart;
+        this._saveExperience(true);
+        this.emit('state');
+        return {};
+      }
+      case 'output.set': {
+        // the room output: on / off, where it goes and how big. Show mode locks everything but the switch.
+        if (this.settings.locked && Object.keys(args).some((k) => k !== 'on' && !k.startsWith('__'))) throw new Error('the room is locked (Show mode) — unlock it first');
+        const o = P.output, next = {};
+        if ('on' in args) next.on = !!args.on;
         if ('sink' in args) { if (!['spout', 'window'].includes(args.sink)) throw new Error('sink: spout or window'); next.sink = args.sink; }
         if ('senderName' in args) {
           next.senderName = String(args.senderName ?? '').replace(/[^\w .-]/g, '').trim().slice(0, 60);
@@ -713,11 +729,43 @@ export class Engine extends EventEmitter {
           next.displayId = args.displayId;
         }
         if ('fit' in args) { if (!['fit', 'stretch'].includes(args.fit)) throw new Error('fit: fit or stretch'); next.fit = args.fit; }
-        if ('scale' in args) { if (!SCALES.includes(Number(args.scale))) throw new Error(`scale: one of ${SCALES.join(', ')}`); next.scale = Number(args.scale); }
-        if ('fps' in args) { if (!FPS.includes(Number(args.fps))) throw new Error(`fps: one of ${FPS.join(', ')}`); next.fps = Number(args.fps); }
-        Object.assign(x, next);
+        if ('scale' in args) { if (!OUTPUT_SCALES.includes(Number(args.scale))) throw new Error(`scale: one of ${OUTPUT_SCALES.join(', ')}`); next.scale = Number(args.scale); }
+        if ('fps' in args) { if (!OUTPUT_FPS.includes(Number(args.fps))) throw new Error(`fps: one of ${OUTPUT_FPS.join(', ')}`); next.fps = Number(args.fps); }
+        const was = o.on;
+        Object.assign(o, next);
+        if (was && !o.on) { this.exp = { fps: 0, error: null }; this.out = { fps: 0, error: null, previewAt: null }; this.outPreview = null; }
+        if (next.on !== undefined && next.on !== was) this.log.info(`room output ${o.on ? `on (${o.sink === 'spout' ? `Spout "${o.senderName}"` : 'full screen'})` : 'off'}`);
+        this._saveExperience(true);
+        this._syncOutputWindow();
+        this.emit('state');
+        return {};
+      }
+      case 'output.layers': {
+        // the layers, bottom to top: each one its switch, opacity, blend; the touches layer also its mask settings
+        if (!Array.isArray(args.layers)) throw new Error('layers: a list');
+        const seen = new Set();
+        for (const l of args.layers) {
+          if (!l || !OUTPUT_LAYERS.includes(l.id)) throw new Error(`layer: one of ${OUTPUT_LAYERS.join(', ')}`);
+          if (seen.has(l.id)) throw new Error(`layer "${l.id}" appears twice`);
+          seen.add(l.id);
+          if ('on' in l && typeof l.on !== 'boolean') throw new Error(`${l.id}: on is true or false`);
+          if ('opacity' in l && !(Number.isFinite(l.opacity) && l.opacity >= 0 && l.opacity <= 1)) throw new Error(`${l.id}: opacity is a number from 0 to 1`);
+          if ('blend' in l && !OUTPUT_BLENDS.includes(l.blend)) throw new Error(`${l.id}: blend is one of ${OUTPUT_BLENDS.join(', ')}`);
+          if (l.id === 'touches') {
+            if ('radius' in l && !(Number.isFinite(l.radius) && l.radius >= 0.01 && l.radius <= 1)) throw new Error('touches: radius is 0.01 to 1 m');
+            if ('sizeMode' in l && !['fixed', 'touch'].includes(l.sizeMode)) throw new Error('touches: sizeMode is fixed or touch');
+            if ('softness' in l && !(Number.isFinite(l.softness) && l.softness >= 0 && l.softness <= 1)) throw new Error('touches: softness is 0 to 1');
+            if ('trailMs' in l && !(Number.isFinite(l.trailMs) && l.trailMs >= 0 && l.trailMs <= 10000)) throw new Error('touches: trailMs is 0 to 10000');
+            if ('scale' in l && !TOUCH_LAYER_SCALES.includes(l.scale)) throw new Error(`touches: scale is one of ${TOUCH_LAYER_SCALES.join(', ')}`);
+            if ('walls' in l && !(Array.isArray(l.walls) && l.walls.every((w) => P.walls.some((x) => x.id === w)))) throw new Error('touches: walls are walls of this room ([] = all)');
+          }
+        }
+        if (seen.size !== OUTPUT_LAYERS.length) throw new Error(`layers: all of ${OUTPUT_LAYERS.join(', ')}, once each`);
+        // each layer keeps what the command leaves out; the normaliser fills in and clamps the rest
+        const old = new Map(P.output.layers.map((l) => [l.id, l]));
+        P.output.layers = normRoomOutput({ layers: args.layers.map((l) => ({ ...old.get(l.id), ...l })) }).layers;
         this._saveExperience();
-        this._syncExperienceWindow();
+        this._syncOutputWindow();
         this.emit('state');
         return {};
       }
@@ -733,8 +781,8 @@ export class Engine extends EventEmitter {
         return { value };
       }
       case 'experience.report': {
-        // sent by the running page every 2 s
-        if (!this.exp.running) return {};
+        // sent by the experience layer's page every 2 s
+        if (!this.experienceState().running) return {};
         const fps = Number(args.fps);
         this.exp.fps = Number.isFinite(fps) ? Math.max(0, Math.min(1000, Math.round(fps * 10) / 10)) : 0;
         const err = typeof args.error === 'string' && args.error.trim() ? args.error.replace(/[\u0000-\u001f]+/g, ' ').slice(0, 300) : null;
@@ -856,51 +904,91 @@ export class Engine extends EventEmitter {
 
   // ------------------------------------------------------------------ experiences
 
+  /** The layer of the room output with this id (the profile's own object). */
+  _layer(id) { return this.profile.output.layers.find((l) => l.id === id); }
+
+  /** Play: the experience layer on and the room output on (an experience that goes nowhere is no use). */
   _experienceRun() {
-    this.exp = { running: true, fps: 0, error: null, previewAt: null };
-    this.expPreview = null;
-    this._saveExperience();
-    this._syncExperienceWindow();
+    this._layer('experience').on = true;
+    this.profile.output.on = true;
+    this.exp = { fps: 0, error: null };
+    this._saveExperience(true);
+    this._syncOutputWindow();
     this.emit('state');
   }
 
-  /** What the UI is told: the selected experience, whether it runs, where its page is and how it is doing. */
+  /** What the UI is told about the experience: the selected one, whether it runs (output on + its layer on) and how it is doing. */
   experienceState() {
     const x = this.profile.experience, e = this.catalog.find((c) => c.id === x.id);
-    const running = this.exp.running && !!e;
+    const running = this.profile.output.on && this._layer('experience').on && !!e;
     return {
-      running, id: x.id, sink: x.sink, fps: running ? this.exp.fps : 0, error: running ? this.exp.error : null,
-      url: running ? `/experiences/${e.id}/${e.entry}?run=1` : null, previewAt: running ? this.exp.previewAt : null,
+      running, id: x.id, fps: running ? this.exp.fps : 0, error: running ? this.exp.error : null,
+      url: running ? `/experiences/${e.id}/${e.entry}?run=1` : null,
     };
   }
 
-  /** The window the desktop app opens for the running experience (null = none): relative URL, the app adds the origin. */
-  experienceWindow() {
-    const s = this.experienceState(), x = this.profile.experience;
-    if (!s.running) return null;
-    return { id: s.id, url: s.url, sink: x.sink, displayId: x.displayId, fit: x.fit, scale: x.scale, fps: x.fps, senderName: x.senderName };
+  /**
+   * The room output as the UI and the output page see it. `calibrating`: a calibration, verification, Fit or walk test
+   * runs, or the grid is on. The output then shows only what calibration needs (the touches, with the grid and its
+   * targets on top, on black) whatever the operator's layers are. `layersEffective` is what the page draws, bottom to top.
+   */
+  outputState() {
+    const O = this.profile.output, calibrating = this.calibrating();
+    const touches = this._layer('touches');
+    const layersEffective = calibrating
+      ? [{ ...touches, on: true, opacity: 1, blend: 'screen' }, { id: 'grid', on: true, opacity: 1, blend: 'screen' }]
+      : O.layers;
+    return {
+      running: O.on, calibrating, layersEffective, url: O.on ? '/output?run=1' : null,
+      fps: O.on ? this.out.fps : 0, error: O.on ? this.out.error : null, previewAt: O.on ? this.out.previewAt : null,
+    };
   }
 
-  _syncExperienceWindow() {
-    const m = this.experienceWindow(), key = JSON.stringify(m);
-    if (key === this._expKey) return;
-    this._expKey = key;
-    this.emit('experienceWindow', m);
+  /** Calibration mode of the room output (see outputState). */
+  calibrating() { return !!(this.calib || this.verify || this.fit || this.walk || this.grid); }
+
+  /** The window the desktop app opens for the room output (null = none): relative URL, the app adds the origin. */
+  outputWindow() {
+    const O = this.profile.output;
+    if (!O.on) return null;
+    // width x height: the render size, which the Spout window paints at 1:1 (its frames go to Spout on the GPU)
+    const c = this.profile.canvas;
+    return { url: '/output?run=1', sink: O.sink, displayId: O.displayId, fit: O.fit, scale: O.scale, fps: O.fps, senderName: O.senderName,
+      width: Math.round(c.width * O.scale), height: Math.round(c.height * O.scale) };
   }
 
-  /** The running page posted a preview frame (server.js). */
-  setExperiencePreview(buf) {
-    if (!this.exp.running) return false;
-    this.expPreview = { buf, at: Date.now() };
-    this.exp.previewAt = this.expPreview.at;
+  _syncOutputWindow() {
+    const m = this.outputWindow(), key = JSON.stringify(m);
+    if (key === this._outKey) return;
+    this._outKey = key;
+    this.emit('outputWindow', m);
+  }
+
+  /** The desktop app sends a JPEG of the whole output once a second, with how the window is doing (engine/main.js). */
+  setOutputPreview(buf, { fps, error } = {}) {
+    if (!this.profile.output.on) return false;
+    const was = `${this.out.fps}|${this.out.error}|${this.out.previewAt !== null}`;
+    if (buf) { this.outPreview = { buf, at: Date.now() }; this.out.previewAt = this.outPreview.at; } // (no image = only how it is doing)
+    if (Number.isFinite(fps)) this.out.fps = Math.max(0, Math.min(1000, Math.round(fps * 10) / 10));
+    this.out.error = typeof error === 'string' && error.trim() ? error.replace(/[\u0000-\u001f]+/g, ' ').slice(0, 300) : null;
+    if (was !== `${this.out.fps}|${this.out.error}|${this.out.previewAt !== null}`) this.emit('state'); // (a fresh frame alone does not: the page refreshes the image by itself)
     return true;
   }
 
-  // Settings change often while an operator plays with faders: the profile is written once things settle.
-  _saveExperience() {
+  /** Someone is looking at the output's preview (GET preview.jpg): the desktop app captures it only while that lasts. */
+  notePreviewAsked() { this.out.previewAskedAt = Date.now(); }
+  previewWanted() { return Date.now() - (this.out.previewAskedAt || 0) < 5000; }
+
+  // Settings change often while an operator plays with faders: the profile is written once things settle (700 ms).
+  // Switches (play, stop, the output's on / destination, autostart) are written at once — an app quit right after
+  // must not lose them. Either way the profile's revision moves on, so an edit another device computed from the
+  // profile as it was before is refused as stale instead of silently putting the old output / layers back.
+  _saveExperience(now = false) {
+    this.rev = (this.rev || 0) + 1;
     clearTimeout(this._expSave);
-    this._expSave = setTimeout(() => this._flushExperience(), 700);
+    this._expSave = setTimeout(() => this._flushExperience(), now ? 0 : 700);
     this._expSave.unref?.();
+    if (now) this._flushExperience();
   }
 
   _cancelExperienceSave() { clearTimeout(this._expSave); this._expSave = null; }

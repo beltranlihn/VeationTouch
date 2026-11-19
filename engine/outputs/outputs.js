@@ -30,7 +30,7 @@ export class OutputManager {
     this.profile = profile;
     this.outputs = profile.outputs;
     for (const o of this.outputs) if (!this.stats.has(o.id)) this.stats.set(o.id, { sent: 0, errors: 0, last: 0, lastError: null });
-    // texture outputs own a Spout sender: create, reconfigure or release them
+    // texture outputs own an NDI source (or a full-screen window): create, reconfigure or release them
     this.textures ??= new Map();
     const wanted = new Set(this.outputs.filter((o) => o.type === 'texture' && o.enabled).map((o) => o.id));
     for (const [id, t] of this.textures) if (!wanted.has(id)) { t.close(); this.textures.delete(id); }
@@ -269,7 +269,7 @@ export class OutputManager {
 
   /** One-shot test message to a destination. */
   test(o) {
-    if (o.type === 'texture') return; // the texture is continuous: open a Spout receiver to see it
+    if (o.type === 'texture') return; // the texture is continuous: open an NDI receiver to see it
     if (o.type === 'webhook') { if (!o.url) throw new Error('no URL'); this._post(o, { event: 'test', source: 'VEATION Touch', time: new Date().toISOString() }); return; }
     if (o.type === 'artnet' || o.type === 'sacn') { this._dmx(o, { zoneCounts: {} }, 0, 255); return; } // every mapped channel full for ≤ 1 s
     const buf = o.type === 'tuio'

@@ -6,8 +6,10 @@ import { app, BrowserWindow, utilityProcess, screen, Tray, Menu, nativeImage, cr
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
 const ENGINE = path.join(ROOT, 'engine', 'main.js');
 const ICON = path.join(ROOT, 'build', 'icon.png');
 const HIDDEN = process.argv.includes('--hidden');
@@ -22,8 +24,10 @@ let mainWin = null, projWin = null, tray = null, quitting = false;
 let restarts = 0, startedAt = 0, projection = { open: false, displayId: null };
 let texWanted = [];            // Texture outputs shown full screen: [{id, displayId}] from the engine
 const texWins = new Map();     // output id → its full-screen window
-let expWanted = null;          // the experience to run, from the engine: {id, url, sink, displayId, fit, scale, fps, senderName} | null
-let expWin = null, expKey = '';// its window (hidden for Spout, full screen for a display) and what it was made for
+let outWanted = null;          // the room output to run, from the engine: {url, sink, displayId, fit, scale, fps, senderName, width, height} | null
+let outWin = null, outKey = '';// its window (off screen for Spout, full screen for a display) and what it was made for
+let previewTimer = null;       // once a second: a JPEG of the output for the Experiences tab
+let previewWanted = true;      // the engine says whether anyone looks at that preview (no capture otherwise)
 
 function log(msg) {
   const line = `${new Date().toISOString()} MAIN  ${msg}\n`;
@@ -46,7 +50,7 @@ function startEngine() {
   engine.on('message', onEngineMessage);
   engine.on('exit', (code) => {
     engine = null; engineReady = false;
-    closeExperienceWindow(); // its page talks to the engine that just went away; ready opens a fresh one
+    closeOutputWindow(); // its page talks to the engine that just went away; ready opens a fresh one
     if (quitting) return;
     if (Date.now() - startedAt > 60000) restarts = 0; // it ran fine for a minute: reset the backoff
     const delay = Math.min(30000, 1000 * 2 ** restarts++);
@@ -66,12 +70,14 @@ function onEngineMessage(m) {
     applyProjection();
     texWanted = m.textureWindows || [];
     applyTextureWindows();
-    expWanted = m.experienceWindow || null;
-    applyExperienceWindow();
+    outWanted = m.outputWindow || null;
+    applyOutputWindow();
     applyAutostart(m.autostart);
-  } else if (m?.type === 'experienceWindow') {
-    expWanted = m.window || null;
-    applyExperienceWindow();
+  } else if (m?.type === 'previewWanted') {
+    previewWanted = !!m.on;
+  } else if (m?.type === 'outputWindow') {
+    outWanted = m.window || null;
+    applyOutputWindow();
   } else if (m?.type === 'textureWindows') {
     texWanted = m.list;
     applyTextureWindows();
@@ -180,51 +186,167 @@ function applyTextureWindows() {
   }
 }
 
-function closeExperienceWindow() {
-  const w = expWin;
-  expWin = null; expKey = '';
+function closeOutputWindow() {
+  const w = outWin;
+  outWin = null; outKey = '';
+  clearInterval(previewTimer); previewTimer = null;
   if (w && !w.isDestroyed()) w.destroy();
+  if (spoutOut.running) { try { spoutOut.native.stop(); } catch { /* ignore */ } spoutOut.running = false; }
 }
 
 /**
- * The running experience (Experiences tab). Spout: an off-screen-rendered window (no visible window) whose preload
- * bridges the page to the native Spout sender. Window: a frameless full-screen window on the chosen display. Any change
- * that matters (destination, display, size, rate, sender name) makes a fresh window; `fit` is applied live by the page.
+ * THE Spout sender of the whole app: the room output. It lives in this (main) process — the engine and the pages never
+ * load the addon, so there can only ever be one. The output window (ui/output.html: the layers composed by Chromium)
+ * renders off screen at the render size, 1:1, and its frames reach Spout one of two ways:
+ *  - GPU (default): every paint hands its NT shared-texture handle (Electron's `useSharedTexture`) to `sendShared`,
+ *    which copies it GPU to GPU into the Spout texture — no readPixels, no CPU buffer, so the full 7196x912 canvas keeps
+ *    its frame rate. If the texture cannot be shared (another GPU on a laptop with two, an old addon...) the window is
+ *    made again on the CPU path and stays there until the app restarts.
+ *  - CPU (fallback): the window's normal paint bitmap (BGRA, top-down) goes to `send(..., bgra)` as it is. Slower (a 26 MB
+ *    copy per frame at full size), but it works anywhere.
  */
-function applyExperienceWindow() {
-  const want = engineReady ? expWanted : null;
+const spoutOut = { native: null, error: null, running: false, failed: false, bad: 0, sent: 0, frames: 0, fpsT: 0, fps: 0, err: null };
+function spoutSender(needGpu) {
+  if (!spoutOut.native && !spoutOut.error) {
+    try { spoutOut.native = require(path.join(ROOT, 'native', 'spout-send', 'dsp_spout.node').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)); }
+    catch (e) { spoutOut.error = String(e?.message || e); log(`Spout unavailable: ${spoutOut.error}`); }
+  }
+  if (needGpu && spoutOut.native && typeof spoutOut.native.sendShared !== 'function') return null; // an old addon: CPU path
+  return spoutOut.native;
+}
+
+/** Counts a frame sent (the output's real frame rate, reported once a second with the preview). */
+function countFrame() {
+  const now = Date.now();
+  spoutOut.frames++;
+  if (now - spoutOut.fpsT >= 1000) { spoutOut.fps = Math.round((spoutOut.frames * 10000) / (now - spoutOut.fpsT)) / 10; spoutOut.frames = 0; spoutOut.fpsT = now; }
+}
+
+function startSpout(want) {
+  if (spoutOut.running) return true;
+  // a sender that would not start is tried again every 5 s, not on every paint (each try opens a D3D11 device)
+  if (Date.now() < (spoutOut.retryAt || 0)) return false;
+  spoutOut.running = !!spoutOut.native.start(want.senderName || 'VEATION Touch');
+  spoutOut.bad = 0; spoutOut.sent = 0; spoutOut.frames = 0; spoutOut.fpsT = Date.now(); spoutOut.fps = 0;
+  spoutOut.err = spoutOut.running ? null : 'The Spout sender could not start (DirectX 11 unavailable?)';
+  spoutOut.retryAt = spoutOut.running ? 0 : Date.now() + 5000;
+  if (!spoutOut.running) log(spoutOut.err);
+  return spoutOut.running;
+}
+
+function onGpuPaint(w, want, e) {
+  const tex = e?.texture;
+  if (!tex) return;
+  try {
+    if (outWin !== w || spoutOut.failed) return;
+    const ti = tex.textureInfo || {};
+    const handle = ti.handle?.ntHandle || ti.sharedTextureHandle;
+    const r = ti.contentRect || ti.visibleRect || { x: 0, y: 0, width: ti.codedSize?.width || want.width, height: ti.codedSize?.height || want.height };
+    if (!startSpout(want)) return; // the sender itself is down (reported, retried): not a fault of the GPU path
+    const ok = handle && spoutOut.native.sendShared(handle, r.x | 0, r.y | 0, r.width | 0, r.height | 0);
+    if (ok) {
+      spoutOut.bad = 0; countFrame();
+      if (++spoutOut.sent === 1) log(`room output -> Spout on the GPU: ${r.width}x${r.height} (${ti.pixelFormat || 'bgra'})`);
+    } else if (++spoutOut.bad >= 30) { // a second of failures: fall back to the CPU path for this run of the app
+      spoutOut.failed = true;
+      log(`Spout GPU path failed (error ${spoutOut.native.sharedError?.() ?? '?'}, handle ${handle ? 'yes' : 'none'}); using the CPU path`);
+      setTimeout(() => { closeOutputWindow(); applyOutputWindow(); }, 0);
+    }
+  } catch (err) {
+    spoutOut.failed = true;
+    log(`Spout GPU path error: ${err?.message || err}; using the CPU path`);
+    setTimeout(() => { closeOutputWindow(); applyOutputWindow(); }, 0);
+  } finally {
+    try { tex.release(); } catch { /* released */ }
+  }
+}
+
+function onCpuPaint(w, want, image) {
+  if (outWin !== w || !image) return;
+  try {
+    const { width, height } = image.getSize();
+    if (!width || !height) return;
+    startSpout(want);
+    if (spoutOut.running && spoutOut.native.send(image.toBitmap(), width, height, false, true)) { // BGRA, top-down: as Chromium painted it
+      countFrame();
+      if (++spoutOut.sent === 1) log(`room output -> Spout from the CPU: ${width}x${height} (BGRA)`);
+    }
+  } catch (err) { spoutOut.err = String(err?.message || err).slice(0, 200); }
+}
+
+/** Once a second: the whole output as a small JPEG (what Chromium composes, so it is the room's image) for the Experiences tab. */
+function startPreview(w) {
+  clearInterval(previewTimer);
+  let busy = false;
+  previewTimer = setInterval(async () => {
+    if (busy || outWin !== w || w.isDestroyed() || !engine) return;
+    busy = true;
+    try {
+      // the image only while someone looks at it (the engine says so): a full-size capture is a GPU readback + encode in
+      // this process, the one that forwards every paint to Spout. How it is doing goes every second regardless.
+      let jpeg = null;
+      if (previewWanted) {
+        let img = await w.webContents.capturePage();
+        const { width } = img.getSize();
+        if (width > 640) img = img.resize({ width: 640 });
+        jpeg = img.toJPEG(60);
+      }
+      engine?.postMessage({ type: 'outputPreview', jpeg: jpeg?.length ? jpeg : null, fps: spoutOut.fps, error: spoutOut.error || spoutOut.err || null });
+    } catch { /* the window is going away */ } finally { busy = false; }
+  }, 1000);
+}
+
+/**
+ * The room output (Experiences tab). Spout: an off-screen-rendered window (no visible window) the size of the render.
+ * Window: a frameless full-screen window on the chosen display. The page is the same one (/output): it composes the
+ * layers. Any change that matters (destination, display, size, rate, sender name) makes a fresh window; `fit` and the
+ * layers are applied live by the page.
+ */
+function applyOutputWindow() {
+  const want = engineReady ? outWanted : null;
   const display = want?.sink === 'window' ? screen.getAllDisplays().find((d) => d.id === want.displayId) : null;
-  if (!want || (want.sink === 'window' && !display)) { closeExperienceWindow(); return; }
+  if (!want || (want.sink === 'window' && !display)) { closeOutputWindow(); return; }
   const { fit, ...rest } = want;
   const key = JSON.stringify({ ...rest, bounds: display?.bounds || null, port: enginePort });
-  if (expWin && !expWin.isDestroyed() && key === expKey) return;
-  closeExperienceWindow();
-  const common = { frame: false, backgroundColor: '#000000', skipTaskbar: true, autoHideMenuBar: true, title: `VEATION Touch — ${want.id}` };
+  if (outWin && !outWin.isDestroyed() && key === outKey) return;
+  closeOutputWindow();
+  const common = { frame: false, backgroundColor: '#000000', skipTaskbar: true, autoHideMenuBar: true, title: 'VEATION Touch — Output' };
+  // Spout on the GPU when the addon supports it and it has not failed in this run (see spoutOut)
+  const gpu = !display && !spoutOut.failed && want.width > 0 && want.height > 0 && !!spoutSender(true);
+  if (!display && !gpu) spoutSender(false);
+  // the preload only tells the page that this window IS a Spout output (it is pinned 1:1 to the render size, not fitted)
+  const spoutWeb = { preload: path.join(ROOT, 'app', 'experience-preload.cjs'), additionalArguments: ['--vt-spout=main'], zoomFactor: 1, contextIsolation: true, nodeIntegration: false, sandbox: false, backgroundThrottling: false };
+  // Spout: OFF-SCREEN rendering. A merely hidden window gets no requestAnimationFrame and its timers tick at Windows'
+  // 15.6 ms granularity — measured about 26 fps for a 60 fps piece. Off-screen, Chromium drives frames at setFrameRate().
+  // The window is the render size either way and paints, 1:1, what the page composes.
   const w = display
     ? new BrowserWindow({
       ...common, x: display.bounds.x, y: display.bounds.y, width: display.bounds.width, height: display.bounds.height, fullscreen: true, show: false,
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
     })
-    // Spout: OFF-SCREEN rendering (GPU). A merely hidden window gets no requestAnimationFrame and its timers tick at
-    // Windows' 15.6 ms granularity — measured ≈ 26 fps for a 60 fps piece. Off-screen, Chromium drives frames at
-    // setFrameRate(). The window itself is tiny (its paint bitmap is never used); the WebGL canvas keeps its own size.
     : new BrowserWindow({
-      ...common, width: 64, height: 64, show: false,
-      webPreferences: { offscreen: true, preload: path.join(ROOT, 'app', 'experience-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false, backgroundThrottling: false },
+      ...common, width: Math.max(16, want.width), height: Math.max(16, want.height), useContentSize: true, show: false, enableLargerThanScreen: true,
+      webPreferences: { ...spoutWeb, offscreen: gpu ? { useSharedTexture: true } : true },
     });
-  if (!display) w.webContents.setFrameRate(Math.max(1, Math.min(240, Number(want.fps) || 60)));
-  expWin = w; expKey = key;
+  if (!display) {
+    w.webContents.setFrameRate(Math.max(1, Math.min(240, Number(want.fps) || 60)));
+    w.setContentSize(Math.max(16, want.width), Math.max(16, want.height)); // larger than the screen is fine off screen
+    if (spoutOut.native) w.webContents.on('paint', (e, _dirty, image) => (gpu ? onGpuPaint(w, want, e) : onCpuPaint(w, want, image)));
+    else spoutOut.err = `Spout is not available (${spoutOut.error || 'unknown'})`;
+  }
+  outWin = w; outKey = key;
   if (display) w.once('ready-to-show', () => w.showInactive());
-  w.on('closed', () => { if (expWin === w) { expWin = null; expKey = ''; } });
+  w.on('closed', () => { if (outWin === w) { outWin = null; outKey = ''; } });
   // the preload can load native code: this window never leaves the app's own server
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   w.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(uiUrl('/'))) e.preventDefault(); });
   w.webContents.on('render-process-gone', (_e, d) => {
-    log(`experience renderer gone (${d.reason}); restarting it`);
-    setTimeout(() => { if (expWin === w) { closeExperienceWindow(); applyExperienceWindow(); } }, 1000);
+    log(`output renderer gone (${d.reason}); restarting it`);
+    setTimeout(() => { if (outWin === w) { closeOutputWindow(); applyOutputWindow(); } }, 1000);
   });
   w.loadURL(uiUrl(want.url));
-  log(`experience "${want.id}" opened (${display ? 'full screen' : `Spout "${want.senderName}"`})`);
+  startPreview(w);
+  log(`room output opened (${display ? 'full screen' : `Spout "${want.senderName}", ${gpu ? 'GPU' : 'CPU'} path`}, ${want.width}x${want.height})`);
 }
 
 function applyAutostart(enabled) {
@@ -256,7 +378,7 @@ app.whenReady().then(() => {
   powerSaveBlocker.start('prevent-display-sleep'); // projection + sensors must not sleep mid-show
   createTray();
   startEngine();
-  for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => { sendDisplays(); applyProjection(); applyTextureWindows(); applyExperienceWindow(); });
+  for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => { sendDisplays(); applyProjection(); applyTextureWindows(); applyOutputWindow(); });
 });
 app.on('window-all-closed', (e) => { if (!quitting) e.preventDefault?.(); });
 app.on('before-quit', () => {

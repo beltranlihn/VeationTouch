@@ -162,6 +162,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (p === '/' || p === '/index.html') return serveFile(res, path.join(uiDir, 'index.html'));
     if (p === '/projection') return serveFile(res, path.join(uiDir, 'projection.html'));
     if (p === '/texture') return serveFile(res, path.join(uiDir, 'texture.html')); // a Texture output shown full screen
+    if (p === '/output') return serveFile(res, path.join(uiDir, 'output.html'));   // the room output: the layers composed (the desktop app's window sends it to Spout)
     // the browser uses the very same geometry code as the engine (one implementation of the mapping)
     if (p === '/shared/geometry.js') return serveFile(res, path.join(root, 'engine', 'core', 'geometry.js'));
     if (p === '/shared/mask.js') return serveFile(res, path.join(root, 'engine', 'core', 'mask.js')); // the Texture output's rasteriser (live preview)
@@ -223,7 +224,8 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (p === '/api/experience/preview.jpg' && req.method === 'GET') {
       // the running page's last frame, for the Experiences tab: same rule as the UI channel (this computer, or the key)
       if (!peerOf(req).trusted && url.searchParams.get('k') !== engine.settings.token) { res.writeHead(401); return res.end(); }
-      const pv = engine.expPreview;
+      engine.notePreviewAsked?.(); // the desktop app captures the output only while someone looks at it
+      const pv = engine.outPreview;
       if (!pv) { res.writeHead(404); return res.end(); }
       res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
       return res.end(pv.buf);
@@ -237,7 +239,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
         if (over) return;
         const buf = Buffer.concat(chunks);
         if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) { res.writeHead(400); return res.end(); } // a JPEG, nothing else
-        res.writeHead(engine.setExperiencePreview(buf) ? 204 : 409); res.end();
+        res.writeHead(engine.setOutputPreview(buf) ? 204 : 409); res.end();
       });
       return undefined;
     }

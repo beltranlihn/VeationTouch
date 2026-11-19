@@ -1062,7 +1062,7 @@ export function outputs(ctx) {
 const OUTPUT_TYPES = [
   ['osc', 'OSC', 'Every touch (id, position, velocity, size) and zone events — TouchDesigner, Unreal, Max'],
   ['triggers', 'Triggers (OSC)', 'Zones only, as on/off messages — Resolume, MadMapper, QLab, lighting desks'],
-  ['texture', 'Texture', 'Black & white mask of the touches — over Spout, NDI or full screen on a display'],
+  ['texture', 'Texture', 'Black & white mask of the touches — over NDI or full screen on a display'],
   ['tuio', 'TUIO', 'The multitouch standard (TUIO 1.1 cursors)'],
   ['webhook', 'Webhook', 'Zone events as HTTP POST (JSON) — show control, home automation, your own server'],
   ['artnet', 'Art-Net (DMX)', 'One DMX channel per zone, 255 while active — lighting consoles and nodes'],
@@ -1139,11 +1139,11 @@ function zoneOutputEditor(o, s, ctx) {
       h('button', { class: 'btn small danger', onclick: () => { editProfile((p) => { p.outputs = p.outputs.filter((x) => x.id !== o.id); }); ctx.select(null); } }, 'Delete')));
 }
 
-const SINKS = [['spout', 'Spout'], ['ndi', 'NDI'], ['window', 'Full screen']];
+const SINKS = [['ndi', 'NDI'], ['window', 'Full screen']]; // (Spout goes through the single room output: Experiences › Output)
 function textureWhere(o) {
   if (o.sink === 'ndi') return `NDI “${o.senderName}”`;
   if (o.sink === 'window') return `full screen · ${store.state.displays?.find((d) => d.id === o.displayId)?.label || (o.displayId == null ? 'no display' : 'display not connected')}`;
-  return `Spout “${o.senderName}”`;
+  return `NDI “${o.senderName}”`;
 }
 
 function textureEditor(o, s, ctx) {
@@ -1158,10 +1158,6 @@ function textureEditor(o, s, ctx) {
   const displays = store.state.displays || [];
   const feed = (...lines) => h('div', { class: 'feed', style: { maxHeight: 'none' } }, lines.map((l) => (l instanceof Node ? l : h('div', {}, l))));
   const sink = {
-    spout: [
-      field('Sender name', o.senderName, (v) => set((x) => { x.senderName = v; }, 'rename Spout sender')),
-      feed(`TouchDesigner: Syphon Spout In TOP → sender "${o.senderName}"`, `Resolume / MadMapper: Spout source "${o.senderName}"`, 'Unreal: a Spout receiver plugin (e.g. Off World Live)',
-        h('div', { class: 'muted' }, 'This computer only: Spout shares a GPU texture.'))],
     ndi: [
       field('Source name', o.senderName, (v) => set((x) => { x.senderName = v; }, 'rename NDI source')),
       feed(`Appears on the network as “<this computer> (${o.senderName})”`, 'TouchDesigner: NDI In TOP · Resolume / MadMapper / OBS: NDI source · Unreal: NDI plugin',
@@ -1183,6 +1179,7 @@ function textureEditor(o, s, ctx) {
   return [
     sec(`Texture · ${o.id}`,
       h('p', { class: 'muted' }, 'A greyscale mask of the touches — white discs on black — in output-canvas pixels, following each wall’s Mapping. Use it as a texture: particles, fluids, reveal masks. The centre shows it live, exactly as it is sent.'),
+      h('p', { class: 'muted', 'data-note': 'spout' }, 'Spout goes through the single room output (Experiences › Output).'),
       field('Name', o.name, (v) => set((x) => { x.name = v; })),
       // only the chosen destination runs (the others are not even started)
       h('div', { class: 'row' }, h('span', { class: 'k' }, 'Send to'), h('div', { class: 'seg' }, SINKS.map(([m, t]) =>
@@ -1212,9 +1209,16 @@ function textureEditor(o, s, ctx) {
 // ======================================================================= EXPERIENCES
 
 const XP_SCALES = [0.25, 0.5, 0.75, 1];
-let xpTimer = null;
+const LAYER_NAMES = { experience: 'Experience', touches: 'Touches', grid: 'Grid' };
+const LAYER_HINTS = {
+  experience: 'The piece that is playing (Play and Stop are below)',
+  touches: 'Black and white mask of the touches',
+  grid: 'Pixel map: wall outlines, metre grid, wall ids and calibration targets',
+};
+const BLEND_OPTIONS = [['normal', 'Normal'], ['screen', 'Screen'], ['add', 'Add'], ['multiply', 'Multiply']];
+let xpTimer = null, touchesFoldOpen = false;
 
-/** The running page's last frame (the engine keeps it in memory). A device that is not this computer carries its key. */
+/** The room output's last frame (the engine keeps it in memory). A device that is not this computer carries its key. */
 function xpPreviewUrl() {
   const S = store.state;
   return `/api/experience/preview.jpg?t=${Date.now()}${S.local ? '' : `&k=${encodeURIComponent(S.token || '')}`}`;
@@ -1225,28 +1229,36 @@ function xpKeepFresh() {
   if (xpTimer) return;
   xpTimer = setInterval(() => {
     const img = document.querySelector('img.xp-preview');
-    if (!img || !store.state?.experience?.running) { clearInterval(xpTimer); xpTimer = null; return; }
+    if (!img || !store.state?.output?.running) { clearInterval(xpTimer); xpTimer = null; return; }
     img.src = xpPreviewUrl();
   }, 1000);
 }
 
-/** Send a parameter while a fader moves (about 15 per second at most; the last value always goes out). */
-function xpLiveParam(key) {
+/** Send a value while a fader moves (about 15 per second at most; the last value always goes out). */
+function xpLive(send) {
   let last = 0, timer = null, latest = null;
-  const send = () => { timer = null; last = performance.now(); cmd('experience.param', { key, value: latest }).catch(() => {}); };
-  return (v) => { latest = v; if (timer) return; const wait = 66 - (performance.now() - last); if (wait <= 0) send(); else timer = setTimeout(send, wait); };
+  const go = () => { timer = null; last = performance.now(); send(latest); };
+  return (v) => { latest = v; if (timer) return; const wait = 66 - (performance.now() - last); if (wait <= 0) go(); else timer = setTimeout(go, wait); };
 }
+const xpLiveParam = (key) => xpLive((v) => cmd('experience.param', { key, value: v }).catch(() => {}));
+/** A layer setting while a fader moves: the whole stack goes out with that one value changed. */
+const xpLiveLayer = (id, key) => xpLive((v) => {
+  const layers = structuredClone(store.state.profile.output.layers);
+  layers.find((l) => l.id === id)[key] = v;
+  cmd('output.layers', { layers }).catch(() => {});
+});
 
 export function experiences(ctx) {
   const S = store.state, X = S.experience, cat = S.experiences || [], prof = P();
-  const X0 = prof.experience; // the saved settings (destination, scale, fps…)
+  const X0 = prof.experience; // the saved settings (parameters, start with the app)
+  const O = prof.output, OS = S.output; // the room output: how it is set / what it is doing now
   const locked = !!S.locked;
   const headless = !(S.displays?.length); // no desktop app around: the page is opened in a browser
   const saved = (c) => X0.params?.[c.id] || {};
   const dims = (k) => `${Math.round(prof.canvas.width * k)} × ${Math.round(prof.canvas.height * k)} px`;
-  const set = (args) => run(cmd('experience.set', args));
-  const pageUrl = X.url ? `${location.origin}${X.url}${S.local ? '' : `&k=${encodeURIComponent(S.token || '')}`}` : '';
-  if (X.running) xpKeepFresh();
+  const setOut = (args) => run(cmd('output.set', args));
+  const pageUrl = OS.url ? `${location.origin}${OS.url}${S.local ? '' : `&k=${encodeURIComponent(S.token || '')}`}` : '';
+  if (OS.running) xpKeepFresh();
 
   const paramRow = (c, p) => {
     const value = p.key in saved(c) ? saved(c)[p.key] : p.default;
@@ -1260,23 +1272,58 @@ export function experiences(ctx) {
     return selectField(p.label, value ?? '', [['', 'Any'], ...prof.walls.map((w) => [w.id, w.name || w.id])], (v) => send(v === '' ? null : v));
   };
 
+  // ---- the layers: the list reads top to bottom (the first row is the top layer); the profile keeps them bottom → top
+  const sendLayers = (layers) => run(cmd('output.layers', { layers }));
+  const edit = (id, fn) => { const layers = structuredClone(O.layers); fn(layers.find((l) => l.id === id), layers); sendLayers(layers); };
+  const move = (id, d) => {
+    const layers = structuredClone(O.layers), i = layers.findIndex((l) => l.id === id), j = i + d;
+    if (j < 0 || j >= layers.length) return;
+    [layers[i], layers[j]] = [layers[j], layers[i]];
+    sendLayers(layers);
+  };
+
+  const touchesSettings = (l) => h('details', { class: 'xp-fold', open: touchesFoldOpen || undefined, ontoggle: (e) => { touchesFoldOpen = e.target.open; } },
+    h('summary', {}, 'Touch mask settings'),
+    h('div', { class: 'xp-fold-body' },
+      h('div', { class: 'row' }, h('span', { class: 'k' }, 'Size'), h('div', { class: 'seg' }, [['fixed', 'Fixed'], ['touch', 'Follows the touch']].map(([m, t]) =>
+        h('button', { class: l.sizeMode === m ? 'on' : '', onclick: () => edit('touches', (x) => { x.sizeMode = m; }) }, t)))),
+      fader(l.sizeMode === 'touch' ? 'Minimum radius' : 'Radius', l.radius, { min: 0.01, max: 0.5, step: 0.005, k: 100, unit: 'cm', decimals: 1 },
+        xpLiveLayer('touches', 'radius'), (v) => edit('touches', (x) => { x.radius = v; })),
+      fader('Soft edge', l.softness, { min: 0, max: 1, step: 0.05, k: 100, unit: '%' }, xpLiveLayer('touches', 'softness'), (v) => edit('touches', (x) => { x.softness = v; })),
+      fader('Trail', l.trailMs, { min: 0, max: Math.max(3000, l.trailMs), step: 50, unit: 'ms' }, xpLiveLayer('touches', 'trailMs'), (v) => edit('touches', (x) => { x.trailMs = Math.round(v); })),
+      selectField('Resolution', l.scale, [0.125, 0.25, 0.5, 1].map((k) => [k, `${k === 1 ? 'Full' : `1/${1 / k}`} — ${dims(k)}`]), (v) => edit('touches', (x) => { x.scale = v; }), { numeric: true }),
+      wallsPicker(l, (fn) => edit('touches', fn))));
+
+  const layerRow = (l, i, n) => {
+    const head = toggle(LAYER_NAMES[l.id], l.on, (on) => edit(l.id, (x) => { x.on = on; }));
+    head.title = LAYER_HINTS[l.id];
+    const mv = h('div', { class: 'xp-mv' },
+      h('button', { class: 'ibtn', 'aria-label': `Move ${LAYER_NAMES[l.id]} up`, title: 'Up: above the next layer', disabled: i === n - 1, onclick: () => move(l.id, +1) }, '↑'),
+      h('button', { class: 'ibtn', 'aria-label': `Move ${LAYER_NAMES[l.id]} down`, title: 'Down: below the next layer', disabled: i === 0, onclick: () => move(l.id, -1) }, '↓'));
+    head.insertBefore(mv, head.querySelector('.switch'));
+    return h('div', { class: `xp-layer${l.on ? ' on' : ''}`, 'data-layer': l.id },
+      head,
+      fader('Opacity', l.opacity, { min: 0, max: 1, step: 0.01, k: 100, unit: '%' }, xpLiveLayer(l.id, 'opacity'), (v) => edit(l.id, (x) => { x.opacity = v; })),
+      selectField('Blend', l.blend, BLEND_OPTIONS, (v) => edit(l.id, (x) => { x.blend = v; })),
+      l.id === 'touches' ? touchesSettings(l) : null);
+  };
+
   const destination = () => {
     const box = h('div', { class: 'xp-set' },
       h('div', { class: 'row' }, h('span', { class: 'k' }, 'Send to'), h('div', { class: 'seg' }, [['spout', 'Spout'], ['window', 'Full screen']].map(([m, t]) =>
-        h('button', { class: X0.sink === m ? 'on' : '', onclick: () => set({ sink: m }) }, t)))),
-      X0.sink === 'spout'
-        ? [field('Sender name', X0.senderName, (v) => set({ senderName: v })),
-          h('p', { class: 'muted' }, `Spout "${X0.senderName}" on this computer: the media server (Smode, TouchDesigner, Resolume…) reads it as a source.`)]
+        h('button', { class: O.sink === m ? 'on' : '', onclick: () => setOut({ sink: m }) }, t)))),
+      O.sink === 'spout'
+        ? [field('Sender name', O.senderName, (v) => setOut({ senderName: v })),
+          h('p', { class: 'muted' }, `Spout "${O.senderName}" on this computer: Resolume, TouchDesigner, MadMapper… read it as one source. It is the only Spout sender of the app.`)]
         : [S.displays?.length
-          ? selectField('Display', X0.displayId ?? '', [['', 'Choose a display…'], ...S.displays.map((d) => [d.id, `${d.label} · ${d.width}×${d.height}${d.primary ? ' (primary)' : ''}`])],
-            (v) => set({ displayId: v === '' ? null : Number(v) }))
-          : h('p', { class: 'muted' }, 'The desktop app opens the full-screen window on the display you choose. Here, open the page in a browser (F11).'),
+          ? selectField('Display', O.displayId ?? '', [['', 'Choose a display…'], ...S.displays.map((d) => [d.id, `${d.label} · ${d.width}×${d.height}${d.primary ? ' (primary)' : ''}`])],
+            (v) => setOut({ displayId: v === '' ? null : Number(v) }))
+          : h('p', { class: 'muted' }, 'The desktop app opens the full-screen window on the display you choose. Here, open the output page in a browser (F11).'),
         h('div', { class: 'row' }, h('span', { class: 'k' }, 'Proportions'), h('div', { class: 'seg' }, [['fit', 'Fit'], ['stretch', 'Stretch']].map(([m, t]) =>
-          h('button', { class: X0.fit === m ? 'on' : '', title: m === 'fit' ? 'The canvas proportions, black around' : 'Fill the whole display', onclick: () => set({ fit: m }) }, t))))],
-      selectField('Scale', X0.scale, XP_SCALES.map((k) => [k, `${k} — ${dims(k)}`]), (v) => set({ scale: v }), { numeric: true }),
+          h('button', { class: O.fit === m ? 'on' : '', title: m === 'fit' ? 'The canvas proportions, black around' : 'Fill the whole display', onclick: () => setOut({ fit: m }) }, t))))],
+      selectField('Scale', O.scale, XP_SCALES.map((k) => [k, `${k} — ${dims(k)}`]), (v) => setOut({ scale: v }), { numeric: true }),
       h('div', { class: 'row' }, h('span', { class: 'k' }, 'FPS'), h('div', { class: 'seg' }, [30, 60].map((f) =>
-        h('button', { class: X0.fps === f ? 'on' : '', onclick: () => set({ fps: f }) }, String(f))))),
-      toggle('Start with the app', X0.autostart, (on) => set({ autostart: on })));
+        h('button', { class: O.fps === f ? 'on' : '', onclick: () => setOut({ fps: f }) }, String(f))))));
     if (locked) {
       for (const el of box.querySelectorAll('button, select, input')) el.disabled = true;
       box.append(h('p', { class: 'muted' }, 'Locked in Show mode: unlock the room to change where it goes.'));
@@ -1285,11 +1332,39 @@ export function experiences(ctx) {
   };
 
   const status = () => {
+    if (OS.error) return h('div', { class: 'callout bad' }, OS.error);
     if (X.error) return h('div', { class: 'callout bad' }, X.error);
-    const where = X0.sink === 'spout' ? `Spout "${X0.senderName}"` : 'full screen';
+    const where = O.sink === 'spout' ? `Spout "${O.senderName}"` : 'full screen';
+    // an off-screen window paints when the image changes: with no piece playing a still image is normal, not a fault
+    const fps = X.running ? X.fps : OS.fps;
     return h('p', { class: 'xp-status' },
-      X.fps > 0 ? h('b', { class: 'live tnum' }, `${X.fps} fps`) : h('span', { class: 'muted' }, 'Starting…'),
-      h('span', { class: 'muted' }, ` · ${where} · ${dims(X0.scale)}`));
+      fps >= 5 ? h('b', { class: 'live tnum' }, `${fps} fps`) : h('span', { class: 'muted' }, X.running ? 'Starting…' : 'Sends a frame whenever the image changes'),
+      h('span', { class: 'muted' }, ` · ${where} · ${dims(O.scale)}`));
+  };
+
+  const outputCard = () => h('div', { class: `xp-card xp-out${OS.running ? ' on' : ''}`, 'data-card': 'output' },
+    h('div', { class: 'head' },
+      h('div', { class: 't' }, 'Output — VEATION Touch', h('small', {}, 'The one image of the room: the experience, the touches and the grid, stacked as you choose')),
+      OS.running ? badge(OS.calibrating ? 'calibration' : 'live', OS.calibrating ? 'warn' : 'live') : null),
+    toggle('Output', O.on, (on) => setOut({ on })),
+    OS.calibrating ? h('div', { class: 'callout attn xp-calib', role: 'status' }, 'Calibration mode — showing the grid and the touches',
+      h('div', { class: 'muted' }, 'The output shows only what calibration needs, on black. Your layers come back by themselves when the calibration, verification, fit, walk test or grid ends.')) : null,
+    OS.running ? [
+      h('div', { class: 'xp-prev', style: { aspectRatio: `${prof.canvas.width} / ${prof.canvas.height}` } },
+        h('img', { class: 'xp-preview', alt: 'Live preview of the output', src: OS.previewAt ? xpPreviewUrl() : undefined, onerror: (e) => e.target.classList.add('empty'), onload: (e) => e.target.classList.remove('empty') })),
+      status(),
+      headless ? h('div', { class: 'callout attn' }, 'No desktop app on this computer: open the output page in a browser to run it. ',
+        h('a', { href: pageUrl, target: '_blank', style: { color: 'var(--ink)' } }, pageUrl)) : null,
+    ] : null,
+    h('div', { class: `xp-layers${OS.calibrating ? ' suspended' : ''}` },
+      h('h3', {}, 'Layers', h('small', {}, 'top of the list = on top')),
+      [...O.layers].reverse().map((l, k, all) => layerRow(l, all.length - 1 - k, all.length))),
+    destination());
+
+  const autostart = () => {
+    const box = h('div', { class: 'xp-set' }, toggle('Start with the app', X0.autostart, (on) => run(cmd('experience.set', { autostart: on }))));
+    if (locked) for (const el of box.querySelectorAll('button')) el.disabled = true; // an installation setting: Show mode locks it
+    return box;
   };
 
   const card = (c) => {
@@ -1301,22 +1376,17 @@ export function experiences(ctx) {
         running
           ? h('button', { class: 'btn small', onclick: () => run(cmd('experience.stop')) }, 'Stop')
           : h('button', { class: 'btn small primary', onclick: () => run(cmd('experience.play', { id: c.id })) }, 'Play')),
-      running ? [
-        h('div', { class: 'xp-prev', style: { aspectRatio: `${prof.canvas.width} / ${prof.canvas.height}` } },
-          h('img', { class: 'xp-preview', alt: 'Live preview', src: X.previewAt ? xpPreviewUrl() : undefined, onerror: (e) => e.target.classList.add('empty'), onload: (e) => e.target.classList.remove('empty') })),
-        status(),
-        headless ? h('div', { class: 'callout attn' }, 'No desktop app on this computer: open the page in a browser to run it. ',
-          h('a', { href: pageUrl, target: '_blank', style: { color: 'var(--ink)' } }, pageUrl)) : null,
-      ] : null,
+      running ? (X.error ? h('div', { class: 'callout bad' }, X.error) : null) : null,
       running || selected ? [
-        destination(),
         c.params.length ? h('div', { class: 'xp-params' }, c.params.map((p) => paramRow(c, p))) : null,
+        autostart(),
       ] : null);
   };
 
   return [
+    sec(null, outputCard()),
     sec(['Experiences', h('span', { class: 'grow' }), h('button', { class: 'btn small', title: 'Look for experiences again', onclick: () => run(cmd('experience.list')) }, 'Rescan')],
-      h('p', { class: 'muted' }, 'Interactive pieces that react to the touches. Play one and it goes straight to the room: over Spout to the media server, or full screen on a display.'),
+      h('p', { class: 'muted' }, 'Interactive pieces that react to the touches. Play one and it becomes the Experience layer of the output above.'),
       cat.length ? h('div', { class: 'xp-list' }, cat.map(card)) : h('p', { class: 'muted' }, 'No experiences found. They live in the experiences folder of the app: one folder each, with a manifest.json.')),
   ];
 }

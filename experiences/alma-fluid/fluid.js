@@ -48,7 +48,18 @@ export const CONFIG = {
   DENSITY_DISSIPATION: 0.999,
   BACK_COLOR: { r: 173, g: 200, b: 237 },
   REF_ASPECT: 16 / 9,       // the aspect the website's splat radius was tuned on
+  // The room's ambience (not the website's numbers): bigger, softer emitters that always keep the whole strip moving
+  EMITTER_SIZE_GAIN: 1,     // x the website's emitter sigma (EMITTER_SIGMA) at emitterSize 1: the website's own size
+  EMITTER_FLOW: 0.15,       // an emitter's push: the website's value
 };
+
+/**
+ * How many emitters a strip gets. `perScreen` is the count for one 16:9 screen (the website's density, 12); a strip that is
+ * 4.5 screens wide gets 4.5 times as many, so every screen-width of wall looks like the website.
+ */
+export function emitterCount(perScreen, aspect) {
+  return Math.max(0, Math.round(Math.max(0, perScreen) * Math.max(aspect, 0.1) / CONFIG.REF_ASPECT));
+}
 
 // Splat sigma (gaussian, in canvas heights) of the website's emitters: sqrt(0.009 * 16/9 / 2)
 export const EMITTER_SIGMA = Math.sqrt((CONFIG.SPLAT_RADIUS / 100) * CONFIG.REF_ASPECT / 2);
@@ -96,7 +107,8 @@ export function buildEmitters(count, aspect, prev = []) {
   for (let i = out.length; i < n; i++) {
     const col = i % cols, row = Math.floor(i / cols);
     const em = {
-      x: (cols > 1 ? col / (cols - 1) : 0.5) * 0.8 + 0.1 + (Math.random() - 0.5) * (0.15 / Math.max(1, cols / 4)),
+      // one per column cell, jittered inside it: the whole strip is covered, ends included (a room has no "edge" to keep clear)
+      x: (col + 0.5 + (Math.random() - 0.5) * 0.8) / cols,
       y: (rows > 1 ? row / (rows - 1) : 0.5) * 0.8 + 0.1 + (Math.random() - 0.5) * 0.15,
       angle: Math.random() * Math.PI * 2,
       angleSpeed: (Math.random() * 0.04 + 0.01) * (Math.random() < 0.5 ? 1 : -1),
@@ -115,10 +127,12 @@ export function buildEmitters(count, aspect, prev = []) {
  * Move and emit. `emit(x, y, dx, dy, r, g, b, sigma)` is fluid.splat. `wrapX`: the strip is a loop.
  * `time` is the running clock in seconds.
  */
-export function updateAutoEmitters(emitters, dt, time, speedScale, aspect, wrapX, emit) {
+export function updateAutoEmitters(emitters, dt, time, speedScale, aspect, wrapX, emit, look = null) {
   const wobbleT = time * 0.06;
   const xScale = CONFIG.REF_ASPECT / Math.max(aspect, 0.1); // drift is isotropic in pixels, not in uv
-  const k = CONFIG.EMITTER_INTENSITY;
+  const ambience = look && look.ambience != null ? look.ambience : 1; // strength of the wash (colour and push)
+  const sigma = EMITTER_SIGMA * CONFIG.EMITTER_SIZE_GAIN * (look && look.size != null ? look.size : 1);
+  const k = CONFIG.EMITTER_INTENSITY * ambience;
   for (let i = 0; i < emitters.length; i++) {
     const em = emitters[i];
     em.angle += em.angleSpeed * dt;
@@ -143,9 +157,8 @@ export function updateAutoEmitters(emitters, dt, time, speedScale, aspect, wrapX
     }
 
     // a soft splat — the colour is scaled down to avoid burn
-    const dx = Math.cos(em.angle) * speed * CONFIG.SPLAT_FORCE * 0.15;
-    const dy = Math.sin(em.angle) * speed * CONFIG.SPLAT_FORCE * 0.15;
-    emit(em.x, em.y, dx, dy, em.color[0] * k, em.color[1] * k, em.color[2] * k, EMITTER_SIGMA);
+    const push = CONFIG.SPLAT_FORCE * CONFIG.EMITTER_FLOW * ambience;
+    emit(em.x, em.y, Math.cos(em.angle) * speed * push, Math.sin(em.angle) * speed * push, em.color[0] * k, em.color[1] * k, em.color[2] * k, sigma);
   }
 }
 
@@ -370,7 +383,7 @@ const gradientSubtractSource = `
 
 /**
  * @param gl    WebGL2 context (the canvas is exactly the render size)
- * @param opts  { width, height (canvas px), wrapX (bool), dyeShort (dye short side, px) }
+ * @param opts  { width, height (canvas px), wrapX (bool), dyeShort (dye short side, px), simShort (simulation short side, default CONFIG.SIM_RESOLUTION) }
  */
 export function createFluid(gl, opts) {
   if (typeof WebGL2RenderingContext === 'undefined' || !(gl instanceof WebGL2RenderingContext)) throw new Error('WebGL2 is required');
@@ -447,14 +460,21 @@ export function createFluid(gl, opts) {
       dispose() { a.dispose(); b.dispose(); },
     };
   }
-  // a new size keeps what is in the old texture (stretched), as the website's resize does
-  function resizeDouble(target, w, h, f, filter) {
+  // a new size keeps what is in the old texture (stretched), as the website's resize does; `gain` rescales the values
+  // (velocity is in simulation texels/s, so a finer simulation grid needs proportionally larger numbers)
+  function resizeDouble(target, w, h, f, filter, gain = 1) {
     if (target.width === w && target.height === h) return target;
     const next = createDoubleFBO(w, h, f, filter);
     gl.bindVertexArray(vao);
     gl.disable(gl.BLEND);
-    P.copy.bind();
-    gl.uniform1i(P.copy.u.uTexture, target.read.attach(0));
+    if (gain === 1) {
+      P.copy.bind();
+      gl.uniform1i(P.copy.u.uTexture, target.read.attach(0));
+    } else {
+      P.clear.bind();
+      gl.uniform1i(P.clear.u.uTexture, target.read.attach(0));
+      gl.uniform1f(P.clear.u.value, gain);
+    }
     blit(next.read);
     target.dispose();
     return next;
@@ -473,14 +493,23 @@ export function createFluid(gl, opts) {
   }
 
   let dye = null, velocity = null, divergence = null, curl = null, pressure = null;
-  const simRes = resolution(CONFIG.SIM_RESOLUTION, false);
+  let simShort = opts.simShort || CONFIG.SIM_RESOLUTION;
+  let simRes = resolution(simShort, false);
 
-  function init(dyeShort) {
+  function init(dyeShort, nextSimShort = simShort) {
     const dyeRes = resolution(dyeShort, true); // never finer than the canvas itself
     const linear = gl.LINEAR, nearest = gl.NEAREST;
     gl.disable(gl.BLEND);
     dye = dye ? resizeDouble(dye, dyeRes.width, dyeRes.height, formatRGBA, linear) : createDoubleFBO(dyeRes.width, dyeRes.height, formatRGBA, linear);
-    if (!velocity) velocity = createDoubleFBO(simRes.width, simRes.height, formatRG, linear);
+    const nextSim = resolution(nextSimShort, false);
+    if (!velocity) velocity = createDoubleFBO(nextSim.width, nextSim.height, formatRG, linear);
+    else if (nextSim.width !== simRes.width || nextSim.height !== simRes.height) {
+      velocity = resizeDouble(velocity, nextSim.width, nextSim.height, formatRG, linear, nextSim.height / simRes.height);
+      divergence.dispose(); curl.dispose(); pressure.dispose();
+      divergence = null;
+    }
+    simShort = nextSimShort;
+    simRes = nextSim;
     if (!divergence) {
       divergence = createFBO(simRes.width, simRes.height, formatR, nearest);
       curl = createFBO(simRes.width, simRes.height, formatR, nearest);
@@ -488,6 +517,8 @@ export function createFluid(gl, opts) {
     }
   }
   init(opts.dyeShort || 512);
+  // velocities are given in texels of the 128-texel reference simulation: a finer grid scales them to move the liquid alike
+  const velGain = () => simRes.height / resolution(CONFIG.SIM_RESOLUTION, false).height;
 
   // ---- the dithering texture (the website's), loaded later ----
   const dither = { texture: gl.createTexture(), width: 1, height: 1 };
@@ -524,12 +555,12 @@ export function createFluid(gl, opts) {
 
   const api = {
     width: W, height: H, aspect,
-    simWidth: simRes.width, simHeight: simRes.height,
+    get simWidth() { return simRes.width; }, get simHeight() { return simRes.height; },
     get dyeWidth() { return dye.width; }, get dyeHeight() { return dye.height; },
     wrapX,
 
-    /** Change the dye resolution (short side, px); the content is kept. */
-    setQuality(dyeShort) { init(dyeShort); },
+    /** Change the dye resolution (short side, px) and optionally the simulation's; the content is kept. */
+    setQuality(dyeShort, simShortNext) { init(dyeShort, simShortNext || simShort); },
 
     /** The dithering image arrived. */
     setDither(image) {
@@ -558,7 +589,8 @@ export function createFluid(gl, opts) {
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE);
       gl.enable(gl.SCISSOR_TEST);
-      gl.uniform3f(P.splat.u.color, dx, dy, 0);
+      const vg = velGain();
+      gl.uniform3f(P.splat.u.color, dx * vg, dy * vg, 0);
       splatBox(velocity.read, x, y, d);
       gl.uniform3f(P.splat.u.color, r, g, b);
       splatBox(dye.read, x, y, d);

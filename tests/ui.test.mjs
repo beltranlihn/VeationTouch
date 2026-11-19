@@ -399,9 +399,9 @@ test('ui: the projection draws the point being fitted (whatever its mode)', opt,
     for (let k = 0; k < 50 && !store.state; k++) await new Promise((r) => setTimeout(r, 100));
     const P = store.state.profile, m = P.walls.find((w) => w.id === 'P2').mapping;
     const c = document.getElementById('c'), g = c.getContext('2d');
-    const sx = c.width / P.canvas.width, sy = c.height / P.canvas.height;
     const R = (P.walls.find((w) => w.id === 'P2').pixelRect.h / 3.5) * 0.11;
-    const ringTop = (k) => { const [x, y] = m.points[k]; return [...g.getImageData(Math.round(x * sx), Math.round((y - R) * sy), 1, 1).data]; };
+    // the scale is read when the pixel is read: the page may still be settling its canvas size when the test starts
+    const ringTop = (k) => { const sx = c.width / P.canvas.width, sy = c.height / P.canvas.height, [x, y] = m.points[k]; return [...g.getImageData(Math.round(x * sx), Math.round((y - R) * sy), 1, 1).data]; };
     window.__proj.draw(); // a hidden window paints no frames
     const before = ringTop(8);
     await cmd('projection.set', { fit: { wallId: 'P2', node: 8 } });
@@ -525,13 +525,13 @@ test('ui: no knob-and-dot sliders anywhere — values use the VEATION fader (gro
   assert.equal(result.trail, 450, 'typed in the value box');
 });
 
-test('ui: Texture — Send to Spout, NDI or Full screen; full screen offers the page when there is no desktop app', opt, async () => {
+test('ui: Texture — Send to NDI or Full screen (Spout is the room output, not the Texture); full screen offers the page when there is no desktop app', opt, async () => {
   const { result, errors } = await inUi(`
     const { store } = await import('/js/conn.js');
     const v = window.__vt, wait = (ms) => new Promise((r) => setTimeout(r, ms));
     v.go('outputs'); v.select('output', 'TX');
     const pick = async (t) => { [...document.querySelectorAll('#panel .seg button')].find((b) => b.innerText === t).click(); await wait(300); };
-    const r = { start: store.state.profile.outputs.find((o) => o.id === 'TX').sink, options: [...[...document.querySelectorAll('#panel .row')].find((x) => x.innerText.startsWith('Send to')).querySelectorAll('button')].map((b) => b.innerText) };
+    const r = { spoutNote: document.getElementById('panel').innerText.includes('Spout goes through the single room output (Experiences › Output).'), start: store.state.profile.outputs.find((o) => o.id === 'TX').sink, options: [...[...document.querySelectorAll('#panel .row')].find((x) => x.innerText.startsWith('Send to')).querySelectorAll('button')].map((b) => b.innerText) };
     await pick('NDI');
     r.ndi = store.state.profile.outputs.find((o) => o.id === 'TX').sink; r.ndiText = document.getElementById('panel').innerText.includes('NDI® is a registered trademark of Vizrt NDI AB');
     await pick('Full screen');
@@ -541,8 +541,9 @@ test('ui: Texture — Send to Spout, NDI or Full screen; full screen offers the 
     r.summary = [...document.querySelectorAll('#panel .item')].find((i) => i.innerText.includes('Touch texture')).innerText;
     return r;`, { setup: still });
   assert.deepEqual(errors, []);
-  assert.equal(result.start, 'spout');
-  assert.deepEqual(result.options, ['Spout', 'NDI', 'Full screen']);
+  assert.equal(result.start, 'ndi', 'a Texture output is not sent over Spout: NDI by default');
+  assert.deepEqual(result.options, ['NDI', 'Full screen'], 'Spout goes through the single room output');
+  assert.equal(result.spoutNote, true, 'and the editor says so');
   assert.equal(result.ndi, 'ndi');
   assert.equal(result.ndiText, true, 'the NDI trademark notice is shown with it');
   assert.equal(result.window, 'window');
@@ -1052,9 +1053,10 @@ async function withProbe(engine, { play = false, scale } = {}) {
   await engine.command('experience.list');
   const p = structuredClone(engine.profile);
   p.simulation.wanderers = 0;
-  p.experience = normalizeProfile({}).experience; // the bundled rooms may come with an experience chosen
+  p.experience = normalizeProfile({}).experience; // the bundled rooms may come with an experience chosen…
+  p.output = normalizeProfile({}).output;         // …and an output
   await engine.command('profile.update', { profile: p, rev: engine.rev });
-  if (scale) await engine.command('experience.set', { scale });
+  if (scale) await engine.command('output.set', { scale });
   if (play) await engine.command('experience.play', { id: 'touch-probe' });
 }
 
@@ -1118,46 +1120,72 @@ test('ui: an experience page gets the room in render pixels, hears touches where
   assert.equal(result.paramsAfter.gain, 0.5, 'vt.params follows the operator');
   assert.ok(result.paramEvents >= 1, 'a params event fired');
   assert.equal(result.sameHandle, true);
-  assert.deepEqual(result.out.start, ['VEATION Touch Experience'], 'the Spout sender is started once, with the sender name');
+  assert.deepEqual(result.out.start, ['VEATION Touch'], 'the Spout sender is started once, with the sender name of the output');
   assert.ok(result.out.n >= 5, `frames reached the bridge (${result.out.n})`);
   assert.equal(result.out.first.w, result.size.width);
   assert.equal(result.out.first.h, result.size.height);
   assert.equal(result.out.bad, 0, 'every frame: render size, w x h x 4 bytes, flipY');
   assert.ok(engine.exp.fps > 5, `the page reported its fps (${engine.exp.fps})`);
   assert.equal(engine.exp.error, null);
-  assert.ok(engine.expPreview?.buf?.[0] === 0xff && engine.expPreview.buf[1] === 0xd8, 'a JPEG preview reached the engine');
-  assert.ok(engine.expPreview.buf.length < 300 * 1024);
+  assert.ok(engine.outPreview?.buf?.[0] === 0xff && engine.outPreview.buf[1] === 0xd8, 'a JPEG preview reached the engine');
+  assert.ok(engine.outPreview.buf.length < 300 * 1024);
 });
 
-test('ui: Experiences — the catalog, Play and Stop, the destination and the manifest controls; no knob-and-dot sliders', opt, async () => {
+test('ui: Spout on the GPU — the page never reads its pixels back and its canvas covers the window 1:1 from the top-left', opt, async () => {
+  // the desktop app sends the window's own paints (a shared GPU texture of the render size) to Spout: a readPixels
+  // per frame would only waste the 26 MB copy that the GPU path exists to avoid, and any offset or scaling of the
+  // canvas would go out to the room as it is
+  const { result, errors } = await inUi(`
+    const { store } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let k = 0; k < 100 && !(window.__probe && store.state); k++) await wait(100);
+    const vt = window.__probe.vt;
+    await wait(1500);
+    const c = document.querySelector('canvas'), b = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+    return { sink: vt.sink, kind: window.vtOut.kind, sends: window.__vtOutCalls.send.length, frames: window.__probe.frames,
+      size: vt.size, rect: { x: b.left, y: b.top, w: Math.round(b.width * dpr), h: Math.round(b.height * dpr) }, pos: getComputedStyle(c).position };`,
+  { page: '/experiences/touch-probe/index.html?run=1&fakeOut=gpu', wait: 'load', setup: (e) => withProbe(e, { play: true, scale: 0.25 }) });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.equal(result.kind, 'spout-gpu');
+  assert.equal(result.sink, 'spout');
+  assert.ok(result.frames > 10, `the piece runs (${result.frames} frames)`);
+  assert.equal(result.sends, 0, 'no pixels read back for the sender');
+  assert.equal(result.pos, 'fixed');
+  assert.deepEqual(result.rect, { x: 0, y: 0, w: result.size.width, h: result.size.height }, 'the canvas is the window, 1:1 device pixels, at the top-left');
+});
+
+test('ui: Experiences — the catalog, Play and Stop, the manifest controls, and the Output card (destination, scale, rate); no knob-and-dot sliders', opt, async () => {
   const { result, errors, engine } = await inUi(`
     const { store, cmd } = await import('/js/conn.js');
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const out = {};
     const panel = document.getElementById('panel');
     const card = () => panel.querySelector('.xp-card[data-id="touch-probe"]');
+    const outCard = () => panel.querySelector('.xp-card[data-card="output"]');
     const btn = (root, t) => [...root.querySelectorAll('button')].find((b) => b.innerText.trim() === t);
     // the tab, and its key
     out.nav = !!document.querySelector('#nav button[data-view="experiences"]');
     window.__vt.go('live'); await wait(100);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '8' })); await wait(150);
     out.keyView = window.__vt.view;
-    out.catalog = [...panel.querySelectorAll('.xp-card')].map((c) => c.dataset.id);
-    out.idleHasPlay = !!btn(card(), 'Play'); out.idleHasStop = !!btn(card(), 'Stop'); out.idlePreview = !!card().querySelector('img');
+    out.catalog = [...panel.querySelectorAll('.xp-card[data-id]')].map((c) => c.dataset.id);
+    out.outputFirst = panel.querySelector('.xp-card') === outCard() && /Output — VEATION Touch/.test(outCard().innerText);
+    out.idleHasPlay = !!btn(card(), 'Play'); out.idleHasStop = !!btn(card(), 'Stop'); out.idlePreview = !!outCard().querySelector('img');
+    out.idleOutputOn = outCard().querySelector('.row .switch').classList.contains('on');
     // Play
     btn(card(), 'Play').click();
     for (let k = 0; k < 30 && !store.state.experience.running; k++) await wait(50);
     await wait(200);
-    out.running = store.state.experience.running; out.url = store.state.experience.url;
-    out.on = card().classList.contains('on'); out.hasStop = !!btn(card(), 'Stop'); out.preview = !!card().querySelector('img.xp-preview');
-    out.text = card().innerText;
+    out.running = store.state.experience.running; out.outRunning = store.state.output.running; out.url = store.state.experience.url;
+    out.on = card().classList.contains('on'); out.hasStop = !!btn(card(), 'Stop'); out.preview = !!outCard().querySelector('img.xp-preview');
+    out.text = outCard().innerText;
     out.faders = card().querySelectorAll('.vfield').length;
     out.labels = [...card().querySelectorAll('.row > label')].map((l) => l.innerText);
-    out.scaleOptions = [...card().querySelectorAll('select')].flatMap((s) => [...s.options].map((o) => o.textContent)).filter((t) => /px/.test(t));
+    out.scaleOptions = [...outCard().querySelectorAll('select')].flatMap((s) => [...s.options].map((o) => o.textContent)).filter((t) => /px/.test(t));
     out.switches = card().querySelectorAll('.switch').length;
     out.rangeInputs = document.querySelectorAll('input[type=range]').length;
     out.focusOptions = [...card().querySelectorAll('select')].map((s) => [...s.options].map((o) => o.value)).find((v) => v.includes('') && v.length > 2);
-    // a fader (keyboard: one step), a toggle, a select, a destination, the scale
+    // a fader (keyboard: one step), a toggle, a select
     card().querySelector('.vfield').focus();
     card().querySelector('.vfield').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     await wait(250);
@@ -1168,43 +1196,50 @@ test('ui: Experiences — the catalog, Play and Stop, the destination and the ma
     const modeSel = [...card().querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'hard'));
     modeSel.value = 'hard'; modeSel.dispatchEvent(new Event('change')); await wait(250);
     out.mode = store.state.profile.experience.params['touch-probe']?.mode;
-    const scaleSel = [...card().querySelectorAll('select')].find((s) => [...s.options].some((o) => /0\\.25/.test(o.textContent)));
+    // the output: the scale, the rate, the destination — in the Output card, not in the experience's
+    out.cardHasDestination = !!btn(card(), 'Spout') || !!btn(card(), 'Full screen');
+    const scaleSel = [...outCard().querySelectorAll('select')].find((s) => [...s.options].some((o) => /^0\\.25 —/.test(o.textContent)));
     scaleSel.value = '1'; scaleSel.dispatchEvent(new Event('change')); await wait(250);
-    out.scale = store.state.profile.experience.scale;
-    btn(card(), '30').click(); await wait(250);
-    out.fps = store.state.profile.experience.fps;
-    btn(card(), 'Full screen').click(); await wait(250);
-    out.sink = store.state.profile.experience.sink;
-    out.fullText = card().innerText;
-    btn(card(), 'Spout').click(); await wait(250);
-    // Show mode: where it goes is locked, running it is not
+    out.scale = store.state.profile.output.scale;
+    btn(outCard(), '30').click(); await wait(250);
+    out.fps = store.state.profile.output.fps;
+    btn(outCard(), 'Full screen').click(); await wait(250);
+    out.sink = store.state.profile.output.sink;
+    out.fullText = outCard().innerText;
+    btn(outCard(), 'Spout').click(); await wait(250);
+    out.spoutText = outCard().innerText;
+    // Show mode: where it goes is locked, running it and choosing what is seen are not
     await cmd('app.lock', { locked: true }); await wait(300);
-    out.lockedControls = [...card().querySelectorAll('.xp-set button, .xp-set select, .xp-set input')].every((e) => e.disabled);
+    out.lockedControls = [...outCard().querySelectorAll('.xp-set button, .xp-set select, .xp-set input')].every((e) => e.disabled);
     out.lockedStop = !btn(card(), 'Stop').disabled; out.lockedFader = !!card().querySelector('.vfield');
-    out.lockedSet = await cmd('experience.set', { fps: 60 }).then(() => 'accepted', (e) => e.message);
+    out.lockedLayers = [...outCard().querySelectorAll('.xp-layer .switch, .xp-layer select')].every((e) => !e.disabled);
+    out.lockedSet = await cmd('output.set', { fps: 60 }).then(() => 'accepted', (e) => e.message);
     await cmd('experience.param', { key: 'gain', value: 0.7 });
     await cmd('app.lock', { locked: false }); await wait(200);
-    // Stop
+    // Stop: the experience layer goes, the output stays
     btn(card(), 'Stop').click();
     for (let k = 0; k < 30 && store.state.experience.running; k++) await wait(50);
-    out.stopped = !store.state.experience.running;
+    out.stopped = !store.state.experience.running; out.stillOutput = store.state.output.running;
     out.rangeInputsEnd = document.querySelectorAll('input[type=range]').length;
     return out;`, { setup: (e) => withProbe(e) });
   assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
   assert.equal(result.nav, true, 'a tab in the navigation');
   assert.equal(result.keyView, 'experiences', 'key 8');
   assert.ok(result.catalog.includes('touch-probe'), 'the catalog is listed');
+  assert.equal(result.outputFirst, true, 'the "Output — VEATION Touch" card is at the top');
   assert.equal(result.idleHasPlay, true);
   assert.equal(result.idleHasStop, false);
-  assert.equal(result.idlePreview, false, 'no preview while stopped');
+  assert.equal(result.idlePreview, false, 'no preview while the output is off');
+  assert.equal(result.idleOutputOn, false);
   assert.equal(result.running, true, 'Play sent experience.play');
+  assert.equal(result.outRunning, true, 'and switched the output on');
   assert.equal(result.url, '/experiences/touch-probe/index.html?run=1');
   assert.equal(engine.profile.experience.id, 'touch-probe');
   assert.equal(result.on, true, 'the running card is highlighted');
   assert.equal(result.hasStop, true);
-  assert.equal(result.preview, true, 'live preview image');
+  assert.equal(result.preview, true, 'live preview image of the output');
   assert.match(result.text, /No desktop app/, 'without the desktop app it says to open the page in a browser');
-  assert.match(result.text, /\/experiences\/touch-probe\/index\.html\?run=1/);
+  assert.match(result.text, /\/output\?run=1/);
   assert.equal(result.faders, 1, 'the number parameter is a VEATION fader');
   assert.deepEqual(result.labels.filter((l) => /Gain|Mode|Trails|Focus/.test(l)), ['Gain', 'Mode', 'Trails', 'Focus wall'], 'one control per manifest parameter, in order');
   assert.ok(result.scaleOptions.some((t) => /^0\.25 — \d+ × \d+ px$/.test(t)) && result.scaleOptions.some((t) => /^1 — \d+ × \d+ px$/.test(t)), `scale shows the pixel size: ${result.scaleOptions}`);
@@ -1215,16 +1250,20 @@ test('ui: Experiences — the catalog, Play and Stop, the destination and the ma
   assert.equal(result.gain, 1.05, 'a fader step is experience.param');
   assert.equal(result.trails, true);
   assert.equal(result.mode, 'hard');
+  assert.equal(result.cardHasDestination, false, 'where it goes is the output\'s, not the experience\'s');
   assert.equal(result.scale, 1);
   assert.equal(result.fps, 30);
   assert.equal(result.sink, 'window');
   assert.match(result.fullText, /Proportions/);
+  assert.match(result.spoutText, /only Spout sender/);
   assert.equal(result.lockedControls, true, 'Show mode locks the destination controls');
   assert.equal(result.lockedStop, true, '...but not Stop');
   assert.equal(result.lockedFader, true, '...nor the parameters');
+  assert.equal(result.lockedLayers, true, '...nor the layers');
   assert.match(result.lockedSet, /locked/);
   assert.equal(engine.profile.experience.params['touch-probe'].gain, 0.7);
   assert.equal(result.stopped, true);
+  assert.equal(result.stillOutput, true, 'Stop takes the experience off the output; the output stays on');
 });
 
 // ---------------------------------------------------------------------------------------------------- experience on the walls (viewer)
@@ -1282,15 +1321,15 @@ test('ui: the experience is simulated on the walls of the Live view, as a second
     }
     // the real instance's state is untouched by the viewer: a report would come every 2 s, a preview every second
     await wait(3500);
-    out.exp = { ...store.state.experience };
+    out.exp = { ...store.state.experience }; out.output = { ...store.state.output, layersEffective: undefined };
     return out;`, { setup: (e) => withViewedProbe(e) });
   assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
   assert.equal(result.src, '/experiences/touch-probe/index.html?run=1&view=1', 'the hidden iframe loads the page in viewer mode');
   assert.match(result.style, /opacity:\s*0/); assert.match(result.style, /width:\s*1px/); assert.match(result.style, /pointer-events:\s*none/);
   assert.doesNotMatch(result.style, /display/, 'kept rendering: never display:none');
   assert.equal(result.sink, 'viewer');
-  assert.equal(result.vtScale, 0.25, 'a viewer renders at most at 0.25 even when the room renders at 1');
-  assert.deepEqual(result.vtSize, { width: Math.round(result.canvas.width * 0.25), height: Math.round(result.canvas.height * 0.25) });
+  assert.equal(result.vtScale, 0.5, 'a viewer renders at most at 0.5 even when the room renders at 1 (sharp enough for one wall in the app)');
+  assert.deepEqual(result.vtSize, { width: Math.round(result.canvas.width * 0.5), height: Math.round(result.canvas.height * 0.5) });
   assert.ok(result.fps <= 30);
   assert.ok(result.frame && result.frame.w === result.vtSize.width && result.frame.h === result.vtSize.height && result.frame.id === 'touch-probe', `a frame arrived at the viewer's size: ${JSON.stringify(result.frame)}`);
   assert.ok(result.framesPerSecond >= 3 && result.framesPerSecond <= 36, `frames keep coming at <= ~30 Hz (${result.framesPerSecond}/s)`);
@@ -1304,9 +1343,9 @@ test('ui: the experience is simulated on the walls of the Live view, as a second
   // the viewer is not the running instance
   assert.equal(result.exp.running, true);
   assert.equal(result.exp.fps, 0, 'no fps reported by the viewer');
-  assert.equal(result.exp.previewAt, null, 'no preview posted by the viewer');
+  assert.equal(result.output.previewAt, null, 'no preview posted by the viewer');
   assert.equal(result.exp.error, null);
-  assert.equal(engine.expPreview, null);
+  assert.equal(engine.outPreview, null);
   assert.equal(engine.exp.fps, 0);
 });
 
@@ -1341,4 +1380,250 @@ test('ui: the Experience toggle removes the hidden page and the frames, is remem
     await wait(800);
     return { btn: document.getElementById('expBtn').hidden, iframe: !!document.getElementById('xpViewer'), cap: document.getElementById('xpCaption').hidden };`, { setup: (e) => withProbe(e) });
   assert.deepEqual(none.result, { btn: true, iframe: false, cap: true }, 'no experience in the profile: no toggle, no page, no caption');
+});
+
+// ---------------------------------------------------------------------------------------------------- the room output (one image, layers)
+
+/** The experience is playing at scale 0.25 and the layers are as given (bottom → top). */
+async function withLayers(engine, layers) {
+  await withProbe(engine, { play: true, scale: 0.25 });
+  await engine.command('output.layers', { layers });
+}
+
+test('ui: the output page stacks its layers in the chosen order with the chosen blend and opacity; reordering never reloads the experience; a layer that is off is gone', opt, async () => {
+  const { result, errors, engine } = await inUi(`
+    const { store, cmd } = await import('/js/conn.js');
+    const { wallUvToCanvas } = await import('/shared/geometry.js');
+    const { wallPattern } = await import('/shared/mask.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let k = 0; k < 150 && !(window.__out && store.state && window.__out.layers().length >= 3); k++) await wait(100);
+    const stage = document.getElementById('stage');
+    const info = () => [...stage.querySelectorAll(':scope > .layer')].map((el) => { const cs = getComputedStyle(el); return { id: el.dataset.layer, tag: el.tagName, z: Number(cs.zIndex), blend: cs.mixBlendMode, opacity: cs.opacity }; });
+    const topFirst = () => info().sort((a, b) => b.z - a.z).map((l) => l.id);
+    const out = { first: info(), order: topFirst() };
+    const ifr = stage.querySelector('iframe');
+    for (let k = 0; k < 150 && !ifr.contentWindow.__probe?.vt; k++) await wait(100);
+    const vt = ifr.contentWindow.__probe.vt;
+    out.iframe = { src: ifr.getAttribute('src'), sink: vt.sink, canvasPos: getComputedStyle(ifr.contentDocument.querySelector('canvas')).position, size: vt.size, w: ifr.style.width };
+    // not the Spout window of the app (no bridge here): the stage is fitted to the window
+    out.fitted = stage.style.transform.startsWith('translate(') || stage.style.transform.startsWith('scale(');
+    // reorder: the experience must stay alive (moving an iframe in the document would reload it)
+    await cmd('output.layers', { layers: [{ id: 'touches' }, { id: 'grid' }, { id: 'experience' }] });
+    await wait(300);
+    out.reordered = topFirst(); out.sameFrame = stage.querySelector('iframe') === ifr && ifr.contentWindow.__probe?.vt === vt;
+    // pinned 1:1 like the desktop app's Spout window (its preload exposes vtOut): CSS size x dpr = the render size, no transform
+    window.vtOut = { kind: 'spout-gpu', ok: true }; window.__out.sync();
+    const dpr = devicePixelRatio || 1, P = store.state.profile, want = { w: Math.round(P.canvas.width * P.output.scale), h: Math.round(P.canvas.height * P.output.scale) };
+    out.pinned = { transform: stage.style.transform, w: Math.round(parseFloat(stage.style.width) * dpr), h: Math.round(parseFloat(stage.style.height) * dpr), want,
+      layerW: [...stage.querySelectorAll('.layer')].map((el) => Math.round(parseFloat(el.style.width) * dpr)), gridPx: stage.querySelector('[data-layer=grid]').width, touchesPx: stage.querySelector('[data-layer=touches]').width };
+    delete window.vtOut; window.__out.sync();
+    // the touches layer draws the mask, the grid layer the pixel map
+    const wall = P.walls.find((w) => w.id === 'P2');
+    for (let k = 0; k < 15; k++) { await cmd('sim.touch', { wallId: 'P2', x: 2, y: 1.5, id: 't', down: true }); await wait(40); }
+    await wait(300);
+    const [cx, cy] = wallUvToCanvas(wall, 2 / wall.width, 1 - 1.5 / wall.height);
+    const tc = stage.querySelector('[data-layer=touches]'), ls = store.state.output.layersEffective.find((l) => l.id === 'touches').scale;
+    out.touchesSize = [tc.width, tc.height, Math.round(P.canvas.width * ls), Math.round(P.canvas.height * ls)];
+    out.touchPx = tc.getContext('2d').getImageData(Math.round(cx * ls), Math.round(cy * ls), 1, 1).data[0];
+    out.touchFar = tc.getContext('2d').getImageData(Math.round(cx * ls) + 150, Math.round(cy * ls), 1, 1).data[0];
+    await cmd('sim.touch', { wallId: 'P2', x: 2, y: 1.5, id: 't', down: false });
+    window.__out.drawGrid(true);
+    const gc = stage.querySelector('[data-layer=grid]'), s = P.output.scale, o0 = wallPattern(wall).outline[0];
+    const near = (c, x, y) => { let a = 0; const d = c.getContext('2d').getImageData(Math.max(0, Math.round(x) - 2), Math.max(0, Math.round(y) - 2), 5, 5).data; for (let i = 3; i < d.length; i += 4) a = Math.max(a, d[i]); return a; };
+    out.gridOnOutline = near(gc, o0[0] * s, o0[1] * s);
+    { const d = gc.getContext('2d').getImageData(0, 0, gc.width, gc.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++; out.gridCoverage = n / (gc.width * gc.height); }
+    // layers off: gone from the page, not just hidden
+    await cmd('output.layers', { layers: [{ id: 'touches', on: false }, { id: 'grid', on: false }, { id: 'experience' }] });
+    await wait(300);
+    out.afterOff = { ids: window.__out.layers(), dom: [...stage.querySelectorAll('.layer')].map((el) => el.dataset.layer) };
+    await cmd('output.layers', { layers: [{ id: 'touches', on: false }, { id: 'grid', on: false }, { id: 'experience', on: false }] });
+    await wait(300);
+    out.allOff = { dom: [...stage.querySelectorAll('.layer')].length, frames: document.querySelectorAll('iframe').length };
+    // the whole output off: nothing runs at all
+    await cmd('output.layers', { layers: [{ id: 'experience', on: true }, { id: 'grid', on: true }, { id: 'touches', on: true }] });
+    await wait(300);
+    out.back = [...stage.querySelectorAll('.layer')].length;
+    await cmd('output.set', { on: false }); await wait(300);
+    out.outputOff = [...stage.querySelectorAll('.layer')].length;
+    return out;`, {
+    page: '/output?run=1', wait: 'load',
+    setup: (e) => withLayers(e, [
+      { id: 'grid', on: true, blend: 'add', opacity: 0.5 },
+      { id: 'experience', on: true, blend: 'multiply', opacity: 0.9 },
+      { id: 'touches', on: true, blend: 'screen', opacity: 0.7, scale: 0.125 },
+    ]),
+  });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  const by = (id) => result.first.find((l) => l.id === id);
+  assert.deepEqual(result.order, ['touches', 'experience', 'grid'], 'the profile\'s array order (bottom → top) is the z-order');
+  assert.deepEqual([by('touches').z, by('experience').z, by('grid').z], [3, 2, 1]);
+  assert.deepEqual([by('touches').blend, by('experience').blend, by('grid').blend], ['screen', 'multiply', 'plus-lighter'], '"add" is CSS plus-lighter');
+  assert.deepEqual([by('touches').opacity, by('experience').opacity, by('grid').opacity], ['0.7', '0.9', '0.5']);
+  assert.deepEqual([by('touches').tag, by('experience').tag, by('grid').tag], ['CANVAS', 'IFRAME', 'CANVAS']);
+  assert.match(result.iframe.src, /^\/experiences\/touch-probe\/index\.html\?run=1&layer=1$/, 'the experience runs in layer mode');
+  assert.equal(result.iframe.sink, 'layer');
+  assert.equal(result.iframe.canvasPos, 'fixed', 'its canvas is pinned 1:1 in its frame');
+  assert.equal(result.fitted, true, 'outside the desktop app\'s Spout window the stage is fitted to the window');
+  assert.deepEqual(result.reordered, ['experience', 'grid', 'touches'], 'reordered live');
+  assert.equal(result.sameFrame, true, 'reordering does not reload the experience');
+  assert.equal(result.pinned.transform, 'none', 'in the Spout window: no scaling');
+  assert.deepEqual([result.pinned.w, result.pinned.h], [result.pinned.want.w, result.pinned.want.h], 'the stage is the render size, 1:1');
+  assert.ok(result.pinned.layerW.every((w) => w === result.pinned.want.w), `every layer covers it (${result.pinned.layerW})`);
+  assert.equal(result.pinned.gridPx, result.pinned.want.w, 'the grid is drawn at the FULL render size');
+  assert.ok(result.pinned.touchesPx < result.pinned.want.w, 'the touches mask is a smaller canvas, stretched up');
+  assert.deepEqual(result.touchesSize.slice(0, 2), result.touchesSize.slice(2), 'the mask has the layer\'s scale of the canvas');
+  assert.ok(result.touchPx > 200, `white under the touch (${result.touchPx})`);
+  assert.equal(result.touchFar, 0, 'black elsewhere');
+  assert.ok(result.gridOnOutline > 120, `the grid draws the wall outline (${result.gridOnOutline})`);
+  assert.ok(result.gridCoverage > 0 && result.gridCoverage < 0.5, `lines on a transparent layer (${result.gridCoverage})`);
+  assert.deepEqual(result.afterOff.dom.sort(), ['experience'], 'layers that are off are removed from the page');
+  assert.deepEqual(result.allOff, { dom: 0, frames: 0 }, 'all off: black, and no experience page running');
+  assert.equal(result.back, 3);
+  assert.equal(result.outputOff, 0, 'output off: nothing on the page');
+  assert.ok(engine.exp.fps >= 0);
+  assert.equal(engine.outPreview, null, 'an experience layer posts no preview of its own: the preview is the whole output\'s, taken by the desktop app');
+});
+
+test('ui: calibration mode — the output page shows only the grid on the touches (with the targets), then goes back to the operator\'s layers', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { store, cmd } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let k = 0; k < 150 && !(window.__out && store.state && window.__out.layers().length >= 1); k++) await wait(100);
+    const stage = document.getElementById('stage');
+    const info = () => [...stage.querySelectorAll(':scope > .layer')].filter((el) => getComputedStyle(el).visibility !== 'hidden').map((el) => { const cs = getComputedStyle(el); return { id: el.dataset.layer, z: Number(cs.zIndex), blend: cs.mixBlendMode, opacity: cs.opacity }; }).sort((a, b) => b.z - a.z);
+    const amber = () => {
+      const c = stage.querySelector('[data-layer=grid]');
+      if (!c) return -1;
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 60 && Math.abs(d[i] - 229) < 14 && Math.abs(d[i + 1] - 181) < 14 && Math.abs(d[i + 2] - 103) < 14) n++;
+      return n;
+    };
+    const out = { normal: info().map((l) => l.id), calibratingBefore: store.state.output.calibrating };
+    const wall = store.state.profile.walls[0].id;
+    await cmd('calib.start', { wallId: wall, force: true });
+    for (let k = 0; k < 50 && !(window.__out.layers().length === 2 && amber() > 0); k++) await wait(100);
+    const frame0 = document.querySelector('iframe');
+    out.calib = info(); out.calibratingDuring = store.state.output.calibrating; out.frames = document.querySelectorAll('iframe').length; out.amberDuring = amber();
+    out.parked = frame0 && getComputedStyle(frame0).visibility; out.sameFrame = document.querySelector('iframe') === frame0;
+    await cmd('calib.cancel');
+    for (let k = 0; k < 50 && !(window.__out.layers().join() === 'experience'); k++) await wait(100);
+    out.after = info().map((l) => l.id); out.calibratingAfter = store.state.output.calibrating; out.framesAfter = document.querySelectorAll('iframe').length;
+    // the grid on its own (the Grid switch of Calibrate / the phone) is calibration mode too
+    await cmd('projection.set', { grid: true });
+    for (let k = 0; k < 50 && window.__out.layers().length !== 2; k++) await wait(100);
+    out.grid = info().map((l) => l.id);
+    await cmd('projection.set', { grid: false });
+    for (let k = 0; k < 50 && window.__out.layers().join() !== 'experience'; k++) await wait(100);
+    out.gridOff = info().map((l) => l.id);
+    return out;`, {
+    page: '/output?run=1', wait: 'load',
+    setup: (e) => withLayers(e, [{ id: 'experience', on: true }, { id: 'touches', on: false }, { id: 'grid', on: false }]),
+  });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.deepEqual(result.normal, ['experience'], 'normally: the operator\'s layers (only the experience is on)');
+  assert.equal(result.calibratingBefore, false);
+  assert.equal(result.calibratingDuring, true);
+  assert.deepEqual(result.calib.map((l) => l.id), ['grid', 'touches'], 'calibration: the grid on top of the touches');
+  assert.deepEqual(result.calib.map((l) => [l.blend, l.opacity]), [['screen', '1'], ['screen', '1']]);
+  // the piece is hidden, not torn down: it comes back as it was, without restarting (a new GPU device, its warm-up)
+  assert.equal(result.frames, 1);
+  assert.equal(result.parked, 'hidden', 'no experience shows while calibrating');
+  assert.equal(result.sameFrame, true, 'the same experience page, kept running');
+  assert.ok(result.amberDuring > 0, `the grid draws the calibration target in amber (${result.amberDuring} px)`);
+  assert.deepEqual(result.after, ['experience'], 'calibration cancelled: back to the operator\'s layers');
+  assert.equal(result.calibratingAfter, false);
+  assert.equal(result.framesAfter, 1);
+  assert.deepEqual(result.grid, ['grid', 'touches'], 'the grid switch alone also shows grid + touches');
+  assert.deepEqual(result.gridOff, ['experience']);
+});
+
+test('ui: Experiences › Output card — on/off, layer switches, reorder, opacity faders and blend; the calibration banner; no range inputs', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { store, cmd } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const panel = document.getElementById('panel');
+    window.__vt.go('experiences'); await wait(300);
+    const card = () => panel.querySelector('.xp-card[data-card="output"]');
+    const L = (id) => card().querySelector('.xp-layer[data-layer="' + id + '"]');
+    const layersNow = () => store.state.profile.output.layers;
+    const listed = () => [...card().querySelectorAll('.xp-layer')].map((e) => e.dataset.layer);
+    const profileTop = () => layersNow().map((l) => l.id).reverse();
+    const out = { title: card().querySelector('.head .t').firstChild.textContent, listed: listed(), profileTop: profileTop(), sink: store.state.profile.output.sink };
+    out.sender = [...card().querySelectorAll('.row')].find((r) => r.querySelector('label')?.innerText === 'Sender name')?.querySelector('input').value;
+    // the switch of the output
+    const sw = card().querySelector(':scope > .row .switch');
+    out.offAtStart = !sw.classList.contains('on'); sw.click(); await wait(300);
+    out.onAfter = store.state.profile.output.on && card().querySelector(':scope > .row .switch').classList.contains('on');
+    // a layer's switch
+    L('grid').querySelector('.switch').click(); await wait(300);
+    out.gridOn = layersNow().find((l) => l.id === 'grid').on;
+    // reorder: the top row goes down, the bottom row goes up
+    const up = (id) => L(id).querySelector('.xp-mv button[aria-label$="up"]'), down = (id) => L(id).querySelector('.xp-mv button[aria-label$="down"]');
+    out.topUpDisabled = up(listed()[0]).disabled; out.bottomDownDisabled = down(listed().at(-1)).disabled;
+    const before = profileTop();
+    down(before[0]).click(); await wait(300);
+    out.afterDown = { list: listed(), profile: profileTop() };
+    up('experience').click(); await wait(300);
+    out.afterUp = { list: listed(), profile: profileTop() };
+    // opacity: a keyboard step, then a drag to the middle of the groove (one undo step on release)
+    const op = () => L('touches').querySelector('.vfield[aria-label="Opacity"]');
+    op().focus(); op().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); await wait(300);
+    out.opacityStep = layersNow().find((l) => l.id === 'touches').opacity;
+    document.activeElement.blur(); await wait(200);
+    const tr = op().querySelector('.vtrack').getBoundingClientRect();
+    const pt = (k) => ({ clientX: tr.left + tr.width * k, clientY: tr.top + 1, button: 0, pointerId: 1, bubbles: true });
+    op().dispatchEvent(new PointerEvent('pointerdown', pt(0.5))); dispatchEvent(new PointerEvent('pointerup', pt(0.5))); await wait(400);
+    out.opacityDrag = layersNow().find((l) => l.id === 'touches').opacity;
+    out.opacityShown = L('touches').querySelector('.vfield[aria-label="Opacity"]').closest('.row').querySelector('.vbox').textContent;
+    // blend
+    const bl = [...L('grid').querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'multiply'));
+    out.blendOptions = [...bl.options].map((o) => o.textContent);
+    bl.value = 'add'; bl.dispatchEvent(new Event('change')); await wait(300);
+    out.blend = layersNow().find((l) => l.id === 'grid').blend;
+    // the touch mask settings live in a fold, with faders
+    const fold = L('touches').querySelector('details');
+    out.fold = !!fold; out.foldOpenAtStart = fold.open;
+    fold.open = true; await wait(100);
+    out.foldFaders = [...L('touches').querySelectorAll('details .vfield')].map((f) => f.getAttribute('aria-label'));
+    const rad = L('touches').querySelector('details .vfield[aria-label="Radius"]');
+    rad.focus(); rad.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await wait(300);
+    out.radius = layersNow().find((l) => l.id === 'touches').radius;
+    out.rangeInputs = document.querySelectorAll('input[type=range]').length;
+    document.activeElement.blur(); await wait(200); // (a panel with focus inside is not rebuilt under the operator's hands)
+    // calibration mode: the banner, and it goes away with the grid
+    out.bannerBefore = !!card().querySelector('.xp-calib');
+    await cmd('projection.set', { grid: true }); await wait(400);
+    out.banner = card().querySelector('.xp-calib')?.textContent || null; out.suspended = card().querySelector('.xp-layers').classList.contains('suspended');
+    out.badge = card().querySelector('.head .badge')?.textContent;
+    await cmd('projection.set', { grid: false }); await wait(400);
+    out.bannerAfter = !!card().querySelector('.xp-calib');
+    return out;`, { setup: (e) => withProbe(e) });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.equal(result.title, 'Output — VEATION Touch');
+  assert.deepEqual(result.listed, result.profileTop, 'the list reads top to bottom: the first row is the top layer');
+  assert.deepEqual(result.listed, ['grid', 'touches', 'experience'], 'by default the grid is on top, the experience at the bottom');
+  assert.equal(result.sink, 'spout');
+  assert.equal(result.sender, 'VEATION Touch');
+  assert.equal(result.offAtStart, true); assert.equal(result.onAfter, true, 'the output switch sends output.set');
+  assert.equal(result.gridOn, true, 'a layer\'s switch');
+  assert.equal(result.topUpDisabled, true); assert.equal(result.bottomDownDisabled, true, 'nothing above the top, nothing below the bottom');
+  assert.deepEqual(result.afterDown.list, ['touches', 'grid', 'experience'], '↓ on the top layer');
+  assert.deepEqual(result.afterDown.profile, result.afterDown.list);
+  assert.deepEqual(result.afterUp.list, ['touches', 'experience', 'grid'], '↑ on the bottom one');
+  assert.deepEqual(result.afterUp.profile, result.afterUp.list);
+  assert.equal(result.opacityStep, 0.99, 'a fader step');
+  assert.equal(result.opacityDrag, 0.5, 'a drag to the middle of the groove');
+  assert.equal(result.opacityShown, '50%');
+  assert.deepEqual(result.blendOptions, ['Normal', 'Screen', 'Add', 'Multiply']);
+  assert.equal(result.blend, 'add');
+  assert.equal(result.fold, true); assert.equal(result.foldOpenAtStart, false, 'the mask settings are folded');
+  assert.deepEqual(result.foldFaders, ['Radius', 'Soft edge', 'Trail']);
+  assert.equal(result.radius, 0.085, 'a radius step (0.5 cm)');
+  assert.equal(result.rangeInputs, 0, 'no native range inputs');
+  assert.equal(result.bannerBefore, false);
+  assert.match(result.banner, /Calibration mode — showing the grid and the touches/);
+  assert.equal(result.suspended, true, 'the operator\'s layers are shown as set aside');
+  assert.equal(result.badge, 'calibration');
+  assert.equal(result.bannerAfter, false);
 });

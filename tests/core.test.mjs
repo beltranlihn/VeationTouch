@@ -884,7 +884,7 @@ test('profile: the XR Lab profile is valid; garbage is clamped, not trusted', ()
   assert.ok(poseMatrix(x.sensors[0].pose).every(Number.isFinite));
 });
 
-test('texture: the UI preview and the Spout output are the same rasteriser; "follows the touch" grows the disc', async () => {
+test('texture: the UI preview and the NDI output are the same rasteriser; "follows the touch" grows the disc', async () => {
   const { TextureRenderer } = await import('../engine/outputs/texture.js');
   const { TouchMask, discRadiusM } = await import('../engine/core/mask.js');
   const prof = normalizeProfile({ canvas: { width: 400, height: 200 }, walls: [{ id: 'A', width: 4, height: 2, pixelRect: { x: 0, y: 0, w: 400, h: 200 } }] });
@@ -908,8 +908,8 @@ test('texture: the UI preview and the Spout output are the same rasteriser; "fol
     return t.mask.reduce((n, v) => n + (v > 0), 0);
   };
   assert.ok(lit('touch') > lit('fixed') * 5, `a 50 cm body makes a bigger disc (${lit('touch')} vs ${lit('fixed')} px)`);
-  assert.equal(normalizeProfile({ outputs: [{ type: 'texture', sizeMode: 'touch' }] }).outputs[0].sizeMode, 'touch');
-  assert.equal(normalizeProfile({ outputs: [{ type: 'texture', sizeMode: 'huge' }] }).outputs[0].sizeMode, 'fixed');
+  assert.equal(normalizeProfile({ output: {}, outputs: [{ type: 'texture', sizeMode: 'touch' }] }).outputs[0].sizeMode, 'touch');
+  assert.equal(normalizeProfile({ output: {}, outputs: [{ type: 'texture', sizeMode: 'huge' }] }).outputs[0].sizeMode, 'fixed');
 });
 
 test('fit: moving one mesh point puts the hand\'s wall position on the point\'s pixel; nearest point; far hands refused', async () => {
@@ -929,12 +929,13 @@ test('fit: moving one mesh point puts the hand\'s wall position on the point\'s 
   assert.equal(gridSolveNode(g, k, 0.05, 0.05, target), null, 'a hand far from the point cannot move it');
 });
 
-test('texture: destination Spout / NDI / full screen (Spout by default, as before); display and proportions for the window', () => {
-  const out = (o) => normalizeProfile({ outputs: [{ type: 'texture', ...o }] }).outputs[0];
-  assert.deepEqual([out({}).sink, out({}).displayId, out({}).fit], ['spout', null, 'fit']);
+test('texture: destination NDI or full screen (NDI by default — Spout is the room output, not the Texture); display and proportions for the window', () => {
+  const out = (o) => normalizeProfile({ output: {}, outputs: [{ type: 'texture', ...o }] }).outputs[0];
+  assert.deepEqual([out({}).sink, out({}).displayId, out({}).fit], ['ndi', null, 'fit']);
   assert.equal(out({ sink: 'ndi' }).sink, 'ndi');
   assert.deepEqual([out({ sink: 'window', displayId: 2779098405, fit: 'stretch' }).sink, out({ sink: 'window', displayId: 2779098405 }).displayId, out({ fit: 'stretch' }).fit], ['window', 2779098405, 'stretch']);
-  assert.equal(out({ sink: 'hdmi' }).sink, 'spout');
+  assert.equal(out({ sink: 'hdmi' }).sink, 'ndi');
+  assert.equal(out({ sink: 'spout' }).sink, 'ndi', 'a Texture output cannot send over Spout any more');
 });
 
 test('pixel map: the 1 m line lands on the right canvas column through the wall mapping; the current target is a ring; touches stay untouched', async () => {
@@ -992,11 +993,11 @@ test('pixel map: the 1 m line lands on the right canvas column through the wall 
   assert.ok(m.frame.every((v) => v === 0), 'and the output is black again');
   assert.equal(overlayOf({}), null);
   // the option: Automatic by default, Off kept, junk falls back
-  const ov = (v) => normalizeProfile({ outputs: [{ type: 'texture', overlay: v }] }).outputs[0].overlay;
+  const ov = (v) => normalizeProfile({ output: {}, outputs: [{ type: 'texture', overlay: v }] }).outputs[0].overlay;
   assert.deepEqual([ov(undefined), ov('off'), ov('on'), ov('auto')], ['auto', 'off', 'auto', 'auto']);
 });
 
-test('pixel map: the Texture output draws the pattern on its Spout / NDI frame, unless its overlay is Off', async () => {
+test('pixel map: the Texture output draws the pattern on its NDI frame, unless its overlay is Off', async () => {
   const { TextureRenderer } = await import('../engine/outputs/texture.js');
   const { overlayOf } = await import('../engine/core/mask.js');
   const prof = normalizeProfile({ canvas: { width: 400, height: 200 }, walls: [{ id: 'A', width: 4, height: 2, pixelRect: { x: 0, y: 0, w: 400, h: 200 } }] });

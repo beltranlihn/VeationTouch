@@ -2,8 +2,10 @@
 // The website's fluid (fluid.js) across the whole projection strip; every touch stirs it; the logo sits on one wall.
 // Input and output both come from the VEATION Touch runtime (/experiences/runtime.js): touches in, one canvas out.
 import { connectExperience } from '/experiences/runtime.js';
-import { createFluid, CONFIG, PALETTE, generateColor, buildEmitters, updateAutoEmitters } from './fluid.js';
-import { createLogo } from './logo.js';
+import { createFluid as createFluidGL, CONFIG, generateColor, buildEmitters, updateAutoEmitters, emitterCount, EMITTER_SIGMA } from './fluid.js';
+import { createLogo as createLogoGL } from './logo.js';
+import { createFluid as createFluidGPU, hasWebGPU, requestGpu } from './fluid-webgpu.js';
+import { createLogo as createLogoGPU } from './logo-webgpu.js';
 
 const vt = await connectExperience();
 
@@ -13,7 +15,9 @@ canvas.width = W;
 canvas.height = H;
 canvas.className = vt.fit === 'stretch' ? 'stretch' : 'fit';
 
-const QUALITY = { low: 384, medium: 512, high: 768 };
+// dye = the liquid's short side in px, sim = the velocity/pressure grid's; ultra simulates the liquid at the output's own resolution
+const QUALITY = { low: { dye: 384 }, medium: { dye: 512 }, high: { dye: 768 }, ultra: { dye: H, sim: 256 } };
+const qualityOf = (name) => { const q = QUALITY[name] || QUALITY.medium; return { dye: q.dye, sim: q.sim || CONFIG.SIM_RESOLUTION }; };
 // the fixed touch colours (the website's palette entries)
 const TOUCH_COLORS = {
   indigo: { r: 53, g: 48, b: 160 },
@@ -22,30 +26,52 @@ const TOUCH_COLORS = {
   pink: { r: 222, g: 121, b: 255 },
 };
 
-// ---- tuning of how touches stir the liquid (units: canvas heights, simulation texels/s) ----
-const BURST_SPEED = 90;        // tangential speed of a vortex burst at Turbulence 1
-const BURST_DYE = 3;           // a burst splat's dye relative to the website's pointer colour
-const SWIRL_PERIOD = 0.6;      // s between the swirls of a held-still touch
-const STILL_AFTER = 0.15;      // s without movement before a touch counts as held still
+// ---- a hand on a wall is the website's pointer (Fluid Lab: updatePointerMoveData + splatPointer), with its values ----
+// The website splats once per pointer event (at most every 33 ms) at the pointer, with the move since the previous one
+// in units of its screen's width x SPLAT_FORCE, in the pointer's own colour (picked when it goes down, kept for the whole
+// stroke) x POINTER_INTENSITY, at the splat size it was tuned on. Here each wall is that screen: its height is the
+// screen's height and its width the 16:9 width of that height, so a hand on a wall stirs as a finger on the website.
+const POINTER_EVERY = 0.033;   // s between a pointer's splats (the website's mousemove cap)
 const BREATH_PERIOD = 9;       // s
 
 const P = Object.assign({}, vt.params);
 let fluid = null, logo = null, alive = true;
 let emitters = [];
 let clock = 0, logoAlpha = 0;
-let dirty = true, wantQuality = null;
+let dirty = true, wantQuality = null, needWarm = true;
 let logoCx = W / 2, logoCy = H / 2, logoWallW = W, logoWallH = H;
 const scratch = new Float32Array(3);
 const active = [];            // touches currently down (objects, created on 'down')
 const byId = new Map();
 
-const hooks = (window.__almaFluid = { ready: false });
+// reload() is a hook so that a test can see the page asking for it
+const hooks = (window.__almaFluid = {
+  ready: false, renderer: 'webgl2', gpu: null, reload: () => location.reload(),
+  get fluid() { return fluid; }, get emitterCount() { return emitters.length; },
+});
 
-const gl = canvas.getContext('webgl2', { alpha: false, depth: false, stencil: false, antialias: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
-if (!gl) {
-  document.body.textContent = 'WebGL2 is not available on this machine.';
-  throw new Error('WebGL2 is not available');
+// The renderer: WebGPU when asked for (or Automatic) and the machine has it, else WebGL2. A canvas keeps the kind of context it
+// first gets, so this is decided once per page; a change of the parameter reloads the page (like `wrap`).
+let gpu = null, gl = null;
+let gpuAvailable = false;
+if (P.renderer !== 'webgl2') {
+  gpu = await requestGpu(canvas);
+  gpuAvailable = !!gpu;
+  if (!gpu && P.renderer === 'webgpu') console.warn('Alma liquid: WebGPU is not available here, using WebGL2');
+} else {
+  gpuAvailable = await hasWebGPU();
 }
+if (!gpu) {
+  gl = canvas.getContext('webgl2', { alpha: false, depth: false, stencil: false, antialias: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
+  if (!gl) {
+    document.body.textContent = 'WebGL2 is not available on this machine.';
+    throw new Error('WebGL2 is not available');
+  }
+}
+const backend = gpu ? 'webgpu' : 'webgl2';
+hooks.renderer = backend;
+hooks.gpu = gpu;
+const wantBackend = () => (P.renderer === 'webgl2' ? 'webgl2' : gpuAvailable ? 'webgpu' : 'webgl2');
 
 // 360°: the strip is a loop when the room's walls close it (Automatic), or when the operator says so (On)
 const wrapOn = () => P.wrap === 'on' || (P.wrap !== 'off' && !!vt.closedLoop);
@@ -53,13 +79,17 @@ let builtWrap = false;
 
 function build() {
   builtWrap = wrapOn();
-  fluid = createFluid(gl, { width: W, height: H, wrapX: builtWrap, dyeShort: QUALITY[P.quality] || 512 });
-  logo = createLogo(gl, new URL('./assets/', import.meta.url).href);
+  const q = qualityOf(P.quality);
+  const opts = { width: W, height: H, wrapX: builtWrap, dyeShort: q.dye, simShort: q.sim };
+  fluid = gpu ? createFluidGPU(gpu, opts) : createFluidGL(gl, opts);
+  logo = (gpu ? createLogoGPU : createLogoGL)(gpu || gl, new URL('./assets/', import.meta.url).href);
   logo.ready.then(() => { hooks.ready = true; }, (e) => { console.warn('Alma liquid: logo not loaded', e); hooks.ready = true; });
   const img = new Image();
-  img.onload = () => { if (fluid && alive) fluid.setDither(img); };
+  const mine = fluid;
+  img.onload = () => { if (fluid === mine && alive) fluid.setDither(img); };
   img.src = new URL('./assets/LDR_LLL1_0.png', import.meta.url).href;
-  wantQuality = QUALITY[P.quality] || 512;
+  wantQuality = `${q.dye}/${q.sim}`;
+  needWarm = true;
 }
 
 // one splat function for the emitters (the fluid can be rebuilt, so look it up at call time)
@@ -78,10 +108,11 @@ function wallRect() {
 
 function applyParams() {
   dirty = false;
-  if (fluid && wrapOn() !== builtWrap) { location.reload(); return; } // the textures' wrap mode is set when they are made
-  const q = QUALITY[P.quality] || 512;
-  if (fluid && q !== wantQuality) { wantQuality = q; fluid.setQuality(q); }
-  emitters = buildEmitters(P.emitters, ASPECT, emitters);
+  if (fluid && (wrapOn() !== builtWrap || wantBackend() !== backend)) { hooks.reload(); return; } // wrap mode and context kind are set when they are made
+  const q = qualityOf(P.quality), key = `${q.dye}/${q.sim}`;
+  if (fluid && key !== wantQuality) { wantQuality = key; fluid.setQuality(q.dye, q.sim); }
+  // `emitters` is the count for one 16:9 screen (the website's density); a strip gets as many as its width holds
+  emitters = buildEmitters(emitterCount(P.emitters, ASPECT), ASPECT, emitters);
   const r = wallRect();
   logoCx = r.x + r.w / 2; logoCy = r.y + r.h / 2; logoWallW = r.w; logoWallH = r.h;
 }
@@ -94,89 +125,47 @@ function touchColor(t) {
   t.base = TOUCH_COLORS[P.touchColor] || null; // null = the whole palette
 }
 
+/** A hand goes down: the website's updatePointerDownData — no splat yet, and one colour for the whole stroke. */
 function startTouch(e) {
   let t = byId.get(e.id);
   if (!t) {
-    t = { id: e.id, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, size: 0, sigma: 0.06, dir: Math.random() < 0.5 ? -1 : 1,
-      burst: false, moved: false, lastMove: 0, lastSwirl: 0, lastSplat: 0, base: null };
+    t = { id: e.id, x: 0, y: 0, px: 0, py: 0, lastSplat: 0, base: null, color: [0, 0, 0] };
     byId.set(e.id, t);
     active.push(t);
   }
   t.x = t.px = e.x; t.y = t.py = e.y;
-  t.vx = t.vy = 0;
-  setSize(t, e.size);
-  t.lastMove = t.lastSwirl = t.lastSplat = clock;
+  t.lastSplat = clock;
   touchColor(t);
+  generateColor(t.color, t.base);
   return t;
-}
-function setSize(t, size) {
-  t.size = size || 0;
-  t.sigma = Math.min(0.2, Math.max(0.04, 0.05 + 0.5 * t.size / H));
 }
 
 vt.on('touch', (e) => {
-  if (e.type === 'down') {
-    const t = startTouch(e);
-    t.burst = true;
-  } else if (e.type === 'move') {
+  if (e.type === 'down') startTouch(e);
+  else if (e.type === 'move') {
     const t = byId.get(e.id) || startTouch(e);
-    t.x = e.x; t.y = e.y; t.vx = e.vx || 0; t.vy = e.vy || 0;
-    setSize(t, e.size);
-    t.moved = true;
-    t.lastMove = clock;
+    t.x = e.x; t.y = e.y;
   } else if (e.type === 'up') {
     const t = byId.get(e.id);
     if (t) { byId.delete(e.id); active.splice(active.indexOf(t), 1); }
   }
 });
 
-// a ring of small splats around the touch with tangential velocity: a vortex
-function ring(t, n, speed, dye, sigmaScale, radiusScale) {
-  const turb = P.turbulence;
-  const dyeGain = Math.min(1.5, 0.4 + 0.6 * turb) * dye;
-  const cx = t.x / W, cy = 1 - t.y / H;
-  const ringR = t.sigma * radiusScale;
-  const phase = Math.random() * Math.PI * 2;
-  const vel = speed * turb * t.dir;
-  for (let k = 0; k < n; k++) {
-    const a = phase + (k / n) * Math.PI * 2;
-    const c = Math.cos(a), s = Math.sin(a);
-    generateColor(scratch, t.base);
-    fluid.splat(cx + c * ringR / ASPECT, cy + s * ringR, -s * vel, c * vel,
-      scratch[0] * dyeGain, scratch[1] * dyeGain, scratch[2] * dyeGain, t.sigma * sigmaScale);
-  }
-}
-
-function stir(t, dt) {
-  const turb = P.turbulence;
-  if (t.burst) { t.burst = false; ring(t, 9, BURST_SPEED, BURST_DYE, 0.55, 1.0); t.lastSplat = clock; }
-  if (t.moved) {
-    t.moved = false;
-    // 360°: crossing the seam (last wall → first) is a short step, not a stroke across the whole strip
-    let ddx = t.x - t.px;
-    if (builtWrap) { if (ddx > W / 2) ddx -= W; else if (ddx < -W / 2) ddx += W; }
-    const dist = Math.hypot(ddx, t.y - t.py) / H; // canvas heights
-    const n = Math.max(1, Math.min(8, Math.ceil(dist / (t.sigma * 0.7))));
-    const span = Math.min(0.05, Math.max(dt, clock - t.lastSplat));
-    let vx = t.vx, vy = t.vy;
-    if (vx === 0 && vy === 0) { vx = ddx / span; vy = (t.y - t.py) / span; }
-    // the website: pointer delta (canvas heights per frame) x SPLAT_FORCE
-    const k = (span * CONFIG.SPLAT_FORCE * turb) / (H * n);
-    const dx = Math.max(-400, Math.min(400, vx * k)), dy = Math.max(-400, Math.min(400, -vy * k));
-    const dyeGain = Math.min(1.5, 0.4 + 0.6 * turb) * CONFIG.POINTER_INTENSITY / n;
-    for (let i = 1; i <= n; i++) {
-      const f = i / n;
-      let x = (t.px + ddx * f) / W;
-      if (builtWrap) x -= Math.floor(x); // back into [0, 1) on the other side of the seam
-      const y = 1 - (t.py + (t.y - t.py) * f) / H;
-      generateColor(scratch, t.base);
-      fluid.splat(x, y, dx, dy, scratch[0] * dyeGain, scratch[1] * dyeGain, scratch[2] * dyeGain, t.sigma);
-    }
-    t.px = t.x; t.py = t.y; t.lastSplat = clock;
-  } else if (clock - t.lastMove > STILL_AFTER && clock - t.lastSwirl > SWIRL_PERIOD && turb > 0) {
-    t.lastSwirl = clock;
-    ring(t, 4, BURST_SPEED * 0.3, BURST_DYE * 0.5, 0.5, 0.6); // held still: a gentle swirl
-  }
+/** The website's splatPointer, at most every 33 ms per hand: the move since its last splat, at the hand. */
+function stir(t) {
+  if (clock - t.lastSplat < POINTER_EVERY) return;
+  // 360°: crossing the seam (last wall → first) is a short step, not a stroke across the whole strip
+  let ddx = t.x - t.px;
+  if (builtWrap) { if (ddx > W / 2) ddx -= W; else if (ddx < -W / 2) ddx += W; }
+  const ddy = t.y - t.py;
+  if (ddx === 0 && ddy === 0) return; // the website only splats when the pointer moved
+  const screenW = H * CONFIG.REF_ASPECT; // the wall as the website's screen
+  const k = (CONFIG.SPLAT_FORCE * (P.turbulence == null ? 1 : P.turbulence)) / screenW;
+  let x = t.x / W;
+  if (builtWrap) x -= Math.floor(x);
+  const c = CONFIG.POINTER_INTENSITY;
+  fluid.splat(x, 1 - t.y / H, ddx * k, -ddy * k, t.color[0] * c, t.color[1] * c, t.color[2] * c, EMITTER_SIGMA);
+  t.px = t.x; t.py = t.y; t.lastSplat = clock;
 }
 
 // the runtime is the truth about what is down: drop a touch whose 'up' got lost, pick up one whose 'down' did
@@ -189,20 +178,38 @@ function reconcile() {
     if (!found) { byId.delete(active[i].id); active.splice(i, 1); }
   }
   for (let j = 0; j < list.length; j++) {
-    if (!byId.has(list[j].id)) { const t = startTouch(list[j]); t.burst = true; }
+    if (!byId.has(list[j].id)) startTouch(list[j]);
   }
 }
 
 /* ---------------------------------------------------------------- the frame */
+
+// the ambient wash the emitters keep up, as set by the operator
+const look = { ambience: 1, size: 1 };
+
+// The piece must never open on an empty room: run a few seconds of the emitters before the first picture
+function warmUp() {
+  needWarm = false;
+  if (!emitters.length || P.ambience <= 0) return;
+  const step = 1 / 20;
+  for (let i = 0; i < 60; i++) { // 3 s
+    clock += step;
+    updateAutoEmitters(emitters, step, clock, P.emitterSpeed, ASPECT, builtWrap, emit, look);
+    fluid.step(step, P.fade, CONFIG.VELOCITY_DISSIPATION);
+  }
+}
 
 function frame(dtRaw) {
   if (!alive || !fluid) return;
   const dt = Math.min(Math.max(dtRaw, 0), 1 / 30);
   clock += dt;
   if (dirty) applyParams();
+  look.ambience = P.ambience == null ? 1 : P.ambience;
+  look.size = P.emitterSize == null ? 1 : P.emitterSize;
+  if (needWarm) warmUp();
 
-  updateAutoEmitters(emitters, dt, clock, P.emitterSpeed, ASPECT, builtWrap, emit);
-  for (let i = 0; i < active.length; i++) stir(active[i], dt);
+  updateAutoEmitters(emitters, dt, clock, P.emitterSpeed, ASPECT, builtWrap, emit, look);
+  for (let i = 0; i < active.length; i++) stir(active[i]);
   if ((reconcileIn -= dt) <= 0) { reconcileIn = 0.5; reconcile(); }
 
   fluid.step(dt, P.fade, CONFIG.VELOCITY_DISSIPATION);
@@ -229,6 +236,30 @@ canvas.addEventListener('webglcontextrestored', () => {
   alive = true;
 });
 
+// A lost WebGPU device (driver reset, GPU removed): ask for a new one and rebuild; if none comes, reload the page
+function watchDevice() {
+  const device = gpu.device;
+  device.lost.then(async () => {
+    if (device !== gpu.device) return;
+    alive = false; fluid = null; logo = null;
+    for (let k = 0; k < 5; k++) {
+      const next = await requestGpu(canvas);
+      if (next) {
+        gpu = next; hooks.gpu = next;
+        build();
+        applyParams();
+        logoAlpha = 0;
+        alive = true;
+        watchDevice();
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 500 * (k + 1)));
+    }
+    hooks.reload();
+  });
+}
+if (gpu) watchDevice();
+
 build();
 applyParams();
-vt.loop(frame, gl);
+vt.loop(frame, gpu ? canvas : gl); // the runtime takes either: a WebGL context or the (WebGPU) canvas

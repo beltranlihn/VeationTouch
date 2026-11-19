@@ -394,3 +394,16 @@ kbd{font:500 11px/1 Geist, system-ui;color:var(--ink);background:var(--s2);borde
 .xp-status .live{color:var(--live);font-weight:600;}
 .xp-set,.xp-params{display:flex;flex-direction:column;gap:var(--sp-4);padding-top:var(--sp-8);border-top:.5px solid var(--line-soft);}
 .xp-set p,.xp-params p{margin:0;}
+/* the room output: its layer stack (top of the list = top layer) */
+.xp-layers{display:flex;flex-direction:column;gap:var(--sp-6);padding-top:var(--sp-8);border-top:.5px solid var(--line-soft);}
+.xp-layers>h3{margin:0;font-size:var(--fs-s);font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);}
+.xp-layers>h3 small{margin-left:var(--sp-8);font-weight:400;text-transform:none;letter-spacing:0;}
+.xp-layers.suspended .xp-layer{opacity:.5;}
+.xp-layer{display:flex;flex-direction:column;gap:var(--sp-4);padding:var(--sp-6) var(--sp-8);border-radius:var(--r);background:var(--s0);border:.5px solid var(--line-soft);}
+.xp-layer.on{border-color:var(--line);}
+.xp-mv{display:inline-flex;gap:var(--sp-4);margin-right:var(--sp-8);}
+.xp-mv .ibtn{width:var(--ctl-h);padding:0;}
+.xp-mv .ibtn:disabled{opacity:.35;cursor:default;}
+.xp-fold>summary{cursor:pointer;color:var(--ink-3);font-size:var(--fs-s);padding:var(--sp-4) 0;}
+.xp-fold-body{display:flex;flex-direction:column;gap:var(--sp-4);padding-top:var(--sp-4);}
+.xp-calib>.muted{margin-top:var(--sp-4);}

@@ -4,3 +4,4 @@ dist/
 *.log
 *.tmp
 .wrangler/
+native/spout-send/src/build/

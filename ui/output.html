@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VEATION Touch — Output</title>
+<style>
+  @font-face{font-family:'Geist';font-weight:500;src:url('fonts/geist-500.woff2') format('woff2');}
+  @font-face{font-family:'Geist';font-weight:600;src:url('fonts/geist-600.woff2') format('woff2');}
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none;}
+  /* The room's image: the layers stacked on black, 1:1 with the render size (output.js sizes them). Blend modes act
+     inside it (isolation), never against the page behind. */
+  #stage{position:absolute;left:0;top:0;background:#000;isolation:isolate;overflow:hidden;transform-origin:0 0;}
+  .layer{position:absolute;left:0;top:0;display:block;border:0;background:transparent;}
+</style>
+<script src="js/boot-guard.js"></script>
+</head>
+<body>
+<div id="stage"></div>
+<script type="module" src="js/output.js"></script>
+</body>
+</html>
