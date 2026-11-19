@@ -182,7 +182,7 @@ export class CornerLinker {
       g.corner = null; g.est = null; g.uS = null; g.side = null; g.fresh = members.some((m) => m.seenMs <= P.freshMs);
       if (!members.length) return null;
       const m = members.reduce((a, b) => (a.seenMs <= b.seenMs ? a : b));
-      return { ...base, wallId: m.wallId, x: m.x, y: m.y, vx: m.vx, vy: m.vy, size: m.size, coasting: m.coasting };
+      return { ...base, wallId: m.wallId, x: m.x, y: m.y, vx: m.vx, vy: m.vy, size: m.size, coasting: m.coasting, rx: m.rx, ry: m.ry, seenAt: m.seenAt };
     }
     if (!g.corner || g.corner.left !== corner.left || g.corner.right !== corner.right) { g.uS = null; g.side = null; }
     g.corner = corner;
@@ -226,6 +226,9 @@ export class CornerLinker {
     const wallId = onLeft ? corner.left : corner.right;
     const wl = this.widths.get(corner.left);
     const x = onLeft ? Math.min(wl, wl + g.uS) : Math.max(0, g.uS);
-    return { ...base, wallId, x, y: est.y, vx: est.vu, vy: est.vy, size: est.size || 0.08, coasting: !fresh };
+    // rx, ry, seenAt: the freshest real reading (corner-smoothed position without the trackers' lead is not defined here)
+    const fm = members.length ? members.reduce((a, b) => (a.seenMs <= b.seenMs ? a : b)) : null;
+    return { ...base, wallId, x, y: est.y, vx: est.vu, vy: est.vy, size: est.size || 0.08, coasting: !fresh,
+      rx: fm ? fm.rx : x, ry: fm ? fm.ry : est.y, seenAt: fm ? fm.seenAt : g.est.t };
   }
 }

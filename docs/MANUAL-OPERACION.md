@@ -436,9 +436,14 @@ con el emisor «VEATION Touch».
 
 Piezas interactivas que corren dentro de VEATION Touch y salen directo a la sala: no hace falta otro programa
 que reciba los toques. La primera es **Alma liquid**, el líquido de la web de Alma Digital: corre en la GPU (WebGPU, con
-WebGL2 de respaldo) sobre toda la tira de muros, con los valores de la web. Las manchas de fondo están siempre vivas y una
-mano que se mueve por el muro pinta y empuja el líquido como el ratón en la web; una mano quieta no pinta. El logo
-flota en el muro elegido.
+WebGL2 de respaldo) sobre toda la tira de muros, con los valores de la web. Las manchas de fondo están siempre vivas. El
+logo flota en el muro elegido. La mano:
+- Al moverse por el muro, pinta y empuja el líquido como el ratón en la web, con más color (**Touch intensity**).
+- Al apoyarse quieta deja una mancha suave y va respirando color (**Touch presence**; 0 = como en la web).
+- **Sigue a la mano con unos 0,15 s de retraso, a propósito.** Los sensores leen la mano sólo unas 10 veces por
+  segundo, así que el trazo se dibuja sobre una curva suave entre lecturas reales, sin tirones.
+- Si el sensor pierde una lectura o el seguimiento cambia de identificador, sigue siendo el mismo trazo: no salta,
+  no cambia de color y no deja otra mancha.
 
 **Salida de la sala (Experiences › Output — VEATION Touch).**
 - La app envía **una sola imagen**: la fuente Spout **«VEATION Touch»**, que toma Resolume.

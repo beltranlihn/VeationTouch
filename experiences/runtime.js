@@ -8,9 +8,12 @@
 // every frame to its destination: Spout (the desktop app's hidden window bridges to the native sender as window.vtOut),
 // the full-screen window (the canvas is shown as it is), a preview for the app, and a report of fps and errors.
 // Opened as a file, or without an engine, the same page runs standalone (pointer touches, default parameters).
+// Hands: vt.hands() (every frame) gives the hands as strokes — played back HAND_DELAY_MS late on a smooth curve through the
+// tracker's real readings, a hand the tracker splits staying one stroke — and the 'touch' events (down / move / up, `id` = the
+// stroke) and vt.touches() follow the same playback. See makeHands below.
 // Contract: ARCHITECTURE.md › Experiences. Nothing here is specific to any one experience or room.
 
-const q = new URLSearchParams(location.search);
+const q = new URLSearchParams(typeof location === 'undefined' ? '' : location.search); // (also importable from Node: tests of makeHands)
 const KEY_PREVIEW_MS = 1000, REPORT_MS = 2000, PREVIEW_MAX_W = 640;
 // Viewer mode (?run=1&view=1): the app's own window hosts the page in a hidden iframe to show the piece on the walls of its
 // views. A second instance that is only looked at: no Spout, no preview, no report, a small render, frames posted to the parent.
@@ -60,6 +63,7 @@ function makeHandle(base) {
     emit(type, e) { for (const fn of listeners[type] || []) { try { fn(e); } catch (err) { console.error(err); } } },
     toPx: () => [0, 0],
     touches: () => [],
+    hands: () => [],
     loop: (fn, src) => runLoop(vt, fn, src),
     frame: (src) => frameOut(vt, src),
     ...base,
@@ -83,8 +87,8 @@ function runLoop(vt, fn, gl) {
     if (fromRaf === true) timerSteps = 0; else if (document.visibilityState === 'visible') timerSteps++; // rAF that never fires (a window nobody sees)
     if (fromRaf === true && now - last < every - 2) { schedule(); return; } // a display faster than the target rate
     const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
-    last = now;
-    try { fn(dt); if (gl) vt.frame(gl); } catch (e) { vt._out.pageError = String(e?.message || e).slice(0, 200); console.error(e); }
+    last = now; // (vt._tick below: the hands move on and their events go out even if the page never asks for them)
+    try { vt._tick?.(); fn(dt); if (gl) vt.frame(gl); } catch (e) { vt._out.pageError = String(e?.message || e).slice(0, 200); console.error(e); }
     schedule();
   };
   const schedule = () => {
@@ -173,41 +177,177 @@ function preview(vt, gl) {
   }, 'image/jpeg', 0.6);
 }
 
-/** Touch bookkeeping shared by both modes: ids seen → down / move / up events with a smoothed velocity in px/s. */
-function makeTracker(vt) {
-  const live = new Map(); // id → { wallId, x, y, vx, vy, size, t }
-  return {
-    list: () => [...live.entries()].map(([id, p]) => ({ id, wallId: p.wallId, x: p.x, y: p.y, size: p.size })),
-    /** `seen`: [{ id, wallId, x, y, size }] in render px, at time `t` (ms). */
-    update(seen, t) {
-      const now = new Set();
-      for (const s of seen) {
-        now.add(s.id);
-        const p = live.get(s.id);
-        if (!p) {
-          live.set(s.id, { wallId: s.wallId, x: s.x, y: s.y, vx: 0, vy: 0, size: s.size, t });
-          vt.emit('touch', { type: 'down', id: s.id, wallId: s.wallId, x: s.x, y: s.y, vx: 0, vy: 0, size: s.size });
-          continue;
+// ---------------------------------------------------------------------------------------------- hands
+// The sensors read a hand ~10 times a second, and the tracker may open a new id for the same hand when a revolution is
+// missed. A page that drew the raw readings (or extrapolated them) would jerk at the sensor's rhythm and treat every new id as
+// a landing. So the runtime plays the hands BACK, a little late, on a smooth curve through the REAL readings:
+//   - HAND_DELAY_MS: a hand is drawn this far behind its newest reading, so the next reading is (nearly always) already
+//     here when it is needed — the curve is interpolated, never extrapolated;
+//   - a new tracker id that appears where a hand just ended is the same STROKE (a stable id the page keys on).
+export const HAND_DELAY_MS = 150;   // ~1 sensor revolution (100 ms, up to 120) + the 30 Hz batching of the live feed (≤ 33 ms): the next reading is in by then
+export const STITCH_MS = 300;       // a hand that reappears within this much (readings' time)…
+export const STITCH_M = 0.3;        // …and this far (metres on the wall) of where one ended is the same stroke
+const STITCH_GRACE_MS = 60;         // a stroke ends this long after the stitch window, so that a reading in the window has arrived
+const MIN_STALE_MS = 40;            // an id still alive (coasting) is only taken over by a new one if its last reading is this much older
+const HOLD_MS = 20;                 // the playback slows down over this much before the newest reading: it holds there, smoothly
+const CATCHUP_MS = 500, RATE_MIN = 0.5, RATE_MAX = 1.4; // playback speed steers back to the delay: 1 + lag / CATCHUP_MS
+const RESYNC_MS = 600;              // behind by more than this (a stalled page): jump instead of racing
+const MOVE_EPS = 0.05;              // px: under this a hand has not moved
+
+/**
+ * Hands = strokes played back from the tracker's readings.
+ * - ingest(seen, t): the tracker's touches at engine time t (ms). seen: [{ id, wallId, x, y, size, t, pxPerM }] — the REAL
+ *   reading of each (render px) and the engine time `t` it was taken; pxPerM sizes the stitch distance.
+ * - tick(): moves the playback to now, emits the down / move / up events of the strokes.
+ * - hands() / touches(): the strokes as they are drawn now.
+ * `direct`: pointer devices (standalone) — no delay, no stitching: the hand is where the pointer is.
+ */
+export function makeHands(vt, opt = {}) {
+  const direct = !!opt.direct, delay = direct ? 0 : (opt.delay ?? HAND_DELAY_MS);
+  const clock = opt.now || (() => performance.now());
+  const strokes = [];            // in order of appearance
+  const byTracker = new Map();   // tracker id → stroke
+  let nextId = 1, off = direct ? 0 : null, lastNow = null;
+
+  const width = () => vt.size.width;
+  const wraps = () => !!vt.closedLoop && width() > 0;
+  /** The short way round a closed room: a difference of x in (−W/2, W/2]. */
+  const near = (d) => (wraps() ? d - Math.round(d / width()) * width() : d);
+  const wrapX = (x) => (wraps() ? x - Math.floor(x / width()) * width() : x);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+  function push(S, r) {
+    const last = S.pts[S.pts.length - 1];
+    if (last && !(r.t > last.t)) {
+      if (!direct) return false;
+      last.x = r.x; last.y = r.y; last.size = r.size; last.wallId = r.wallId; // pointers: two events in one ms, the later one wins
+      return true;
+    }
+    if (direct && last) { // the speed between the two readings, lightly smoothed
+      const dts = (r.t - last.t) / 1000;
+      S.dvx = 0.4 * S.dvx + 0.6 * (near(r.x - last.x) / dts); S.dvy = 0.4 * S.dvy + 0.6 * ((r.y - last.y) / dts); S.fresh = true;
+    }
+    S.pts.push({ t: r.t, x: last ? last.x + near(r.x - last.x) : r.x, y: r.y, wallId: r.wallId, size: r.size });
+    return true;
+  }
+
+  /** The stroke a new tracker id continues, if it does: one that just ended (or an id gone stale) within STITCH_MS and STITCH_M. */
+  function candidate(r) {
+    let best = null, bestD = Infinity;
+    for (const S of strokes) {
+      const last = S.pts[S.pts.length - 1], gap = r.t - last.t;
+      if (gap > STITCH_MS || gap < (S.trackers.size ? MIN_STALE_MS : -30)) continue;
+      const d = Math.hypot(near(r.x - last.x), r.y - last.y), lim = STITCH_M * (r.pxPerM || 0);
+      if (d <= lim && d < bestD) { best = S; bestD = d; }
+    }
+    return best;
+  }
+
+  function ingest(seen, tEng) {
+    const pageNow = clock();
+    if (!direct) {
+      const sample = pageNow - tEng;
+      if (off == null || Math.abs(sample - off) > 5000) off = sample; // the first message (or another engine clock)
+      else { const d = sample - off; off += d < 0 ? Math.max(d, -3) : Math.min(d * 0.02, 0.5); } // follows the quickest messages, drifts up slowly
+    }
+    const here = new Set();
+    for (const s of seen) here.add(s.id);
+    for (const S of strokes) for (const id of [...S.trackers]) if (!here.has(id)) { S.trackers.delete(id); byTracker.delete(id); }
+    for (const s of seen) {
+      let S = byTracker.get(s.id);
+      if (!S && !direct) { S = candidate(s); if (S) { S.trackers.add(s.id); byTracker.set(s.id, S); S.stitched++; } }
+      if (!S) {
+        S = { id: direct ? s.id : nextId++, pts: [], trackers: new Set([s.id]), started: false, tr: 0, rate: 1, stitched: 0, dvx: 0, dvy: 0, fresh: false, wallId: s.wallId, x: s.x, y: s.y, vx: 0, vy: 0, size: s.size, ex: 0, ey: 0, ewall: null };
+        strokes.push(S); byTracker.set(s.id, S);
+      }
+      push(S, s);
+      S.size = s.size;
+    }
+    tick();
+  }
+
+  /** The curve at engine time `tr`: cubic Hermite through the readings, tangents from the neighbours (C1). x, y in px, v in px / ms. */
+  function pose(S, tr) {
+    const P = S.pts, n = P.length, last = P[n - 1];
+    if (n === 1 || tr <= P[0].t) return { x: P[0].x, y: P[0].y, vx: 0, vy: 0, size: P[0].size, wallId: P[0].wallId };
+    if (tr >= last.t) return { x: last.x, y: last.y, vx: 0, vy: 0, size: last.size, wallId: last.wallId };
+    let i = 0;
+    while (P[i + 1].t < tr) i++;
+    const a = P[i], b = P[i + 1], h = b.t - a.t, s = (tr - a.t) / h;
+    const tan = (k, axis) => {
+      const lo = P[Math.max(0, k - 1)], hi = P[Math.min(n - 1, k + 1)];
+      return (hi[axis] - lo[axis]) / (hi.t - lo.t);
+    };
+    const s2 = s * s, s3 = s2 * s;
+    const h00 = 2 * s3 - 3 * s2 + 1, h10 = s3 - 2 * s2 + s, h01 = -2 * s3 + 3 * s2, h11 = s3 - s2;
+    const d00 = 6 * s2 - 6 * s, d10 = 3 * s2 - 4 * s + 1, d01 = -6 * s2 + 6 * s, d11 = 3 * s2 - 2 * s;
+    const out = { size: a.size + (b.size - a.size) * s, wallId: s < 0.5 ? a.wallId : b.wallId };
+    for (const axis of ['x', 'y']) {
+      const m0 = tan(i, axis), m1 = tan(i + 1, axis);
+      out[axis] = h00 * a[axis] + h10 * h * m0 + h01 * b[axis] + h11 * h * m1;
+      out[`v${axis}`] = (d00 * a[axis] + d10 * h * m0 + d01 * b[axis] + d11 * h * m1) / h;
+    }
+    return out;
+  }
+
+  function emit(type, S) {
+    vt.emit('touch', { type, id: S.id, stroke: S.id, trackerId: [...S.trackers][0] ?? null, wallId: S.wallId, x: S.x, y: S.y, vx: type === 'move' ? S.vx : 0, vy: type === 'move' ? S.vy : 0, size: S.size });
+  }
+
+  function tick() {
+    const pageNow = clock();
+    if (off == null) return;
+    const dt = lastNow == null ? 0 : clamp(pageNow - lastNow, 0, 100);
+    if (lastNow == null || pageNow > lastNow) lastNow = pageNow;
+    const engNow = pageNow - off, ideal = engNow - delay;
+    for (const S of strokes) {
+      const cap = S.pts[S.pts.length - 1].t;
+      if (!S.started) {
+        if (!direct && ideal < S.pts[0].t) continue; // still on its way: it is drawn from its first reading on
+        S.started = true; S.tr = S.pts[0].t;
+        const p0 = pose(S, S.tr);
+        Object.assign(S, { x: wrapX(p0.x), y: p0.y, size: p0.size, wallId: p0.wallId, vx: 0, vy: 0, ex: wrapX(p0.x), ey: p0.y, ewall: p0.wallId });
+        emit('down', S); // where its first reading was; the playback goes on from there
+      }
+      if (direct) { S.tr = cap; S.rate = 1; }
+      else {
+        const lag = ideal - S.tr;
+        if (lag > RESYNC_MS) { S.tr = Math.min(cap, ideal); S.rate = 1; }
+        else {
+          const rate = clamp(1 + lag / CATCHUP_MS, RATE_MIN, RATE_MAX), room = cap - S.tr;
+          S.rate = rate * Math.min(1, room / HOLD_MS); // slows down towards the newest reading: it holds there, no extrapolation
+          S.tr = Math.min(cap, S.tr + dt * S.rate);
         }
-        const dt = t - p.t;
-        // a room that closes the loop: a hand going from the last wall to the first (one corner in the room) jumps
-        // from one end of the strip to the other — the motion is the short way round, not across the whole strip
-        let dx = s.x - p.x;
-        const Wr = vt.size.width;
-        if (vt.closedLoop && Wr > 0) { if (dx > Wr / 2) dx -= Wr; else if (dx < -Wr / 2) dx += Wr; }
-        const moved = Math.hypot(dx, s.y - p.y) > 0.05 || s.wallId !== p.wallId;
-        if (dt > 0 && moved) {
-          p.vx = 0.4 * p.vx + 0.6 * (dx / dt) * 1000; p.vy = 0.4 * p.vy + 0.6 * ((s.y - p.y) / dt) * 1000;
-        } else if (dt > 0) { p.vx *= 0.5; p.vy *= 0.5; }
-        Object.assign(p, { wallId: s.wallId, x: s.x, y: s.y, size: s.size, t: dt > 0 ? t : p.t });
-        if (moved) vt.emit('touch', { type: 'move', id: s.id, wallId: p.wallId, x: p.x, y: p.y, vx: p.vx, vy: p.vy, size: p.size });
       }
-      for (const [id, p] of [...live]) {
-        if (now.has(id)) continue;
-        live.delete(id);
-        vt.emit('touch', { type: 'up', id, wallId: p.wallId, x: p.x, y: p.y, vx: 0, vy: 0, size: p.size });
-      }
-    },
+      const p = pose(S, S.tr);
+      S.x = wrapX(p.x); S.y = p.y; S.size = p.size; S.wallId = p.wallId;
+      if (direct) { if (S.fresh) S.fresh = false; else { S.dvx *= 0.5; S.dvy *= 0.5; } S.vx = S.dvx; S.vy = S.dvy; }
+      else { S.vx = p.vx * 1000 * S.rate; S.vy = p.vy * 1000 * S.rate; } // px / s of page time, from the curve
+      if (Math.hypot(near(S.x - S.ex), S.y - S.ey) > MOVE_EPS || S.wallId !== S.ewall) { S.ex = S.x; S.ey = S.y; S.ewall = S.wallId; emit('move', S); }
+      // trim the readings the playback has passed (one before the current segment stays: it gives the tangent)
+      while (S.pts.length > 3 && S.pts[2].t <= S.tr) S.pts.shift();
+    }
+    for (let k = strokes.length - 1; k >= 0; k--) {
+      const S = strokes[k];
+      if (S.trackers.size) continue;
+      const last = S.pts[S.pts.length - 1];
+      if (!direct && engNow < last.t + STITCH_MS + STITCH_GRACE_MS) continue; // it may yet come back under another id
+      if (!S.started) { strokes.splice(k, 1); continue; }
+      const p = pose(S, last.t);
+      S.x = wrapX(p.x); S.y = p.y; S.vx = S.vy = 0;
+      if (Math.hypot(near(S.x - S.ex), S.y - S.ey) > MOVE_EPS) emit('move', S);
+      emit('up', S);
+      strokes.splice(k, 1);
+    }
+  }
+
+  const view = (S) => ({ id: S.id, stroke: S.id, trackerId: [...S.trackers][0] ?? null, wallId: S.wallId, x: S.x, y: S.y, vx: S.vx, vy: S.vy, size: S.size, ended: S.trackers.size === 0 });
+  return {
+    ingest, tick,
+    hands: () => { tick(); return strokes.filter((S) => S.started).map(view); },
+    touches: () => { tick(); return strokes.filter((S) => S.started).map((S) => ({ id: S.id, stroke: S.id, wallId: S.wallId, x: S.x, y: S.y, size: S.size })); },
+    /** Engine time → page time offset (test and debugging). */
+    get offset() { return off; },
   };
 }
 
@@ -232,7 +372,7 @@ async function connectEngine(id, run, viewer = false, layer = false) {
 
   const vt = makeHandle({});
   vt.id = id;
-  const tracker = makeTracker(vt);
+  const hands = makeHands(vt);
   const wallOf = (wallId) => store.state.profile.walls.find((w) => w.id === wallId);
 
   const scaleOf = (x) => (viewer ? Math.min(x.scale, VIEW_SCALE_MAX) : x.scale); // a viewer stays cheap next to the real instance
@@ -278,17 +418,24 @@ async function connectEngine(id, run, viewer = false, layer = false) {
     const [x, y] = geo.wallUvToCanvas(w, xm / w.width, 1 - ym / w.height);
     return [x * vt.scale, y * vt.scale];
   };
-  vt.touches = tracker.list;
+  vt.touches = hands.touches; vt.hands = hands.hands; vt._tick = hands.tick;
 
+  // A touch in the live feed: [id, x, y, size, coasting, rx, ry, seenAt] — x, y are the tracker's (extrapolated up to 60 ms),
+  // rx, ry the filtered position at its last REAL reading and seenAt the engine time (ms, the clock of L.t) of that reading.
+  // The hands are played back from the real readings; an engine without the last three gives every message as a reading.
   const onLive = (L) => {
     const seen = [];
     for (const [wallId, list] of Object.entries(L.walls || {})) {
       const w = wallOf(wallId);
       if (!w) continue;
       const pxPerM = (w.pixelRect.w * vt.scale) / w.width;
-      for (const t of list) { const [x, y] = vt.toPx(wallId, t[1], t[2]); seen.push({ id: t[0], wallId, x, y, size: t[3] * pxPerM }); }
+      for (const t of list) {
+        const real = t.length >= 8 && Number.isFinite(t[5]) && Number.isFinite(t[6]) && Number.isFinite(t[7]);
+        const [x, y] = vt.toPx(wallId, real ? t[5] : t[1], real ? t[6] : t[2]);
+        seen.push({ id: t[0], wallId, x, y, size: t[3] * pxPerM, t: real ? t[7] : L.t, pxPerM });
+      }
     }
-    tracker.update(seen, L.t);
+    hands.ingest(seen, L.t);
   };
   on('live', onLive);
   on('state', refresh);
@@ -341,7 +488,7 @@ async function connectStandalone(id) {
   const dpr = devicePixelRatio || 1;
   const vt = makeHandle({ standalone: true });
   vt.id = id;
-  const tracker = makeTracker(vt);
+  const hands = makeHands(vt, { direct: true }); // a pointer is where it is: no delay, no stitching
   const WALL = 'W1', PX_PER_M = 500; // one wall covering the whole canvas, 500 px per metre
   const fit = () => {
     const w = Math.max(1, Math.round(innerWidth * dpr)), h = Math.max(1, Math.round(innerHeight * dpr));
@@ -356,15 +503,15 @@ async function connectStandalone(id) {
     for (const p of m?.params || []) if (p && p.key && 'default' in p) vt.params[p.key] = p.default;
   } catch { /* no manifest: no parameters */ }
   vt.toPx = (_wallId, xm, ym) => [xm * PX_PER_M, vt.canvas.height - ym * PX_PER_M];
-  vt.touches = tracker.list;
+  vt.touches = hands.touches; vt.hands = hands.hands; vt._tick = hands.tick;
   addEventListener('resize', () => { fit(); vt.emit('resize', vt.size); });
 
   const down = new Set();
-  const at = (e) => ({ id: e.pointerId, wallId: WALL, x: e.clientX * dpr, y: e.clientY * dpr, size: 24 * dpr });
-  const current = (e) => [...down].map((pid) => (pid === e.pointerId ? at(e) : { ...(tracker.list().find((t) => t.id === pid) || { id: pid, wallId: WALL, x: 0, y: 0, size: 24 * dpr }) }));
-  addEventListener('pointerdown', (e) => { down.add(e.pointerId); tracker.update(current(e), e.timeStamp); });
-  addEventListener('pointermove', (e) => { if (down.has(e.pointerId)) tracker.update(current(e), e.timeStamp); });
-  const up = (e) => { if (!down.delete(e.pointerId)) return; tracker.update(current(e), e.timeStamp); };
+  const at = (e) => ({ id: e.pointerId, wallId: WALL, x: e.clientX * dpr, y: e.clientY * dpr, size: 24 * dpr, t: e.timeStamp, pxPerM: PX_PER_M });
+  const current = (e) => [...down].map((pid) => (pid === e.pointerId ? at(e) : { ...(hands.touches().find((t) => t.id === pid) || { id: pid, wallId: WALL, x: 0, y: 0, size: 24 * dpr }), t: e.timeStamp, pxPerM: PX_PER_M }));
+  addEventListener('pointerdown', (e) => { down.add(e.pointerId); hands.ingest(current(e), e.timeStamp); });
+  addEventListener('pointermove', (e) => { if (down.has(e.pointerId)) hands.ingest(current(e), e.timeStamp); });
+  const up = (e) => { if (!down.delete(e.pointerId)) return; hands.ingest(current(e), e.timeStamp); };
   addEventListener('pointerup', up); addEventListener('pointercancel', up);
   return vt;
 }

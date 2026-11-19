@@ -553,3 +553,157 @@ gpuTest('runtime: vt.frame accepts a WebGPU canvas — the CPU Spout path sends 
   assert.ok(g.first[2] > 200 && g.first[0] < 50, `...and start with the bottom row (blue): ${g.first}`);
   assert.deepEqual(r.bitmap, [64, 32], 'createImageBitmap takes the canvas');
 });
+
+/* ------------------------------------------------------------------ a hand through the REAL runtime (live messages in, splats out) */
+// The real experiences/runtime.js and the real page, with a fake clock: the page's performance.now and requestAnimationFrame
+// are replaced (injected before the page's scripts) so that 60 fps frames and 30 Hz live messages are exactly reproducible. Only
+// the connection is a stand-in (/js/conn.js hands the room's profile and passes on the live messages the test makes up). The hand
+// is read at ~10 Hz like a sensor (80-120 ms apart, a few mm of noise), moves at 1 m/s, misses ONE revolution in the middle, and
+// the tracker opens a NEW id after the gap - what was measured at XR Lab. `VT_EXPERIENCES_ROOT` points the page at another copy
+// of experiences/ (to run this very test against an older version).
+const E2E_ROOT = process.env.VT_EXPERIENCES_ROOT || path.join(root, 'experiences');
+
+const FAKE_CLOCK = `<script>(() => {
+  window.__now = 1000;
+  performance.now = () => window.__now;
+  const cbs = new Map(); let nid = 0;
+  window.requestAnimationFrame = (f) => { cbs.set(++nid, f); return nid; };
+  window.cancelAnimationFrame = (i) => { cbs.delete(i); };
+  window.__runFrame = () => { const l = [...cbs.values()]; cbs.clear(); for (const f of l) f(window.__now); };
+  Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
+})();</script>`;
+
+async function inRoom(script, params = {}) {
+  const { normalizeProfile } = await import('../engine/profile.js');
+  const prof = normalizeProfile(JSON.parse(fs.readFileSync(path.join(root, 'profiles', 'xrlab-sim.json'), 'utf8')));
+  prof.output.scale = 0.2; prof.output.fps = 60;
+  const manifest = JSON.parse(fs.readFileSync(path.join(E2E_ROOT, 'alma-fluid', 'manifest.json'), 'utf8'));
+  prof.experience.params['alma-fluid'] = { emitters: 0, logo: false, quality: 'low', renderer: 'webgl2', ...params };
+  const conn = `const h = {};
+    export const store = { state: { profile: ${JSON.stringify(prof)}, experiences: [${JSON.stringify(manifest)}] } };
+    export const on = (t, f) => { (h[t] ||= new Set()).add(f); return () => h[t].delete(f); };
+    export const connect = () => {};
+    export const cmd = async () => ({});
+    window.__emit = (t, d) => { for (const f of h[t] || []) f(d); };`;
+  const server = http.createServer((req, res) => {
+    const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    const send = (type, body) => { res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' }); res.end(body); };
+    if (p === '/api/health') return send('application/json', '{"ok":true}');
+    if (p === '/js/conn.js') return send('text/javascript', conn);
+    if (p === '/shared/geometry.js') return send('text/javascript', fs.readFileSync(path.join(root, 'engine', 'core', 'geometry.js')));
+    const abs = path.join(E2E_ROOT, p.replace(/^\/experiences\//, ''));
+    if (!p.startsWith('/experiences/') || !abs.startsWith(E2E_ROOT) || !fs.existsSync(abs) || fs.statSync(abs).isDirectory()) { res.writeHead(404); res.end('not found'); return; }
+    if (p.endsWith('/index.html')) return send('text/html', fs.readFileSync(abs, 'utf8').replace('<head>', `<head>${FAKE_CLOCK}`));
+    res.writeHead(200, { 'content-type': MIME[path.extname(abs)] || 'application/octet-stream', 'cache-control': 'no-store' });
+    fs.createReadStream(abs).pipe(res);
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alma-fluid-e2e-'));
+  const file = path.join(tmp, 'script.js');
+  fs.writeFileSync(file, script);
+  try {
+    const args = [path.join(root, 'tests', 'ui', 'runner.cjs'), `--url=http://127.0.0.1:${server.address().port}/experiences/alma-fluid/index.html`, `--script=${file}`, '--wait=load'];
+    const out = await new Promise((resolve, reject) => {
+      const p = spawn(electronPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      let buf = '';
+      p.stdout.on('data', (d) => { buf += d; });
+      p.on('error', reject);
+      p.on('exit', () => resolve(buf));
+    });
+    const line = out.split('\n').find((l) => l.startsWith('UI-RESULT ') || l.startsWith('UI-ERROR '));
+    if (!line) throw new Error(`no result from the runner: ${out.slice(0, 500)}`);
+    const data = JSON.parse(line.slice(line.indexOf(' ') + 1));
+    if (line.startsWith('UI-ERROR')) throw new Error(`page script failed: ${data.message} ${JSON.stringify(data.errors || [])}`);
+    assert.deepEqual(data.errors, [], `page errors: ${data.errors.join(' | ')}`);
+    return data.result;
+  } finally { server.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
+}
+
+/** The page script: makes the hand, feeds the live messages and steps the frames; returns what the liquid saw. */
+const HAND_RUN = (cfg) => `
+  const cfg = ${JSON.stringify(cfg)};
+  for (let k = 0; k < 200 && !(window.__almaFluid && window.__almaFluid.ready && window.__almaFluid.fluid); k++) await new Promise((r) => setTimeout(r, 50));
+  const hooks = window.__almaFluid, fluid = hooks.fluid, W = document.getElementById('c').width;
+  const rnd = (() => { let s = cfg.seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; })();
+  // what the liquid is given: every splat, with the time of the frame that made it
+  const splats = [], orig = fluid.splat.bind(fluid);
+  fluid.splat = (x, y, dx, dy, r, g, b, s) => { splats.push({ t: window.__now, x: x * W, dx, dy, c: [r, g, b] }); return orig(x, y, dx, dy, r, g, b, s); };
+  // the hand: read every 80-120 ms (one revolution missed), 1 m/s along the wall, a few mm of noise
+  const T0 = 1000, X0 = 1.0, MISS = cfg.missAt, readings = [];
+  let t = T0;
+  for (let k = 0; k < 40; k++) {
+    t += 80 + rnd() * 40 + (k === MISS ? 100 : 0);
+    readings.push({ t, k, id: k >= MISS ? 2 : 1, x: X0 + (t - T0) / 1000 + (rnd() - 0.5) * 0.006, y: 1.7 + (rnd() - 0.5) * 0.006 });
+  }
+  const first2 = readings.find((r) => r.id === 2), last1 = readings.filter((r) => r.id === 1).pop(), lastAll = readings[readings.length - 1];
+  const tuple = (id, L) => {
+    const rs = readings.filter((r) => r.id === id && r.t <= L), src = rs[rs.length - 1], prev = rs[rs.length - 2];
+    const v = prev ? (src.x - prev.x) / (src.t - prev.t) : 0, lead = Math.min(L - src.t, 60);       // the tracker's own extrapolation, as x, y
+    const coasting = L - src.t > 150 ? 1 : 0;
+    return [id, +(src.x + v * lead).toFixed(3), +(src.y).toFixed(3), 0.08, coasting, +src.x.toFixed(3), +src.y.toFixed(3), Math.round(src.t)];
+  };
+  const touchesAt = (L) => {
+    const out = [];
+    if (L >= readings[0].t && L < (cfg.overlap ? first2.t + 60 : last1.t + 100)) out.push(tuple(1, L));      // the first id: coasting a while after its last reading
+    if (L >= first2.t && L < lastAll.t + 220) out.push(tuple(2, L));                                         // the new id after the gap
+    return out;
+  };
+  // 30 Hz live messages (arriving 2-10 ms late) and 60 fps frames, on the fake clock; the engine's clock is the page's minus 500
+  const OFF = 500, msgs = [];
+  for (let L = 0; L < 6000; L += 1000 / 30) msgs.push({ L, at: L + OFF + 2 + rnd() * 8 });
+  let mi = 0;
+  const frames = [];
+  for (let pt = 1000; pt <= 7500; pt += 1000 / 60) {
+    window.__now = pt;
+    while (mi < msgs.length && msgs[mi].at <= pt) { const L = msgs[mi++].L; window.__emit('live', { type: 'live', t: Math.round(L), roomCount: 1, walls: { P2: touchesAt(L) } }); }
+    window.__runFrame();
+    if (hooks.hands) frames.push({ t: pt, hands: hooks.hands });
+  }
+  return { splats, frames, stats: hooks.stats || null, W, reading: { first2: first2.t, last1: last1.t, last: lastAll.t } };
+`;
+
+/** speeds (px/s) between the moments the liquid was fed (one sample per frame time), and how they change */
+function motion(splats) {
+  const byT = new Map();
+  for (const s of splats) if (!byT.has(s.t)) byT.set(s.t, s.x);
+  const pts = [...byT.entries()].map(([t, x]) => ({ t, x }));
+  const v = [];
+  for (let i = 1; i < pts.length; i++) v.push({ t: pts[i].t, v: ((pts[i].x - pts[i - 1].x) / (pts[i].t - pts[i - 1].t)) * 1000 });
+  const med = [...v].map((q) => Math.abs(q.v)).sort((a, b) => a - b)[Math.floor(v.length / 2)];
+  const steady = v.filter((q) => q.t > 3000 && q.t < 6800); // the hand has been going a while and is not yet over
+  return {
+    n: pts.length, med,
+    maxRatio: Math.max(...steady.map((q) => Math.abs(q.v))) / med,
+    minRatio: Math.min(...steady.map((q) => Math.abs(q.v))) / med,
+    maxAcc: Math.max(...steady.slice(1).map((q, i) => Math.abs(q.v - steady[i].v) / med)),
+  };
+}
+const keyOf = (c) => { const s = c[0] + c[1] + c[2]; return c.map((x) => Math.round((x / s) * 200)).join(','); };
+
+for (const overlap of [false, true]) {
+  test(`alma-fluid: a hand read at 10 Hz that misses a revolution and gets a new tracker id is ONE smooth stroke (${overlap ? 'the old id still coasting' : 'the old id gone'})`, opt, async () => {
+    const r = await inRoom(HAND_RUN({ seed: 7, missAt: 17, overlap }));
+    const m = motion(r.splats);
+    const moving = r.splats.filter((s) => s.dx !== 0 || s.dy !== 0), landings = r.splats.filter((s) => s.dx === 0 && s.dy === 0);
+    const colours = new Set(r.splats.map((s) => keyOf(s.c)));
+    if (process.env.VT_VERBOSE) console.log(JSON.stringify({ overlap, m, landings: landings.length, colours: [...colours], stats: r.stats }));
+    // a) no jumps: the speed of the stroke stays within bounds, frame to frame, through the missed revolution and the new id
+    assert.ok(m.n > 100, `the liquid was fed along the whole stroke (${m.n} moments)`);
+    assert.ok(m.maxRatio < 2, `no step more than 2x the median (max ${m.maxRatio.toFixed(2)}x)`);
+    assert.ok(m.maxAcc < 1.5, `bounded change of speed from one moment to the next (max ${m.maxAcc.toFixed(2)} x the median speed)`);
+    // b) one stroke: one landing blot, one colour
+    assert.equal(landings.length, 1, `exactly one landing blot (the hand lands once; the new id is the same hand): ${landings.length}`);
+    assert.equal(colours.size, 1, `one colour for the whole stroke: ${[...colours].join(' | ')}`);
+    assert.ok(moving.length > 40, 'and it stirred along the way');
+    if (r.stats) assert.deepEqual(r.stats, { strokes: 1, landings: 1 }, 'the page saw one stroke');
+    // the hand the liquid follows, at 60 fps, and it lets go at the end
+    if (r.frames.length) {
+      const hs = r.frames.filter((f) => f.hands.length).map((f) => ({ t: f.t, x: f.hands[0].x, n: f.hands.length }));
+      assert.ok(hs.every((h) => h.n === 1), 'never two hands');
+      const sp = hs.slice(1).map((h, i) => ((h.x - hs[i].x) / (h.t - hs[i].t)) * 1000), med = [...sp].sort((a, b) => a - b)[Math.floor(sp.length / 2)];
+      const mid = sp.filter((_, i) => hs[i + 1].t > 3000 && hs[i + 1].t < 6800);
+      assert.ok(Math.max(...mid.map(Math.abs)) < 2 * med, `60 fps: no frame faster than 2x the median (${(Math.max(...mid.map(Math.abs)) / med).toFixed(2)}x)`);
+      assert.equal(r.frames[r.frames.length - 1].hands.length, 0, 'and the stroke ends once the hand has gone');
+    }
+  });
+}

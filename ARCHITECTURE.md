@@ -59,11 +59,22 @@ is the video processor's job).
 ## Tracking (per wall) — `engine/core/tracker.js`
 
 - Detections of all sensors of a wall are merged (< 8 cm) and associated to tracks with the **Hungarian**
-  algorithm, gated by `0.15 m + 4 m/s · Δt`.
-- Life cycle: tentative → **down** after 2 revolutions (~100–200 ms; hides single-revolution blips) →
-  coasting up to 220 ms through dropouts/occlusion → **up**.
-- **One Euro** filter per axis; output at 60 Hz with up to 60 ms of constant-velocity extrapolation to hide the
-  10 Hz steps. All values are per-profile (`tracking`) and editable in *System › Processing*.
+  algorithm.
+  - A detection is compared with the track's **last raw reading carried at its speed**, not the One-Euro position,
+    which lags a moving hand by about one step.
+  - The gate is `gateBase + reach · Δt` with `reach = min(maxSpeed, 0.5 + 0.75·|v|)`. A track with fewer than 3
+    readings uses `maxSpeed`.
+- Life cycle: tentative (`tentativeMs` 350) → **down** after 2 revolutions (~100–200 ms; hides single-revolution
+  blips) → coasting through dropouts → **up**.
+  - Coasting lasts `coastMs` 280 ms at rest and `coastMovingMs` 480 ms above 0.15 m/s.
+  - The S2E misses revolutions: gaps of 160–360 ms are normal. With the old 220 ms a moving hand at XR Lab became
+    46 ids in 2 minutes. `tests/core.test.mjs` crosses a wall at 0.5–2 m/s with 80–120 ms jitter and 1–2 missed
+    revolutions, and expects one id; the old values failed 39 % of the patterns.
+- **One Euro** filter per axis. Output at 60 Hz with up to 60 ms of constant-velocity extrapolation (`x, y`): OSC,
+  `/ws/data` and TUIO receive these.
+- Each touch also carries its real reading, `rx, ry` (no extrapolation) and `seenAt` (engine time). Pages get them
+  in the `live` tuple `[id, x, y, size, coasting, rx, ry, seenAt]`.
+- All values are per-profile (`tracking`) and editable in *System › Processing*.
 
 ## Continuous corners — `engine/core/corners.js`
 
@@ -400,10 +411,17 @@ MIT, `LICENSE-fluid.txt`) on WebGL2 across the whole strip.
   - **Touch intensity** (default 3× the pointer colour): a hand on a big wall must read more than a mouse.
   - **Touch presence** (default 1; 0 = the website): a soft blot of the hand's colour when it lands, then a gentle
     breath of colour every 0.12 s while it rests.
-  - **Smoothing.** Readings come at the sensors' ~10 Hz (the engine extrapolates ≤ 60 ms) and reach pages at 30 Hz,
-    so the hand the liquid sees is smoothed every frame: it follows the last reading, led by the hand's velocity
-    for ≤ 100 ms, through a 50 ms low-pass. The stroke is then continuous rather than dots at each reading
-    (`tests/alma-fluid.test.mjs`: readings 30 px apart give splats < 20 px apart).
+  - **Hands are played back, not predicted** (`runtime.js` › `makeHands`, for every experience). A first version
+    predicted again on top of the tracker's prediction, and the 10 Hz corrections jerked the liquid (XR Lab, FALLO 7).
+    - **Playback.** Each hand is drawn `HAND_DELAY_MS` (150 ms) behind its newest real reading (`rx, ry, seenAt`),
+      on a C1 curve through the readings. It slows and holds if a revolution is missed, and never extrapolates. 110 ms
+      starved the curve each revolution: readings come up to 120 ms apart, plus 33 ms of live batching.
+    - **Stitching.** A new tracker id within 0.3 m and 300 ms of an ended hand (360° aware) continues the same
+      **stroke**: one `down`, one `up`, one colour, no landing blot.
+    - **API.** `vt.hands()` gives the strokes each frame; the `touch` events follow the same playback.
+    - **Alma liquid** keys its hands by stroke and adds only a 30 ms low-pass.
+    - **Test.** The end-to-end test crosses a wall at 1 m/s at 10 Hz with a missed revolution and a new tracker id.
+      The old code gave a 2.64× step jump, 2 strokes and 2 colours; now 1.06×, 1 stroke, 1 colour.
 - The logo (the website's wordmark layers) is drawn over the liquid on the chosen wall.
 - **Renderer** (`renderer` param: `auto` / `webgpu` / `webgl2`). `fluid-webgpu.js` + `logo-webgpu.js` are the same fluid and
   logo in WGSL (rgba16float textures, splats batched as instanced additive quads, one submit per `step()` and per `render()`).

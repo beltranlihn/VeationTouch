@@ -32,11 +32,10 @@ const TOUCH_COLORS = {
 // stroke) x POINTER_INTENSITY, at the splat size it was tuned on. Here each wall is that screen: its height is the
 // screen's height and its width the 16:9 width of that height, so a hand on a wall stirs as a finger on the website.
 const POINTER_EVERY = 0.033;   // s between a pointer's splats (the website's mousemove cap)
-// The sensors read a hand ~10 times a second (the engine extrapolates a little in between) and pages get it at 30 Hz, so
-// the raw position moves in steps. The hand the liquid sees is smoothed every frame: it follows the last reading, led a
-// little by the hand's velocity, through a short low-pass — a continuous stroke instead of dots at each reading.
-const SMOOTH_TAU = 0.05;       // s, the low-pass of the hand's position
-const LEAD_MAX = 0.1;          // s, at most this much extrapolation from the last reading (one sensor revolution)
+// The sensors read a hand ~10 times a second. The runtime plays the hands back ~0.15 s late on a smooth curve through the
+// real readings (vt.hands(): interpolated, never extrapolated; a hand the tracker splits stays one stroke), so nothing here
+// predicts. A very light low-pass on top takes the last bit of sensor noise out of the stroke.
+const SMOOTH_TAU = 0.03;       // s, the low-pass of the hand's position
 // A hand that rests is felt too (not on the website, where a resting mouse does nothing): a soft blot of its colour when
 // it lands, then a gentle breath of colour while it stays, at the website's splat size. "Touch presence" scales both.
 const LAND_DYE = 2.5;          // the landing blot, x the moving pointer's colour
@@ -52,13 +51,17 @@ let clock = 0, logoAlpha = 0;
 let dirty = true, wantQuality = null, needWarm = true;
 let logoCx = W / 2, logoCy = H / 2, logoWallW = W, logoWallH = H;
 const scratch = new Float32Array(3);
-const active = [];            // touches currently down (objects, created on 'down')
-const byId = new Map();
+const active = [];            // hands currently down (objects, one per stroke of vt.hands())
+const byStroke = new Map();
 
 // reload() is a hook so that a test can see the page asking for it
 const hooks = (window.__almaFluid = {
   ready: false, renderer: 'webgl2', gpu: null, reload: () => location.reload(),
   get fluid() { return fluid; }, get emitterCount() { return emitters.length; },
+  vt,
+  // what the liquid has seen of the hands: strokes started (each picks one colour) and landing blots dropped (test and debugging)
+  stats: { strokes: 0, landings: 0 },
+  get hands() { return active.map((t) => ({ stroke: t.stroke, x: t.x, y: t.y, color: [...t.color], ended: t.ended })); },
 });
 
 // The renderer: WebGPU when asked for (or Automatic) and the machine has it, else WebGL2. A canvas keeps the kind of context it
@@ -136,48 +139,39 @@ function touchColor(t) {
   t.base = TOUCH_COLORS[P.touchColor] || null; // null = the whole palette
 }
 
-/** A hand goes down: the website's updatePointerDownData — no splat yet, and one colour for the whole stroke. */
-function startTouch(e) {
-  let t = byId.get(e.id);
-  if (!t) {
-    t = { id: e.id, x: 0, y: 0, px: 0, py: 0, tx: 0, ty: 0, vx: 0, vy: 0, rawAt: 0, lastSplat: 0, lastHold: 0, landed: false, base: null, color: [0, 0, 0] };
-    byId.set(e.id, t);
-    active.push(t);
-  }
-  t.x = t.px = t.tx = e.x; t.y = t.py = t.ty = e.y; // the smoothed hand starts where it landed (no glide from elsewhere)
-  t.vx = t.vy = 0; t.rawAt = clock;
-  t.lastSplat = t.lastHold = clock; t.landed = false;
+/** A stroke starts: the website's updatePointerDownData — no splat yet, and one colour for the whole stroke. */
+function startHand(h) {
+  const t = { stroke: h.stroke, x: h.x, y: h.y, px: h.x, py: h.y, tx: h.x, ty: h.y, lastSplat: clock, lastHold: clock, landed: false, ended: false, base: null, color: [0, 0, 0] };
+  byStroke.set(h.stroke, t);
+  active.push(t);
   touchColor(t);
   generateColor(t.color, t.base);
+  hooks.stats.strokes++;
   return t;
 }
 
-/** A reading of a hand (render px, px/s): the target the smoothed hand follows. */
-function reading(t, e) {
-  t.tx = e.x; t.ty = e.y;
-  t.vx = Number.isFinite(e.vx) ? e.vx : 0; t.vy = Number.isFinite(e.vy) ? e.vy : 0;
-  t.rawAt = clock;
+/** The runtime's hands, this frame (render px, played back on a smooth curve): a new stroke starts a hand, a gone one drops it. */
+const seenNow = new Set();
+function sync() {
+  const hs = vt.hands();
+  seenNow.clear();
+  for (let i = 0; i < hs.length; i++) {
+    const h = hs[i], t = byStroke.get(h.stroke) || startHand(h);
+    t.tx = h.x; t.ty = h.y; t.ended = !!h.ended; // an ended hand may yet be taken up again by the tracker under another id: it stays the same stroke
+    seenNow.add(h.stroke);
+  }
+  for (let i = active.length - 1; i >= 0; i--) if (!seenNow.has(active[i].stroke)) { byStroke.delete(active[i].stroke); active.splice(i, 1); }
 }
 
-/** Every frame: the smoothed hand follows its last reading, led by its velocity for up to one sensor revolution. */
+/** Every frame: the hand the liquid sees follows the curve through a very light low-pass. */
 function follow(t, dt) {
-  const lead = Math.min(clock - t.rawAt, LEAD_MAX);
-  let gx = t.tx + t.vx * lead - t.x;
+  let gx = t.tx - t.x;
   if (builtWrap) { if (gx > W / 2) gx -= W; else if (gx < -W / 2) gx += W; } // the short way round the seam
-  const gy = t.ty + t.vy * lead - t.y;
+  const gy = t.ty - t.y;
   const a = 1 - Math.exp(-dt / SMOOTH_TAU);
   t.x += gx * a; t.y += gy * a;
   if (builtWrap) t.x -= Math.floor(t.x / W) * W;
 }
-
-vt.on('touch', (e) => {
-  if (e.type === 'down') startTouch(e);
-  else if (e.type === 'move') reading(byId.get(e.id) || startTouch(e), e);
-  else if (e.type === 'up') {
-    const t = byId.get(e.id);
-    if (t) { byId.delete(e.id); active.splice(active.indexOf(t), 1); }
-  }
-});
 
 /** The colour of a hand's splats: the website's pointer colour x "Touch intensity" x `gain`. */
 function dyeOf(t, gain) {
@@ -189,12 +183,12 @@ function dyeOf(t, gain) {
 /** A hand that rests: a soft blot when it lands, then a gentle breath of its colour now and then. */
 function presence(t) {
   const k = P.touchPresence == null ? 1 : P.touchPresence;
-  if (k <= 0) return;
+  if (k <= 0 || t.ended) return; // (a hand the tracker lost, waiting to see whether it comes back, breathes nothing)
   let x = t.x / W;
   if (builtWrap) x -= Math.floor(x);
   const y = 1 - t.y / H;
   if (!t.landed) {
-    t.landed = true;
+    t.landed = true; hooks.stats.landings++;
     const d = dyeOf(t, LAND_DYE * k);
     fluid.splat(x, y, 0, 0, d[0], d[1], d[2], EMITTER_SIGMA);
     return;
@@ -228,20 +222,6 @@ function stir(t, dt) {
   t.px = t.x; t.py = t.y; t.lastSplat = clock;
 }
 
-// the runtime is the truth about what is down: drop a touch whose 'up' got lost, pick up one whose 'down' did
-let reconcileIn = 0;
-function reconcile() {
-  const list = vt.touches();
-  for (let i = active.length - 1; i >= 0; i--) {
-    let found = false;
-    for (let j = 0; j < list.length; j++) if (list[j].id === active[i].id) { found = true; break; }
-    if (!found) { byId.delete(active[i].id); active.splice(i, 1); }
-  }
-  for (let j = 0; j < list.length; j++) {
-    if (!byId.has(list[j].id)) startTouch(list[j]);
-  }
-}
-
 /* ---------------------------------------------------------------- the frame */
 
 // the ambient wash the emitters keep up, as set by the operator
@@ -269,8 +249,8 @@ function frame(dtRaw) {
   if (needWarm) warmUp();
 
   updateAutoEmitters(emitters, dt, clock, P.emitterSpeed, ASPECT, builtWrap, emit, look);
+  sync();
   for (let i = 0; i < active.length; i++) stir(active[i], dt);
-  if ((reconcileIn -= dt) <= 0) { reconcileIn = 0.5; reconcile(); }
 
   fluid.step(dt, P.fade, CONFIG.VELOCITY_DISSIPATION);
   fluid.render();

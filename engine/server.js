@@ -337,6 +337,12 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
   });
   const unsubLog = log.onEntry?.((entry) => broadcast({ type: 'log', entry }, (c) => c.role === 'ui'));
 
+  // The UI's live feed (internal; not /ws/data or OSC) sends each touch as [id, x, y, size, coasting, rx, ry, seenAt]. x, y are the
+  // tracker's (up to predictMs of extrapolation); rx, ry (m) are the filtered position at the touch's last REAL reading and
+  // seenAt (ms) its engine time — the clock of live.t. The experience runtime plays hands back from those, never from x, y.
+  // Appended at the end so older readers keep working; a tracker without them gives x, y and the frame's time.
+  const realReading = (t, now) => [r3(t.rx ?? t.x), r3(t.ry ?? t.y), Math.round(Number.isFinite(t.seenAt) ? t.seenAt : now)];
+
   // live touches at 30 Hz, status at 2 Hz, point clouds at ≤10 Hz (binary)
   let liveN = 0;
   engine.on('frame', (frame) => {
@@ -348,7 +354,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       const evs = pendingEvents; pendingEvents = [];
       const live = {
         type: 'live', t: Math.round(frame.t), roomCount: frame.roomCount, burst: frame.burst,
-        walls: Object.fromEntries(frame.walls.map((w) => [w.wall.id, w.touches.map((t) => [t.id, r3(t.x), r3(t.y), r3(t.size), t.coasting ? 1 : 0])])),
+        walls: Object.fromEntries(frame.walls.map((w) => [w.wall.id, w.touches.map((t) => [t.id, r3(t.x), r3(t.y), r3(t.size), t.coasting ? 1 : 0, ...realReading(t, frame.t)])])),
         zones: frame.zoneCounts,
         events: evs.length ? evs.slice(-50).map((e) => ({ type: e.type, id: e.id, wallId: e.wallId, x: r3(e.x), y: r3(e.y), ...(e.from ? { from: e.from } : {}) })) : undefined,
         calib: engine.calib ? engine.calib.snapshot(frame.t) : null, // smooth progress ring on the tablet

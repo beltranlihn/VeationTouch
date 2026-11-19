@@ -1118,3 +1118,98 @@ test('verification: the nearest touch counts, a second one elsewhere is ignored;
   assert.equal(vs.snapshot(t).flash.kind, 'accept');
   assert.equal(vs.snapshot(t).flash.index, 0);
 });
+
+// ── tracker: realistic hands (S2E at ~10 Hz, jitter, noise, missed revolutions) ─────────────────────────────────────
+// The tracking values of the real room (profile xrlab) — what produced 46 ids in 2 minutes of one person.
+const XRLAB_TRACKING = { coastMs: 220, predictMs: 60, gateBase: 0.15, maxSpeed: 4, confirmFrames: 2, oneEuro: { minCutoff: 1.2, beta: 0.6 } };
+
+function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+/**
+ * Hands crossing a wall, read like the S2E does: a revolution every 80–120 ms, 10–15 mm of noise, a size that wobbles,
+ * some revolutions with no detection at all. The tracker ticks at 60 Hz in between. Returns the events and the touches.
+ * hands: [{ x0, y0, vx, vy?, ax?, size?, from?, to? (ms) }]; miss: set of revolution indexes with no detection.
+ */
+function simHands({ params, hands, seed = 7, ms = 1500, miss = new Set(), noise = 0.012 }) {
+  const rand = rng(seed);
+  const gauss = () => { let u = 0; for (let k = 0; k < 6; k++) u += rand(); return (u - 3) / 0.7071; };
+  const tr = new WallTracker({ id: 'W' }, params, { next: 1 });
+  const downs = [], ups = [], frames = [];
+  let nextRev = 0, rev = 0;
+  for (let t = 0; t <= ms; t += 1000 / 60) {
+    while (nextRev <= t) {
+      if (!miss.has(rev)) {
+        const dets = [];
+        for (const h of hands) {
+          if (nextRev < (h.from ?? 0) || nextRev > (h.to ?? Infinity)) continue;
+          const s = (nextRev - (h.from ?? 0)) / 1000;
+          dets.push({
+            x: h.x0 + (h.vx ?? 0) * s + 0.5 * (h.ax ?? 0) * s * s + gauss() * noise,
+            y: h.y0 + (h.vy ?? 0) * s + gauss() * noise,
+            size: (h.size ?? 0.09) * (1 + 0.15 * (rand() - 0.5)), n: 10,
+          });
+        }
+        tr.ingest(dets, nextRev);
+      }
+      rev++;
+      nextRev += 80 + rand() * 40;
+    }
+    const r = tr.tick(t);
+    for (const e of r.events) (e.type === 'down' ? downs : ups).push(e);
+    frames.push({ t, touches: r.touches });
+  }
+  return { tr, downs, ups, frames };
+}
+
+test('tracker: one hand crossing a wall at 1 and 2 m/s with a missed revolution stays ONE id', () => {
+  for (const [vx, ax] of [[1, 0], [2, 0], [1, 0.8], [2, -1], [0.5, 0]]) {
+    for (let seed = 1; seed <= 60; seed++) for (const miss of [[6], [4, 5], [3, 7]]) {
+      const { downs, ups, tr } = simHands({ params: XRLAB_TRACKING, hands: [{ x0: 0.5, y0: 1.2, vx, ax }], seed, ms: 1400, miss: new Set(miss) });
+      const live = tr.tick(1400).touches.length;
+      assert.equal(downs.length, 1, `v ${vx} a ${ax} seed ${seed} miss ${miss}: ${downs.length} ids`);
+      assert.equal(ups.length + live, 1, `v ${vx} a ${ax} seed ${seed}: one up (or still alive)`);
+    }
+  }
+});
+
+test('tracker: two hands 35 cm apart moving in parallel keep two ids; crossing hands keep theirs', () => {
+  const par = simHands({ params: XRLAB_TRACKING, hands: [{ x0: 0.5, y0: 1.2, vx: 1.5 }, { x0: 0.85, y0: 1.2, vx: 1.5 }], seed: 3, ms: 1200, miss: new Set([5]) });
+  assert.equal(par.downs.length, 2, `${par.downs.length} ids for two parallel hands`);
+  assert.equal(par.frames.filter((f) => f.t > 400).every((f) => f.touches.length === 2), true, 'two touches throughout');
+  // distinct hands keep distinct ids even after the missed revolution
+  const ids = new Set(par.frames.flatMap((f) => f.touches.map((t) => t.id)));
+  assert.equal(ids.size, 2);
+  // crossing: one goes right, one goes left, 40 cm apart in height — never swap
+  const cross = simHands({ params: XRLAB_TRACKING, hands: [{ x0: 0.5, y0: 1.0, vx: 1 }, { x0: 2.0, y0: 1.4, vx: -1 }], seed: 5, ms: 1400 });
+  assert.equal(cross.downs.length, 2);
+  const last = cross.frames.at(-1).touches;
+  const a = last.find((t) => t.y < 1.2), b = last.find((t) => t.y >= 1.2);
+  assert.ok(a && b && a.id !== b.id && a.vx > 0 && b.vx < 0, 'each id keeps its own hand');
+});
+
+test('tracker: rx, ry hold the last reading while x, y extrapolate; seenAt is the reading time', () => {
+  const tr = new WallTracker({ id: 'W' }, { predictMs: 60 }, { next: 1 });
+  for (let k = 0; k < 5; k++) { tr.ingest([{ x: 1 + k * 0.1, y: 1, size: 0.08, n: 10 }], 1000 + k * 100); tr.tick(1000 + k * 100); }
+  const a = tr.tick(1400 + 1).touches[0];
+  const b = tr.tick(1400 + 40).touches[0];
+  assert.equal(a.seenAt, 1400);
+  assert.equal(b.seenAt, 1400);
+  assert.equal(a.rx, b.rx); assert.equal(a.ry, b.ry);
+  assert.ok(b.x > a.x + 0.005, 'x, y extrapolate');
+  assert.ok(Math.abs(b.rx - (b.x - b.vx * 0.040)) < 1e-9, 'x = rx + v · lead');
+  const c = tr.tick(1400 + 150).touches[0];
+  assert.ok(Math.abs(c.x - (c.rx + c.vx * 0.060)) < 1e-9, 'lead capped at predictMs');
+  assert.equal(c.rx, a.rx);
+  tr.ingest([{ x: 1.5, y: 1, size: 0.08, n: 10 }], 1500);
+  const d = tr.tick(1500).touches[0];
+  assert.equal(d.seenAt, 1500);
+  assert.ok(d.rx > a.rx);
+});
+
+test('tracker: a lifted hand still ends quickly, and a coasting track does not grab a hand a metre away', () => {
+  const rest = simHands({ params: XRLAB_TRACKING, hands: [{ x0: 2, y0: 1, vx: 0, to: 600 }], seed: 2, ms: 1400 });
+  assert.equal(rest.ups.length, 1);
+  assert.ok(rest.ups[0].t - 600 < 700, 'a resting touch ends within its coast time of the lift');
+  const far = simHands({ params: XRLAB_TRACKING, hands: [{ x0: 0.5, y0: 1, vx: 1, to: 700 }, { x0: 3.5, y0: 1, vx: 0, from: 800 }], seed: 4, ms: 1800 });
+  assert.equal(far.downs.length, 2, 'the hand that appears 2 m away is another touch');
+});

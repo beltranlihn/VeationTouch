@@ -376,6 +376,7 @@ export function normalizeProfile(input) {
       confirmFrames: int(tr.confirmFrames, T.confirmFrames, 1, 20),
       tentativeMs: int(tr.tentativeMs, T.tentativeMs, 50, 3000),
       coastMs: int(tr.coastMs, T.coastMs, 0, 3000),
+      coastMovingMs: int(tr.coastMovingMs, T.coastMovingMs, 0, 3000),
       predictMs: int(tr.predictMs, T.predictMs, 0, 300),
       cornerZone: num(tr.cornerZone, 0.25, 0, 1), // m each side of a joined corner where touches are linked (0 = off)
       oneEuro: {

@@ -384,3 +384,183 @@ test('experiences: the preview is posted by the page on this computer only, and 
     assert.equal((await post(jpeg, {}, s2.port)).status, 204);
   } finally { s2.close(); await t.engine.stop(); fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
+
+// ---------------------------------------------------------------------------------------------- the runtime's hands (no browser)
+// makeHands plays the tracker's REAL readings back ~HAND_DELAY_MS late on a smooth curve and joins the ids a hand splits into.
+
+const { makeHands, HAND_DELAY_MS, STITCH_MS, STITCH_M } = await import('../experiences/runtime.js');
+const PXM = 100; // px per metre on the made-up wall
+
+/** A runtime handle with a fake page clock (the page runs 1000 ms ahead of the engine): `feed` is a live message, `run` 60 fps frames. */
+function rig({ closed = false, width = 4000 } = {}) {
+  const events = [], vt = { size: { width, height: 500 }, closedLoop: closed, emit: (n, e) => events.push(e) };
+  let now = 5000;
+  const hands = makeHands(vt, { now: () => now });
+  return {
+    events, hands,
+    feed(reads, tEng = now - 1000) { hands.ingest(reads.map((r) => ({ wallId: 'W', size: 8, pxPerM: PXM, ...r })), tEng); },
+    run(ms, each) { for (let end = now + ms; now < end;) { now += 1000 / 60; hands.tick(); each?.(hands.hands()); } },
+    get now() { return now; },
+  };
+}
+/**
+ * One hand reading every 100 ms along x at 1 m/s (x = 0.5 + t / 1000 m), delivered in live messages every 33 ms from engine time
+ * `from` to `to`. `ids(t)` is the tracker id carrying the reading of time t (null: none), `skip(t)` a revolution that is missed.
+ */
+function walk(R, { from = 0, to = 2000, ids = () => 1, skip = () => false } = {}) {
+  const readings = [];
+  for (let t = from; t <= to; t += 100) if (!skip(t)) readings.push(t);
+  const seen = [];
+  for (let t = from; t <= to + 400; t += 100 / 3) {
+    const last = readings.filter((r) => r <= t).at(-1);
+    if (last !== undefined && t <= to + 100) {
+      const id = ids(last);
+      R.feed(id == null ? [] : [{ id, x: (0.5 + last / 1000) * PXM, y: 150, t: last }], t);
+    } else R.feed([], t);
+    R.run(100 / 3, (h) => seen.push(h));
+  }
+  return seen;
+}
+
+test('hands: drawn behind the newest reading on a smooth curve through the real readings — interpolated, never extrapolated', () => {
+  const R = rig();
+  walk(R, { from: 1000, to: 2000 });
+  R.run(1500);
+  const downs = R.events.filter((e) => e.type === 'down'), ups = R.events.filter((e) => e.type === 'up'), moves = R.events.filter((e) => e.type === 'move');
+  assert.equal(downs.length, 1);
+  assert.ok(Math.abs(downs[0].x - 150) < 0.5, `it is drawn from its first reading on (${downs[0].x})`);
+  assert.equal(ups.length, 1, 'and let go once');
+  assert.ok(moves.every((e) => Math.abs(e.y - 150) < 1e-6), 'straight');
+  assert.ok(moves.slice(8, -25).every((e) => Math.abs(e.vx - 100) < 25), `velocity from the curve, ~100 px/s: ${moves.slice(8, 12).map((e) => e.vx.toFixed(0))}`);
+  // never beyond the newest reading: x = 0.5 + 2.0 m = 250 px; it ends there
+  assert.ok(Math.max(...R.events.map((e) => e.x)) <= 250 + 1e-6, 'no extrapolation past the last reading');
+  assert.ok(Math.abs(ups[0].x - 250) < 1, `it ends where the last reading was (${ups[0].x})`);
+  assert.equal(R.hands.hands().length, 0);
+});
+
+test('hands: it lags the newest reading by about HAND_DELAY_MS, and a missed revolution is held, not extrapolated', () => {
+  const R = rig();
+  const trace = [];
+  // readings every 100 ms, but none between 2000 and 2400 (a missed revolution, and then some)
+  const reads = [];
+  for (let t = 1000; t <= 3000; t += 100) if (t <= 2000 || t >= 2500) reads.push(t);
+  for (let t = 1000; t <= 3600; t += 100 / 3) {
+    const last = reads.filter((r) => r <= t).at(-1);
+    if (last !== undefined) R.feed([{ id: 1, x: (0.5 + last / 1000) * PXM, y: 150, t: last }], t);
+    R.run(100 / 3, (h) => { if (h[0]) trace.push({ t, x: h[0].x, last: (0.5 + last / 1000) * PXM }); });
+  }
+  assert.ok(trace.every((p) => p.x <= p.last + 1e-6), 'the hand is never ahead of the newest reading');
+  const steady = trace.find((p) => p.t >= 1900), lagMs = ((steady.last - steady.x) / PXM) * 1000;
+  assert.ok(lagMs > 60 && lagMs < HAND_DELAY_MS + 40, `lags ${lagMs.toFixed(0)} ms behind the newest reading (delay ${HAND_DELAY_MS})`);
+  const held = trace.filter((p) => p.t > 2250 && p.t < 2450).map((p) => p.x);
+  assert.ok(Math.max(...held) - Math.min(...held) < 12, 'it holds near the last reading during the gap');
+  assert.ok(trace.every((p, i) => !i || p.x >= trace[i - 1].x - 1e-6), 'and never goes backwards');
+  const after = trace.filter((p) => p.t > 2800).map((p) => p.x);
+  assert.ok(after.at(-1) > after[0] + 20, 'then it follows the readings again');
+});
+
+test('hands: a new tracker id within 0.3 m and 300 ms is the same stroke — one down, one up, no jump', () => {
+  // the first id's last reading is at 1500; the new one starts 200 ms later, 0.2 m further: the same hand
+  const R = rig();
+  walk(R, { from: 1000, to: 2500, skip: (t) => t === 1600 || t === 1700, ids: (t) => (t <= 1500 ? 1 : 2) });
+  R.run(1500);
+  const downs = R.events.filter((e) => e.type === 'down'), ups = R.events.filter((e) => e.type === 'up');
+  assert.equal(downs.length, 1, 'one down');
+  assert.equal(ups.length, 1, 'one up');
+  assert.equal(new Set(R.events.map((e) => e.id)).size, 1, 'one stroke id throughout');
+  assert.equal(downs[0].id, downs[0].stroke);
+  const moves = R.events.filter((e) => e.type === 'move');
+  assert.ok(moves.every((e, i) => !i || Math.abs(e.x - moves[i - 1].x) < 4), 'and the hand glides: no frame moves more than 4 px (a frame at 1 m/s is 1.7)');
+  assert.deepEqual([...new Set(R.events.map((e) => e.trackerId))].filter((x) => x != null).sort(), [1, 2], 'the tracker\'s ids underneath are 1 and 2');
+});
+
+test('hands: an id that is still coasting is taken over by a new one, but a second hand that reads alongside is not', () => {
+  // the old id is still listed (coasting, no new reading) when the new one appears 200 ms after its last reading
+  const R = rig();
+  for (let t = 1000; t <= 2400; t += 100 / 3) {
+    const reads = [], last1 = Math.min(Math.floor(t / 100) * 100, 1500);
+    if (t < 1850) reads.push({ id: 1, x: (0.5 + last1 / 1000) * PXM, y: 150, t: last1 });
+    if (t >= 1700) { const l2 = Math.floor(t / 100) * 100; reads.push({ id: 2, x: (0.5 + l2 / 1000) * PXM, y: 150, t: l2 }); }
+    R.feed(reads, t);
+    R.run(100 / 3);
+  }
+  R.run(1200);
+  assert.equal(R.events.filter((e) => e.type === 'down').length, 1, 'taken over: one stroke');
+  // two hands read in the same revolutions, 0.1 m apart: two strokes
+  const S = rig();
+  for (let t = 1000; t <= 2000; t += 100 / 3) {
+    const l = Math.floor(t / 100) * 100;
+    S.feed([{ id: 1, x: (0.5 + l / 1000) * PXM, y: 150, t: l }, { id: 2, x: (0.6 + l / 1000) * PXM, y: 150, t: l }], t);
+    S.run(100 / 3);
+  }
+  assert.equal(S.events.filter((e) => e.type === 'down').length, 2, 'two hands are two strokes');
+});
+
+test('hands: farther than 0.3 m, or later than 300 ms, is a new hand (and the first one is let go)', () => {
+  assert.ok(STITCH_M === 0.3 && STITCH_MS === 300, 'the window is 0.3 m / 300 ms');
+  const run = (dx, gapMs) => {
+    const R = rig();
+    for (let t = 1000; t <= 3200; t += 100 / 3) { // id 1 reads until 1500; id 2 from 1500 + gapMs on, dx metres off the line
+      const l = Math.floor(t / 100) * 100;
+      R.feed(l <= 1500 ? [{ id: 1, x: (0.5 + l / 1000) * PXM, y: 150, t: l }] : l >= 1500 + gapMs ? [{ id: 2, x: (0.5 + l / 1000 + dx) * PXM, y: 150, t: l }] : [], t);
+      R.run(100 / 3);
+    }
+    R.run(1000);
+    return R.events;
+  };
+  const ok = run(0.05, 200), far = run(0.5, 200), late = run(0.1, 500);
+  assert.equal(ok.filter((e) => e.type === 'down').length, 1, 'close in space and time: one hand');
+  assert.equal(far.filter((e) => e.type === 'down').length, 2, '0.5 m further: a new hand');
+  assert.equal(late.filter((e) => e.type === 'down').length, 2, '500 ms later: a new hand');
+  assert.equal(ok.filter((e) => e.type === 'up').length, 0, 'the one hand is still down');
+  for (const ev of [far, late]) assert.equal(ev.filter((e) => e.type === 'up').length, 1, 'the first hand was let go when the second one came');
+});
+
+test('hands: the up comes after the stitch window (300 ms of reading time), not at once', () => {
+  const R2 = rig();
+  let upAt = null;
+  for (let t = 1000; t <= 3000 && upAt == null; t += 100 / 3) {
+    const last = Math.min(Math.floor(t / 100) * 100, 1500);
+    R2.feed(t < 1550 ? [{ id: 1, x: (0.5 + last / 1000) * PXM, y: 150, t: last }] : [], t);
+    R2.run(100 / 3);
+    if (R2.events.some((e) => e.type === 'up')) upAt = t;
+  }
+  assert.ok(upAt != null, 'it ends');
+  assert.ok(upAt - 1500 >= STITCH_MS, `not before the window has passed (${(upAt - 1500).toFixed(0)} ms after the last reading): a new id may still pick it up`);
+  assert.ok(upAt - 1500 < STITCH_MS + 200, `but soon (${(upAt - 1500).toFixed(0)} ms)`);
+});
+
+test('hands: 360° — a hand going over the seam of a closed room is one smooth stroke, the short way round', () => {
+  const R = rig({ closed: true, width: 1000 });
+  const reads = [];
+  for (let t = 1000; t <= 2000; t += 100) reads.push(t);
+  for (let t = 1000; t <= 2500; t += 100 / 3) {
+    const last = reads.filter((r) => r <= t).at(-1);
+    R.feed(last !== undefined && t < 2100 ? [{ id: 1, x: ((9.5 + (last - 1000) / 1000) * PXM) % 1000, y: 150, t: last }] : [], t);
+    R.run(100 / 3);
+  }
+  R.run(1200);
+  const xs = R.events.filter((e) => e.type === 'move').map((e) => e.x);
+  assert.ok(xs.some((x) => x > 950) && xs.some((x) => x < 80), 'it crossed the seam');
+  let worst = 0;
+  for (let i = 1; i < xs.length; i++) { let d = xs[i] - xs[i - 1]; d -= Math.round(d / 1000) * 1000; worst = Math.max(worst, Math.abs(d)); }
+  assert.ok(worst < 4, `the short way round, a step of ${worst.toFixed(2)} px at most`);
+  assert.equal(R.events.filter((e) => e.type === 'down').length, 1);
+});
+
+test('hands: pointer devices (direct) have no delay and no stitching — the hand is where the pointer is', () => {
+  const events = [], vt = { size: { width: 1000, height: 500 }, closedLoop: false, emit: (n, e) => events.push(e) };
+  let now = 100;
+  const h = makeHands(vt, { direct: true, now: () => now });
+  h.ingest([{ id: 7, wallId: 'W', x: 10, y: 20, size: 5, t: 100, pxPerM: 500 }], 100);
+  assert.equal(events[0].type, 'down');
+  assert.equal(events[0].id, 7);
+  now = 116;
+  h.ingest([{ id: 7, wallId: 'W', x: 30, y: 20, size: 5, t: 116, pxPerM: 500 }], 116);
+  assert.equal(events.at(-1).type, 'move');
+  assert.equal(events.at(-1).x, 30, 'at once');
+  assert.ok(events.at(-1).vx > 500, 'with a speed');
+  h.ingest([], 130);
+  assert.equal(events.at(-1).type, 'up', 'and up at once');
+  assert.deepEqual(h.hands(), []);
+});

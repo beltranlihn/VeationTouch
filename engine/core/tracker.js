@@ -1,6 +1,6 @@
 // Per-wall tracker: fuses detections from every sensor of a wall into touches with
 // persistent ids, filters them (One Euro) and runs their life cycle:
-//   tentative ──(confirmFrames hits)──▶ active ──(no data for coastMs)──▶ up
+//   tentative ──(confirmFrames hits)──▶ active ──(no data for coastMs / coastMovingMs)──▶ up
 // Detections arrive per sensor revolution (~10 Hz each, unsynchronised); `tick()` runs at
 // the output rate (60 Hz) and may extrapolate a little (predictMs) to hide the 10 Hz steps.
 
@@ -9,13 +9,16 @@ import { OneEuro, hungarian } from './filters.js';
 export const TRACKER_DEFAULTS = Object.freeze({
   mergeDist: 0.08,        // m, detections closer than this in one revolution = one hand
   gateBase: 0.15,         // m, association gate at dt = 0
-  maxSpeed: 4.0,          // m/s, gate grows with time since last seen
+  maxSpeed: 4.0,          // m/s, cap of the extra reach the gate gains per second since the track was last seen
   confirmFrames: 2,       // revolutions before a touch is reported (≈ 100–200 ms at 10 Hz)
-  tentativeMs: 260,       // a tentative track not confirmed in this time is dropped
-  coastMs: 220,           // keep a touch alive through short dropouts/occlusions
+  tentativeMs: 350,       // a tentative track not confirmed in this time is dropped (survives one missed revolution)
+  coastMs: 280,           // keep a resting touch alive through a missed revolution (an S2E gap is 160–240 ms)
+  coastMovingMs: 480,     // …and a MOVING one (> 0.15 m/s) through two or three missed revolutions
   predictMs: 60,          // max extrapolation between revolutions (0 = off)
   oneEuro: { minCutoff: 1.2, beta: 0.6, dCutoff: 1.0 },
 });
+
+const COAST_MOVE_SPEED = 0.15; // m/s (the filtered speed of a hand really moving at 0.5 m/s reads ~0.3): above this a track is "moving" and gets coastMovingMs
 
 export class WallTracker {
   /** @param {{id:string}} wall @param {object} params @param {{next:number}} ids shared id source */
@@ -51,8 +54,14 @@ export class WallTracker {
     if (T.length && D.length) {
       const cost = T.map((tr) => {
         const dt = Math.min(0.5, Math.max(0, (tMs - tr.lastSeen) / 1000));
-        const px = tr.x + tr.vx * dt, py = tr.y + tr.vy * dt;
-        const gate = this.p.gateBase + this.p.maxSpeed * dt;
+        // where the hand should be NOW: its last raw reading carried at its speed. (Not the filtered position: the
+        // One-Euro output lags a moving hand by ~0.9 step, ~9 cm at 1 m/s, which ate into the gate.)
+        const px = tr.rawX + tr.vx * dt, py = tr.rawY + tr.vy * dt;
+        // the gate grows with the speed the hand could have picked up (prediction error), not with maxSpeed alone:
+        // a coasting track must not grab a hand that appears a metre away
+        // (a track with fewer than 3 readings has no reliable speed yet: it gets the full maxSpeed)
+        const reach = tr.hits < 3 ? this.p.maxSpeed : Math.min(this.p.maxSpeed, 0.5 + 0.75 * Math.hypot(tr.vx, tr.vy));
+        const gate = this.p.gateBase + reach * dt;
         return D.map((d) => { const c = Math.hypot(d.x - px, d.y - py); return c <= gate ? c : 1e6; });
       });
       const asg = hungarian(cost);
@@ -110,7 +119,8 @@ export class WallTracker {
           events.push({ type: 'down', id: tr.id, wallId: this.wall.id, x: tr.x, y: tr.y, t: nowMs });
         } else if (nowMs - tr.born > this.p.tentativeMs) continue; // never confirmed: drop silently
       }
-      if (tr.state === 'active' && since > this.p.coastMs) {
+      const coast = Math.hypot(tr.vx, tr.vy) > COAST_MOVE_SPEED ? Math.max(this.p.coastMs, this.p.coastMovingMs) : this.p.coastMs;
+      if (tr.state === 'active' && since > coast) {
         events.push({ type: 'up', id: tr.id, wallId: this.wall.id, x: tr.x, y: tr.y, t: nowMs, duration: (nowMs - tr.downAt) / 1000 });
         continue;
       }
@@ -125,6 +135,8 @@ export class WallTracker {
         id: tr.id, wallId: this.wall.id,
         x: tr.x + tr.vx * lead, y: tr.y + tr.vy * lead,
         vx: tr.vx, vy: tr.vy, size: tr.size,
+        // the real reading: the filtered position AT the last revolution (no lead) and when it was (engine clock)
+        rx: tr.x, ry: tr.y, seenAt: tr.lastSeen,
         age: (nowMs - tr.downAt) / 1000,
         seenMs: nowMs - tr.lastSeen,
         coasting: nowMs - tr.lastSeen > 150,

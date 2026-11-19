@@ -1077,8 +1077,10 @@ test('ui: an experience page gets the room in render pixels, hears touches where
     for (let k = 0; k < 60 && !pr.events.some((e) => e.type === 'down'); k++) await wait(100);
     out.down = pr.events.find((e) => e.type === 'down') || null;
     out.listed = vt.touches().map((t) => ({ id: t.id, wallId: t.wallId, size: t.size }));
-    await cmd('sim.touch', { wallId: wall.id, x: x + 0.35, y, id: 'probe', down: true });
-    for (let k = 0; k < 40 && !pr.events.some((e) => e.type === 'move' && e.vx > 50); k++) await wait(100);
+    // the hand slides 0.35 m to the right as a hand does — about 0.6 m/s, read at 10 Hz — not in one jump: a still
+    // hand that is suddenly 0.35 m away in one revolution (3.5 m/s) is, rightly, another hand for the tracker
+    for (let s = 1; s <= 5; s++) { await cmd('sim.touch', { wallId: wall.id, x: x + 0.07 * s, y, id: 'probe', down: true }); await wait(120); }
+    for (let k = 0; k < 40 && !pr.events.some((e) => e.type === 'move' && e.vx > 20); k++) await wait(100);
     out.move = pr.events.filter((e) => e.type === 'move').sort((a, b) => b.vx - a.vx)[0] || null;
     await cmd('sim.touch', { wallId: wall.id, x, y, id: 'probe', down: false });
     for (let k = 0; k < 40 && !pr.events.some((e) => e.type === 'up'); k++) await wait(100);
@@ -1112,7 +1114,8 @@ test('ui: an experience page gets the room in render pixels, hears touches where
   assert.ok(Math.hypot(result.down.x - result.expected[0], result.down.y - result.expected[1]) < result.tol, `down at ${result.down.x.toFixed(1)}, ${result.down.y.toFixed(1)} px, expected ${result.expected.map((v) => v.toFixed(1))} +-${result.tol.toFixed(1)}`);
   assert.equal(result.down.vx, 0);
   assert.ok(result.listed.some((t) => t.id === result.down.id && t.wallId === result.down.wallId && t.size > 0), 'vt.touches() lists it with a size in px');
-  assert.ok(result.move && result.move.vx > 50 && result.move.x > result.down.x + 10, `moved right with a positive speed: ${JSON.stringify(result.move)}`);
+  // (the hand slides ~0.6 m/s: 40–50 render px/s at scale 0.25 — the threshold only asks for a clear positive speed)
+  assert.ok(result.move && result.move.vx > 20 && result.move.x > result.down.x + 10, `moved right with a positive speed: ${JSON.stringify(result.move)}`);
   assert.equal(result.move.id, result.down.id, 'same touch id');
   assert.ok(result.up && result.up.id === result.down.id, 'and an up for the same id when the hand leaves');
   assert.equal(result.touchesAfter, 0);
@@ -1663,6 +1666,7 @@ test('ui: output page — during a calibration the wall shows the hand, the fill
     out.cyanBefore = centroid(g, fb.width, fb.height, isCyan).n;
     await cmd('sim.touch', { wallId: wall.id, x: hand.x, y: hand.y, id: 'h', down: true });
     for (let k = 0; k < 60 && !(store.live?.calibHands?.[wall.id]?.length); k++) await wait(50);
+    await wait(350); // a few revolutions: the first one may catch the hand half-way in (a loaded machine shows it)
     await wait(150);
     out.liveHands = store.live?.calibHands?.[wall.id] || null;
     out.hand = centroid(g, fb.width, fb.height, isCyan); out.handAt = [hx, hy];
@@ -2025,4 +2029,41 @@ test('ui: desktop calibration result — a bad result makes Redo worst point / S
   assert.deepEqual(many.errors, []);
   assert.deepEqual(many.result.primary, ['Start over']);
   assert.match(many.result.asked, /off by 598 mm/);
+});
+
+// ---------------------------------------------------------------------------------------------------- experience hands (live feed -> vt.hands)
+
+test('ui: the live feed carries each touch\'s real reading (rx, ry, seenAt) and an experience gets the hand as a stroke from vt.hands()', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { cmd, store, on } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let k = 0; k < 100 && !(window.__probe && store.state); k++) await wait(100);
+    const pr = window.__probe, vt = pr.vt, wall = store.state.profile.walls[0];
+    const tuples = [];
+    on('live', (L) => { for (const list of Object.values(L.walls || {})) for (const t of list) tuples.push({ t: [...t], liveT: L.t }); });
+    const x = wall.width * 0.4, y = wall.height * 0.5;
+    for (let k = 0; k < 30; k++) { await cmd('sim.touch', { wallId: wall.id, x: x + k * 0.03, y, id: 'probe', down: true }); await wait(100); }
+    const during = vt.hands();
+    const out = { tuples: tuples.slice(-5), during, touches: vt.touches(), downs: pr.events.filter((e) => e.type === 'down'), strokes: [...new Set(pr.events.map((e) => e.stroke))] };
+    await cmd('sim.touch', { wallId: wall.id, x, y, id: 'probe', down: false });
+    for (let k = 0; k < 60 && vt.hands().length; k++) await wait(100);
+    out.after = vt.hands(); out.ups = pr.events.filter((e) => e.type === 'up');
+    return out;`, { page: '/experiences/touch-probe/index.html?run=1&fakeOut=1', wait: 'load', setup: (e) => withProbe(e, { play: true, scale: 0.25 }) });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.ok(result.tuples.length, 'live messages with a touch arrived');
+  for (const { t, liveT } of result.tuples) {
+    assert.equal(t.length, 8, `[id, x, y, size, coasting, rx, ry, seenAt]: ${JSON.stringify(t)}`);
+    assert.ok(t.slice(5).every(Number.isFinite), 'the real reading is numbers');
+    assert.ok(t[7] <= liveT, `seenAt is on the clock of live.t and not in its future (${t[7]} vs ${liveT})`);
+    assert.ok(Math.abs(t[5] - t[1]) < 0.5 && Math.abs(t[6] - t[2]) < 0.5, 'rx, ry are the same hand as x, y');
+  }
+  assert.equal(result.during.length, 1, 'one hand in vt.hands()');
+  const h = result.during[0];
+  assert.equal(h.id, h.stroke, 'its stroke id is the id of the events');
+  assert.ok(Number.isFinite(h.x) && Number.isFinite(h.vx) && h.size > 0 && h.wallId, 'with position, velocity (from the curve), size and wall');
+  assert.equal(result.downs.length, 1, 'one down');
+  assert.deepEqual(result.strokes, [result.downs[0].stroke], 'and the events all name the same stroke');
+  assert.equal(result.touches.length, 1);
+  assert.deepEqual(result.after, [], 'the hand is gone after the touch ends');
+  assert.equal(result.ups.length, 1, 'with one up');
 });

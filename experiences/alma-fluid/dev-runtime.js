@@ -1,6 +1,8 @@
 // A stand-in for /experiences/runtime.js, ONLY for testing and for opening the experience by hand without the
 // engine (the tests serve it in place of the real runtime). Same shape as the real API:
-//   connectExperience() → { canvas, scale, size, walls, toPx, closedLoop, params, on, touches, loop, sink, fit, standalone }
+//   connectExperience() → { canvas, scale, size, walls, toPx, closedLoop, params, on, touches, hands, loop, sink, fit, standalone }
+// The hands are exactly the touches the test emitted (no playback delay, no stitching: the real runtime's job, tested apart).
+// A touch event may carry `stroke` (default: its id) and `ended: true`.
 // Configure through the query string: ?walls=4&ww=200&wh=120&closed=1&params={"emitters":0}&raf=1
 //   raf=1 runs the loop on requestAnimationFrame and turns the pointer into a touch (manual use);
 //   without it a test drives the frames: window.__vtDev.frame(dt), .emit('touch', {...}), .setParams({...}).
@@ -30,6 +32,7 @@ export async function connectExperience() {
     params,
     on: (name, fn) => { (handlers[name] ||= []).push(fn); },
     touches: () => [...down.values()],
+    hands: () => [...down.values()].map((t) => ({ ...t })),
     // `src`: a WebGL context, or the canvas element when the page draws with WebGPU (vt.gl is then null)
     loop: (fn, src) => { frameFn = fn; vt.src = src; vt.gl = typeof src.drawingBufferWidth === 'number' ? src : null; if (q.get('raf') === '1') { let last = performance.now(); const tick = (t) => { fn((t - last) / 1000); last = t; requestAnimationFrame(tick); }; requestAnimationFrame(tick); } },
     sink: 'browser',
@@ -37,7 +40,7 @@ export async function connectExperience() {
     standalone: true,
     // test and manual helpers
     emit(name, payload) {
-      if (name === 'touch') { if (payload.type === 'up') down.delete(payload.id); else down.set(payload.id, { id: payload.id, wallId: payload.wallId, x: payload.x, y: payload.y, size: payload.size }); }
+      if (name === 'touch') { if (payload.type === 'up') down.delete(payload.id); else down.set(payload.id, { id: payload.id, stroke: payload.stroke ?? payload.id, wallId: payload.wallId, x: payload.x, y: payload.y, vx: payload.vx || 0, vy: payload.vy || 0, size: payload.size, ended: !!payload.ended }); }
       for (const fn of handlers[name] || []) fn(payload);
     },
     setParams(p) { Object.assign(params, p); for (const fn of handlers.params) fn(params); },
