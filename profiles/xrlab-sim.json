@@ -157,5 +157,18 @@
   ],
   "simulation": {
     "wanderers": 2
+  },
+  "experience": {
+    "id": "alma-fluid",
+    "autostart": false,
+    "sink": "spout",
+    "senderName": "VEATION Touch Experience",
+    "scale": 0.5,
+    "fps": 60,
+    "params": {
+      "alma-fluid": {
+        "logoWall": "P1"
+      }
+    }
   }
 }

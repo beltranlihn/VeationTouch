@@ -230,6 +230,31 @@ function normOutput(o, i) {
   };
 }
 
+/**
+ * The experience loaded in this room (Experiences tab): which one, where it goes and how, and the parameter values
+ * the operator chose for each experience (keyed by experience id — the manifest says what the keys mean).
+ */
+function normExperience(e) {
+  const params = {};
+  for (const [eid, vals] of Object.entries(e?.params && typeof e.params === 'object' ? e.params : {}).slice(0, 64)) {
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(eid) || !vals || typeof vals !== 'object') continue;
+    params[eid] = Object.fromEntries(Object.entries(vals).slice(0, 64)
+      .filter(([k, v]) => /^[A-Za-z0-9_.-]{1,40}$/.test(k) && (typeof v === 'boolean' || typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))))
+      .map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 200) : v]));
+  }
+  return {
+    id: typeof e?.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(e.id) ? e.id : null,
+    autostart: bool(e?.autostart, false),
+    sink: e?.sink === 'window' ? 'window' : 'spout',
+    senderName: str(e?.senderName, 'VEATION Touch Experience').replace(/[^\w .-]/g, '').slice(0, 60) || 'VEATION Touch Experience',
+    displayId: Number.isFinite(e?.displayId) ? e.displayId : null,
+    fit: e?.fit === 'stretch' ? 'stretch' : 'fit',
+    scale: [0.25, 0.5, 0.75, 1].includes(e?.scale) ? e.scale : 0.5,
+    fps: e?.fps === 30 ? 30 : 60,
+    params,
+  };
+}
+
 export function normalizeProfile(input) {
   const p = input && typeof input === 'object' ? migrate(structuredClone(input)) : {};
   const canvas = { width: int(p.canvas?.width, 3840, 16, 32768), height: int(p.canvas?.height, 2400, 16, 32768) };
@@ -251,6 +276,7 @@ export function normalizeProfile(input) {
     notes: str(p.notes),
     canvas,
     walls, sensors, zones, outputs,
+    experience: normExperience(p.experience),
     processing: {
       minQuality: int(pr.minQuality, D.minQuality, 0, 255),
       minRangeMm: int(pr.minRangeMm, D.minRangeMm, 0, 2000),

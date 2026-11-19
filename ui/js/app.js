@@ -5,6 +5,7 @@
 import { store, on, connect, cmd, editProfile, setViz, isCoarse, undo, redo, history, otherControl, editBlocked } from './conn.js';
 import { h, toast, confirmBox, modal } from './dom.js';
 import { Workspace } from './workspace.js';
+import * as expview from './expview.js';
 import { Room3D } from './room3d.js';
 import { withGeom, geomOf, translateGeom, boundsOfGeom } from './shapes.js';
 import * as V from './views.js';
@@ -117,7 +118,7 @@ ctx.views = V;
 
 const RERENDER_ON = {
   live: ['state', 'status', 'live'], room: ['state'], mapping: ['state'], sensors: ['state', 'status'],
-  calibrate: ['state', 'status', 'calib'], zones: ['state', 'live'], outputs: ['state', 'status'], system: ['state', 'recording'],
+  calibrate: ['state', 'status', 'calib'], zones: ['state', 'live'], outputs: ['state', 'status'], experiences: ['state'], system: ['state', 'recording'],
 };
 
 function setView(view) {
@@ -187,6 +188,15 @@ function hint() {
     system: '',
   }[ctx.view];
   $('stageHint').textContent = t || '';
+  renderXpCaption();
+}
+
+/** Says the walls show the experience simulated here, so nobody takes it for the room's output. */
+function renderXpCaption() {
+  const c = $('xpCaption'), e = expview.active() ? expview.current() : null;
+  const show = !!e && ws.space === 'wall' && !(ctx.view === 'outputs' && ws.texture);
+  c.hidden = !show;
+  c.textContent = show ? `${e.name} — preview in this window` : '';
 }
 
 // ------------------------------------------------------------------ workspace bar
@@ -215,7 +225,7 @@ function renderBar() {
   syncTexture();
   const bar = [];
   const sims = P.sensors.some((s) => s.driver === 'sim' && s.enabled);
-  const wallSpace = ctx.view !== 'mapping' && ctx.view !== 'outputs' && ctx.view !== 'system' && ws.space === 'wall';
+  const wallSpace = ctx.view !== 'mapping' && ctx.view !== 'outputs' && ctx.view !== 'experiences' && ctx.view !== 'system' && ws.space === 'wall';
 
   // wall navigator
   if (wallSpace && P.walls.length > 1) {
@@ -356,15 +366,15 @@ addEventListener('keydown', (e) => {
   if (e.key === '?') { shortcuts(); return; }
   const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
   if (arrows && ws.nudge(arrows[0], arrows[1], e.shiftKey)) e.preventDefault();
-  if (!mod && /^[1-8]$/.test(e.key)) {
-    const views = ['live', 'room', 'mapping', 'sensors', 'calibrate', 'zones', 'outputs', 'system'];
+  if (!mod && /^[1-9]$/.test(e.key)) {
+    const views = ['live', 'room', 'mapping', 'sensors', 'calibrate', 'zones', 'outputs', 'experiences', 'system'];
     setView(views[Number(e.key) - 1]);
   }
 });
 
 function shortcuts() {
   const rows = [
-    ['1 – 8', 'Switch tool: Live, Room, Mapping, Sensors, Calibrate, Zones, Outputs, System'],
+    ['1 – 9', 'Switch tool: Live, Room, Mapping, Sensors, Calibrate, Zones, Outputs, Experiences, System'],
     ['Ctrl+Z · Ctrl+Shift+Z / Ctrl+Y', 'Undo · redo'],
     ['Arrows', 'Nudge the selection: 1 px in Mapping, one snap step (1 cm by default) on walls'],
     ['Shift + arrows', '10 px · ten snap steps'],
@@ -387,6 +397,9 @@ function renderTop() {
   const S = store.state;
   app.classList.toggle('locked', !!S.locked);
   $('contentBtn').hidden = !S.underlay;
+  $('expBtn').hidden = !expview.available();
+  $('expBtn').classList.toggle('on', expview.isOn());
+  renderXpCaption();
   $('lockBtn').classList.toggle('on', !!S.locked);
   $('lockBtn').textContent = S.locked ? 'Show · locked' : 'Show';
   if (S.locked && ws.tool !== 'select' && ws.tool !== 'hand') ws.tool = 'select';
@@ -443,7 +456,7 @@ function renderStatusBar() {
     h('span', {}, `engine ${e.fps ?? '—'} fps`),
     h('span', {}, `${e.rss ?? '—'} MB`),
     h('span', {}, `v${S.version}`),
-    h('button', { class: 'linkish muted', onclick: shortcuts, title: 'Keyboard shortcuts' }, 'keys 1–8 tools · Ctrl+Z undo · ? shortcuts'),
+    h('button', { class: 'linkish muted', onclick: shortcuts, title: 'Keyboard shortcuts' }, 'keys 1–9 tools · Ctrl+Z undo · ? shortcuts'),
   ].filter(Boolean));
 }
 
@@ -466,6 +479,8 @@ $('redoBtn').addEventListener('click', () => redo());
 const contentBtn = $('contentBtn');
 contentBtn.classList.toggle('on', ws.showContent);
 contentBtn.addEventListener('click', () => { ws.showContent = !ws.showContent; contentBtn.classList.toggle('on', ws.showContent); });
+const expBtn = $('expBtn');
+expBtn.addEventListener('click', () => { expview.setOn(!expview.isOn()); expBtn.classList.toggle('on', expview.isOn()); renderXpCaption(); });
 const pointsBtn = $('pointsBtn');
 pointsBtn.classList.toggle('on', ws.showPoints);
 pointsBtn.addEventListener('click', () => { ws.showPoints = !ws.showPoints; pointsBtn.classList.toggle('on', ws.showPoints); setViz(ws.showPoints); });

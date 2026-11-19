@@ -1209,6 +1209,118 @@ function textureEditor(o, s, ctx) {
   ];
 }
 
+// ======================================================================= EXPERIENCES
+
+const XP_SCALES = [0.25, 0.5, 0.75, 1];
+let xpTimer = null;
+
+/** The running page's last frame (the engine keeps it in memory). A device that is not this computer carries its key. */
+function xpPreviewUrl() {
+  const S = store.state;
+  return `/api/experience/preview.jpg?t=${Date.now()}${S.local ? '' : `&k=${encodeURIComponent(S.token || '')}`}`;
+}
+
+/** Refresh the preview once a second while one is on screen (the view is rebuilt often; one timer serves them all). */
+function xpKeepFresh() {
+  if (xpTimer) return;
+  xpTimer = setInterval(() => {
+    const img = document.querySelector('img.xp-preview');
+    if (!img || !store.state?.experience?.running) { clearInterval(xpTimer); xpTimer = null; return; }
+    img.src = xpPreviewUrl();
+  }, 1000);
+}
+
+/** Send a parameter while a fader moves (about 15 per second at most; the last value always goes out). */
+function xpLiveParam(key) {
+  let last = 0, timer = null, latest = null;
+  const send = () => { timer = null; last = performance.now(); cmd('experience.param', { key, value: latest }).catch(() => {}); };
+  return (v) => { latest = v; if (timer) return; const wait = 66 - (performance.now() - last); if (wait <= 0) send(); else timer = setTimeout(send, wait); };
+}
+
+export function experiences(ctx) {
+  const S = store.state, X = S.experience, cat = S.experiences || [], prof = P();
+  const X0 = prof.experience; // the saved settings (destination, scale, fps…)
+  const locked = !!S.locked;
+  const headless = !(S.displays?.length); // no desktop app around: the page is opened in a browser
+  const saved = (c) => X0.params?.[c.id] || {};
+  const dims = (k) => `${Math.round(prof.canvas.width * k)} × ${Math.round(prof.canvas.height * k)} px`;
+  const set = (args) => run(cmd('experience.set', args));
+  const pageUrl = X.url ? `${location.origin}${X.url}${S.local ? '' : `&k=${encodeURIComponent(S.token || '')}`}` : '';
+  if (X.running) xpKeepFresh();
+
+  const paramRow = (c, p) => {
+    const value = p.key in saved(c) ? saved(c)[p.key] : p.default;
+    const send = (v) => run(cmd('experience.param', { key: p.key, value: v }));
+    if (p.type === 'number') {
+      const dec = (String(p.step).split('.')[1] || '').length;
+      return fader(p.label, value, { min: p.min, max: p.max, step: p.step, unit: p.unit || '', decimals: dec }, xpLiveParam(p.key), send);
+    }
+    if (p.type === 'select') return selectField(p.label, value, p.options, send);
+    if (p.type === 'bool') return toggle(p.label, !!value, send);
+    return selectField(p.label, value ?? '', [['', 'Any'], ...prof.walls.map((w) => [w.id, w.name || w.id])], (v) => send(v === '' ? null : v));
+  };
+
+  const destination = () => {
+    const box = h('div', { class: 'xp-set' },
+      h('div', { class: 'row' }, h('span', { class: 'k' }, 'Send to'), h('div', { class: 'seg' }, [['spout', 'Spout'], ['window', 'Full screen']].map(([m, t]) =>
+        h('button', { class: X0.sink === m ? 'on' : '', onclick: () => set({ sink: m }) }, t)))),
+      X0.sink === 'spout'
+        ? [field('Sender name', X0.senderName, (v) => set({ senderName: v })),
+          h('p', { class: 'muted' }, `Spout "${X0.senderName}" on this computer: the media server (Smode, TouchDesigner, Resolume…) reads it as a source.`)]
+        : [S.displays?.length
+          ? selectField('Display', X0.displayId ?? '', [['', 'Choose a display…'], ...S.displays.map((d) => [d.id, `${d.label} · ${d.width}×${d.height}${d.primary ? ' (primary)' : ''}`])],
+            (v) => set({ displayId: v === '' ? null : Number(v) }))
+          : h('p', { class: 'muted' }, 'The desktop app opens the full-screen window on the display you choose. Here, open the page in a browser (F11).'),
+        h('div', { class: 'row' }, h('span', { class: 'k' }, 'Proportions'), h('div', { class: 'seg' }, [['fit', 'Fit'], ['stretch', 'Stretch']].map(([m, t]) =>
+          h('button', { class: X0.fit === m ? 'on' : '', title: m === 'fit' ? 'The canvas proportions, black around' : 'Fill the whole display', onclick: () => set({ fit: m }) }, t))))],
+      selectField('Scale', X0.scale, XP_SCALES.map((k) => [k, `${k} — ${dims(k)}`]), (v) => set({ scale: v }), { numeric: true }),
+      h('div', { class: 'row' }, h('span', { class: 'k' }, 'FPS'), h('div', { class: 'seg' }, [30, 60].map((f) =>
+        h('button', { class: X0.fps === f ? 'on' : '', onclick: () => set({ fps: f }) }, String(f))))),
+      toggle('Start with the app', X0.autostart, (on) => set({ autostart: on })));
+    if (locked) {
+      for (const el of box.querySelectorAll('button, select, input')) el.disabled = true;
+      box.append(h('p', { class: 'muted' }, 'Locked in Show mode: unlock the room to change where it goes.'));
+    }
+    return box;
+  };
+
+  const status = () => {
+    if (X.error) return h('div', { class: 'callout bad' }, X.error);
+    const where = X0.sink === 'spout' ? `Spout "${X0.senderName}"` : 'full screen';
+    return h('p', { class: 'xp-status' },
+      X.fps > 0 ? h('b', { class: 'live tnum' }, `${X.fps} fps`) : h('span', { class: 'muted' }, 'Starting…'),
+      h('span', { class: 'muted' }, ` · ${where} · ${dims(X0.scale)}`));
+  };
+
+  const card = (c) => {
+    const running = X.running && X.id === c.id, selected = X.id === c.id;
+    return h('div', { class: `xp-card${running ? ' on' : ''}`, 'data-id': c.id },
+      h('div', { class: 'head' },
+        h('div', { class: 't' }, c.name, c.description ? h('small', {}, c.description) : null),
+        running ? badge('running', 'live') : null,
+        running
+          ? h('button', { class: 'btn small', onclick: () => run(cmd('experience.stop')) }, 'Stop')
+          : h('button', { class: 'btn small primary', onclick: () => run(cmd('experience.play', { id: c.id })) }, 'Play')),
+      running ? [
+        h('div', { class: 'xp-prev', style: { aspectRatio: `${prof.canvas.width} / ${prof.canvas.height}` } },
+          h('img', { class: 'xp-preview', alt: 'Live preview', src: X.previewAt ? xpPreviewUrl() : undefined, onerror: (e) => e.target.classList.add('empty'), onload: (e) => e.target.classList.remove('empty') })),
+        status(),
+        headless ? h('div', { class: 'callout attn' }, 'No desktop app on this computer: open the page in a browser to run it. ',
+          h('a', { href: pageUrl, target: '_blank', style: { color: 'var(--ink)' } }, pageUrl)) : null,
+      ] : null,
+      running || selected ? [
+        destination(),
+        c.params.length ? h('div', { class: 'xp-params' }, c.params.map((p) => paramRow(c, p))) : null,
+      ] : null);
+  };
+
+  return [
+    sec(['Experiences', h('span', { class: 'grow' }), h('button', { class: 'btn small', title: 'Look for experiences again', onclick: () => run(cmd('experience.list')) }, 'Rescan')],
+      h('p', { class: 'muted' }, 'Interactive pieces that react to the touches. Play one and it goes straight to the room: over Spout to the media server, or full screen on a display.'),
+      cat.length ? h('div', { class: 'xp-list' }, cat.map(card)) : h('p', { class: 'muted' }, 'No experiences found. They live in the experiences folder of the app: one folder each, with a manifest.json.')),
+  ];
+}
+
 // ======================================================================= SYSTEM
 
 export function system(ctx) {

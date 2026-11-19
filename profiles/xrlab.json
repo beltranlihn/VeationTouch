@@ -153,5 +153,18 @@
       "rateHz": 60,
       "enabled": false
     }
-  ]
+  ],
+  "experience": {
+    "id": "alma-fluid",
+    "autostart": true,
+    "sink": "spout",
+    "senderName": "VEATION Touch Experience",
+    "scale": 0.5,
+    "fps": 60,
+    "params": {
+      "alma-fluid": {
+        "logoWall": "P1"
+      }
+    }
+  }
 }

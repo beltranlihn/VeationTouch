@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Touch probe</title>
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+// Test fixture for experiences/runtime.js: draws a colour and records what the runtime reports (window.__probe).
+import { connectExperience } from '/experiences/runtime.js';
+const vt = await connectExperience();
+const probe = window.__probe = { vt, events: [], params: [], frames: 0, gl: false };
+vt.on('touch', (e) => probe.events.push(e));
+vt.on('params', (p) => probe.params.push({ ...p }));
+const c = document.getElementById('c');
+c.width = vt.size.width; c.height = vt.size.height;
+const gl = c.getContext('webgl2') || c.getContext('webgl');
+probe.gl = !!gl;
+let t = 0;
+vt.loop((dt) => {
+  t += dt;
+  gl.viewport(0, 0, c.width, c.height);
+  gl.clearColor((Math.sin(t) + 1) / 2, vt.params.gain / 2, 0.4, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  probe.frames++;
+}, gl);
+</script>
+</body>
+</html>

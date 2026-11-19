@@ -99,6 +99,8 @@ a.btn{text-decoration:none;}
 #roomCanvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;}
 #room3d{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;}
 #room3d[hidden]{display:none;}
+.stage-caption{position:absolute;right:var(--sp-12);bottom:var(--sp-12);color:var(--ink-3);font-size:var(--fs-s);pointer-events:none;}
+.stage-caption[hidden]{display:none;}
 .stage-hint{position:absolute;left:var(--sp-12);bottom:var(--sp-12);color:var(--ink-3);font-size:var(--fs-s);pointer-events:none;max-width:70%;}
 .stage-tools{position:absolute;right:var(--sp-12);top:var(--sp-12);display:flex;gap:var(--sp-6);}
 /* workspace bar: wall navigator + the tools of the current mode */
@@ -376,3 +378,19 @@ kbd{font:500 11px/1 Geist, system-ui;color:var(--ink);background:var(--s2);borde
 .cloud-box code{word-break:break-all;}
 .cloud-h{margin:var(--sp-8) 0 var(--sp-4);font-size:var(--fs-l);font-weight:600;color:var(--ink);}
 .cloud-sep{border:0;border-top:1px solid var(--line);margin:var(--sp-12) 0;}
+
+/* experiences */
+.nav button[data-view=experiences] span{font-size:9px;letter-spacing:-.02em;}
+.xp-list{display:flex;flex-direction:column;gap:var(--sp-8);}
+.xp-card{display:flex;flex-direction:column;gap:var(--sp-8);padding:var(--sp-8) var(--sp-12);border-radius:var(--r);background:var(--s1);border:.5px solid var(--line);}
+.xp-card.on{border-color:rgba(79,195,232,.45);background:var(--s2);}
+.xp-card .head{display:flex;align-items:center;gap:var(--sp-8);min-width:0;}
+.xp-card .head .t{flex:1;min-width:0;font-weight:600;color:var(--ink);}
+.xp-card .head .t small{display:block;margin-top:2px;font-weight:400;color:var(--ink-3);font-size:var(--fs-s);line-height:1.4;}
+.xp-prev{width:100%;background:var(--well-deep);border-radius:var(--r);overflow:hidden;border:.5px solid var(--line);}
+.xp-prev img{display:block;width:100%;height:100%;object-fit:contain;}
+.xp-prev img.empty{visibility:hidden;}
+.xp-status{margin:0;font-size:var(--fs-l);}
+.xp-status .live{color:var(--live);font-weight:600;}
+.xp-set,.xp-params{display:flex;flex-direction:column;gap:var(--sp-4);padding-top:var(--sp-8);border-top:.5px solid var(--line-soft);}
+.xp-set p,.xp-params p{margin:0;}

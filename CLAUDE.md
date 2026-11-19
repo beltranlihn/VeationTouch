@@ -13,6 +13,10 @@ Producto reutilizable: **nada de una sala concreta va en el código** — todo v
 - **`ARCHITECTURE.md`** = cómo funciona (procesos, coordenadas, pipeline, protocolo S2E, robustez). Leer antes de tocar el motor.
 - **`docs/OSC.md`** = contrato de salida (OSC, Triggers, TUIO, WebSocket, Webhook, Art-Net, sACN, Spout, SDK) — es API pública: cambiarla rompe proyectos de clientes.
 - **`docs/research/`** = investigación previa (informes + notas, incluida la documentación oficial del S2E con los PDFs de Slamtec).
+- **`experiences/`** = experiencias interactivas que la app manda directo a la sala (pestaña Experiences): `runtime.js` es
+  su API (lienzo, muros, toques, parámetros, salida Spout). Una carpeta por pieza con su `manifest.json`; la primera es
+  `alma-fluid` (fluido de la web, MIT). En salas que cierran el círculo deben ser continuas 360° (sin costura P3→P4).
+- **`cloud/`** = acceso por internet: relé en Cloudflare (`relay/`) y página de salas en Vercel (`launcher/`).
 - **`README.md`** = índice del repositorio y cómo arrancar.
 
 ## Convenciones (obligatorias)

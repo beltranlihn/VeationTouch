@@ -1,0 +1,12 @@
+{
+  "id": "touch-probe",
+  "name": "Touch probe",
+  "description": "Test fixture: clears the canvas and records the touches it gets.",
+  "entry": "index.html",
+  "params": [
+    { "key": "gain", "label": "Gain", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1, "unit": "x" },
+    { "key": "mode", "label": "Mode", "type": "select", "options": [["soft", "Soft"], ["hard", "Hard"]], "default": "soft" },
+    { "key": "trails", "label": "Trails", "type": "bool", "default": false },
+    { "key": "focus", "label": "Focus wall", "type": "wall", "default": null }
+  ]
+}

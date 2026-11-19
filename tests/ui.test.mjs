@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { Store } from '../engine/store.js';
 import { Engine } from '../engine/engine.js';
 import { createServer } from '../engine/server.js';
+import { normalizeProfile } from '../engine/profile.js';
 
 const quiet = { info() {}, warn() {}, error() {}, recent: () => [] };
 const root = path.resolve(import.meta.dirname, '..');
@@ -1040,4 +1041,304 @@ test('ui: Connect device offers Same Wi-Fi and Over the internet; the internet s
   assert.match(result.onText, /Online/);
   assert.match(decodeURIComponent(result.qr), /launcher\.example\/#r=abc&k=KEY/);
   assert.match(result.errText, /Cannot reach the relay \(ENOTFOUND\)/);
+});
+
+// ---------------------------------------------------------------------------------------------------- experiences
+
+const EXPERIENCES_FIXTURES = path.join(root, 'tests', 'fixtures', 'experiences');
+/** An engine that lists the touch-probe fixture, with no wandering hands (their touches would join the ones under test). */
+async function withProbe(engine, { play = false, scale } = {}) {
+  engine.experienceDirs.push(EXPERIENCES_FIXTURES);
+  await engine.command('experience.list');
+  const p = structuredClone(engine.profile);
+  p.simulation.wanderers = 0;
+  p.experience = normalizeProfile({}).experience; // the bundled rooms may come with an experience chosen
+  await engine.command('profile.update', { profile: p, rev: engine.rev });
+  if (scale) await engine.command('experience.set', { scale });
+  if (play) await engine.command('experience.play', { id: 'touch-probe' });
+}
+
+test('ui: an experience page gets the room in render pixels, hears touches where they land, and vt.frame feeds the Spout bridge at the render size', opt, async () => {
+  const { result, errors, engine } = await inUi(`
+    const { cmd, store } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let k = 0; k < 100 && !(window.__probe && store.state); k++) await wait(100);
+    const pr = window.__probe, vt = pr.vt, P = store.state.profile, wall = P.walls[0], r = wall.pixelRect;
+    const out = { gl: pr.gl, sink: vt.sink, fit: vt.fit, standalone: vt.standalone, size: vt.size, canvas: vt.canvas, scale: vt.scale, fps: vt.fps,
+      walls: vt.walls, rects: P.walls.map((w) => w.pixelRect), modes: P.walls.map((w) => w.mapping.mode), closed: vt.closedLoop, joined: P.walls.every((w) => w.joinNext === true), params0: { ...vt.params } };
+    // a hand on the first wall, then moved right, then lifted
+    const x = wall.width * 0.4, y = wall.height * 0.5;
+    out.expected = [(r.x + (x / wall.width) * r.w) * vt.scale, (r.y + (1 - y / wall.height) * r.h) * vt.scale];
+    out.tol = 0.06 * (r.w * vt.scale) / wall.width; // 6 cm of the wall, in render px
+    out.toPx = vt.toPx(wall.id, x, y);
+    await cmd('sim.touch', { wallId: wall.id, x, y, id: 'probe', down: true });
+    for (let k = 0; k < 60 && !pr.events.some((e) => e.type === 'down'); k++) await wait(100);
+    out.down = pr.events.find((e) => e.type === 'down') || null;
+    out.listed = vt.touches().map((t) => ({ id: t.id, wallId: t.wallId, size: t.size }));
+    await cmd('sim.touch', { wallId: wall.id, x: x + 0.35, y, id: 'probe', down: true });
+    for (let k = 0; k < 40 && !pr.events.some((e) => e.type === 'move' && e.vx > 50); k++) await wait(100);
+    out.move = pr.events.filter((e) => e.type === 'move').sort((a, b) => b.vx - a.vx)[0] || null;
+    await cmd('sim.touch', { wallId: wall.id, x, y, id: 'probe', down: false });
+    for (let k = 0; k < 40 && !pr.events.some((e) => e.type === 'up'); k++) await wait(100);
+    out.up = pr.events.find((e) => e.type === 'up') || null;
+    out.touchesAfter = vt.touches().length;
+    // a parameter changes live, without the page reloading
+    const same = pr.vt;
+    await cmd('experience.param', { key: 'gain', value: 0.5 });
+    await wait(300);
+    out.paramsAfter = { ...vt.params }; out.paramEvents = pr.params.length; out.sameHandle = window.__probe.vt === same;
+    await wait(2300); // a preview (1 s) and a report (2 s) have gone out by now
+    const c = window.__vtOutCalls;
+    out.out = { start: c.start, n: c.send.length, first: c.send[0], bad: c.send.filter((s) => s.w !== vt.size.width || s.h !== vt.size.height || s.bytes !== s.w * s.h * 4 || s.flipY !== true).length };
+    out.frames = pr.frames;
+    return out;`, { page: '/experiences/touch-probe/index.html?run=1&fakeOut=1', wait: 'load', setup: (e) => withProbe(e, { play: true, scale: 0.25 }) });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.equal(result.gl, true, 'the fixture got a WebGL context');
+  assert.equal(result.standalone, false);
+  assert.equal(result.sink, 'spout', 'the bridge is there and the profile says Spout');
+  assert.equal(result.fit, 'fit');
+  assert.equal(result.scale, 0.25);
+  assert.deepEqual(result.size, { width: Math.round(result.canvas.width * 0.25), height: Math.round(result.canvas.height * 0.25) }, 'render size = canvas x scale');
+  assert.deepEqual(result.walls.map((w) => w.rect), result.rects.map((r) => ({ x: Math.round(r.x * 0.25), y: Math.round(r.y * 0.25), w: Math.round(r.w * 0.25), h: Math.round(r.h * 0.25) })), 'each wall\'s area in render px, in profile order');
+  assert.equal(result.closed, true, 'the four screens close the room');
+  assert.equal(result.closed, result.joined, 'vt.closedLoop is the profile\'s planCloses (its walls are joined at their corners)');
+  assert.deepEqual(result.params0, { gain: 1, mode: 'soft', trails: false, focus: null }, 'the manifest defaults');
+  assert.ok(result.modes.every((m) => m === 'rect'), 'the arithmetic below assumes rect mappings');
+  assert.ok(Math.hypot(result.toPx[0] - result.expected[0], result.toPx[1] - result.expected[1]) < 0.01, `toPx ${result.toPx} vs ${result.expected}`);
+
+  assert.ok(result.down, 'the runtime emitted a down');
+  assert.ok(Math.hypot(result.down.x - result.expected[0], result.down.y - result.expected[1]) < result.tol, `down at ${result.down.x.toFixed(1)}, ${result.down.y.toFixed(1)} px, expected ${result.expected.map((v) => v.toFixed(1))} +-${result.tol.toFixed(1)}`);
+  assert.equal(result.down.vx, 0);
+  assert.ok(result.listed.some((t) => t.id === result.down.id && t.wallId === result.down.wallId && t.size > 0), 'vt.touches() lists it with a size in px');
+  assert.ok(result.move && result.move.vx > 50 && result.move.x > result.down.x + 10, `moved right with a positive speed: ${JSON.stringify(result.move)}`);
+  assert.equal(result.move.id, result.down.id, 'same touch id');
+  assert.ok(result.up && result.up.id === result.down.id, 'and an up for the same id when the hand leaves');
+  assert.equal(result.touchesAfter, 0);
+
+  assert.equal(result.paramsAfter.gain, 0.5, 'vt.params follows the operator');
+  assert.ok(result.paramEvents >= 1, 'a params event fired');
+  assert.equal(result.sameHandle, true);
+  assert.deepEqual(result.out.start, ['VEATION Touch Experience'], 'the Spout sender is started once, with the sender name');
+  assert.ok(result.out.n >= 5, `frames reached the bridge (${result.out.n})`);
+  assert.equal(result.out.first.w, result.size.width);
+  assert.equal(result.out.first.h, result.size.height);
+  assert.equal(result.out.bad, 0, 'every frame: render size, w x h x 4 bytes, flipY');
+  assert.ok(engine.exp.fps > 5, `the page reported its fps (${engine.exp.fps})`);
+  assert.equal(engine.exp.error, null);
+  assert.ok(engine.expPreview?.buf?.[0] === 0xff && engine.expPreview.buf[1] === 0xd8, 'a JPEG preview reached the engine');
+  assert.ok(engine.expPreview.buf.length < 300 * 1024);
+});
+
+test('ui: Experiences — the catalog, Play and Stop, the destination and the manifest controls; no knob-and-dot sliders', opt, async () => {
+  const { result, errors, engine } = await inUi(`
+    const { store, cmd } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const out = {};
+    const panel = document.getElementById('panel');
+    const card = () => panel.querySelector('.xp-card[data-id="touch-probe"]');
+    const btn = (root, t) => [...root.querySelectorAll('button')].find((b) => b.innerText.trim() === t);
+    // the tab, and its key
+    out.nav = !!document.querySelector('#nav button[data-view="experiences"]');
+    window.__vt.go('live'); await wait(100);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '8' })); await wait(150);
+    out.keyView = window.__vt.view;
+    out.catalog = [...panel.querySelectorAll('.xp-card')].map((c) => c.dataset.id);
+    out.idleHasPlay = !!btn(card(), 'Play'); out.idleHasStop = !!btn(card(), 'Stop'); out.idlePreview = !!card().querySelector('img');
+    // Play
+    btn(card(), 'Play').click();
+    for (let k = 0; k < 30 && !store.state.experience.running; k++) await wait(50);
+    await wait(200);
+    out.running = store.state.experience.running; out.url = store.state.experience.url;
+    out.on = card().classList.contains('on'); out.hasStop = !!btn(card(), 'Stop'); out.preview = !!card().querySelector('img.xp-preview');
+    out.text = card().innerText;
+    out.faders = card().querySelectorAll('.vfield').length;
+    out.labels = [...card().querySelectorAll('.row > label')].map((l) => l.innerText);
+    out.scaleOptions = [...card().querySelectorAll('select')].flatMap((s) => [...s.options].map((o) => o.textContent)).filter((t) => /px/.test(t));
+    out.switches = card().querySelectorAll('.switch').length;
+    out.rangeInputs = document.querySelectorAll('input[type=range]').length;
+    out.focusOptions = [...card().querySelectorAll('select')].map((s) => [...s.options].map((o) => o.value)).find((v) => v.includes('') && v.length > 2);
+    // a fader (keyboard: one step), a toggle, a select, a destination, the scale
+    card().querySelector('.vfield').focus();
+    card().querySelector('.vfield').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    await wait(250);
+    out.gain = store.state.profile.experience.params['touch-probe']?.gain;
+    document.activeElement.blur(); await wait(150);
+    card().querySelector('.xp-params .switch').click(); await wait(250);
+    out.trails = store.state.profile.experience.params['touch-probe']?.trails;
+    const modeSel = [...card().querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'hard'));
+    modeSel.value = 'hard'; modeSel.dispatchEvent(new Event('change')); await wait(250);
+    out.mode = store.state.profile.experience.params['touch-probe']?.mode;
+    const scaleSel = [...card().querySelectorAll('select')].find((s) => [...s.options].some((o) => /0\\.25/.test(o.textContent)));
+    scaleSel.value = '1'; scaleSel.dispatchEvent(new Event('change')); await wait(250);
+    out.scale = store.state.profile.experience.scale;
+    btn(card(), '30').click(); await wait(250);
+    out.fps = store.state.profile.experience.fps;
+    btn(card(), 'Full screen').click(); await wait(250);
+    out.sink = store.state.profile.experience.sink;
+    out.fullText = card().innerText;
+    btn(card(), 'Spout').click(); await wait(250);
+    // Show mode: where it goes is locked, running it is not
+    await cmd('app.lock', { locked: true }); await wait(300);
+    out.lockedControls = [...card().querySelectorAll('.xp-set button, .xp-set select, .xp-set input')].every((e) => e.disabled);
+    out.lockedStop = !btn(card(), 'Stop').disabled; out.lockedFader = !!card().querySelector('.vfield');
+    out.lockedSet = await cmd('experience.set', { fps: 60 }).then(() => 'accepted', (e) => e.message);
+    await cmd('experience.param', { key: 'gain', value: 0.7 });
+    await cmd('app.lock', { locked: false }); await wait(200);
+    // Stop
+    btn(card(), 'Stop').click();
+    for (let k = 0; k < 30 && store.state.experience.running; k++) await wait(50);
+    out.stopped = !store.state.experience.running;
+    out.rangeInputsEnd = document.querySelectorAll('input[type=range]').length;
+    return out;`, { setup: (e) => withProbe(e) });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.equal(result.nav, true, 'a tab in the navigation');
+  assert.equal(result.keyView, 'experiences', 'key 8');
+  assert.ok(result.catalog.includes('touch-probe'), 'the catalog is listed');
+  assert.equal(result.idleHasPlay, true);
+  assert.equal(result.idleHasStop, false);
+  assert.equal(result.idlePreview, false, 'no preview while stopped');
+  assert.equal(result.running, true, 'Play sent experience.play');
+  assert.equal(result.url, '/experiences/touch-probe/index.html?run=1');
+  assert.equal(engine.profile.experience.id, 'touch-probe');
+  assert.equal(result.on, true, 'the running card is highlighted');
+  assert.equal(result.hasStop, true);
+  assert.equal(result.preview, true, 'live preview image');
+  assert.match(result.text, /No desktop app/, 'without the desktop app it says to open the page in a browser');
+  assert.match(result.text, /\/experiences\/touch-probe\/index\.html\?run=1/);
+  assert.equal(result.faders, 1, 'the number parameter is a VEATION fader');
+  assert.deepEqual(result.labels.filter((l) => /Gain|Mode|Trails|Focus/.test(l)), ['Gain', 'Mode', 'Trails', 'Focus wall'], 'one control per manifest parameter, in order');
+  assert.ok(result.scaleOptions.some((t) => /^0\.25 — \d+ × \d+ px$/.test(t)) && result.scaleOptions.some((t) => /^1 — \d+ × \d+ px$/.test(t)), `scale shows the pixel size: ${result.scaleOptions}`);
+  assert.ok(result.focusOptions.length >= 3, `the wall select lists the room's walls: ${result.focusOptions}`);
+  assert.ok(result.switches >= 2, 'start with the app + the bool');
+  assert.equal(result.rangeInputs, 0, 'no native range inputs');
+  assert.equal(result.rangeInputsEnd, 0);
+  assert.equal(result.gain, 1.05, 'a fader step is experience.param');
+  assert.equal(result.trails, true);
+  assert.equal(result.mode, 'hard');
+  assert.equal(result.scale, 1);
+  assert.equal(result.fps, 30);
+  assert.equal(result.sink, 'window');
+  assert.match(result.fullText, /Proportions/);
+  assert.equal(result.lockedControls, true, 'Show mode locks the destination controls');
+  assert.equal(result.lockedStop, true, '...but not Stop');
+  assert.equal(result.lockedFader, true, '...nor the parameters');
+  assert.match(result.lockedSet, /locked/);
+  assert.equal(engine.profile.experience.params['touch-probe'].gain, 0.7);
+  assert.equal(result.stopped, true);
+});
+
+// ---------------------------------------------------------------------------------------------------- experience on the walls (viewer)
+
+/** The room's experience is `touch-probe` (selected, and "running" as far as the engine's state goes), rendered at scale 1. */
+async function withViewedProbe(engine, { play = true } = {}) {
+  await withProbe(engine, { play: false, scale: 1 });
+  const p = structuredClone(engine.profile);
+  p.experience.id = 'touch-probe';
+  await engine.command('profile.update', { profile: p, rev: engine.rev });
+  if (play) await engine.command('experience.play', { id: 'touch-probe' });
+}
+
+// pixels of the first wall's middle in the 2D workspace (the hidden window paints no frames: draw it by hand)
+const WALL_PIXELS = `
+  const ws = window.__vt.ws;
+  const wallPixels = () => {
+    ws.draw();
+    const l = ws.walls()[0], s = ws.view.s, dpr = window.devicePixelRatio || 1;
+    const x = Math.round((ws.sx(l.x0) + l.wall.width * s * 0.4) * dpr), y = Math.round((ws.sy(l.wall.height) + l.wall.height * s * 0.4) * dpr);
+    const d = ws.ctx.getImageData(x, y, 8, 8).data;
+    return [d[0], d[1], d[2]];
+  };
+`;
+
+test('ui: the experience is simulated on the walls of the Live view, as a second hidden instance that leaves the real one alone', opt, async () => {
+  const { result, errors, engine } = await inUi(`
+    const { store } = await import('/js/conn.js');
+    const xv = await import('/js/expview.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    ${WALL_PIXELS}
+    window.__vt.go('live'); await wait(100);
+    const out = {};
+    let ifr = null;
+    for (let k = 0; k < 150 && !(ifr = document.getElementById('xpViewer'))?.contentWindow?.__probe?.vt; k++) await wait(100);
+    for (let k = 0; k < 100 && !xv.frame(); k++) await wait(100);
+    const vt = ifr.contentWindow.__probe.vt, f = xv.frame();
+    out.src = ifr.getAttribute('src'); out.style = ifr.getAttribute('style'); out.inDom = document.body.contains(ifr);
+    out.sink = vt.sink; out.vtScale = vt.scale; out.vtSize = vt.size; out.canvas = vt.canvas; out.fps = vt.fps;
+    out.frame = f && { w: f.bitmap.width, h: f.bitmap.height, seq: f.seq, id: f.id };
+    // frames keep coming (a new sequence number), at a modest rate
+    const s0 = f.seq; await wait(1000); out.framesPerSecond = xv.frame().seq - s0;
+    out.btnHidden = document.getElementById('expBtn').hidden; out.btnOn = document.getElementById('expBtn').classList.contains('on');
+    const cap = document.getElementById('xpCaption'); out.caption = cap.hidden ? null : cap.textContent;
+    out.on = wallPixels();
+    xv.setOn(false); out.off = wallPixels(); xv.setOn(true);
+    for (let k = 0; k < 100 && !xv.frame(); k++) await wait(100);
+    out.on2 = wallPixels();
+    // the 3D room shows it too (when this window has WebGL 2)
+    const r3 = window.__vt.r3d; out.gl3 = !!r3.ok;
+    if (r3.ok) {
+      r3.setActive(true); r3.draw();
+      out.tex3 = r3.walls.get(store.state.profile.walls[0].id)?.ul || null;
+      r3.setActive(false);
+    }
+    // the real instance's state is untouched by the viewer: a report would come every 2 s, a preview every second
+    await wait(3500);
+    out.exp = { ...store.state.experience };
+    return out;`, { setup: (e) => withViewedProbe(e) });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.equal(result.src, '/experiences/touch-probe/index.html?run=1&view=1', 'the hidden iframe loads the page in viewer mode');
+  assert.match(result.style, /opacity:\s*0/); assert.match(result.style, /width:\s*1px/); assert.match(result.style, /pointer-events:\s*none/);
+  assert.doesNotMatch(result.style, /display/, 'kept rendering: never display:none');
+  assert.equal(result.sink, 'viewer');
+  assert.equal(result.vtScale, 0.25, 'a viewer renders at most at 0.25 even when the room renders at 1');
+  assert.deepEqual(result.vtSize, { width: Math.round(result.canvas.width * 0.25), height: Math.round(result.canvas.height * 0.25) });
+  assert.ok(result.fps <= 30);
+  assert.ok(result.frame && result.frame.w === result.vtSize.width && result.frame.h === result.vtSize.height && result.frame.id === 'touch-probe', `a frame arrived at the viewer's size: ${JSON.stringify(result.frame)}`);
+  assert.ok(result.framesPerSecond >= 3 && result.framesPerSecond <= 36, `frames keep coming at <= ~30 Hz (${result.framesPerSecond}/s)`);
+  assert.equal(result.btnHidden, false); assert.equal(result.btnOn, true, 'the toggle is on by default');
+  assert.equal(result.caption, 'Touch probe — preview in this window');
+  assert.ok(result.on[1] > 90 && result.on[1] < 160, `the wall shows the experience (green ${result.on[1]}, gain 1 -> ~127)`);
+  assert.notDeepEqual(result.on, result.off, 'toggle off: the wall pixels are the plain wall again');
+  assert.ok(result.off[1] < 50, `plain wall is dark (${result.off})`);
+  assert.ok(result.on2[1] > 90, 'toggle on again: back');
+  if (result.gl3) assert.match(result.tex3, /^xp\d+$/, 'the 3D wall texture is keyed by the experience frame');
+  // the viewer is not the running instance
+  assert.equal(result.exp.running, true);
+  assert.equal(result.exp.fps, 0, 'no fps reported by the viewer');
+  assert.equal(result.exp.previewAt, null, 'no preview posted by the viewer');
+  assert.equal(result.exp.error, null);
+  assert.equal(engine.expPreview, null);
+  assert.equal(engine.exp.fps, 0);
+});
+
+test('ui: the Experience toggle removes the hidden page and the frames, is remembered, and only exists with an experience', opt, async () => {
+  const on = await inUi(`
+    const xv = await import('/js/expview.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    ${WALL_PIXELS}
+    window.__vt.go('live');
+    for (let k = 0; k < 150 && !xv.frame(); k++) await wait(100);
+    const out = { before: !!document.getElementById('xpViewer'), hadFrame: !!xv.frame() };
+    const btn = document.getElementById('expBtn'), cap = document.getElementById('xpCaption');
+    btn.click(); await wait(200);
+    out.afterIframe = !!document.getElementById('xpViewer'); out.afterFrame = xv.frame(); out.btnOn = btn.classList.contains('on'); out.capHidden = cap.hidden;
+    out.stored = localStorage.getItem('vt-exp-view'); out.plain = wallPixels();
+    btn.click(); await wait(200);
+    out.backIframe = !!document.getElementById('xpViewer'); out.capBack = cap.hidden ? null : cap.textContent;
+    for (let k = 0; k < 150 && !xv.frame(); k++) await wait(100);
+    out.backFrame = !!xv.frame(); out.stored2 = localStorage.getItem('vt-exp-view');
+    return out;`, { setup: (e) => withViewedProbe(e, { play: false }) });
+  assert.deepEqual(on.errors, [], `page errors: ${on.errors.join(' | ')}`);
+  assert.deepEqual([on.result.before, on.result.hadFrame], [true, true], 'on by default, even before the experience is played');
+  assert.equal(on.result.afterIframe, false, 'off: the hidden page is gone');
+  assert.equal(on.result.afterFrame, null, 'off: no frame');
+  assert.equal(on.result.btnOn, false); assert.equal(on.result.capHidden, true);
+  assert.equal(on.result.stored, '0', 'remembered');
+  assert.ok(on.result.plain[1] < 50, 'the wall is plain again');
+  assert.equal(on.result.backIframe, true); assert.equal(on.result.backFrame, true); assert.match(on.result.capBack, /preview in this window/); assert.equal(on.result.stored2, '1');
+
+  const none = await inUi(`
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    await wait(800);
+    return { btn: document.getElementById('expBtn').hidden, iframe: !!document.getElementById('xpViewer'), cap: document.getElementById('xpCaption').hidden };`, { setup: (e) => withProbe(e) });
+  assert.deepEqual(none.result, { btn: true, iframe: false, cap: true }, 'no experience in the profile: no toggle, no page, no caption');
 });

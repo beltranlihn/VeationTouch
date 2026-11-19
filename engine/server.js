@@ -22,6 +22,17 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json',
   '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json',
+  // what an experience's folder may hold
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.wasm': 'application/wasm',
+  '.txt': 'text/plain; charset=utf-8', '.glsl': 'text/plain; charset=utf-8', '.woff': 'font/woff', '.ttf': 'font/ttf',
+  '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.mp4': 'video/mp4', '.webm': 'video/webm',
+};
+
+/** `rel` inside `dir`, or null when it climbs out (the check is on the resolved path, so ..\, %2F and absolute paths all fail). */
+const within = (dir, rel) => {
+  if (rel.includes('\0')) return null;
+  const base = path.resolve(dir), p = path.resolve(base, rel);
+  return p.startsWith(base + path.sep) ? p : null;
 };
 
 const isLocal = (addr) => addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
@@ -144,7 +155,8 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
-    const p = decodeURIComponent(url.pathname);
+    let p;
+    try { p = decodeURIComponent(url.pathname); } catch { res.writeHead(400); return res.end(); } // a malformed %-escape must not reach the engine's crash handler
     if (p === '/' || p === '/index.html') noteReached(req);
     if (p === '/api/client-error' && req.method === 'POST') return clientError(req, res);
     if (p === '/' || p === '/index.html') return serveFile(res, path.join(uiDir, 'index.html'));
@@ -198,6 +210,36 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
         });
         return undefined;
       }
+    }
+    if (p === '/experiences/runtime.js') return serveFile(res, path.join(root, 'experiences', 'runtime.js'));
+    if (p.startsWith('/experiences/')) {
+      // /experiences/<id>/<file>: the folder of a catalog entry, nothing else (no listing: a folder is a 404)
+      const rest = p.slice('/experiences/'.length), cut = rest.indexOf('/');
+      const e = cut > 0 ? engine.catalog.find((c) => c.id === rest.slice(0, cut)) : null;
+      const f = e ? within(e.dir, rest.slice(cut + 1)) : null;
+      if (!f) { res.writeHead(404); return res.end('not found'); }
+      return serveFile(res, f);
+    }
+    if (p === '/api/experience/preview.jpg' && req.method === 'GET') {
+      // the running page's last frame, for the Experiences tab: same rule as the UI channel (this computer, or the key)
+      if (!peerOf(req).trusted && url.searchParams.get('k') !== engine.settings.token) { res.writeHead(401); return res.end(); }
+      const pv = engine.expPreview;
+      if (!pv) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
+      return res.end(pv.buf);
+    }
+    if (p === '/api/experience/preview' && req.method === 'POST') {
+      // only the page running on THIS computer posts it (a LAN device or the internet relay never does)
+      if (!peerOf(req).local) { res.writeHead(403); return res.end(); }
+      const chunks = []; let size = 0, over = false;
+      req.on('data', (c) => { size += c.length; if (over) return; if (size > 300 * 1024) { over = true; chunks.length = 0; res.writeHead(413, { Connection: 'close' }); res.end(); res.on('finish', () => req.destroy()); return; } chunks.push(c); });
+      req.on('end', () => {
+        if (over) return;
+        const buf = Buffer.concat(chunks);
+        if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) { res.writeHead(400); return res.end(); } // a JPEG, nothing else
+        res.writeHead(engine.setExperiencePreview(buf) ? 204 : 409); res.end();
+      });
+      return undefined;
     }
     if (p.startsWith('/sdk/')) { const f = safeJoin(sdkDir, p.slice(5)); return f ? serveFile(res, f) : (res.writeHead(400), res.end()); }
     const f = safeJoin(uiDir, p.slice(1));

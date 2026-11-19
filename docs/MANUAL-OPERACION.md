@@ -36,7 +36,7 @@ Se opera desde el ordenador de la sala o desde una **tablet o teléfono** dentro
   toques, modo de proyección (Off / Pattern / Debug),
   **Show** (bloqueo) y **Connect device**.
 - **Izquierda (abajo en el teléfono):** las herramientas, en el orden de montaje.
-  Teclas **1–8** para cambiar de herramienta.
+  Teclas **1–9** para cambiar de herramienta.
 
 | Herramienta | Para qué |
 |---|---|
@@ -398,6 +398,44 @@ Con la sala simulada, **Virtual hand** en la barra del lienzo permite probarla s
 
 En TouchDesigner: *OSC In DAT* en el puerto (una fila por mensaje); para la textura, *Syphon Spout In TOP*
 con el emisor «VEATION Touch».
+
+## 10 bis. Experiencias (tecla 8)
+
+Piezas interactivas que corren dentro de VEATION Touch y salen directo a la sala: no hace falta otro programa
+que reciba los toques. La primera es **Alma liquid**, el líquido de la web de Alma Digital: corre en la GPU sobre
+toda la tira de muros, cada toque mete un remolino de turbulencia y el logo flota en el muro elegido.
+
+1. **Experiences › Play** en la experiencia. Sale por:
+   - **Spout**: el emisor «VEATION Touch Experience», que lee el servidor de medios (Smode, TouchDesigner,
+     Resolume…) en el mismo ordenador. Es lo normal en XR Lab.
+   - **Full screen**: a pantalla completa en el monitor o proyector elegido. **Fit** mantiene las proporciones;
+     **Stretch** rellena la pantalla.
+2. **Scale** fija el tamaño real en píxeles:
+   - **0,5** (3598 × 456 en XR Lab) va a 60 fps en un portátil con RTX 4060;
+   - **1** (tamaño completo) ronda los 20 fps, porque copia 26 MB por fotograma hacia Spout.
+   - El servidor de medios escala la imagen al lienzo.
+3. **Start with the app**: la experiencia arranca sola al abrir VEATION Touch, sin tocar nada. En el perfil de XR
+   Lab viene activado, con el logo en P1.
+4. **Parámetros**, en directo y guardados en el perfil:
+   - turbulencia, color del toque, emisores (cantidad y velocidad), desvanecimiento y calidad;
+   - **Around the room (360)**, logo (sí o no, muro, estilo y tamaño) y respiración.
+5. **360°:** si los muros cierran la sala (como en XR Lab, P4 → P1 → P2 → P3 → P4), el líquido es una sola textura
+   continua y sin costura. Fluye de P3 a P4 como por cualquier otra esquina, y una mano que pasa esa esquina deja un
+   trazo corto, no una raya a lo largo de toda la tira. Con **Around the room (360)** en **On** se fuerza aunque el
+   plano no esté cerrado; con **Off**, la tira tiene dos extremos.
+6. La tarjeta muestra una **vista previa** (1 por segundo), los fps reales y cualquier error de la experiencia.
+7. **En modo Show** se puede reproducir, parar y mover parámetros, pero no cambiar el destino.
+
+Sin la app de escritorio (modo servidor) la tarjeta da la dirección de la experiencia para abrirla en un navegador.
+
+**Verla en el programa (simulada).**
+- Si la sala tiene una experiencia elegida, las vistas de muros (Live, la vista de un muro y la sala 3D) la muestran
+  en directo sobre los muros, moviéndose con las manos, reales o simuladas. Con la sala simulada se ve cómo
+  funciona sin estar en la sala.
+- Es una vista previa dentro de esta ventana, y lo indica con un rótulo: no es la salida de la sala y no cambia lo
+  que se envía por Spout o a pantalla completa.
+- El botón **Experience**, junto a Points, la muestra u oculta y recuerda la elección. Si el ordenador va justo de
+  recursos, conviene ocultarla.
 
 ## 11. Durante la función
 

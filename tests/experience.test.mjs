@@ -1,0 +1,349 @@
+// Experiences (engine + server): the catalog, play / stop and the window message for the desktop app, autostart,
+// parameters, the preview, and the static serving of experience folders. The page side is in tests/ui.test.mjs.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import { Store } from '../engine/store.js';
+import { Engine } from '../engine/engine.js';
+import { createServer } from '../engine/server.js';
+import { normalizeProfile } from '../engine/profile.js';
+
+const quiet = { info() {}, warn() {}, error() {}, recent: () => [] };
+const root = path.resolve(import.meta.dirname, '..');
+const FIX = path.join(root, 'tests', 'fixtures', 'experiences');
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** A test engine on a temp folder (bundled profiles → the simulated XR Lab room) that also lists `dirs`. */
+function setup(dirs = [FIX], { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-exp-')), fresh = true } = {}) {
+  const store = new Store(dir, path.join(root, 'profiles'), quiet);
+  if (fresh) { // the bundled rooms may come with an experience chosen: start these tests from none
+    const sim = store.listProfiles().find((q) => q.id.endsWith('-sim')).id, prof = store.loadProfile(sim);
+    prof.experience = normalizeProfile({}).experience;
+    store.saveProfile(prof);
+  }
+  const engine = new Engine({ store, log: quiet, version: 'test', experienceDirs: dirs });
+  const msgs = [];
+  engine.on('experienceWindow', (m) => msgs.push(m));
+  return { dir, store, engine, msgs };
+}
+
+/** A raw HTTP request (no client-side URL clean-up, so odd paths reach the server as written). */
+function raw(port, p, { method = 'GET', headers = {}, body = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+test('experiences: the catalog lists manifest folders, normalises them and skips what is unusable', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-expcat-'));
+  const put = (folder, manifest) => { fs.mkdirSync(path.join(tmp, folder), { recursive: true }); fs.writeFileSync(path.join(tmp, folder, 'manifest.json'), typeof manifest === 'string' ? manifest : JSON.stringify(manifest)); };
+  put('good', { id: 'good', name: 'Good', entry: '../../etc/passwd', params: [
+    { key: 'n', type: 'number', min: 0, max: 10, step: 1, default: 99 },     // default clamped into the range
+    { key: 'bad key!', type: 'number' },                                       // unusable key
+    { key: 'w', type: 'weird' },                                               // unknown type
+    { key: 's', type: 'select', options: [] },                                 // a select needs options
+    { key: 'n', type: 'bool' },                                                // duplicate key
+    { key: 'b', type: 'bool', default: true }] });
+  put('broken', '{ not json');
+  put('no id', { name: 'x' });
+  put('good-copy', { id: 'good', name: 'Duplicate id' });
+  const { engine, dir } = setup([tmp]);
+  engine.start();
+  try {
+    const mine = engine.catalog.filter((e) => e.dir.startsWith(tmp)); // (the app's own experiences/ is listed too)
+    const ids = mine.map((e) => e.id);
+    assert.ok(!ids.includes('touch-probe'), 'only the folders given are scanned');
+    assert.deepEqual(ids, ['good'], 'one usable entry: broken JSON, a folder name that is not an id, and a repeated id are skipped');
+    const g = mine[0];
+    assert.equal(g.entry, 'index.html', 'an entry that climbs out of the folder falls back to index.html');
+    assert.deepEqual(g.params.map((p) => [p.key, p.type]), [['n', 'number'], ['b', 'bool']]);
+    assert.equal(g.params[0].default, 10);
+    const pub = engine.state().experiences;
+    assert.ok(pub.some((e) => e.id === 'good'));
+    assert.ok(pub.every((e) => !('dir' in e)), 'no disk path reaches a client');
+    assert.equal(JSON.stringify(engine.state()).includes(tmp.replace(/\\/g, '\\\\')), false);
+  } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('experiences: the fixture is in the catalog with its manifest', async () => {
+  const { engine, dir } = setup();
+  engine.start();
+  try {
+    const e = engine.state().experiences.find((x) => x.id === 'touch-probe');
+    assert.ok(e, 'touch-probe listed');
+    assert.deepEqual(e.params.map((p) => p.type), ['number', 'select', 'bool', 'wall']);
+    const r = await engine.command('experience.list');
+    assert.ok(r.experiences.some((x) => x.id === 'touch-probe'));
+  } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('experiences: play and stop send the window message the desktop app opens (and nothing when nothing changes)', async () => {
+  const { engine, dir, msgs } = setup();
+  engine.start();
+  try {
+    assert.equal(engine.state().experience.running, false);
+    await assert.rejects(engine.command('experience.play', { id: 'nope' }), /unknown experience/);
+    assert.equal(msgs.length, 0);
+
+    await engine.command('experience.play', { id: 'touch-probe' });
+    assert.deepEqual(msgs.at(-1), { id: 'touch-probe', url: '/experiences/touch-probe/index.html?run=1', sink: 'spout', displayId: null, fit: 'fit', scale: 0.5, fps: 60, senderName: 'VEATION Touch Experience' });
+    const st = engine.state().experience;
+    assert.equal(st.running, true);
+    assert.equal(st.url, '/experiences/touch-probe/index.html?run=1');
+    assert.equal(engine.state().profile.experience.id, 'touch-probe', 'the choice is in the profile');
+
+    const n = msgs.length;
+    await engine.command('experience.play', { id: 'touch-probe' }); // already running: same window
+    assert.equal(msgs.length, n);
+
+    // where it goes: a change that matters sends a new message
+    await engine.command('experience.set', { sink: 'window', displayId: 3, fit: 'stretch', scale: 0.25, fps: 30, senderName: 'Wall A' });
+    assert.deepEqual(msgs.at(-1), { id: 'touch-probe', url: '/experiences/touch-probe/index.html?run=1', sink: 'window', displayId: 3, fit: 'stretch', scale: 0.25, fps: 30, senderName: 'Wall A' });
+
+    await engine.command('experience.stop');
+    assert.equal(msgs.at(-1), null);
+    assert.equal(engine.state().experience.running, false);
+    assert.equal(engine.state().experience.url, null);
+    assert.equal(engine.state().profile.experience.id, 'touch-probe', 'stopping keeps the choice');
+    assert.equal(engine.experienceWindow(), null);
+  } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('experiences: experience.set validates, and a running page reports its fps and error', async () => {
+  const { engine, dir } = setup();
+  engine.start();
+  try {
+    await assert.rejects(engine.command('experience.set', { scale: 0.3 }), /scale/);
+    await assert.rejects(engine.command('experience.set', { fps: 144 }), /fps/);
+    await assert.rejects(engine.command('experience.set', { sink: 'ndi' }), /sink/);
+    await assert.rejects(engine.command('experience.set', { fit: 'zoom' }), /fit/);
+    await assert.rejects(engine.command('experience.set', { senderName: '***' }), /sender name/);
+    await assert.rejects(engine.command('experience.set', { displayId: 'x' }), /displayId/);
+    assert.equal(engine.profile.experience.scale, 0.5, 'a refused set changes nothing');
+    await engine.command('experience.set', { senderName: 'My <Wall>' });
+    assert.equal(engine.profile.experience.senderName, 'My Wall', 'the name is cleaned like a Texture sender name');
+
+    await engine.command('experience.report', { fps: 59.4, error: 'x' }); // not running: ignored
+    assert.equal(engine.state().experience.fps, 0);
+    await engine.command('experience.play', { id: 'touch-probe' });
+    await engine.command('experience.report', { fps: 58.26, error: 'WebGL context lost' });
+    assert.equal(engine.state().experience.fps, 58.3);
+    assert.equal(engine.state().experience.error, 'WebGL context lost');
+    await engine.command('experience.report', { fps: 60, error: null });
+    assert.equal(engine.state().experience.error, null);
+  } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('experiences: autostart runs the saved experience when the engine starts (and only then)', async () => {
+  const a = setup();
+  a.engine.start();
+  await a.engine.command('experience.set', { autostart: true, sink: 'window', displayId: 7 });
+  await a.engine.command('experience.play', { id: 'touch-probe' });
+  await a.engine.stop(); // writes the profile
+  try {
+    const b = setup([FIX], { dir: a.dir, fresh: false });
+    b.engine.start();
+    assert.equal(b.engine.state().experience.running, true, 'it runs without anyone pressing Play');
+    assert.equal(b.msgs.length, 1);
+    assert.equal(b.msgs[0].id, 'touch-probe');
+    assert.equal(b.msgs[0].sink, 'window');
+    assert.equal(b.msgs[0].displayId, 7);
+    await b.engine.command('experience.set', { autostart: false });
+    await b.engine.command('experience.stop');
+    await b.engine.stop();
+
+    const c = setup([FIX], { dir: a.dir, fresh: false });
+    c.engine.start();
+    assert.equal(c.engine.state().experience.running, false, 'autostart off: the choice is remembered, nothing runs');
+    assert.equal(c.engine.state().experience.id, 'touch-probe');
+    assert.equal(c.msgs.length, 0);
+    await c.engine.stop();
+
+    // autostart on an experience that is gone does not run (and does not crash)
+    const d = setup([], { dir: a.dir, fresh: false });
+    const prof = d.store.loadProfile(d.engine.settings.activeProfile);
+    prof.experience.autostart = true;
+    d.store.saveProfile(prof);
+    d.engine.start();
+    assert.equal(d.engine.state().experience.running, false);
+    await d.engine.stop();
+  } finally { fs.rmSync(a.dir, { recursive: true, force: true }); }
+});
+
+test('experiences: parameters are checked against the manifest, saved in the profile and live (no new window)', async () => {
+  const { engine, dir, store, msgs } = setup();
+  let stopped = false;
+  engine.start();
+  try {
+    await assert.rejects(engine.command('experience.param', { key: 'gain', value: 1 }), /no experience selected/);
+    await engine.command('experience.play', { id: 'touch-probe' });
+    const windows = msgs.length;
+    let states = 0;
+    engine.on('state', () => states++);
+
+    assert.equal((await engine.command('experience.param', { key: 'gain', value: 1.5 })).value, 1.5);
+    assert.equal((await engine.command('experience.param', { key: 'gain', value: 9 })).value, 2, 'a number is clamped into its range');
+    assert.equal((await engine.command('experience.param', { key: 'gain', value: '0.25' })).value, 0.25);
+    await assert.rejects(engine.command('experience.param', { key: 'gain', value: 'loud' }), /needs a number/);
+    await assert.rejects(engine.command('experience.param', { key: 'nope', value: 1 }), /no parameter/);
+    await engine.command('experience.param', { key: 'mode', value: 'hard' });
+    await assert.rejects(engine.command('experience.param', { key: 'mode', value: 'medium' }), /one of/);
+    await engine.command('experience.param', { key: 'trails', value: true });
+    await assert.rejects(engine.command('experience.param', { key: 'trails', value: 'yes' }), /true or false/);
+    const wall = engine.profile.walls[0].id;
+    await engine.command('experience.param', { key: 'focus', value: wall });
+    await assert.rejects(engine.command('experience.param', { key: 'focus', value: 'ghost' }), /wall of this room/);
+
+    assert.equal(states, 6, 'every accepted change is broadcast (the page listens to the state); refused ones are not');
+    assert.equal(msgs.length, windows, 'a parameter never reopens the window');
+    assert.deepEqual(engine.state().profile.experience.params['touch-probe'], { gain: 0.25, mode: 'hard', trails: true, focus: wall });
+
+    assert.equal(store.loadProfile(engine.profile.id).experience.params['touch-probe'], undefined, 'not written on every change…');
+    await engine.stop(); // …but when things settle (here: on stop)
+    stopped = true;
+    assert.equal(store.loadProfile(engine.profile.id).experience.params['touch-probe'].gain, 0.25, 'written to the room profile');
+  } finally { if (!stopped) await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('experiences: in Show mode play, stop and parameters work; where it goes (experience.set) is locked', async () => {
+  const { engine, dir } = setup();
+  engine.start();
+  try {
+    await engine.command('app.lock', { locked: true });
+    await engine.command('experience.play', { id: 'touch-probe' });
+    await engine.command('experience.param', { key: 'gain', value: 0.5 });
+    await assert.rejects(engine.command('experience.set', { fps: 30 }), /locked/);
+    assert.equal(engine.profile.experience.fps, 60);
+    await engine.command('experience.stop');
+    await engine.command('app.lock', { locked: false });
+    await engine.command('experience.set', { fps: 30 });
+    assert.equal(engine.profile.experience.fps, 30);
+  } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('experiences: the profile field is normalised', () => {
+  const p = normalizeProfile({ experience: { id: '../x', autostart: 'yes', sink: 'ndi', senderName: '<>', displayId: 'a', fit: 'zoom', scale: 0.3, fps: 24,
+    params: { 'ok-id': { a: 1, b: 'x', c: true, d: null, e: {}, 'bad key': 1 }, 'bad id!': { a: 1 }, str: 'nope' } } });
+  assert.deepEqual(p.experience, { id: null, autostart: false, sink: 'spout', senderName: 'VEATION Touch Experience', displayId: null, fit: 'fit', scale: 0.5, fps: 60, params: { 'ok-id': { a: 1, b: 'x', c: true } } });
+  assert.deepEqual(normalizeProfile({}).experience.params, {});
+  const q = normalizeProfile({ experience: { id: 'fluid', autostart: true, sink: 'window', displayId: 2, fit: 'stretch', scale: 1, fps: 30 } });
+  assert.deepEqual([q.experience.id, q.experience.autostart, q.experience.sink, q.experience.displayId, q.experience.fit, q.experience.scale, q.experience.fps], ['fluid', true, 'window', 2, 'stretch', 1, 30]);
+});
+
+test('experiences: the server serves experience folders like the UI files, and nothing outside them', async () => {
+  // a sibling folder whose name starts with the experience's: a prefix check would let it through
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-expsrv-'));
+  fs.cpSync(path.join(FIX, 'touch-probe'), path.join(tmp, 'touch-probe'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'touch-probe-secret'));
+  fs.writeFileSync(path.join(tmp, 'touch-probe-secret', 'secret.txt'), 'TOP-SECRET');
+  fs.mkdirSync(path.join(tmp, 'touch-probe', 'sub'));
+  fs.writeFileSync(path.join(tmp, 'touch-probe', 'sub', 'a.json'), '{"a":1}');
+  const { engine, dir } = setup([tmp]);
+  engine.start();
+  const server = await createServer(engine, { port: 0, root, log: quiet });
+  try {
+    const get = (p) => raw(server.port, p);
+    const ok = await get('/experiences/touch-probe/index.html');
+    assert.equal(ok.status, 200);
+    assert.match(ok.headers['content-type'], /^text\/html/);
+    assert.equal(ok.headers['cache-control'], 'no-cache', 'the same headers as the UI files');
+    assert.match(ok.body.toString(), /connectExperience/);
+    const man = await get('/experiences/touch-probe/manifest.json');
+    assert.equal(man.status, 200);
+    assert.equal(JSON.parse(man.body).id, 'touch-probe');
+    assert.equal((await get('/experiences/touch-probe/sub/a.json')).status, 200, 'sub-folders are served');
+    const rt = await get('/experiences/runtime.js');
+    assert.equal(rt.status, 200);
+    assert.match(rt.headers['content-type'], /javascript/);
+    assert.match(rt.body.toString(), /export async function connectExperience/);
+
+    const bad = [
+      '/experiences/touch-probe/../../package.json', '/experiences/touch-probe/..%2F..%2Fpackage.json', '/experiences/touch-probe/%2e%2e/%2e%2e/package.json',
+      '/experiences/touch-probe/..%5C..%5Cpackage.json', '/experiences/touch-probe/%2e%2e%5c%2e%2e%5cpackage.json',
+      '/experiences/touch-probe/..%2Ftouch-probe-secret%2Fsecret.txt', '/experiences/touch-probe/..%2F..%2F..%2FREADME.md',
+      '/experiences/..%2Fui%2Findex.html', '/experiences/..%2Fpackage.json', '/experiences/touch-probe/%2Fetc%2Fhosts',
+      '/experiences/touch-probe/index.html%00.png', '/experiences/touch-probe/C:%5Cwindows%5Cwin.ini',
+      '/experiences/touch-probe-secret/secret.txt', '/experiences/nope/index.html', '/experiences/', '/experiences', '/experiences/touch-probe/', '/experiences/touch-probe', '/experiences/touch-probe/sub', '/experiences//touch-probe/index.html',
+    ];
+    for (const p of bad) {
+      const r = await get(p);
+      assert.notEqual(r.status, 200, `${p} must not be served (got ${r.status})`);
+      const text = r.body.toString();
+      assert.ok(!text.includes('TOP-SECRET') && !text.includes('"veation-touch"') && !text.includes('VEATION Touch</title>'), `${p} leaked a file`);
+    }
+    // a malformed %-escape is a plain 400 (it used to throw inside the request handler), and the server carries on
+    assert.equal((await get('/%E0%A4%A')).status, 400);
+    assert.equal((await get('/experiences/touch-probe/index.html')).status, 200);
+  } finally { server.close(); await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('experiences: the preview is posted by the page on this computer only, and read with the same access as the UI', async () => {
+  const { engine, dir } = setup();
+  engine.start();
+  const server = await createServer(engine, { port: 0, root, log: quiet });
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)]);
+  const post = (body, headers = {}, port = server.port) => raw(port, '/api/experience/preview', { method: 'POST', body, headers: { 'Content-Length': body.length, ...headers } });
+  try {
+    assert.equal((await post(jpeg)).status, 409, 'nothing runs: nothing to preview');
+    await engine.command('experience.play', { id: 'touch-probe' });
+    assert.equal((await raw(server.port, '/api/experience/preview.jpg')).status, 404, 'no frame yet');
+
+    // from the internet relay (stamped tunnel traffic) it is refused: the page that renders runs here
+    const tunnel = { 'x-vt-tunnel': engine.cloud.tunnelToken, 'x-vt-client-ip': '203.0.113.9' };
+    assert.equal((await post(jpeg, tunnel)).status, 403);
+    assert.equal(engine.expPreview, null);
+    // …and from another machine on the network (this computer's LAN address is not loopback)
+    const lan = Object.values(os.networkInterfaces()).flat().find((a) => a && a.family === 'IPv4' && !a.internal);
+    if (lan) {
+      const r = await new Promise((resolve, reject) => {
+        const req = http.request({ host: lan.address, port: server.port, path: '/api/experience/preview', method: 'POST', headers: { 'Content-Length': jpeg.length }, timeout: 3000 }, (res) => { res.resume(); resolve(res.statusCode); });
+        req.on('error', () => resolve(null)); req.on('timeout', () => { req.destroy(); resolve(null); });
+        req.end(jpeg);
+      });
+      if (r !== null) assert.equal(r, 403, 'a LAN peer cannot post a preview');
+    }
+    assert.equal(engine.expPreview, null);
+
+    assert.equal((await post(Buffer.from('<html>not a jpeg</html>'))).status, 400);
+    assert.equal((await post(jpeg)).status, 204);
+    assert.ok(engine.exp.previewAt > 0);
+    const big = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(301 * 1024)]);
+    const rBig = await post(big).catch((e) => ({ status: e.code }));
+    assert.notEqual(rBig.status, 204, 'over 300 KB is refused');
+    assert.equal(engine.expPreview.buf.length, jpeg.length, 'the refused frame did not replace the kept one');
+
+    const got = await raw(server.port, '/api/experience/preview.jpg');
+    assert.equal(got.status, 200);
+    assert.equal(got.headers['content-type'], 'image/jpeg');
+    assert.equal(got.headers['cache-control'], 'no-store');
+    assert.deepEqual(got.body, jpeg);
+    await engine.command('experience.report', { fps: 60 });
+    assert.ok(engine.state().experience.previewAt > 0, 'the state tells the UI a frame exists');
+
+    await engine.command('experience.stop');
+    assert.equal((await raw(server.port, '/api/experience/preview.jpg')).status, 404, 'stopping drops the frame');
+  } finally { server.close(); await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+
+  // a device that is not this computer needs the access key to see it (the same rule as the other APIs)
+  const t = setup();
+  t.engine.start();
+  const s2 = await createServer(t.engine, { port: 0, root, log: quiet, trustLocal: false });
+  try {
+    await t.engine.command('experience.play', { id: 'touch-probe' });
+    t.engine.setExperiencePreview(jpeg);
+    assert.equal((await raw(s2.port, '/api/experience/preview.jpg')).status, 401);
+    assert.equal((await raw(s2.port, '/api/experience/preview.jpg?k=wrong')).status, 401);
+    assert.equal((await raw(s2.port, `/api/experience/preview.jpg?k=${t.engine.settings.token}`)).status, 200);
+    // a page on this computer still posts (loopback), even when the desktop is not trusted without a key
+    assert.equal((await post(jpeg, {}, s2.port)).status, 204);
+  } finally { s2.close(); await t.engine.stop(); fs.rmSync(t.dir, { recursive: true, force: true }); }
+});

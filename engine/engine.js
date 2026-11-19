@@ -22,16 +22,20 @@ import { discover, candidateHosts, factoryNetwork, readdress, unconfiguredInterf
 import { lanInterfaces } from './mdns.js';
 import { CloudLink, normalizeRelayUrl } from './cloud.js';
 import { cloudSettings } from './store.js';
+import { scanCatalog, publicCatalog, checkParam, SCALES, FPS } from './experiences.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const TICK_HZ = 60;
+const EXPERIENCES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'experiences');
 
 export class Engine extends EventEmitter {
   /**
-   * @param {{store: import('./store.js').Store, log: object, version: string}} deps
+   * @param {{store: import('./store.js').Store, log: object, version: string, experienceDirs?: string[]}} deps
+   *   experienceDirs: extra folders of experiences to list after the app's own `experiences/` (tests)
    */
-  constructor({ store, log, version }) {
+  constructor({ store, log, version, experienceDirs = [] }) {
     super();
     this.store = store;
     this.log = log;
@@ -55,6 +59,11 @@ export class Engine extends EventEmitter {
     this.cloud = new CloudLink({ cfg: this.settings.cloud, log, version, port: () => this.port || this.settings.httpPort, token: () => this.settings.token, name: () => this.profile?.name || '' });
     this.cloud.on('change', () => this.emit('state'));
     this.on('state', () => this.cloud.refreshName());
+    this.experienceDirs = [EXPERIENCES_DIR, ...experienceDirs];
+    this.catalog = [];          // experiences found on disk (engine/experiences.js)
+    this.exp = { running: false, fps: 0, error: null, previewAt: null }; // the running experience (transient, never saved)
+    this.expPreview = null;     // the last JPEG the running page posted: { buf, at }
+    this._expKey = 'null';
     this.lastFrame = null;
     this.tickStats = { fps: 0, n: 0, t0: performance.now(), maxMs: 0 };
   }
@@ -66,7 +75,10 @@ export class Engine extends EventEmitter {
     let prof;
     try { prof = id ? this.store.loadProfile(id) : null; } catch (e) { this.log.error(`load ${id}: ${e.message}`); }
     if (!prof) prof = this.store.saveProfile(blankProfile('New room'));
+    this.catalog = scanCatalog(this.experienceDirs, this.log);
     this._activate(prof);
+    const x = this.profile.experience;
+    if (x.autostart && x.id && this.catalog.some((e) => e.id === x.id)) { this._experienceRun(); this.log.info(`experience "${x.id}" started with the app`); }
     this._timer = setInterval(() => this._tick(), 1000 / TICK_HZ);
     this.log.info(`engine ${this.version} started with profile "${prof.name}"`);
     if (this.settings.cloud.enabled) this.cloud.apply();
@@ -74,6 +86,7 @@ export class Engine extends EventEmitter {
 
   async stop() {
     clearInterval(this._timer);
+    this._flushExperience();
     this.cloud.stop();
     if (this.recorder) await this.recorder.stop().catch(() => {});
     if (this.replay) this.replay.source.stop();
@@ -85,6 +98,9 @@ export class Engine extends EventEmitter {
 
   _activate(profile) {
     const prev = this.profile;
+    // a pending save of the experience's settings: the new profile already carries them (same room), or they are
+    // written to the room being left
+    if (this._expSave) { if (prev && prev.id !== profile.id) this._flushExperience(prev); else this._cancelExperienceSave(); }
     this.profile = profile;
     this.rev = (this.rev || 0) + 1;
     if (this.settings.activeProfile !== profile.id) { this.settings.activeProfile = profile.id; this.store.saveSettings(this.settings); }
@@ -137,6 +153,11 @@ export class Engine extends EventEmitter {
     this._syncWanderers();
     this.zones.configure(profile.zones, profile.walls);
     this._syncTextureWindows();
+    if (prev && prev.id !== profile.id) { // another room: its own experience (it runs only if that room starts it with the app)
+      this.exp = { running: false, fps: 0, error: null, previewAt: null }; this.expPreview = null;
+      if (profile.experience.autostart && this.catalog.some((e) => e.id === profile.experience.id)) this._experienceRun();
+    }
+    this._syncExperienceWindow();
     this.outputs.configure(profile);
     if (this.calib && !profile.walls.some((w) => w.id === this.calib.wall.id)) this.calib = null;
     if (this.verify && !profile.walls.some((w) => w.id === this.verify.wall.id)) this.verify = null;
@@ -264,6 +285,8 @@ export class Engine extends EventEmitter {
       projection: { ...this.settings.projection, fit: this.fit ? { wallId: this.fit.wallId, node: this.fit.node } : null, walk: !!this.walk },
       // grid: the metre grid (pixel map) is on the walls — projection page and Texture outputs (never saved)
       grid: !!this.grid,
+      experience: this.experienceState(),
+      experiences: publicCatalog(this.catalog),
       displays: this.displays, autostart: this.settings.autostart,
       locked: !!this.settings.locked,
       cloud: this.cloud.status(), // never the secret
@@ -655,6 +678,71 @@ export class Engine extends EventEmitter {
         this.emit('state');
         return this.cloud.status();
       }
+      case 'experience.list': {
+        this.catalog = scanCatalog(this.experienceDirs, this.log);
+        this.emit('state');
+        return { experiences: publicCatalog(this.catalog) };
+      }
+      case 'experience.play': {
+        const e = this.catalog.find((x) => x.id === args.id);
+        if (!e) throw new Error(`unknown experience "${args.id}"`);
+        P.experience.id = e.id;
+        this._experienceRun();
+        this.log.info(`experience "${e.id}" started (${P.experience.sink === 'spout' ? `Spout "${P.experience.senderName}"` : 'full screen'})`);
+        return {};
+      }
+      case 'experience.stop': {
+        if (this.exp.running) this.log.info('experience stopped');
+        this.exp = { running: false, fps: 0, error: null, previewAt: null };
+        this.expPreview = null;
+        this._saveExperience();
+        this._syncExperienceWindow();
+        this.emit('state');
+        return {};
+      }
+      case 'experience.set': {
+        const x = P.experience, next = {};
+        if ('autostart' in args) next.autostart = !!args.autostart;
+        if ('sink' in args) { if (!['spout', 'window'].includes(args.sink)) throw new Error('sink: spout or window'); next.sink = args.sink; }
+        if ('senderName' in args) {
+          next.senderName = String(args.senderName ?? '').replace(/[^\w .-]/g, '').trim().slice(0, 60);
+          if (!next.senderName) throw new Error('the sender name cannot be empty (letters, digits, spaces, . - _)');
+        }
+        if ('displayId' in args) {
+          if (args.displayId !== null && !Number.isFinite(args.displayId)) throw new Error('displayId: a display or null');
+          next.displayId = args.displayId;
+        }
+        if ('fit' in args) { if (!['fit', 'stretch'].includes(args.fit)) throw new Error('fit: fit or stretch'); next.fit = args.fit; }
+        if ('scale' in args) { if (!SCALES.includes(Number(args.scale))) throw new Error(`scale: one of ${SCALES.join(', ')}`); next.scale = Number(args.scale); }
+        if ('fps' in args) { if (!FPS.includes(Number(args.fps))) throw new Error(`fps: one of ${FPS.join(', ')}`); next.fps = Number(args.fps); }
+        Object.assign(x, next);
+        this._saveExperience();
+        this._syncExperienceWindow();
+        this.emit('state');
+        return {};
+      }
+      case 'experience.param': {
+        const x = P.experience, e = this.catalog.find((c) => c.id === x.id);
+        if (!e) throw new Error('no experience selected');
+        const param = e.params.find((q) => q.key === args.key);
+        if (!param) throw new Error(`"${e.id}" has no parameter "${args.key}"`);
+        const value = checkParam(param, args.value, P.walls.map((w) => w.id));
+        (x.params[e.id] ??= {})[param.key] = value;
+        this._saveExperience();
+        this.emit('state'); // the page listens to the state: no reload
+        return { value };
+      }
+      case 'experience.report': {
+        // sent by the running page every 2 s
+        if (!this.exp.running) return {};
+        const fps = Number(args.fps);
+        this.exp.fps = Number.isFinite(fps) ? Math.max(0, Math.min(1000, Math.round(fps * 10) / 10)) : 0;
+        const err = typeof args.error === 'string' && args.error.trim() ? args.error.replace(/[\u0000-\u001f]+/g, ' ').slice(0, 300) : null;
+        if (err && err !== this.exp.error) this.log.warn(`experience "${this.profile.experience.id}": ${err}`);
+        this.exp.error = err;
+        this.emit('state');
+        return {};
+      }
       case 'net.firewall': return firewallStatus(this.port || this.settings.httpPort);
       case 'net.localName': {
         const name = String(args.name || '').trim().toLowerCase();
@@ -764,6 +852,63 @@ export class Engine extends EventEmitter {
     this.log.info(`calibration started on ${wall.id} with ${targets.length} targets (${ids.join(', ')})${args.__client ? ` from ${args.__client.device}` : ''}`);
     this.emit('state');
     return { targets: targets.length };
+  }
+
+  // ------------------------------------------------------------------ experiences
+
+  _experienceRun() {
+    this.exp = { running: true, fps: 0, error: null, previewAt: null };
+    this.expPreview = null;
+    this._saveExperience();
+    this._syncExperienceWindow();
+    this.emit('state');
+  }
+
+  /** What the UI is told: the selected experience, whether it runs, where its page is and how it is doing. */
+  experienceState() {
+    const x = this.profile.experience, e = this.catalog.find((c) => c.id === x.id);
+    const running = this.exp.running && !!e;
+    return {
+      running, id: x.id, sink: x.sink, fps: running ? this.exp.fps : 0, error: running ? this.exp.error : null,
+      url: running ? `/experiences/${e.id}/${e.entry}?run=1` : null, previewAt: running ? this.exp.previewAt : null,
+    };
+  }
+
+  /** The window the desktop app opens for the running experience (null = none): relative URL, the app adds the origin. */
+  experienceWindow() {
+    const s = this.experienceState(), x = this.profile.experience;
+    if (!s.running) return null;
+    return { id: s.id, url: s.url, sink: x.sink, displayId: x.displayId, fit: x.fit, scale: x.scale, fps: x.fps, senderName: x.senderName };
+  }
+
+  _syncExperienceWindow() {
+    const m = this.experienceWindow(), key = JSON.stringify(m);
+    if (key === this._expKey) return;
+    this._expKey = key;
+    this.emit('experienceWindow', m);
+  }
+
+  /** The running page posted a preview frame (server.js). */
+  setExperiencePreview(buf) {
+    if (!this.exp.running) return false;
+    this.expPreview = { buf, at: Date.now() };
+    this.exp.previewAt = this.expPreview.at;
+    return true;
+  }
+
+  // Settings change often while an operator plays with faders: the profile is written once things settle.
+  _saveExperience() {
+    clearTimeout(this._expSave);
+    this._expSave = setTimeout(() => this._flushExperience(), 700);
+    this._expSave.unref?.();
+  }
+
+  _cancelExperienceSave() { clearTimeout(this._expSave); this._expSave = null; }
+
+  _flushExperience(profile = this.profile) {
+    if (!this._expSave) return;
+    this._cancelExperienceSave();
+    try { this.store.saveProfile(profile); } catch (e) { this.log.error(`save ${profile?.id}: ${e.message}`); }
   }
 
   /** Texture outputs shown full screen (enabled, sink 'window', a display chosen): one window each, opened by the desktop app. */
@@ -877,4 +1022,5 @@ const LOCKED_OPS = new Set([
   'profile.update', 'profile.load', 'profile.create', 'profile.import', 'profile.delete', 'profile.restore',
   'bg.capture', 'bg.clear', 'calib.start', 'calib.apply', 'calib.clear', 'verify.start', 'sensor.autoAlign',
   'replay.start', 'rec.delete', 'sensor.discover', 'sensor.readdress', 'net.setSensorNic',
+  'experience.set', // play / stop / param stay available in Show mode: they are how a show is run
 ]);

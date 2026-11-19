@@ -36,6 +36,7 @@
       <button data-view="calibrate"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg><span>Calibrate</span></button>
       <button data-view="zones"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" stroke-dasharray="3 2"/><rect x="8" y="8" width="8" height="8"/></svg><span>Zones</span></button>
       <button data-view="outputs"><svg viewBox="0 0 24 24"><path d="M4 12h12M12 7l5 5-5 5"/><path d="M20 4v16"/></svg><span>Outputs</span></button>
+      <button data-view="experiences"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M10 9.5v5l4.5-2.5z"/></svg><span>Experiences</span></button>
       <button data-view="system"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>System</span></button>
     </nav>
 
@@ -46,12 +47,14 @@
         <canvas id="room3d" hidden></canvas>
         <div class="ws-bar" id="wsBar"></div>
         <div class="stage-hint" id="stageHint"></div>
+        <div class="stage-caption" id="xpCaption" hidden></div>
         <div class="stage-tools">
           <button class="ibtn" id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
           <button class="ibtn" id="redoBtn" title="Redo (Ctrl+Shift+Z)">↷</button>
           <button class="ibtn" id="fitBtn" title="Fit to view (double-click)">Fit</button>
           <button class="ibtn tog" id="pointsBtn" title="Show raw LiDAR points">Points</button>
           <button class="ibtn tog" id="contentBtn" title="Show the content image under the walls (upload it in Mapping)" hidden>Content</button>
+          <button class="ibtn tog" id="expBtn" title="Show the experience on the walls, simulated in this window (not the room's output)" hidden>Experience</button>
         </div>
       </div>
     </main>

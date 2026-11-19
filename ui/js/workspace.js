@@ -9,6 +9,7 @@
 // Edits are previewed locally while dragging (`ghost`) and committed once on release.
 
 import { store } from './conn.js';
+import * as expview from './expview.js';
 import { apply as applyM, gridMap, gridInsert, invertMap, densify, planCloses, mappingOutline, wallUvToCanvas } from '/shared/geometry.js';
 import { TouchMask, overlayOf } from '/shared/mask.js';
 import { kindOf, geomOf, withGeom, assignGeom, boundsOfGeom, translateGeom, describeGeom, shapeOutline, pointInShape, polygonArea, canvasToUv, canvasZoneOnWall } from './shapes.js';
@@ -807,11 +808,13 @@ export class Workspace {
   _drawWalls() {
     const ctx = this.ctx, P = this.P, s = this.view.s, C = this.colors;
     const L = this.walls();
-    const ul = this.underlay();
+    // the profile's experience, simulated (a frame of the hidden viewer page), takes the place of the content image
+    const xf = expview.frame();
+    const ul = xf ? xf.bitmap : this.underlay();
     if (ul) {
       // each wall shows ITS part of the content (its pixel region; corner/grid maps use the bounding box)
-      const kx = ul.naturalWidth / P.canvas.width, ky = ul.naturalHeight / P.canvas.height;
-      ctx.save(); ctx.globalAlpha = 0.5;
+      const kx = (ul.naturalWidth ?? ul.width) / P.canvas.width, ky = (ul.naturalHeight ?? ul.height) / P.canvas.height;
+      ctx.save(); ctx.globalAlpha = xf ? 0.92 : 0.5;
       for (const l of L) {
         const r = l.wall.pixelRect;
         ctx.drawImage(ul, r.x * kx, r.y * ky, r.w * kx, r.h * ky, this.sx(l.x0), this.sy(l.wall.height), l.wall.width * s, l.wall.height * s);
@@ -829,7 +832,7 @@ export class Workspace {
       const w = l.wall;
       const X = (x) => this.sx(l.x0 + x), Y = (y) => this.sy(y);
       const selW = sel?.kind === 'wall' && sel.id === w.id;
-      ctx.fillStyle = ul ? 'rgba(22,22,22,0.35)' : '#161616'; // translucent over the content image
+      ctx.fillStyle = xf ? 'rgba(22,22,22,0.08)' : ul ? 'rgba(22,22,22,0.35)' : '#161616'; // translucent over the content
       ctx.fillRect(X(0), Y(w.height), w.width * s, w.height * s);
       const step = s > 120 ? 0.1 : 0.5;
       for (let gx = step; gx < w.width - 1e-6; gx += step) { ctx.strokeStyle = Math.abs(gx % 1) < 1e-6 || Math.abs(gx % 1 - 1) < 1e-6 ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.035)'; line(ctx, X(gx), Y(0), X(gx), Y(w.height)); }

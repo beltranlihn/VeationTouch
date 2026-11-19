@@ -22,6 +22,8 @@ let mainWin = null, projWin = null, tray = null, quitting = false;
 let restarts = 0, startedAt = 0, projection = { open: false, displayId: null };
 let texWanted = [];            // Texture outputs shown full screen: [{id, displayId}] from the engine
 const texWins = new Map();     // output id → its full-screen window
+let expWanted = null;          // the experience to run, from the engine: {id, url, sink, displayId, fit, scale, fps, senderName} | null
+let expWin = null, expKey = '';// its window (hidden for Spout, full screen for a display) and what it was made for
 
 function log(msg) {
   const line = `${new Date().toISOString()} MAIN  ${msg}\n`;
@@ -44,6 +46,7 @@ function startEngine() {
   engine.on('message', onEngineMessage);
   engine.on('exit', (code) => {
     engine = null; engineReady = false;
+    closeExperienceWindow(); // its page talks to the engine that just went away; ready opens a fresh one
     if (quitting) return;
     if (Date.now() - startedAt > 60000) restarts = 0; // it ran fine for a minute: reset the backoff
     const delay = Math.min(30000, 1000 * 2 ** restarts++);
@@ -63,7 +66,12 @@ function onEngineMessage(m) {
     applyProjection();
     texWanted = m.textureWindows || [];
     applyTextureWindows();
+    expWanted = m.experienceWindow || null;
+    applyExperienceWindow();
     applyAutostart(m.autostart);
+  } else if (m?.type === 'experienceWindow') {
+    expWanted = m.window || null;
+    applyExperienceWindow();
   } else if (m?.type === 'textureWindows') {
     texWanted = m.list;
     applyTextureWindows();
@@ -172,6 +180,53 @@ function applyTextureWindows() {
   }
 }
 
+function closeExperienceWindow() {
+  const w = expWin;
+  expWin = null; expKey = '';
+  if (w && !w.isDestroyed()) w.destroy();
+}
+
+/**
+ * The running experience (Experiences tab). Spout: an off-screen-rendered window (no visible window) whose preload
+ * bridges the page to the native Spout sender. Window: a frameless full-screen window on the chosen display. Any change
+ * that matters (destination, display, size, rate, sender name) makes a fresh window; `fit` is applied live by the page.
+ */
+function applyExperienceWindow() {
+  const want = engineReady ? expWanted : null;
+  const display = want?.sink === 'window' ? screen.getAllDisplays().find((d) => d.id === want.displayId) : null;
+  if (!want || (want.sink === 'window' && !display)) { closeExperienceWindow(); return; }
+  const { fit, ...rest } = want;
+  const key = JSON.stringify({ ...rest, bounds: display?.bounds || null, port: enginePort });
+  if (expWin && !expWin.isDestroyed() && key === expKey) return;
+  closeExperienceWindow();
+  const common = { frame: false, backgroundColor: '#000000', skipTaskbar: true, autoHideMenuBar: true, title: `VEATION Touch — ${want.id}` };
+  const w = display
+    ? new BrowserWindow({
+      ...common, x: display.bounds.x, y: display.bounds.y, width: display.bounds.width, height: display.bounds.height, fullscreen: true, show: false,
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+    })
+    // Spout: OFF-SCREEN rendering (GPU). A merely hidden window gets no requestAnimationFrame and its timers tick at
+    // Windows' 15.6 ms granularity — measured ≈ 26 fps for a 60 fps piece. Off-screen, Chromium drives frames at
+    // setFrameRate(). The window itself is tiny (its paint bitmap is never used); the WebGL canvas keeps its own size.
+    : new BrowserWindow({
+      ...common, width: 64, height: 64, show: false,
+      webPreferences: { offscreen: true, preload: path.join(ROOT, 'app', 'experience-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false, backgroundThrottling: false },
+    });
+  if (!display) w.webContents.setFrameRate(Math.max(1, Math.min(240, Number(want.fps) || 60)));
+  expWin = w; expKey = key;
+  if (display) w.once('ready-to-show', () => w.showInactive());
+  w.on('closed', () => { if (expWin === w) { expWin = null; expKey = ''; } });
+  // the preload can load native code: this window never leaves the app's own server
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(uiUrl('/'))) e.preventDefault(); });
+  w.webContents.on('render-process-gone', (_e, d) => {
+    log(`experience renderer gone (${d.reason}); restarting it`);
+    setTimeout(() => { if (expWin === w) { closeExperienceWindow(); applyExperienceWindow(); } }, 1000);
+  });
+  w.loadURL(uiUrl(want.url));
+  log(`experience "${want.id}" opened (${display ? 'full screen' : `Spout "${want.senderName}"`})`);
+}
+
 function applyAutostart(enabled) {
   if (!app.isPackaged) return; // dev runs must not register electron.exe at login
   app.setLoginItemSettings({ openAtLogin: !!enabled, args: ['--hidden'] });
@@ -201,7 +256,7 @@ app.whenReady().then(() => {
   powerSaveBlocker.start('prevent-display-sleep'); // projection + sensors must not sleep mid-show
   createTray();
   startEngine();
-  for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => { sendDisplays(); applyProjection(); applyTextureWindows(); });
+  for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => { sendDisplays(); applyProjection(); applyTextureWindows(); applyExperienceWindow(); });
 });
 app.on('window-all-closed', (e) => { if (!quitting) e.preventDefault?.(); });
 app.on('before-quit', () => {

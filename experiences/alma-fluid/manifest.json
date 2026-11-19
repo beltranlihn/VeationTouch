@@ -1,0 +1,160 @@
+{
+  "id": "alma-fluid",
+  "name": "Alma liquid",
+  "description": "Alma Digital Studio's interactive liquid across the whole projection strip. Every touch stirs it; the Alma Digital logo floats on one wall.",
+  "entry": "index.html",
+  "params": [
+    {
+      "key": "turbulence",
+      "label": "Turbulence",
+      "type": "number",
+      "min": 0,
+      "max": 3,
+      "step": 0.05,
+      "default": 1
+    },
+    {
+      "key": "touchColor",
+      "label": "Touch colour",
+      "type": "select",
+      "default": "palette",
+      "options": [
+        [
+          "palette",
+          "Alma palette"
+        ],
+        [
+          "indigo",
+          "Indigo"
+        ],
+        [
+          "purple",
+          "Purple"
+        ],
+        [
+          "periwinkle",
+          "Periwinkle"
+        ],
+        [
+          "pink",
+          "Pink"
+        ]
+      ]
+    },
+    {
+      "key": "emitters",
+      "label": "Emitters",
+      "type": "number",
+      "min": 0,
+      "max": 24,
+      "step": 1,
+      "default": 12
+    },
+    {
+      "key": "emitterSpeed",
+      "label": "Emitter speed",
+      "type": "number",
+      "min": 0,
+      "max": 4,
+      "step": 0.1,
+      "default": 1
+    },
+    {
+      "key": "fade",
+      "label": "Fade",
+      "type": "number",
+      "min": 0,
+      "max": 3,
+      "step": 0.05,
+      "default": 1
+    },
+    {
+      "key": "quality",
+      "label": "Quality",
+      "type": "select",
+      "default": "medium",
+      "options": [
+        [
+          "low",
+          "Low"
+        ],
+        [
+          "medium",
+          "Medium"
+        ],
+        [
+          "high",
+          "High"
+        ]
+      ]
+    },
+    {
+      "key": "wrap",
+      "label": "Around the room (360)",
+      "type": "select",
+      "options": [
+        [
+          "auto",
+          "Automatic - when the walls close the room"
+        ],
+        [
+          "on",
+          "On - one seamless loop"
+        ],
+        [
+          "off",
+          "Off - the strip has two ends"
+        ]
+      ],
+      "default": "auto"
+    },
+    {
+      "key": "logo",
+      "label": "Logo",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "key": "logoWall",
+      "label": "Logo wall",
+      "type": "wall",
+      "default": null
+    },
+    {
+      "key": "logoStyle",
+      "label": "Logo style",
+      "type": "select",
+      "default": "wordmark",
+      "options": [
+        [
+          "wordmark",
+          "Wordmark"
+        ],
+        [
+          "blob",
+          "Wordmark + blob"
+        ]
+      ]
+    },
+    {
+      "key": "logoSize",
+      "label": "Logo size",
+      "type": "number",
+      "min": 10,
+      "max": 100,
+      "step": 1,
+      "default": 38,
+      "unit": "%"
+    },
+    {
+      "key": "breathing",
+      "label": "Breathing",
+      "type": "number",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "default": 30,
+      "unit": "%"
+    }
+  ]
+}

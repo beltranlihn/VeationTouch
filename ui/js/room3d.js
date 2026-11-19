@@ -7,6 +7,7 @@
 // like a doll's house; their outlines stay.
 
 import { store } from './conn.js';
+import * as expview from './expview.js';
 import { roomPlan, shapeOutline, densify, apply as applyM } from '/shared/geometry.js';
 import { canvasZoneOnWall } from './shapes.js';
 
@@ -227,15 +228,25 @@ export class Room3D {
     return this._ul;
   }
 
+  /** The sequence number of the experience frame the wall textures show: it moves at most 15 times a second (0 = none). */
+  _expSeq() {
+    const f = expview.frame();
+    if (!f) { this._xs = 0; return 0; }
+    const now = performance.now();
+    if (f.seq !== this._xs && now - (this._xt || 0) >= 66) { this._xs = f.seq; this._xt = now; }
+    return this._xs || 0;
+  }
+
   _wallTexture(w) {
     const gl = this.gl, P = this.P;
-    const ul = this._underlay();
+    const xs = this._expSeq(), xf = xs ? expview.frame() : null;
+    const ul = xf ? null : this._underlay();
     const live = store.live?.zones || {};
     const zones = P.zones.filter((z) => (z.space === 'canvas' ? (z.walls || []).includes(w.id) : z.wallId === w.id));
     // redraw only when something it shows changed: profile objects are replaced on every edit (identity is enough),
     // plus which of its zones are active and the content image
     const act = zones.map((z) => (live[z.id]?.active ? 1 : 0)).join('');
-    const ulKey = ul ? this._ulUrl : null;
+    const ulKey = xs ? `xp${xs}` : ul ? this._ulUrl : null;
     let t = this.walls.get(w.id);
     if (t && t.w === w && t.zonesOf === P.zones && t.act === act && t.ul === ulKey) return t.tex;
     if (!t) { t = { tex: gl.createTexture(), cv: document.createElement('canvas') }; this.walls.set(w.id, t); }
@@ -245,7 +256,8 @@ export class Room3D {
     const g = cv.getContext('2d');
     const sx = W / w.width, sy = H / w.height, X = (x) => x * sx, Y = (y) => H - y * sy;
     g.fillStyle = w.enabled ? '#262626' : '#1b1b1b'; g.fillRect(0, 0, W, H);
-    if (ul) { const P2 = this.P, r = w.pixelRect, kx = ul.naturalWidth / P2.canvas.width, ky = ul.naturalHeight / P2.canvas.height; g.globalAlpha = 0.85; g.drawImage(ul, r.x * kx, r.y * ky, r.w * kx, r.h * ky, 0, 0, W, H); g.globalAlpha = 1; }
+    if (xf) { const r = w.pixelRect, b = xf.bitmap, kx = b.width / P.canvas.width, ky = b.height / P.canvas.height; g.globalAlpha = 0.95; g.drawImage(b, r.x * kx, r.y * ky, r.w * kx, r.h * ky, 0, 0, W, H); g.globalAlpha = 1; }
+    else if (ul) { const P2 = this.P, r = w.pixelRect, kx = ul.naturalWidth / P2.canvas.width, ky = ul.naturalHeight / P2.canvas.height; g.globalAlpha = 0.85; g.drawImage(ul, r.x * kx, r.y * ky, r.w * kx, r.h * ky, 0, 0, W, H); g.globalAlpha = 1; }
     // 0.5 m grid, whole metres stronger
     for (let x = 0.5; x < w.width; x += 0.5) { g.strokeStyle = x % 1 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.12)'; g.lineWidth = x % 1 ? 1 : 2; g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), H); g.stroke(); }
     for (let y = 0.5; y < w.height; y += 0.5) { g.strokeStyle = y % 1 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.12)'; g.lineWidth = y % 1 ? 1 : 2; g.beginPath(); g.moveTo(0, Y(y)); g.lineTo(W, Y(y)); g.stroke(); }

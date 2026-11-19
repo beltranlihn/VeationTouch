@@ -43,6 +43,7 @@
       "engine/**",
       "ui/**",
       "sdk/**",
+      "experiences/**",
       "profiles/**",
       "build/icon.png",
       "native/**",

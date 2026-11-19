@@ -319,6 +319,62 @@ The buffer is composited by maximum over the touch mask, so trails are untouched
 same `wallPattern` geometry. The desktop preview and the full-screen texture page run the same rasteriser from
 `store.state.grid` and `store.status`.
 
+## Experiences — `experiences/`, `engine/experiences.js`
+
+Interactive pieces that run inside VEATION Touch and go straight to the room.
+
+**Catalog and serving.** `experiences/<id>/manifest.json` (id, name, description, entry, typed params: number /
+select / bool / wall) is scanned by `engine/experiences.js`. The server serves `/experiences/runtime.js` and
+`/experiences/<id>/…` from the catalog entry's folder only: same headers as the UI, a resolved-path containment
+check, no listing.
+
+**Profile and commands.** The profile's `experience` field (id, autostart, sink spout|window, senderName,
+displayId, fit, scale, fps, params per experience) is normalised in `profile.js`. The running state is transient,
+in the state as `experience` (running, fps, error, previewAt) and `experiences` (the catalog).
+- Commands: `experience.play/stop/set/param/report/list`. `set` (the destination) is locked in Show mode.
+- Writes to disk are debounced (700 ms) so a fader drag does not make a backup per tick.
+
+**Windows.** The engine emits `experienceWindow` (also in `ready`); the Electron main opens it.
+- **Spout:** an off-screen-rendered window (`webPreferences.offscreen`, `setFrameRate(fps)`). A merely hidden window
+  gets no rAF, and its timers tick at Windows' 15.6 ms: measured 26 fps for a 60 fps piece. Off-screen: 60 fps at
+  3598 × 456 on an RTX 4060 laptop.
+- The window's preload (`app/experience-preload.cjs`) exposes the native Spout sender as `window.vtOut`. One sender
+  per process: this renderer is its own process, apart from the Texture output's.
+- **Window:** a frameless full-screen window on the chosen display.
+
+**Runtime** (`experiences/runtime.js`). It gives the page:
+- the canvas, and the walls in render px (`wallUvToCanvas` × scale);
+- `closedLoop` (`planCloses`);
+- live touches as down/move/up with velocity — wrap-aware across the seam when the loop closes;
+- live params, and `loop(fn, gl)` / `frame(gl)`.
+
+`frame` does three things:
+- reads the pixels to Spout (`readPixels`, flipY);
+- posts a ≤ 640 px JPEG per second to `/api/experience/preview` (this computer only, ≤ 300 KB);
+- reports fps and errors every 2 s.
+
+At scale 1 (7196 × 912) the CPU copy (26 MB/frame) limits it to ≈ 20 fps. Sharing a D3D11 texture with Spout
+would remove that copy (a change to the native sender).
+
+**Alma liquid** (`experiences/alma-fluid`). The website's fluid (fork of PavelDoGreat/WebGL-Fluid-Simulation,
+MIT, `LICENSE-fluid.txt`) on WebGL2 across the whole strip.
+- With a closed loop (or the `wrap` param On) the textures REPEAT on x, so the liquid is one seamless 360° texture.
+  Splats and emitters cross the seam, and a hand crossing it (last wall → first) is a short stroke.
+  `tests/alma-fluid.test.mjs` checks the seam column steps no more than the liquid does elsewhere.
+- Touches: down = a vortex ring, move = splats along the path, held still = a periodic swirl.
+- The logo (the website's wordmark layers) is drawn over the liquid on the chosen wall.
+
+**Viewer (simulation in the app's views).** The Live strip, the focus views and the 3D room show the profile's
+experience live on the walls. `ui/js/expview.js` hosts a hidden same-origin iframe of
+`/experiences/<id>/<entry>?run=1&view=1`, where `runtime.js` runs a second, viewer-only instance:
+- `vt.sink = 'viewer'`, render scale min(profile, 0.25), at most 30 fps;
+- no Spout, no preview POST, no `experience.report`, so the running instance's fps, error and preview are never
+  altered.
+
+Each frame reaches the parent as an `ImageBitmap` (`vt-experience-frame`). The workspace draws it per wall from
+`pixelRect` in place of the content image, and the 3D room redraws its wall textures at ≤ 15 Hz. The "Experience"
+toggle (on by default) removes the iframe when off. It is desktop only, and the room's real output is unaffected.
+
 ## Internet access — `engine/cloud.js`, `cloud/`
 
 The room can be opened from any network without touching the router or the firewall. With internet access on
@@ -375,7 +431,7 @@ resize walls), Mapping shows the output canvas in pixels (move regions, drag cor
 focus one wall (drag/rotate sensors; draw, move, reshape zones and masks — rect, polygon, circle — with handles
 and snapping); Zones › Canvas edits canvas zones on the output canvas, over the content. Drags are
 previewed locally and committed once; every edit goes into a client-side undo history (Ctrl+Z / Ctrl+Shift+Z),
-cleared by operations that must not be undone by accident (load room, apply calibration). Keys 1–8 switch tools. The server is authoritative: edits send the whole
+cleared by operations that must not be undone by accident (load room, apply calibration). Keys 1–9 switch tools. The server is authoritative: edits send the whole
 profile with its revision; stale revisions are refused and the client reloads. Point clouds are binary
 WebSocket frames (Float32), ≤ 10 Hz (5 Hz on touch devices) and only built while someone views them.
 
