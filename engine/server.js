@@ -173,6 +173,8 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     // the browser uses the very same geometry code as the engine (one implementation of the mapping)
     if (p === '/shared/geometry.js') return serveFile(res, path.join(root, 'engine', 'core', 'geometry.js'), OWN);
     if (p === '/shared/mask.js') return serveFile(res, path.join(root, 'engine', 'core', 'mask.js')); // the Texture output's rasteriser (live preview)
+    // the transport's playhead() — THE formula of a clip's position — for the mixer, the HAP player and the audio page
+    if (p === '/shared/transport.js') return serveFile(res, path.join(root, 'engine', 'media', 'transport.js'), OWN);
     if (p === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       const mem = process.memoryUsage(), mb = (b) => Math.round(b / 1048576);
@@ -370,8 +372,11 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
   });
   const unsubLog = log.onEntry?.((entry) => broadcast({ type: 'log', entry }, (c) => c.role === 'ui'));
   // the media server's own changes (copies in progress, problems): small, so the whole state is not sent each time
-  const onMedia = (m) => broadcast({ type: 'media', ...m });
+  const onMedia = (m) => broadcast({ type: 'media', ...m }); // copies, problems AND the transport (engine/media/transport.js)
   engine.on('media', onMedia);
+  // a play started, ended (with why) or failed: { event, playId, clipId, layerId, … } — for the experience runtime (vt.media.on)
+  const onMediaEvent = (e) => broadcast({ type: 'mediaEvent', ...e });
+  engine.on('mediaEvent', onMediaEvent);
 
   // The UI's live feed (internal; not /ws/data or OSC) sends each touch as [id, x, y, size, coasting, rx, ry, seenAt]. x, y are the
   // tracker's (up to predictMs of extrapolation); rx, ry (m) are the filtered position at the touch's last REAL reading and
@@ -464,7 +469,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       log.info(`server listening on :${bound}`);
       resolve({
         port: bound,
-        close: () => { clearInterval(ssidTimer); unsubLog?.(); engine.off('media', onMedia); for (const c of uiClients) c.ws.terminate(); for (const c of dataClients) c.ws.terminate(); server.close(); },
+        close: () => { clearInterval(ssidTimer); unsubLog?.(); engine.off('media', onMedia); engine.off('mediaEvent', onMediaEvent); for (const c of uiClients) c.ws.terminate(); for (const c of dataClients) c.ws.terminate(); server.close(); },
       });
     });
   });

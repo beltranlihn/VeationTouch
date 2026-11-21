@@ -31,6 +31,17 @@ function normParam(p) {
   return { ...base, default: typeof p.default === 'string' ? p.default : null }; // 'wall': a wall id of the room
 }
 
+/**
+ * A clip slot of the manifest (MEDIA-SERVER.md §4.4): `{key, label, type: 'clip' | 'clips', max}` — the clips the operator
+ * gives the experience in its preset (vt.media.slot(key)). null when unusable.
+ */
+function normSlot(s) {
+  if (!s || typeof s !== 'object' || !ID_RE.test(s.key || '')) return null;
+  const type = s.type === 'clips' ? 'clips' : 'clip';
+  const max = type === 'clip' ? 1 : Math.round(Math.min(64, Math.max(1, finite(s.max, 12))));
+  return { key: s.key, label: text(s.label, 60) || s.key, type, max };
+}
+
 /** One manifest → a catalog entry, or null. `dir` stays inside the engine (it is never sent to a client). */
 export function normManifest(m, folder, dir) {
   if (!m || typeof m !== 'object') return null;
@@ -41,7 +52,10 @@ export function normManifest(m, folder, dir) {
   const entry = typeof m.entry === 'string' && m.entry && !m.entry.startsWith('/') && !m.entry.includes('..') && !m.entry.includes('\\') ? m.entry : kind === 'sound' ? 'sound.js' : 'index.html';
   const seen = new Set();
   const params = (Array.isArray(m.params) ? m.params : []).slice(0, 64).map(normParam).filter((p) => p && !seen.has(p.key) && seen.add(p.key));
-  return { id, name: text(m.name, 80) || id, description: text(m.description, 400), kind, entry, params, dir };
+  const slotKeys = new Set();
+  const media = (Array.isArray(m.media) ? m.media : []).slice(0, 16).map(normSlot).filter((s) => s && !slotKeys.has(s.key) && slotKeys.add(s.key));
+  // transparent: its canvas is premultiplied and may go ABOVE the clip layers, letting the video show through (§4.5)
+  return { id, name: text(m.name, 80) || id, description: text(m.description, 400), kind, entry, params, media, transparent: m.transparent === true, dir };
 }
 
 /** The manifest of every folder of the given roots. The first root to define an id wins. */

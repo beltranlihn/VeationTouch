@@ -342,12 +342,13 @@ function normMediaRef(m) {
 
 // ---------------------------------------------------------------- the room output (ONE Spout sender for the whole app)
 
-export const OUTPUT_LAYERS = ['experience', 'touches', 'grid']; // default order, bottom → top
+// `media` = the media server's clip layers as one group (MEDIA-SERVER.md §4.5): on by default, above the experience.
+export const OUTPUT_LAYERS = ['experience', 'media', 'touches', 'grid']; // default order, bottom → top
 export const OUTPUT_BLENDS = ['normal', 'screen', 'add', 'multiply'];
 export const OUTPUT_SCALES = [0.25, 0.5, 0.75, 1];
 export const OUTPUT_FPS = [30, 60];
 export const TOUCH_LAYER_SCALES = [0.125, 0.25, 0.5, 1];
-const LAYER_DEFAULTS = { experience: { on: true, blend: 'normal' }, touches: { on: false, blend: 'screen' }, grid: { on: false, blend: 'screen' } };
+const LAYER_DEFAULTS = { experience: { on: true, blend: 'normal' }, media: { on: true, blend: 'normal' }, touches: { on: false, blend: 'screen' }, grid: { on: false, blend: 'screen' } };
 
 function normLayer(l, lid) {
   const d = LAYER_DEFAULTS[lid];
@@ -373,13 +374,20 @@ function normLayer(l, lid) {
 /**
  * The room output: what leaves the app as ONE image (the single Spout sender, or a full-screen window) and the layers
  * it is made of, bottom → top (array order). Each layer: on, opacity, blend; `touches` also carries the mask settings.
+ * A layer that is missing is added: the experience at the bottom, `media` right above the experience (that is how the
+ * profiles saved before the media server get it), the others on top.
  */
 export function normRoomOutput(o) {
   const seen = new Set(), layers = [];
   for (const l of Array.isArray(o?.layers) ? o.layers : []) {
     if (l && OUTPUT_LAYERS.includes(l.id) && !seen.has(l.id)) { seen.add(l.id); layers.push(normLayer(l, l.id)); }
   }
-  for (const lid of OUTPUT_LAYERS) if (!seen.has(lid)) layers[lid === 'experience' ? 'unshift' : 'push'](normLayer(null, lid));
+  for (const lid of OUTPUT_LAYERS) {
+    if (seen.has(lid)) continue;
+    if (lid === 'experience') layers.unshift(normLayer(null, lid));
+    else if (lid === 'media') layers.splice(layers.findIndex((l) => l.id === 'experience') + 1, 0, normLayer(null, lid));
+    else layers.push(normLayer(null, lid));
+  }
   return {
     on: bool(o?.on, false),
     sink: o?.sink === 'window' ? 'window' : 'spout',
@@ -390,6 +398,19 @@ export function normRoomOutput(o) {
     fps: o?.fps === 30 ? 30 : 60,
     layers,
   };
+}
+
+/**
+ * output.layers from a client that knows only the three layers of before (experience, touches, grid): the `media` layer
+ * keeps its settings and its place — right above the layer it was above (at the bottom if it was at the bottom).
+ */
+export function withMediaLayer(layers, before = []) {
+  const i = before.findIndex((l) => l?.id === 'media');
+  if (i < 0 || layers.some((l) => l?.id === 'media')) return layers; // (none before: normRoomOutput puts it above the experience)
+  const below = i > 0 ? before[i - 1].id : null;
+  const out = [...layers];
+  out.splice(below ? out.findIndex((l) => l?.id === below) + 1 : 0, 0, before[i]);
+  return out;
 }
 
 /**

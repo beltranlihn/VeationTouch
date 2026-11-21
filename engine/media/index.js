@@ -5,7 +5,9 @@
 //   show      the active show (shows/<id>.json, profile.media.showId), its edits and versions (engine/media/show.js)
 //   import    validation, fingerprint and copy into the library, in a worker_thread (engine/media/import-worker.js)
 //   http      the thumbnails and the raw PCM the server routes ask for (engine/server.js)
-// The transport (who plays, since when) and the experience presets come in a later phase, through this same facade.
+//   transport who plays on each layer, since when, and what happens at the end (engine/media/transport.js); its state
+//             is written to <data>/run/transport.json on every change so a restarted engine carries on (§4.2)
+//   presets   the experience cards of Live: one live experience, its parameters, its sound piece (engine/media/presets.js)
 //
 // The engine decides, the pages execute: nothing here touches a video frame. Bytes of movies are read in the worker,
 // apart from the PCM route (small positional reads, asynchronous) — never in the engine's 60 Hz loop.
@@ -14,7 +16,9 @@ import { EventEmitter } from 'node:events';
 import { Worker } from 'node:worker_threads';
 import fs from 'node:fs';
 import path from 'node:path';
-import { normalizeShow, blankShow, newClip, withoutMedia, fileName, nextId, MAX_COLUMNS } from './show.js';
+import { normalizeShow, blankShow, newClip, withoutMedia, fileName, nextId, clipSettings, MAX_COLUMNS } from './show.js';
+import { Transport, XLAYER } from './transport.js';
+import { Presets, migratePresets, presetForExperience } from './presets.js';
 import {
   rejectMessage, audioWarning, sizeWarning, ALREADY, INTERRUPTED, isMovName, diskSpace, driveOf, insideLibrary, absoluteIn,
   freeName, safeName, findByName, thumbName, THUMB_WIDTHS, formatBytes,
@@ -29,6 +33,15 @@ const MEDIA_EMIT_MS = 250;   // at most 4 'media' messages a second while copyin
 const DONE_KEEP_MS = 10000;  // a finished copy stays in the list this long once nothing is copying
 const PCM_MAX_FRAMES = 1 << 20;
 const MOVIES_OPEN = 4;       // movies the PCM route keeps open (index + handle)
+const SHOW_SAVE_MS = 700;    // a layer's mix or a preset's parameter, moved live, is written once it settles
+const SNAP_LAZY_MS = 250;    // a mix moved live (a fader) rewrites the transport snapshot at most this often; launches write at once
+const RESTORE_MAX_MS = 10 * 60000; // a transport snapshot older than this is not taken back (the room starts as show.start says)
+
+/** What the presets drive in the engine (engine.js › _mediaHost); a media server on its own (tests) has no experiences. */
+const NO_HOST = {
+  visual: () => [], sounds: () => [], walls: () => [], running: () => null, soundPlaying: () => null,
+  run() { throw new Error('no experiences here'); }, stop() {}, playSound() {}, stopSound() {}, setParam() {},
+};
 
 /** Commands refused in Show mode (merged into the engine's LOCKED_OPS). */
 export const MEDIA_LOCKED_OPS = new Set([
@@ -47,14 +60,17 @@ export class MediaEngine extends EventEmitter {
    * @param {object} deps.settings the engine's settings object (mediaDir is read and written here)
    * @param {() => object} deps.profile the active room profile
    * @param {(showId:string|null) => void} deps.setShowId makes a show the room's (the engine saves the profile)
+   * @param {object} [deps.host] the experience and the sound piece, for the presets (engine.js › _mediaHost; see presets.js)
    * Test seams (never reachable from a command):
    * @param {(dir:string) => Promise<{free:number|null, total:number|null}>} [deps.freeSpace] instead of statfs
    * @param {string} [deps.sourceOpener] module URL whose `open(file, options)` the worker reads sources with
    * @param {object} [deps.sourceOptions] passed to that `open`
    * @param {number} [deps.blockSize] copy block (8 MB)
    * @param {number} [deps.checkMs] period of the library check (10 s)
+   * @param {{now: () => number, wall: () => number}} [deps.clock] the engine clock (performance.now, the clock of live.t) and the wall clock
+   * @param {() => number} [deps.random] for the 'random' autopilot
    */
-  constructor({ store, log, settings, profile, setShowId, freeSpace = null, sourceOpener = null, sourceOptions = null, blockSize = null, checkMs = CHECK_MS }) {
+  constructor({ store, log, settings, profile, setShowId, host = null, freeSpace = null, sourceOpener = null, sourceOptions = null, blockSize = null, checkMs = CHECK_MS, clock = null, random = Math.random }) {
     super();
     this.store = store;
     this.log = log;
@@ -72,10 +88,17 @@ export class MediaEngine extends EventEmitter {
     this.thumbing = new Map();   // thumbnail being regenerated → Promise
     this._seq = 0;
     this._loaded = undefined;
+    this.clock = clock || { now: () => performance.now(), wall: () => Date.now() };
+    this.host = { ...NO_HOST, ...(host || {}) };
+    this.transport = new Transport({ now: () => this.clock.now(), settings: clipSettings, random, playable: (clip) => this._playable(clip) });
+    this.presets = new Presets({
+      now: () => this.clock.now(), log,
+      host: { ...this.host, clearGrid: () => this.transport.clearAll({ grid: true, x: false }), clearX: () => this.transport.clearAll({ grid: false, x: true, reason: 'stopped' }) },
+    });
   }
 
-  /** The command prefixes this facade takes (the transport adds its own later). */
-  static PREFIXES = ['media.', 'show.'];
+  /** The command prefixes this facade takes. */
+  static PREFIXES = ['media.', 'show.', 'clip.', 'column.', 'layer.', 'preset.'];
   handles(op) { return MediaEngine.PREFIXES.some((p) => op.startsWith(p)); }
 
   get libraryDir() { return this.store.mediaDir(this.settings); }
@@ -86,6 +109,7 @@ export class MediaEngine extends EventEmitter {
   start() {
     this._started = true;
     this._restoreJobs();
+    this._run(() => this._restoreTransport());
     this.check();
     this._timer = setInterval(() => this.check(), this.opts.checkMs);
     this._timer.unref?.();
@@ -96,6 +120,12 @@ export class MediaEngine extends EventEmitter {
     this._stopped = true;
     clearInterval(this._timer);
     clearTimeout(this._mediaTimer);
+    clearTimeout(this._tTimer);
+    if (this._snapTimer) { clearTimeout(this._snapTimer); this._snapTimer = null; this._snapNow(); } // a fader moved just before
+    if (this._showSaveTimer) { // a mix or a parameter moved just before: written now
+      clearTimeout(this._showSaveTimer); this._showSaveTimer = null;
+      if (this.show) { try { this.store.saveShow(this.show, { backup: false }); } catch (e) { this.log.warn(`show ${this.show.id}: ${e.message}`); } }
+    }
     await Promise.all([...this.workers].map((w) => w.terminate().catch(() => {})));
     await Promise.all([...this.movies.values()].map((m) => m.fh.close().catch(() => {})));
     this.movies.clear();
@@ -109,9 +139,16 @@ export class MediaEngine extends EventEmitter {
     this._loaded = id;
     let show = null;
     if (id) { try { show = this.store.loadShow(id); } catch (e) { this.log.warn(`show ${id}: ${e.message}`); } }
+    // a show without presets: the room's experience (and sound piece) becomes its first card
+    const first = migratePresets(show, profile, this.host.visual(), this.host.sounds());
+    if (first) {
+      try { show = this.store.saveShow(first, { backup: false }); this.log.info(`show "${show.name}": preset "${show.presets[0].name}" made from the room's experience`); }
+      catch (e) { this.log.warn(`show ${id}: ${e.message}`); }
+    }
     this.show = show;
     this.showRev++;
     this.problems = [];
+    this._showSet();
     if (this._started) { this._restoreJobs(); this.check(); }
   }
 
@@ -120,13 +157,14 @@ export class MediaEngine extends EventEmitter {
   /** The three state fields: show (with its revision), media (copies and problems), library (folder, free space). */
   state() { return { show: this.show ? { ...this.show, rev: this.showRev } : null, media: this.mediaState(), library: this.libraryState() }; }
 
+  /** state.media: the transport (rev, blackout, column, layers, xlayer), the live preset, the copies and the problems. */
   mediaState() {
     const copy = [];
     for (const j of this.jobs.values()) {
       if (j.state === 'interrupted') copy.push({ kind: 'copy', importId: j.id, mediaId: j.mediaId, text: `Copy of "${j.name}" interrupted — plug the drive back in.`, fix: null });
       else if (j.state === 'failed') copy.push({ kind: 'copy', importId: j.id, mediaId: j.mediaId, text: `Copy of "${j.name}" failed: ${j.error}`, fix: null });
     }
-    return { import: [...this.jobs.values()].map(publicJob), problems: [...this.problems, ...copy] };
+    return { ...this.transport.state(), preset: this.presets.state(), import: [...this.jobs.values()].map(publicJob), problems: [...this.problems, ...copy] };
   }
 
   libraryState() {
@@ -138,6 +176,15 @@ export class MediaEngine extends EventEmitter {
     if (this._mediaTimer || this._stopped) return;
     const wait = Math.max(0, MEDIA_EMIT_MS - (Date.now() - (this._mediaAt || 0)));
     this._mediaTimer = setTimeout(() => { this._mediaTimer = null; this._mediaAt = Date.now(); this.emit('media', this.mediaState()); }, wait);
+  }
+
+  /** A transport change goes out at once (it is rare, and the pages schedule on it); copies in progress wait for the throttle. */
+  _emitNow() {
+    if (this._stopped) return;
+    clearTimeout(this._mediaTimer);
+    this._mediaTimer = null;
+    this._mediaAt = Date.now();
+    this.emit('media', this.mediaState());
   }
 
   _jobEvent(job) { this.emit('job', publicJob(job)); this._emitMedia(); }
@@ -176,7 +223,7 @@ export class MediaEngine extends EventEmitter {
       case 'show.restore': {
         const id = args.id || this.show?.id;
         const s = this.store.restoreShowVersion(id, args.version);
-        if (this.show && id === this.show.id) { this.show = s; this.showRev++; this.emit('state'); this.check(); }
+        if (this.show && id === this.show.id) { this.show = s; this.showRev++; this._showSet(); this.emit('state'); this.check(); }
         return { id };
       }
       case 'show.export': return this._exportShow(args);
@@ -186,6 +233,20 @@ export class MediaEngine extends EventEmitter {
       case 'media.relink': return this.relink(args.dir, args);
       case 'media.remove': return this.remove(args.mediaId, args);
       case 'media.setDir': return this.setDir(args.dir, args);
+      // the transport (Show mode allows all of these: they are how a show is run)
+      case 'clip.trigger': return this._run(() => this.transport.trigger(args));
+      case 'column.trigger': return this._run(() => this.transport.columnTrigger(args));
+      case 'column.next': return this._run(() => this.transport.step(Number(args.dir) < 0 ? -1 : 1, args));
+      case 'column.prev': return this._run(() => this.transport.step(-1, args));
+      case 'layer.clear': return this._run(() => this.transport.clear(args.layerId, { transitionMs: args.transitionMs }));
+      case 'layer.set': return this._layerSet(args);
+      case 'media.clearAll': return this._run(() => this.transport.clearAll());
+      case 'media.blackout': return this._run(() => this.transport.setBlackout('on' in args ? args.on : !this.transport.blackout));
+      case 'media.report': return this._report(args);
+      // the experience presets
+      case 'preset.load': return this._run(() => this.presets.load(this.show, args.presetId));
+      case 'preset.unload': return this._run(() => this.presets.unload());
+      case 'preset.param': return this._presetParam(args);
       default: throw new Error(`unknown command ${op}`);
     }
   }
@@ -193,7 +254,10 @@ export class MediaEngine extends EventEmitter {
   /** Saves the active show (or another one by id) and tells the clients. */
   _saveShow(show, opts) {
     const saved = this.store.saveShow(show, opts);
-    if (this.show && saved.id === this.show.id) { this.show = saved; this.showRev++; this.emit('state'); }
+    if (this.show && saved.id === this.show.id) {
+      clearTimeout(this._showSaveTimer); this._showSaveTimer = null; // (what was waiting to be written is in this save)
+      this.show = saved; this.showRev++; this._showSet(); this.emit('state');
+    }
     return saved;
   }
 
@@ -213,6 +277,160 @@ export class MediaEngine extends EventEmitter {
     if (!this.show) throw new Error('the show could not be opened');
     this.log.info(`show "${saved.name}" created for the room`);
     return this.show;
+  }
+
+  // ------------------------------------------------------------------ transport and presets (§4.2, §4.3, §4b.4)
+
+  /**
+   * Runs a transport / preset change and then, if anything changed: the snapshot for restarts, the 'media' message (at
+   * once), the events ('started' / 'ended' / 'error'), and the timer of the next thing due.
+   */
+  _run(fn, { lazy = false } = {}) {
+    const t = this.transport.rev, p = this.presets.rev;
+    try { return fn(); } finally { this._settle(t, p, lazy); }
+  }
+
+  _settle(t, p, lazy = false) {
+    const events = this.transport.takeEvents();
+    if (this.transport.rev !== t || this.presets.rev !== p) { this._writeSnapshot(lazy); this._emitNow(); }
+    for (const e of events) this.emit('event', e);
+    this._schedule();
+  }
+
+  /** One timer for whatever the transport or the presets have due next (an end, an autopilot switch, a start timeout). */
+  _schedule() {
+    clearTimeout(this._tTimer);
+    this._tTimer = null;
+    if (this._stopped || !this._started) return;
+    const a = this.transport.nextDue(), b = this.presets.nextDue();
+    const due = a === null ? b : b === null ? a : Math.min(a, b);
+    if (due === null) return;
+    this._tTimer = setTimeout(() => { this._tTimer = null; this.tick(); }, Math.min(60000, Math.max(0, Math.ceil(due - this.clock.now()))));
+    this._tTimer.unref?.();
+  }
+
+  /** Does what is due now (the timer calls it; tests with a fake clock too). */
+  tick() { this._run(() => { const now = this.clock.now(); this.transport.advance(now); this.presets.advance(now); }); }
+
+  /** The show changed (opened, edited, restored): the transport and the presets follow it. */
+  _showSet() { this._run(() => { this.transport.setShow(this.show); this.presets.showChanged(this.show); }); }
+
+  /** Why a clip cannot play right now (a launch is refused with this), or null. */
+  _playable(clip) {
+    const show = this.show, m = show?.media.find((x) => x.id === clip.mediaId);
+    if (!m) return 'the clip has no media';
+    const name = fileName(m.file);
+    if (this._jobFor(show.id, m.id)) return `"${name}" is still being copied into the library.`;
+    let st = null;
+    try { st = fs.statSync(absoluteIn(this.libraryDir, m.file)); } catch { /* missing */ }
+    if (!st || !st.isFile() || (m.size && st.size !== m.size)) return `"${name}" is missing from the media library.`;
+    return null;
+  }
+
+  /** layer.set: the live mix of a layer, at once on the transport; written into the show once the fader settles. */
+  _layerSet(args) {
+    const id = args.layerId;
+    if (id !== XLAYER && !this.show?.layers.some((l) => l.id === id)) throw new Error(`unknown layer "${id}"`);
+    if (!['opacity', 'blend', 'bypass', 'volume', 'mute'].some((k) => k in args)) throw new Error('layer.set: opacity, blend, bypass, volume or mute');
+    const mix = this._run(() => this.transport.setMix(id, args), { lazy: true });
+    if (id !== XLAYER) {
+      const l = this.show.layers.find((x) => x.id === id);
+      Object.assign(l, { opacity: mix.opacity, blend: mix.blend, bypass: mix.bypass, audio: { ...l.audio, volume: mix.volume, mute: mix.mute } });
+      this._deferShowSave();
+    }
+    return mix;
+  }
+
+  /** preset.param: a parameter of a preset's experience ({sound: true}: of its sound piece); live too when it is the live one. */
+  _presetParam(args) {
+    const sound = args.sound === true;
+    const r = this.presets.param(this.show, args.presetId, args.key, args.value, { sound });
+    if (sound) r.preset.sound.params = { ...r.preset.sound.params, [r.key]: r.value };
+    else r.preset.params = { ...r.preset.params, [r.key]: r.value };
+    this._deferShowSave();
+    if (r.live) this.host.setParam(sound ? 'sound' : 'experience', r.entry.id, r.key, r.value);
+    return { value: r.value };
+  }
+
+  _deferShowSave() {
+    clearTimeout(this._showSaveTimer);
+    this._showSaveTimer = setTimeout(() => { this._showSaveTimer = null; if (this.show && !this._stopped) this._saveShow(this.show, { backup: false }); }, SHOW_SAVE_MS);
+    this._showSaveTimer.unref?.();
+  }
+
+  /** media.report: the output page could not play a play (unreadable file): the layer is ejected and an 'error' event goes out. */
+  _report(args) {
+    if (typeof args.playId !== 'string' || !args.error) return { ejected: false }; // (health figures without a failed play: F6/F13)
+    const r = this._run(() => this.transport.fail(args.playId, args.error));
+    if (r.ejected) this.log.warn(`clip ${args.playId} could not be played: ${String(args.error || '').slice(0, 200)}`);
+    return r;
+  }
+
+  // the old experience API (experience.play / stop / param, sound.param — docs/OSC.md), through the presets
+
+  /** experience.play {id}: the show's preset of that experience, if it has one; otherwise the experience as it always was. */
+  playExperience(id) {
+    const p = presetForExperience(this.show, id);
+    return this._run(() => (p ? this.presets.load(this.show, p.id) : this.presets.adhoc(id)));
+  }
+
+  /** experience.stop happened: nothing is live, the experience's own clips stop. */
+  experienceStopped() { this._run(() => this.presets.stopped()); }
+
+  /** experience.report: how the experience page is doing (makes a loading preset live, or shows its error). */
+  experienceReport(fps, error) { this._run(() => this.presets.report(fps, error)); }
+
+  /** experience.param / sound.param changed a live value: the live preset of that piece keeps it too. */
+  liveParam(kind, id, key, value) {
+    const pid = this.presets.liveFor(kind, id), p = pid && this.show?.presets.find((x) => x.id === pid);
+    if (!p) return;
+    if (kind === 'sound') { if (p.sound?.id === id) p.sound.params = { ...p.sound.params, [key]: value }; else return; }
+    else p.params = { ...p.params, [key]: value };
+    this._deferShowSave();
+  }
+
+  // the snapshot (<data>/run/transport.json): plain write + rename, no fsync — it is run state, not a document
+
+  _snapFile() { return path.join(this.store.dir, 'run', 'transport.json'); }
+
+  /** On every change; `lazy` (a fader): at most every SNAP_LAZY_MS, the last one always written. */
+  _writeSnapshot(lazy = false) {
+    if (!this._started || this._stopped) return;
+    if (this._snapTimer) { clearTimeout(this._snapTimer); this._snapTimer = null; }
+    const wait = SNAP_LAZY_MS - (Date.now() - (this._snapAt || 0));
+    if (lazy && wait > 0) { this._snapTimer = setTimeout(() => { this._snapTimer = null; this._snapNow(); }, wait); this._snapTimer.unref?.(); return; }
+    this._snapNow();
+  }
+
+  _snapNow() {
+    this._snapAt = Date.now();
+    const file = this._snapFile();
+    const data = { schema: 1, showId: this.show?.id ?? null, wall: this.clock.wall(), now: this.clock.now(), transport: this.transport.dump(), presets: this.presets.dump() };
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(data));
+      fs.renameSync(tmp, file);
+    } catch (e) { this.log.warn(`transport snapshot: ${e.message}`); }
+  }
+
+  /**
+   * On start: what played when the engine went down, if it was this show and not long ago. Times are moved from the old
+   * process's clock to this one's through the wall clock; what ended meanwhile is done silently (loops are where they
+   * would be, a clip that would have ended is gone, an autopilot has moved on).
+   */
+  _restoreTransport() {
+    let snap = null;
+    try { snap = JSON.parse(fs.readFileSync(this._snapFile(), 'utf8')); } catch { return; }
+    if (!snap || snap.schema !== 1 || !this.show || snap.showId !== this.show.id) return;
+    const wall = this.clock.wall(), now = this.clock.now(), age = wall - snap.wall;
+    if (!(age >= -5000 && age <= RESTORE_MAX_MS)) return;
+    const shift = (snap.wall - snap.now) - (wall - now);
+    this.transport.restore(snap.transport, shift);
+    this.transport.advance(now, { silent: true });
+    this.transport.takeEvents();
+    try { this.presets.restore(snap.presets, shift); } catch (e) { this.log.warn(`preset after restart: ${e.message}`); }
+    if (this.transport.busy() || this.presets.live) this.log.info(`transport restored (${Math.round(age / 100) / 10} s after it was saved)`);
   }
 
   // ------------------------------------------------------------------ import (§4d.3)

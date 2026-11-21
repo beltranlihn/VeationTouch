@@ -84,19 +84,25 @@ test('output: the bundled rooms — XR Lab sends the experience over "VEATION To
   }
 });
 
-test('output: layers are normalised — the three of them once each, in the order given, with their blend and opacity', () => {
+// Deliberately four layers since the media server (MEDIA-SERVER.md §4.5, F4): `media` (the clip layers) right above the
+// experience, on, opacity 1, normal. Fails if a profile saved with the three layers of before does not get it there,
+// or if adding it changes the order of the three.
+test('output: layers are normalised — the four of them once each, in the order given, with their blend and opacity; media comes above the experience', () => {
   const o = (layers) => normalizeProfile({ output: { layers } }).output.layers;
-  assert.deepEqual(ids(o(undefined)), ['experience', 'touches', 'grid'], 'default: bottom → top');
-  assert.deepEqual(ids(o([{ id: 'grid' }, { id: 'experience' }, { id: 'touches' }])), ['grid', 'experience', 'touches'], 'the array order is the stacking order');
-  assert.deepEqual(ids(o([{ id: 'touches' }, { id: 'touches' }, { id: 'bogus' }, null, { id: 'grid' }])), ['experience', 'touches', 'grid'], 'duplicates and unknown ids go; a missing experience goes to the bottom');
-  assert.deepEqual(ids(o([{ id: 'grid' }])), ['experience', 'grid', 'touches'], 'what is missing is added: the experience below, the others on top');
+  assert.deepEqual(ids(o(undefined)), ['experience', 'media', 'touches', 'grid'], 'default: bottom → top');
+  assert.deepEqual(ids(o([{ id: 'grid' }, { id: 'experience' }, { id: 'touches' }])), ['grid', 'experience', 'media', 'touches'], 'the array order is the stacking order; a profile of before gets media right above its experience');
+  assert.deepEqual(ids(o([{ id: 'touches' }, { id: 'touches' }, { id: 'bogus' }, null, { id: 'grid' }])), ['experience', 'media', 'touches', 'grid'], 'duplicates and unknown ids go; a missing experience goes to the bottom');
+  assert.deepEqual(ids(o([{ id: 'grid' }])), ['experience', 'media', 'grid', 'touches'], 'what is missing is added: the experience below, media above it, the others on top');
+  assert.deepEqual(ids(o([{ id: 'media' }, { id: 'grid' }, { id: 'experience' }, { id: 'touches' }])), ['media', 'grid', 'experience', 'touches'], 'media given: where it is given');
   const l = o([{ id: 'experience', opacity: 3, blend: 'burn' }, { id: 'touches', opacity: -1, blend: 'add', radius: 9, softness: 'x', scale: 0.3, walls: ['A', 4] }, { id: 'grid', opacity: 0.456 }]);
+  assert.deepEqual(ids(l), ['experience', 'media', 'touches', 'grid']);
   assert.deepEqual([l[0].opacity, l[0].blend], [1, 'normal'], 'opacity clamped to 0..1, an unknown blend falls back');
-  assert.deepEqual([l[1].opacity, l[1].blend, l[1].radius, l[1].softness, l[1].scale, l[1].walls], [0, 'add', 1, 0.5, 0.25, ['A']]);
-  assert.equal(l[2].opacity, 0.46);
-  assert.deepEqual([l[0].on, l[1].on, l[2].on], [true, false, false], 'defaults: the experience on, the touches and the grid off');
-  assert.deepEqual([l[1].blend, l[2].blend].concat(o(undefined)[0].blend), ['add', 'screen', 'normal']);
-  assert.equal('radius' in l[0] || 'radius' in l[2], false, 'only the touches layer carries mask settings');
+  assert.deepEqual([l[2].opacity, l[2].blend, l[2].radius, l[2].softness, l[2].scale, l[2].walls], [0, 'add', 1, 0.5, 0.25, ['A']]);
+  assert.equal(l[3].opacity, 0.46);
+  assert.deepEqual(l[1], { id: 'media', on: true, opacity: 1, blend: 'normal' }, 'the clip layers: on, full, normal');
+  assert.deepEqual([l[0].on, l[2].on, l[3].on], [true, false, false], 'defaults: the experience on, the touches and the grid off');
+  assert.deepEqual([l[2].blend, l[3].blend].concat(o(undefined)[0].blend), ['add', 'screen', 'normal']);
+  assert.equal('radius' in l[0] || 'radius' in l[1] || 'radius' in l[3], false, 'only the touches layer carries mask settings');
 });
 
 test('output: output.layers validates, keeps what it leaves out, and saves in the profile', async () => {
@@ -104,6 +110,7 @@ test('output: output.layers validates, keeps what it leaves out, and saves in th
   engine.start();
   try {
     const base = engine.profile.output.layers;
+    assert.deepEqual(ids(base), ['experience', 'media', 'touches', 'grid']);
     for (const [bad, why] of [
       [[{ id: 'experience' }, { id: 'touches' }], /all of/],
       [[...base, { id: 'grid' }], /twice/],
@@ -119,15 +126,16 @@ test('output: output.layers validates, keeps what it leaves out, and saves in th
     assert.deepEqual(engine.profile.output.layers, base, 'a refused command changes nothing');
 
     const wall = engine.profile.walls[0].id;
+    // a client that knows the three layers of before: valid, and the media layer stays right above the experience
     await engine.command('output.layers', { layers: [{ id: 'grid', on: true, blend: 'add' }, { id: 'experience', opacity: 0.4 }, { id: 'touches', on: true, radius: 0.15, walls: [wall] }] });
     const L = engine.profile.output.layers;
-    assert.deepEqual(ids(L), ['grid', 'experience', 'touches'], 'reordered');
-    assert.deepEqual([L[0].on, L[0].blend, L[1].opacity, L[1].blend, L[2].on, L[2].radius, L[2].walls, L[2].softness], [true, 'add', 0.4, 'normal', true, 0.15, [wall], 0.5], 'the rest is kept or defaulted');
+    assert.deepEqual(ids(L), ['grid', 'experience', 'media', 'touches'], 'reordered');
+    assert.deepEqual([L[0].on, L[0].blend, L[1].opacity, L[1].blend, L[3].on, L[3].radius, L[3].walls, L[3].softness], [true, 'add', 0.4, 'normal', true, 0.15, [wall], 0.5], 'the rest is kept or defaulted');
     assert.deepEqual(engine.state().profile.output.layers, L, 'the UI is told');
-    assert.deepEqual(engine.state().output.layersEffective, L, 'and the output page follows the same order');
+    assert.deepEqual(engine.state().output.layersEffective, L.filter((l) => l.id !== 'media'), 'and the output page follows the same order (no show: no clip layers to draw)');
     await engine.stop(); // writes the profile
     const again = new Store(dir, path.join(root, 'profiles'), quiet).loadProfile(engine.profile.id);
-    assert.deepEqual(ids(again.output.layers), ['grid', 'experience', 'touches'], 'the order is saved with the room');
+    assert.deepEqual(ids(again.output.layers), ['grid', 'experience', 'media', 'touches'], 'the order is saved with the room');
   } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -138,10 +146,11 @@ test('output: calibration mode — while a calibration, verification, Fit, walk 
     await engine.command('output.layers', { layers: [{ id: 'touches', on: false, radius: 0.12 }, { id: 'experience', on: true, opacity: 0.5 }, { id: 'grid', on: false }] });
     await engine.command('output.set', { on: true });
     const mine = structuredClone(engine.profile.output.layers);
+    const drawn = mine.filter((l) => l.id !== 'media'); // (the room has no show: its clip layers are not drawn)
     const out = () => engine.state().output;
     const wall = engine.profile.walls[0].id;
     assert.deepEqual([out().calibrating, out().running], [false, true]);
-    assert.deepEqual(out().layersEffective, mine, 'normally: the operator\'s layers, as they are');
+    assert.deepEqual(out().layersEffective, drawn, 'normally: the operator\'s layers, as they are');
 
     const effective = () => out().layersEffective;
     const expectCalibration = (what) => {
@@ -153,7 +162,7 @@ test('output: calibration mode — while a calibration, verification, Fit, walk 
     };
     const expectBack = (what) => {
       assert.equal(out().calibrating, false, `${what}: back`);
-      assert.deepEqual(effective(), mine, `${what}: the operator's layers again`);
+      assert.deepEqual(effective(), drawn, `${what}: the operator's layers again`);
     };
 
     // the grid (pixel map)
@@ -283,5 +292,31 @@ test('output: the preview image is only asked of the desktop app while someone l
     assert.ok(engine.outPreview?.buf?.length === 3);
     engine.out.previewAskedAt = Date.now() - 6000;
     assert.equal(engine.previewWanted(), false, 'nobody for 5 s: it stops');
+  } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Fails if the old three-layer clients (the current UI, docs/OSC.md) are refused or move the clip layers, if the clip
+// layers are drawn by a room without a show (the output page would get a layer with nothing in it), or if they are
+// missing from what is drawn once there is a show.
+test('output: the media layer — optional for output.layers (it keeps its place), drawn only when the room plays a show', async () => {
+  const { engine, dir } = setup();
+  engine.start();
+  try {
+    // a four-layer client puts the clip layers on top…
+    await engine.command('output.layers', { layers: [{ id: 'experience' }, { id: 'touches' }, { id: 'grid' }, { id: 'media', opacity: 0.7 }] });
+    assert.deepEqual(ids(engine.profile.output.layers), ['experience', 'touches', 'grid', 'media']);
+    // …and a three-layer client after it leaves them there, with their settings
+    await engine.command('output.layers', { layers: [{ id: 'grid' }, { id: 'experience' }, { id: 'touches', on: true }] });
+    assert.deepEqual(ids(engine.profile.output.layers), ['grid', 'media', 'experience', 'touches'], 'media stays right above the layer it was above (the grid)');
+    assert.equal(layer(engine, 'media').opacity, 0.7);
+    // at the bottom it stays at the bottom
+    await engine.command('output.layers', { layers: [{ id: 'media' }, { id: 'experience' }, { id: 'touches' }, { id: 'grid' }] });
+    await engine.command('output.layers', { layers: [{ id: 'touches' }, { id: 'experience' }, { id: 'grid' }] });
+    assert.deepEqual(ids(engine.profile.output.layers), ['media', 'touches', 'experience', 'grid']);
+    await assert.rejects(engine.command('output.layers', { layers: [{ id: 'media' }, { id: 'experience' }, { id: 'touches' }] }), /all of experience, touches, grid/);
+
+    assert.equal(engine.state().output.layersEffective.some((l) => l.id === 'media'), false, 'no show: nothing to draw');
+    await engine.command('show.create', { name: 'Clips' });
+    assert.deepEqual(ids(engine.state().output.layersEffective), ['media', 'touches', 'experience', 'grid'], 'a show: the clip layers are drawn where the operator put them');
   } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
 });

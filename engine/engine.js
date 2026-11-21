@@ -13,7 +13,7 @@ import { CalibrationSession, defaultTargets, VerifySession, verifyTargets } from
 import { verifyPassMm, poseMatrix, apply } from './core/geometry.js';
 import { OutputManager } from './outputs/outputs.js';
 import { overlayOf } from './core/mask.js';
-import { normalizeProfile, blankProfile, wallToUv, OUTPUT_SCALES, OUTPUT_FPS, OUTPUT_BLENDS, OUTPUT_LAYERS, TOUCH_LAYER_SCALES, normRoomOutput, normAudio, AUDIO_MAX_CHANNELS } from './profile.js';
+import { normalizeProfile, blankProfile, wallToUv, OUTPUT_SCALES, OUTPUT_FPS, OUTPUT_BLENDS, OUTPUT_LAYERS, TOUCH_LAYER_SCALES, normRoomOutput, normAudio, AUDIO_MAX_CHANNELS, AUDIO_ROUTES, withMediaLayer } from './profile.js';
 import { firewallStatus, fixFirewall, setInterfaceAddress, openHotspotSettings } from './net.js';
 import { autoAlign, backgroundPoints } from './core/autoalign.js';
 import { levelCheck } from './core/levelcheck.js';
@@ -72,10 +72,11 @@ export class Engine extends EventEmitter {
     this._outKey = 'null';
     this.lastFrame = null;
     this.tickStats = { fps: 0, n: 0, t0: performance.now(), maxMs: 0 };
-    // the media server: library, show, imports (and later the transport). `media.*` / `show.*` commands go to it.
-    this.media = new MediaEngine({ store, log, settings: this.settings, profile: () => this.profile, setShowId: (id) => this._setShowId(id), ...media });
+    // the media server: library, show, imports, transport, presets. `media.*` `show.*` `clip.*` `column.*` `layer.*` `preset.*` go to it.
+    this.media = new MediaEngine({ store, log, settings: this.settings, profile: () => this.profile, setShowId: (id) => this._setShowId(id), host: this._mediaHost(), ...media });
     this.media.on('state', () => this.emit('state'));
     this.media.on('media', (m) => this.emit('media', m));
+    this.media.on('event', (e) => this.emit('mediaEvent', e)); // started / ended / error of a play (the experience runtime listens)
   }
 
   start() {
@@ -749,22 +750,18 @@ export class Engine extends EventEmitter {
         return { experiences: publicCatalog(this._visual()), sounds: publicCatalog(this._sounds()) };
       }
       case 'experience.play': {
+        // the old API (docs/OSC.md): loads the show's preset of this experience, if there is one (MEDIA-SERVER.md §4b.4)
         const e = this._visual().find((x) => x.id === args.id);
         if (!e) throw new Error(`unknown experience "${args.id}"`);
-        P.experience.id = e.id;
-        this._experienceRun();
+        this.media.playExperience(e.id);
         const O = P.output;
         this.log.info(`experience "${e.id}" started (${O.sink === 'spout' ? `Spout "${O.senderName}"` : 'full screen'})`);
         return {};
       }
       case 'experience.stop': {
         // the experience layer goes off; the room output itself stays as it is (the other layers keep showing)
-        if (this.experienceState().running) this.log.info('experience stopped');
-        this._layer('experience').on = false;
-        this.exp = { fps: 0, error: null };
-        this._saveExperience(true);
-        this._syncOutputWindow();
-        this.emit('state');
+        this._stopExperience();
+        this.media.experienceStopped();
         return {};
       }
       case 'experience.set': {
@@ -803,7 +800,8 @@ export class Engine extends EventEmitter {
         return {};
       }
       case 'output.layers': {
-        // the layers, bottom to top: each one its switch, opacity, blend; the touches layer also its mask settings
+        // the layers, bottom to top: each one its switch, opacity, blend; the touches layer also its mask settings.
+        // `media` (the clip layers) is optional: a client that knows the three layers of before keeps it where it is.
         if (!Array.isArray(args.layers)) throw new Error('layers: a list');
         const seen = new Set();
         for (const l of args.layers) {
@@ -822,10 +820,11 @@ export class Engine extends EventEmitter {
             if ('walls' in l && !(Array.isArray(l.walls) && l.walls.every((w) => P.walls.some((x) => x.id === w)))) throw new Error('touches: walls are walls of this room ([] = all)');
           }
         }
-        if (seen.size !== OUTPUT_LAYERS.length) throw new Error(`layers: all of ${OUTPUT_LAYERS.join(', ')}, once each`);
+        const need = OUTPUT_LAYERS.filter((id) => id !== 'media');
+        if (!need.every((id) => seen.has(id))) throw new Error(`layers: all of ${need.join(', ')}, once each (media is optional)`);
         // each layer keeps what the command leaves out; the normaliser fills in and clamps the rest
         const old = new Map(P.output.layers.map((l) => [l.id, l]));
-        P.output.layers = normRoomOutput({ layers: args.layers.map((l) => ({ ...old.get(l.id), ...l })) }).layers;
+        P.output.layers = normRoomOutput({ layers: withMediaLayer(args.layers.map((l) => ({ ...old.get(l.id), ...l })), P.output.layers) }).layers;
         this._saveExperience();
         this._syncOutputWindow();
         this.emit('state');
@@ -839,6 +838,7 @@ export class Engine extends EventEmitter {
         const value = checkParam(param, args.value, P.walls.map((w) => w.id));
         (x.params[e.id] ??= {})[param.key] = value;
         this._saveExperience();
+        this.media.liveParam('experience', e.id, param.key, value); // the live preset keeps it too
         this.emit('state'); // the page listens to the state: no reload
         return { value };
       }
@@ -850,6 +850,7 @@ export class Engine extends EventEmitter {
         const err = typeof args.error === 'string' && args.error.trim() ? args.error.replace(/[\u0000-\u001f]+/g, ' ').slice(0, 300) : null;
         if (err && err !== this.exp.error) this.log.warn(`experience "${this.profile.experience.id}": ${err}`);
         this.exp.error = err;
+        this.media.experienceReport(this.exp.fps, err); // a loading preset goes live (or shows the error)
         this.emit('state');
         return {};
       }
@@ -929,23 +930,33 @@ export class Engine extends EventEmitter {
         this._audioReport(args);
         return {};
       }
-      case 'sound.play': {
-        const e = this._sounds().find((x) => x.id === args.id);
-        if (!e) throw new Error(`unknown sound "${args.id}"`);
-        P.audio.sound.id = e.id;
-        P.audio.on = true;
-        this.aud.playing = true; this.aud.error = null;
-        this.log.info(`sound "${e.id}" started`);
-        this._saveExperience(true);
-        this._syncAudioWindow();
+      case 'sound.play': { this._playSound(args.id); return {}; }
+      case 'sound.stop': { this._stopSound(); return {}; }
+      case 'audio.media': {
+        // the clips' audio in the room (MEDIA-SERVER.md §4c, profile.audio.media). Show mode: the level only, not the routing
+        const KEYS = ['level', 'avOffsetMs', 'route', 'width', 'front', 'matrix', 'duckDb'];
+        const given = KEYS.filter((k) => k in args);
+        if (!given.length) throw new Error(`audio.media: one of ${KEYS.join(', ')}`);
+        if (this.settings.locked && given.some((k) => k !== 'level')) throw new Error('the room is locked (Show mode) — unlock it first');
+        const range = (k, min, max) => { const n = Number(args[k]); if (typeof args[k] === 'boolean' || !(n >= min && n <= max)) throw new Error(`${k}: from ${min} to ${max}`); return n; };
+        const next = {};
+        if ('level' in args) next.level = range('level', 0, 1);
+        if ('avOffsetMs' in args) next.avOffsetMs = range('avOffsetMs', -200, 200);
+        if ('width' in args) next.width = range('width', 0, 1);
+        if ('duckDb' in args) next.duckDb = range('duckDb', -60, 0);
+        if ('route' in args) { if (!AUDIO_ROUTES.includes(args.route)) throw new Error(`route: one of ${AUDIO_ROUTES.join(', ')}`); next.route = args.route; }
+        if ('front' in args) { if (!P.walls.some((w) => w.id === args.front)) throw new Error('front: a wall of this room'); next.front = args.front; }
+        if ('matrix' in args) {
+          const m = args.matrix;
+          if (m !== null && !(Array.isArray(m) && m.length <= 16 && m.every((row) => Array.isArray(row) && row.every((v) => v === null || (Number.isFinite(v) && v >= -60 && v <= 6))))) {
+            throw new Error('matrix: null or rows (one per source channel) of dB from -60 to 6, or null for no cross');
+          }
+          next.matrix = m;
+        }
+        P.audio = normAudio({ ...P.audio, media: { ...P.audio.media, ...next } }, P.walls);
+        this._saveExperience(!given.every((k) => k === 'level')); // a level fader settles; a routing change is written at once
         this.emit('state');
-        return {};
-      }
-      case 'sound.stop': {
-        if (this.aud.playing) this.log.info('sound stopped');
-        this.aud.playing = false; this.aud.error = null;
-        this.emit('state');
-        return {};
+        return { media: P.audio.media };
       }
       case 'sound.set': {
         if ('autostart' in args) P.audio.sound.autostart = !!args.autostart;
@@ -961,6 +972,7 @@ export class Engine extends EventEmitter {
         const value = checkParam(param, args.value, P.walls.map((w) => w.id));
         (s.params[e.id] ??= {})[param.key] = value;
         this._saveExperience();
+        this.media.liveParam('sound', e.id, param.key, value); // the live preset keeps it too
         this.emit('state'); // the piece listens to the state: no restart
         return { value };
       }
@@ -1094,6 +1106,44 @@ export class Engine extends EventEmitter {
     this.emit('state');
   }
 
+  /** experience.play's own path (presets load through it too): the room plays this experience; `params` become its live values. */
+  _runExperience(id, params) {
+    const e = this._visual().find((x) => x.id === id);
+    if (!e) throw new Error(`unknown experience "${id}"`);
+    this.profile.experience.id = e.id;
+    if (params) this.profile.experience.params[e.id] = { ...params };
+    this._experienceRun();
+  }
+
+  /** experience.stop's own path: the experience layer off; the output stays (its other layers keep showing). */
+  _stopExperience() {
+    if (this.experienceState().running) this.log.info('experience stopped');
+    this._layer('experience').on = false;
+    this.exp = { fps: 0, error: null };
+    this._saveExperience(true);
+    this._syncOutputWindow();
+    this.emit('state');
+  }
+
+  /** What the media server's presets drive here, the same way experience.play / sound.play do (engine/media/presets.js). */
+  _mediaHost() {
+    return {
+      visual: () => this._visual(), sounds: () => this._sounds(), walls: () => this.profile.walls.map((w) => w.id),
+      running: () => (this.experienceState().running ? this.profile.experience.id : null),
+      soundPlaying: () => (this.profile.audio.on && this.aud.playing ? this.profile.audio.sound.id : null),
+      run: (id, params) => this._runExperience(id, params),
+      stop: () => this._stopExperience(),
+      playSound: (id, params) => this._playSound(id, params),
+      stopSound: () => this._stopSound(),
+      setParam: (kind, id, key, value) => { // preset.param on the live preset: the live value, like experience.param / sound.param
+        const x = kind === 'sound' ? this.profile.audio.sound : this.profile.experience;
+        (x.params[id] ??= {})[key] = value;
+        this._saveExperience();
+        this.emit('state');
+      },
+    };
+  }
+
   /** What the UI is told about the experience: the selected one, whether it runs (output on + its layer on) and how it is doing. */
   experienceState() {
     const x = this.profile.experience, e = this._visual().find((c) => c.id === x.id);
@@ -1107,14 +1157,15 @@ export class Engine extends EventEmitter {
   /**
    * The room output as the UI and the output page see it. `calibrating`: a calibration, verification, Fit or walk test
    * runs, or the grid is on. The output then shows only what calibration needs (the touches, with the grid and its
-   * targets on top, on black) whatever the operator's layers are. `layersEffective` is what the page draws, bottom to top.
+   * targets on top, on black) whatever the operator's layers are. `layersEffective` is what the page draws, bottom to top;
+   * the `media` layer (the clip layers) is in it only when the room plays a show — without one there is nothing to draw.
    */
   outputState() {
     const O = this.profile.output, calibrating = this.calibrating();
     const touches = this._layer('touches');
     const layersEffective = calibrating
       ? [{ ...touches, on: true, opacity: 1, blend: 'screen' }, { id: 'grid', on: true, opacity: 1, blend: 'screen' }]
-      : O.layers;
+      : this.media.show ? O.layers : O.layers.filter((l) => l.id !== 'media');
     return {
       running: O.on, calibrating, layersEffective, url: O.on ? '/output?run=1' : null,
       fps: O.on ? this.out.fps : 0, error: O.on ? this.out.error : null, previewAt: O.on ? this.out.previewAt : null,
@@ -1180,6 +1231,27 @@ export class Engine extends EventEmitter {
 
   _visual() { return visualOnly(this.catalog); }
   _sounds() { return soundOnly(this.catalog); }
+
+  /** sound.play's own path (presets too): the room's sound on, this piece playing; `params` become its live values. */
+  _playSound(id, params) {
+    const e = this._sounds().find((x) => x.id === id);
+    if (!e) throw new Error(`unknown sound "${id}"`);
+    const A = this.profile.audio;
+    A.sound.id = e.id;
+    if (params) A.sound.params[e.id] = { ...params };
+    A.on = true;
+    this.aud.playing = true; this.aud.error = null;
+    this.log.info(`sound "${e.id}" started`);
+    this._saveExperience(true);
+    this._syncAudioWindow();
+    this.emit('state');
+  }
+
+  _stopSound() {
+    if (this.aud.playing) this.log.info('sound stopped');
+    this.aud.playing = false; this.aud.error = null;
+    this.emit('state');
+  }
 
   /** The sound piece plays when the room starts, if the room says so (and audio is on). */
   _soundAutostart() {

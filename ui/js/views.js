@@ -1250,9 +1250,10 @@ function textureEditor(o, s, ctx) {
 // ======================================================================= EXPERIENCES (split: Live · Output › Screens · Output › Audio)
 
 const XP_SCALES = [0.25, 0.5, 0.75, 1];
-const LAYER_NAMES = { experience: 'Experience', touches: 'Touches', grid: 'Grid' };
+const LAYER_NAMES = { experience: 'Experience', media: 'Clips', touches: 'Touches', grid: 'Grid' };
 const LAYER_HINTS = {
   experience: 'The piece that is playing (Play and Stop are in Live)',
+  media: 'The video clips launched in Live (the clip grid and the experience\'s own clips)',
   touches: 'Black and white mask of the touches',
   grid: 'Pixel map: wall outlines, metre grid, wall ids and calibration targets',
 };

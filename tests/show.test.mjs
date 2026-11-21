@@ -173,7 +173,7 @@ test('engine: show edits carry a revision, cannot touch the media list, and are 
     const st = engine.state();
     assert.equal(st.show.id, id);
     assert.ok(Number.isInteger(st.show.rev));
-    assert.deepEqual(st.media, { import: [], problems: [] });
+    assert.deepEqual([st.media.import, st.media.problems], [[], []]); // (state.media also carries the transport since F4)
     assert.equal(st.library.dir, path.join(dir, 'media'));
     const rev = st.show.rev;
     const edited = { ...st.show, name: 'Gallery A', layers: [...st.show.layers, { name: 'Top' }], media: [med('m9', 'elsewhere/evil.mov')] };
