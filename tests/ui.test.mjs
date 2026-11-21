@@ -2290,3 +2290,62 @@ test('ui: the live feed carries each touch\'s real reading (rx, ry, seenAt) and 
   assert.deepEqual(result.after, [], 'the hand is gone after the touch ends');
   assert.equal(result.ups.length, 1, 'with one up');
 });
+
+// Only the app's output window is the room's live instance (a second one ejects the room's clip with its media.report and
+// duplicates the experience's report): the Screens preview and any browser tab are viewers of it.
+test('ui: the output page in the Screens preview loads the experience as a viewer and never reports; the live page reports (the control)', opt, async () => {
+  const run = async (page) => {
+    const seen = [];
+    const { result, errors } = await inUi(`
+      const { store } = await import('/js/conn.js');
+      for (let k = 0; k < 100 && !document.querySelector('iframe'); k++) await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 3500)); // (the experience reports every 2 s, the first one as soon as it has frames)
+      return { src: document.querySelector('iframe')?.getAttribute('src') };`, {
+      page, wait: 'load',
+      setup: async (e) => {
+        await withLayers(e, [{ id: 'experience', on: true }, { id: 'grid', on: false }, { id: 'touches', on: false }]);
+        const real = e.command.bind(e);
+        e.command = (op, args) => { if (op === 'experience.report' || op === 'media.report') seen.push(op); return real(op, args); };
+      },
+    });
+    assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+    return { src: result.src, seen };
+  };
+  const live = await run('/output?run=1');
+  assert.match(live.src, /layer=1$/);
+  assert.ok(live.seen.includes('experience.report'), 'control: the live page reports (so the test can fail)');
+  const preview = await run('/output?run=1&screens=preview');
+  // Fails if the preview loads the experience as a second real instance
+  assert.match(preview.src, /layer=1&view=1$/, 'the preview\'s experience is a viewer');
+  assert.deepEqual(preview.seen, [], 'the preview reports nothing');
+});
+
+// The phone and the relay: after the whole state, a `showSame` state (the engine left the unchanged show out) keeps the
+// show the page has — also when the messages went through the relay's compaction.
+test('ui: conn.js keeps the show on a showSame state, also through the relay\'s compaction', opt, async () => {
+  const { result, errors } = await inUi(`
+    const { compactState } = await import('/shared/media/wire.js');
+    const sent = [];
+    class FakeWS { constructor() { FakeWS.me = this; this.readyState = 0; setTimeout(() => { this.readyState = 1; this.onopen?.(); }, 0); } send(m) { sent.push(m); } close() {} }
+    window.WebSocket = FakeWS;
+    const { connect, store } = await import('/js/conn.js');
+    connect();
+    await new Promise((r) => setTimeout(r, 30));
+    const deliver = (m) => FakeWS.me.onmessage({ data: JSON.stringify(m) });
+    const profile = { id: 'p1', walls: [], outputs: [] };
+    const show = { rev: 3, name: 'S', layers: [], media: [{ id: 'M1', mtimeMs: 5 }], clips: [{ id: 'C1', mediaId: 'M1', name: 'c', end: 'layer', loops: 1, in: 0, out: null, trigger: 'layer', transitionMs: null, color: null, place: { target: 'canvas', wallId: null, fit: 'stretch' }, audio: { gainDb: 0, route: null } }] };
+    const out = { hello: JSON.parse(sent[0]).showDelta };
+    deliver(compactState({ type: 'state', profile, show, media: { layers: {} } }));
+    out.first = store.state.show?.rev;
+    deliver(compactState({ type: 'state', profile, showSame: true, media: { layers: {} } }));
+    out.same = { rev: store.state.show?.rev, clip: store.state.show?.clips?.[0]?.loops, flag: 'showSame' in store.state };
+    deliver({ type: 'state', profile, showSame: true, media: { layers: {} } });
+    out.plain = store.state.show?.rev;
+    return out;`, { page: '/experiences/touch-probe/index.html', wait: 'load' });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.equal(result.hello, true, 'the client says showDelta');
+  assert.equal(result.first, 3);
+  // Fails if showSame replaces the show with nothing (or the compact flag stops it being expanded)
+  assert.deepEqual(result.same, { rev: 3, clip: 1, flag: false });
+  assert.equal(result.plain, 3);
+});

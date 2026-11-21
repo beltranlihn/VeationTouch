@@ -337,9 +337,9 @@ const stateOf = ({ layers = {}, blackout = false, blackoutAt = null, calibrating
   output: { calibrating }, show: { media: MEDIA },
   media: { blackout, blackoutAt, layers, xlayer: entry({ state: 'empty' }) } });
 /** The room graph + ClipAudio on an offline context. plan({ ctx, room, ca, at }); at(t, fn) runs fn (awaited) at t s. */
-async function render(seconds, plan, { gens, calls, lat = 0 } = {}) {
+async function render(seconds, plan, { gens, calls, lat = 0, cfg = ROOM } = {}) {
   const ctx = new OfflineAudioContext(CH, Math.round(SR * seconds), SR);
-  const room = await buildRoomAudio(ctx, ROOM, {});
+  const room = await buildRoomAudio(ctx, cfg, {});
   room.output.connect(ctx.destination);
   const ca = new ClipAudio({ ctx, room, timing: () => ({ ctxT: ctx.currentTime, engMs: ENG0 + ctx.currentTime * 1000 }), latencyMs: () => lat, roomPlan, fetchPcm: pcm(gens, calls) });
   const steps = [];
@@ -433,6 +433,13 @@ out.duck = { silent: await ducked(-60), minus12: await ducked(-12) };
   const d = r.ch[2], m = (t0, t1, hz) => goertzel(seg(d, t0, t1), hz);
   out.xfade = { a0: m(0.2, 0.5, 400), b0: m(0.2, 0.5, 900), aMid: m(0.69, 0.71, 400), bMid: m(0.69, 0.71, 900), a1: m(0.95, 1.2, 400), b1: m(0.95, 1.2, 900) };
 }
+// I. no sub + the walls' high-pass (200 Hz): a clip's bass is not lost — the same tone heard with and without the high-pass
+//    at 80 Hz is about the same, and at 1 kHz (above the high-pass) it is not doubled by the fold
+{
+  const run = async (hz, cfg) => { const r = await render(1, ({ ca }) => { ca.update(stateOf({ layers: { L1: entry({ play: play({ startAt: ENG0 + 50 }) }) } })); }, { gens: { C1: tone(hz, 0.25) }, cfg }); return rms(r.ch[0], 0.4, 1); };
+  const HP = { ...ROOM, wallHighpassHz: 200 };
+  out.fold = { low: await run(80, HP), lowFlat: await run(80, ROOM), high: await run(1000, HP), highFlat: await run(1000, ROOM) };
+}
 return out;`;
 
 test('clips graph (offline, real worklet): a tone only in L reaches channels 1, 2 and 3 of XR Lab with the table\'s gains, nothing else', opt, async () => {
@@ -512,4 +519,13 @@ test('clips crossfade: the outgoing clip\'s sound fades over the layer\'s transi
   // Fails if the outgoing clip is cut at the start of the transition, or the incoming one starts at full
   assert.ok(Math.abs(x.aMid / x.a0 - Math.SQRT1_2) < 0.05 && Math.abs(x.bMid / x.a0 - Math.SQRT1_2) < 0.05, `half way both at −3 dB (${x.aMid / x.a0}, ${x.bMid / x.a0})`);
   assert.ok(x.a1 < x.a0 * 0.01 && Math.abs(x.b1 / x.a0 - 1) < 0.03, `after: only B (${x.a1}, ${x.b1})`);
+});
+
+test('clips with no sub and a wall high-pass keep their bass (folded to the walls), without doubling what the high-pass lets through', opt, async () => {
+  const { result: { fold: f } } = await inAudioPage();
+  // Fails if the clips only go through the high-pass when there is no sub: at 80 Hz ~ 200 Hz 4th order leaves ~2 % of the level
+  assert.ok(f.lowFlat > 0.05, `the reference sounds (${f.lowFlat})`);
+  assert.ok(f.low / f.lowFlat > 0.85 && f.low / f.lowFlat < 1.2, `80 Hz keeps its level with the high-pass on (${f.low / f.lowFlat})`);
+  // Fails if the fold is not filtered (the whole band added twice: +6 dB at 1 kHz)
+  assert.ok(Math.abs(f.high / f.highFlat - 1) < 0.05, `1 kHz is not doubled (${f.high / f.highFlat})`);
 });

@@ -106,6 +106,16 @@ export async function buildRoomAudio(ctx, cfg, { workletUrl = '/js/audio-worklet
     lp = filter4(ctx, 'lowpass', cfg.sub.crossoverHz || 90);
     duckSub[0].connect(lp.input); msub.connect(lp.input); lp.output.connect(post[sub]); duckSub[1].connect(post[sub]);
   } else for (const c of wallChannels) duckSub[2].connect(post[c]); // no sub in the map: the low end is heard on the walls
+  // ...and the clips' too: with no sub and the walls' high-pass on, their bass would be cut with nothing to carry it, so their
+  // mono sum goes (low-passed at the crossover: not the whole band again) to the walls' channels, after the high-pass
+  const foldClips = !hasSub && hp > 0 && wallChannels.length > 0;
+  if (foldClips) {
+    const lpf = filter4(ctx, 'lowpass', cfg.sub?.crossoverHz || 90);
+    msub.connect(lpf.input);
+    const half = mono(ctx, 0.5); // (the mono sum of a stereo clip is ~+6 dB over what one wall channel gets of it)
+    lpf.output.connect(half);
+    for (const c of wallChannels) half.connect(post[c]);
+  }
   const fadeNodes = [...bus, subSum, subDirect, subFold];
   const clipNodes = [...mbus, msub];
 
@@ -169,7 +179,7 @@ export async function buildRoomAudio(ctx, cfg, { workletUrl = '/js/audio-worklet
   /**
    * A clip's way in (the host's, not the pieces'): `gains[k][c]` from audio-core.js › mediaRouting — source channel k to
    * logical channel c. → { node, setGains(gains), disconnect() }: connect the clip's `sources` channels to `node`
-   * (discrete). With a sub, the clip's mono sum also feeds the sub's low-pass.
+   * (discrete). With a sub, the clip's mono sum also feeds the sub's low-pass (with none and a wall high-pass, the walls' bass fold).
    */
   function clipInput(gains, sources) {
     const S = Math.max(1, sources | 0);
@@ -188,7 +198,7 @@ export async function buildRoomAudio(ctx, cfg, { workletUrl = '/js/audio-worklet
     };
     wire(gains);
     const toSub = [];
-    if (hasSub) for (let k = 0; k < S; k++) { const x = mono(ctx, 1 / Math.sqrt(S)); split.connect(x, k); x.connect(msub); toSub.push(x); }
+    if (hasSub || foldClips) for (let k = 0; k < S; k++) { const x = mono(ctx, 1 / Math.sqrt(S)); split.connect(x, k); x.connect(msub); toSub.push(x); }
     const h = { node, setGains: wire, disconnect() { node.disconnect(); split.disconnect(); for (const x of [...cross, ...toSub]) x.disconnect(); track.delete(h); } };
     track.add(h);
     return h;

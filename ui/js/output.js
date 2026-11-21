@@ -48,6 +48,14 @@ import { sliceInput, sliceMesh, outputCorners } from '/shared/media/screens.js';
 const AMBER = '#E5B567', CYAN = '#4FC3E8';
 const BLACKOUT_MS = 500;
 const SWITCH_MS = 800; // the frozen frame of the outgoing experience → the incoming one
+const SCREENS_Q = new URLSearchParams(location.search).get('screens'); // 'window' | 'preview' | null
+/**
+ * Only the app's own output window is the room's live instance: its experience launches the clips and reports, its HAP
+ * player reports a broken clip (which ejects it). The Screens preview (?screens=preview) and any browser tab showing /output
+ * are viewers: they look, they never report.
+ */
+export const IS_LIVE = SCREENS_Q !== 'preview' && /Electron\//.test(navigator.userAgent);
+const reportingCmd = (type, args) => (!IS_LIVE && (type === 'media.report' || type === 'experience.report') ? Promise.resolve(null) : cmd(type, args));
 const stage = document.getElementById('stage'); // the layers' sources
 const view = document.getElementById('mix');    // the mixer's canvas: what this page shows
 // counters (UI and mixer tests): grid / touches / feedbackUploads = texture uploads; gridDraws / feedback = canvas redraws
@@ -58,7 +66,7 @@ const clock = makeClock();         // the engine's clock (live messages carry it
 let size = null;                   // the render size { w, h } of this page's life (a new one means a fresh page)
 let mixer = null;
 // the clip layers: HAP players driven by state.media, in the media group (they run their hook before the group draws)
-const media = createMediaLayers({ registry, mixer: () => mixer, store, on, cmd, clock, playhead });
+const media = createMediaLayers({ registry, mixer: () => mixer, store, on, cmd: reportingCmd, clock, playhead });
 let want = [];                     // the layers drawn now, bottom → top ({id, opacity, blend, …})
 let dirty = true;                  // something to compose
 let fade = null;                   // blackout: 0 = image … 1 = black (null until the first state)
@@ -67,7 +75,6 @@ let frozen = null;                 // the outgoing experience's last image { tex
 const rec = { t: [], cpu: [] };    // the last compositions: instants and CPU ms (stats.timing)
 
 const P = () => store.state?.profile;
-const SCREENS_Q = new URLSearchParams(location.search).get('screens'); // 'window' | 'preview' | null
 /** The image goes through the screens' slices (and not to the window as it is). */
 const screensMode = () => SCREENS_Q === 'preview' || P()?.output?.sink === 'screens';
 let presenter = null;
@@ -129,7 +136,7 @@ function experienceEntry() {
 
 function experienceSrc() {
   const e = experienceEntry();
-  return e ? `/experiences/${e.id}/${e.entry}?run=1&layer=1` : '';
+  return e ? `/experiences/${e.id}/${e.entry}?run=1&layer=1${IS_LIVE ? '' : '&view=1'}` : '';
 }
 
 /** The outgoing experience's last image is kept (its texture leaves the layer), if it ever showed one. */

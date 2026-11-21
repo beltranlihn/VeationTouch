@@ -554,7 +554,8 @@ export function makeMedia(o) {
 
 // ---------------------------------------------------------------------------------------------- with the engine
 
-// layer (?run=1&layer=1): this page is one layer of the room output (ui/output.html composes it with the others in an iframe)
+// layer (?run=1&layer=1): this page is one layer of the room output (ui/output.html composes it with the others in an iframe);
+// with view=1 as well (the Screens preview, a browser tab) it is a layer that only looks: it reports nothing and launches no clip
 async function connectEngine(id, run, viewer = false, layer = false) {
   const conn = await import('/js/conn.js');
   const geo = await import('/shared/geometry.js');
@@ -567,7 +568,7 @@ async function connectEngine(id, run, viewer = false, layer = false) {
   const hands = makeHands(vt);
   const wallOf = (wallId) => store.state.profile.walls.find((w) => w.id === wallId);
 
-  const scaleOf = (x) => (viewer ? Math.min(x.scale, VIEW_SCALE_MAX) : x.scale); // a viewer stays cheap next to the real instance
+  const scaleOf = (x) => (viewer && !layer ? Math.min(x.scale, VIEW_SCALE_MAX) : x.scale); // a viewer stays cheap next to the real instance
   const sizeOf = (P, x) => ({ width: Math.max(1, Math.round(P.canvas.width * scaleOf(x))), height: Math.max(1, Math.round(P.canvas.height * scaleOf(x))) });
   let P = store.state.profile, X = P.output; // where it goes (scale, rate, destination) is the room output's: the experience only has its parameters
   vt.canvas = { ...P.canvas }; vt.scale = scaleOf(X); vt.size = sizeOf(P, X);
@@ -583,7 +584,7 @@ async function connectEngine(id, run, viewer = false, layer = false) {
     const s = vt.scale;
     vt.walls = P.walls.map((w) => wallView(w, s, (u, v) => geo.wallUvToCanvas(w, u, v)));
     vt.closedLoop = geo.planCloses(P.walls);
-    vt.fit = X.fit; vt.fps = viewer ? Math.min(X.fps, VIEW_FPS) : X.fps;
+    vt.fit = X.fit; vt.fps = viewer && !layer ? Math.min(X.fps, VIEW_FPS) : X.fps;
     vt._sink();
     setParams(vt, paramValues());
     vt.media._changed();
@@ -594,7 +595,7 @@ async function connectEngine(id, run, viewer = false, layer = false) {
 
   // where a page is drawn: Spout needs the desktop app's bridge; otherwise the canvas is shown (window / browser)
   vt._sink = () => {
-    if (viewer) { vt.sink = 'viewer'; return; } // never Spout, never the full-screen styling: the app's views show the frames
+    if (viewer && !layer) { vt.sink = 'viewer'; return; } // never Spout, never the full-screen styling: the app's views show the frames
     // a layer of the room output: no Spout, no bridge (the output window sends the composed image), the canvas 1:1 in the layer's
     // render-size frame, and no preview of its own (the output's preview is taken by the desktop app, of the whole image)
     if (layer) { vt.sink = 'layer'; vt._out.lastPreview = Infinity; pinCanvas(vt); return; }
