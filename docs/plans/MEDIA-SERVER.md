@@ -1308,6 +1308,20 @@ de la ventana de salida), `ARCHITECTURE.md`, `docs/OSC.md` (sección nueva, sól
 
 ## 10. Preguntas abiertas para Beltrán
 
+> **Decisiones del director (2026-11-21).** Beltrán delegó las decisiones abiertas («toma tú las decisiones»). Mandan
+> sobre el texto de arriba:
+> - **Secciones:** `Live` · `Output` · `System & Calibration` (palabras de Beltrán; no «Setup»).
+> - **Reel, salir de un vídeo:** sí, mano quieta 1,5 s (`holdToExit` activado por defecto). Un toque suelto no corta.
+> - **Reel, amebas:** `menuLayout: 'per-wall'` por defecto (cada muro lleva todas); `around` queda como parámetro.
+> - **Fx4:** sin el preset real, la plantilla «Datapath Fx4 (2×2)» coloca cada slice **1:1, centrado** en su
+>   cuadrante de 1920×1200, en el orden de muros del lienzo (P4, P1, P2, P3 → arriba izq., arriba der., abajo izq.,
+>   abajo der.), y ofrece «Fit» como alternativa. Se ajusta en la sala desde Output › Screens. La semilla de XR Lab
+>   sigue en `sink: 'spout'` hasta que el operador cambie en la sala.
+> - **Monitor de operador:** se diseña para los dos casos; sin monitor, la sala arranca sola (`show.start`) y se maneja
+>   desde el teléfono.
+> - **Formato del reel:** sin dato. Se soportan HAP, HAP Alpha y HAP Q con PCM; AAC se importa con aviso.
+> - **Sin botones muertos:** Blackout y Problems aparecen cuando funcionan (F4/F8), no antes.
+
 Sólo las que bloquean una fase. Todo lo demás tiene un valor por defecto en este plan.
 
 1. **Fx4 (bloquea la semilla de F9).** ¿Qué muro va en cada salida del Datapath Fx4 y en qué posición exacta queda

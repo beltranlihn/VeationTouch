@@ -23,6 +23,7 @@ import { lanInterfaces } from './mdns.js';
 import { CloudLink, normalizeRelayUrl } from './cloud.js';
 import { cloudSettings } from './store.js';
 import { scanCatalog, publicCatalog, checkParam, visualOnly, soundOnly } from './experiences.js';
+import { MediaEngine, MEDIA_LOCKED_OPS } from './media/index.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,10 +33,11 @@ const EXPERIENCES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 
 export class Engine extends EventEmitter {
   /**
-   * @param {{store: import('./store.js').Store, log: object, version: string, experienceDirs?: string[]}} deps
+   * @param {{store: import('./store.js').Store, log: object, version: string, experienceDirs?: string[], media?: object}} deps
    *   experienceDirs: extra folders of experiences to list after the app's own `experiences/` (tests)
+   *   media: test seams of the media server (engine/media/index.js: freeSpace, sourceOpener, sourceOptions, blockSize)
    */
-  constructor({ store, log, version, experienceDirs = [] }) {
+  constructor({ store, log, version, experienceDirs = [], media = {} }) {
     super();
     this.store = store;
     this.log = log;
@@ -70,6 +72,10 @@ export class Engine extends EventEmitter {
     this._outKey = 'null';
     this.lastFrame = null;
     this.tickStats = { fps: 0, n: 0, t0: performance.now(), maxMs: 0 };
+    // the media server: library, show, imports (and later the transport). `media.*` / `show.*` commands go to it.
+    this.media = new MediaEngine({ store, log, settings: this.settings, profile: () => this.profile, setShowId: (id) => this._setShowId(id), ...media });
+    this.media.on('state', () => this.emit('state'));
+    this.media.on('media', (m) => this.emit('media', m));
   }
 
   start() {
@@ -81,6 +87,7 @@ export class Engine extends EventEmitter {
     if (!prof) prof = this.store.saveProfile(blankProfile('New room'));
     this.catalog = scanCatalog(this.experienceDirs, this.log);
     this._activate(prof);
+    this.media.start();
     const x = this.profile.experience;
     if (x.autostart && x.id && this._visual().some((e) => e.id === x.id)) { this._experienceRun(); this.log.info(`experience "${x.id}" started with the app`); }
     else if (this.profile.output.on) this.log.info(`room output "${this.profile.output.senderName}" on`);
@@ -95,6 +102,7 @@ export class Engine extends EventEmitter {
   async stop() {
     clearInterval(this._timer);
     clearInterval(this._audTimer);
+    await this.media.stop();
     this._flushExperience();
     this.cloud.stop();
     if (this.recorder) await this.recorder.stop().catch(() => {});
@@ -173,7 +181,14 @@ export class Engine extends EventEmitter {
     this.outputs.configure(profile);
     if (this.calib && !profile.walls.some((w) => w.id === this.calib.wall.id)) this.calib = null;
     if (this.verify && !profile.walls.some((w) => w.id === this.verify.wall.id)) this.verify = null;
+    this.media.profileChanged(profile);
     this.emit('state');
+  }
+
+  /** The room plays another show (profile.media.showId); the media server loads it from _activate. */
+  _setShowId(id) {
+    if (this.profile.media.showId === id) return;
+    this._activate(this.store.saveProfile({ ...this.profile, media: { ...this.profile.media, showId: id } }));
   }
 
   // ------------------------------------------------------------------ data path
@@ -328,6 +343,7 @@ export class Engine extends EventEmitter {
       cloud: this.cloud.status(), // never the secret
       localName: this.mdns ? { ...this.mdns.info(), port: this.port || null } : null,
       underlay: (() => { const u = this.store.underlayInfo(this.profile.id); return u ? { url: `/api/underlay?p=${encodeURIComponent(this.profile.id)}&v=${u.v}` } : null; })(),
+      ...this.media.state(), // show (with its rev), media (copies, problems), library (folder, free space)
     };
   }
 
@@ -354,6 +370,7 @@ export class Engine extends EventEmitter {
       this.log.info(`${what} cancelled from ${who.device || 'a device'} (it was driven by ${owner.device})`);
       this.notice = { to: owner.id, text: `The ${what} was cancelled from ${who.device || 'another device'}.`, at: Date.now() };
     }
+    if (this.media.handles(op)) return this.media.command(op, args); // media.* / show.* (engine/media/index.js)
     switch (op) {
       case 'control.take': {
         if (!this.calib && !this.verify) throw new Error('no calibration or verification is running');
@@ -1358,4 +1375,5 @@ const LOCKED_OPS = new Set([
   // the room's sound: where it goes (devices, map, test) is locked; play / stop / parameters / master / mute / the switch are how a show
   // is run (audio.set checks its own keys)
   'audio.map', 'audio.test', 'sound.set',
+  ...MEDIA_LOCKED_OPS, // show edits, imports, relink, remove, library folder (engine/media/index.js)
 ]);

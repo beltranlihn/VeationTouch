@@ -229,6 +229,9 @@
     "master": 0.3,
     "mute": false,
     "ceilingDb": -2,
+    "media": {
+      "front": "P1"
+    },
     "sound": {
       "id": "ambient-notes",
       "autostart": true,

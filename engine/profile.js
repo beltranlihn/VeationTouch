@@ -297,6 +297,46 @@ export function normAudio(a, walls = []) {
       autostart: bool(sound.autostart, false),
       params: normParamValues(sound.params),
     },
+    media: normAudioMedia(a?.media, walls, channels),
+  };
+}
+
+/** How the audio of a clip is routed to the room (MEDIA-SERVER.md §4c.3). 'auto' picks by the clip's channel count. */
+export const AUDIO_ROUTES = ['auto', 'spread', 'mono', 'walls', 'direct', 'matrix'];
+
+/**
+ * The clips' audio in this room (MEDIA-SERVER.md §5.3, §4c): the common "Clips" level, the audio/video offset of the room
+ * (projectors vs. speakers), the room's route, the stereo width of `spread`, the wall that is the front, the Advanced
+ * matrix ([source channel][logical channel] in dB, null = no cross) and how far the sound piece ducks under a clip.
+ * Absent in profiles saved before the media server: the defaults below, which change nothing until a clip plays.
+ */
+function normAudioMedia(m, walls, channels) {
+  m = m && typeof m === 'object' ? m : {};
+  const known = new Set(walls.map((w) => w.id));
+  let matrix = null;
+  if (Array.isArray(m.matrix)) {
+    matrix = m.matrix.slice(0, 16).map((row) => (Array.isArray(row) ? row : []).slice(0, channels)
+      .map((v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Math.round(num(v, 0, -60, 6) * 10) / 10)));
+    while (matrix.length && matrix[matrix.length - 1].every((v) => v === null)) matrix.pop();
+    if (!matrix.length) matrix = null;
+  }
+  return {
+    level: Math.round(num(m.level, 1, 0, 1) * 100) / 100,
+    avOffsetMs: int(m.avOffsetMs, 0, -200, 200),
+    route: AUDIO_ROUTES.includes(m.route) ? m.route : 'auto',
+    width: Math.round(num(m.width, 0.6, 0, 1) * 100) / 100,
+    front: typeof m.front === 'string' && known.has(m.front) ? m.front : walls[0]?.id ?? null, // 0° of `spread`
+    matrix,
+    duckDb: Math.round(num(m.duckDb, -60, -60, 0) * 10) / 10,
+  };
+}
+
+/** Which show (engine/media/show.js) the room plays, and whether it starts with the app. */
+function normMediaRef(m) {
+  m = m && typeof m === 'object' ? m : {};
+  return {
+    showId: typeof m.showId === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(m.showId) ? m.showId : null,
+    autostart: bool(m.autostart, true),
   };
 }
 
@@ -405,6 +445,7 @@ export function normalizeProfile(input) {
     experience: normExperience(p.experience),
     output: normRoomOutput(p.output),
     audio: normAudio(p.audio, walls),
+    media: normMediaRef(p.media), // the show this room plays (MEDIA-SERVER.md §5.3); the show itself is shows/<id>.json
     processing: {
       minQuality: int(pr.minQuality, D.minQuality, 0, 255),
       minRangeMm: int(pr.minRangeMm, D.minRangeMm, 0, 2000),

@@ -4,6 +4,7 @@
 //   /sdk/…            client SDK for apps  /api/qr.svg   QR code for pairing a device
 //   /ws/ui            UI channel (state, commands, live view) — LAN clients need ?k=<token>
 //   /ws/data          touch stream for apps (JSON frames), read-only, no token
+//   /api/media/thumb/<mediaId>.png   clip thumbnails (UI rule)   /api/media/pcm   raw clip audio (this computer only)
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -249,6 +250,32 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       });
       return undefined;
     }
+    if (p.startsWith('/api/media/thumb/') && req.method === 'GET') {
+      // a clip's thumbnail (MEDIA-SERVER.md §4d.4): same rule as the UI channel (this computer, or the key). The URL
+      // carries the file's fingerprint (?v=), so a phone keeps it for good; it also travels through the relay.
+      if (!peerOf(req).trusted && url.searchParams.get('k') !== engine.settings.token) { res.writeHead(401); return res.end(); }
+      const m = /^\/api\/media\/thumb\/([A-Za-z0-9_-]{1,40})\.png$/.exec(p);
+      if (!m) { res.writeHead(404); return res.end(); }
+      engine.media.thumbFile(m[1], url.searchParams.get('s')).then((t) => {
+        if (!t) { res.writeHead(404); return res.end(); }
+        const immutable = url.searchParams.get('v') === t.fingerprint;
+        serveFile(res, t.file, { ...OWN, 'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache' });
+      }, (e) => { log.warn(`thumbnail ${m[1]}: ${e.message}`); res.writeHead(500); res.end(); });
+      return undefined;
+    }
+    if (p === '/api/media/pcm' && req.method === 'GET') {
+      // raw PCM of a clip for the audio window (§4c.1): THIS computer only — refused from the LAN and through the relay
+      // (peerOf: tunnel traffic arrives on loopback but is never local)
+      if (!peerOf(req).local) { res.writeHead(403); return res.end(); }
+      engine.media.pcm({ clip: url.searchParams.get('clip'), media: url.searchParams.get('media'), from: url.searchParams.get('from') ?? 0, n: url.searchParams.get('n') }).then((r) => {
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream', 'Content-Length': r.body.length, 'Cache-Control': 'no-store', ...OWN,
+          'X-VT-Encoding': r.encoding, 'X-VT-Channels': r.channels, 'X-VT-Rate': r.rate, 'X-VT-From': r.from, 'X-VT-Frames': r.frames, 'X-VT-Total': r.total,
+        });
+        res.end(r.body);
+      }, (e) => { res.writeHead(e.status || 500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: e.message })); });
+      return undefined;
+    }
     if (p.startsWith('/sdk/')) { const f = safeJoin(sdkDir, p.slice(5)); return f ? serveFile(res, f) : (res.writeHead(400), res.end()); }
     const f = safeJoin(uiDir, p.slice(1));
     if (f) return serveFile(res, f, OWN);
@@ -342,6 +369,9 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     for (const c of uiClients) send(c.ws, { ...st, local: c.local, you: c.id });
   });
   const unsubLog = log.onEntry?.((entry) => broadcast({ type: 'log', entry }, (c) => c.role === 'ui'));
+  // the media server's own changes (copies in progress, problems): small, so the whole state is not sent each time
+  const onMedia = (m) => broadcast({ type: 'media', ...m });
+  engine.on('media', onMedia);
 
   // The UI's live feed (internal; not /ws/data or OSC) sends each touch as [id, x, y, size, coasting, rx, ry, seenAt]. x, y are the
   // tracker's (up to predictMs of extrapolation); rx, ry (m) are the filtered position at the touch's last REAL reading and
@@ -434,7 +464,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       log.info(`server listening on :${bound}`);
       resolve({
         port: bound,
-        close: () => { clearInterval(ssidTimer); unsubLog?.(); for (const c of uiClients) c.ws.terminate(); for (const c of dataClients) c.ws.terminate(); server.close(); },
+        close: () => { clearInterval(ssidTimer); unsubLog?.(); engine.off('media', onMedia); for (const c of uiClients) c.ws.terminate(); for (const c of dataClients) c.ws.terminate(); server.close(); },
       });
     });
   });
