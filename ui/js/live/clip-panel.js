@@ -14,6 +14,8 @@ import { playhead } from '/shared/transport.js';
 import { bytes, duration, stamp, locate } from './library.js';
 import { importPaths, report } from './dnd.js';
 import * as A from './actions.js';
+import * as C from './convert.js';
+import { badgeOf, notesOf, convertHint } from './media-info.js';
 
 const AUTOPILOT = new Set(['next', 'prev', 'random', 'first']);
 const END_SEG = [['loop', 'Loop'], ['hold', 'Hold'], ['clear', 'Eject'], ['bounce', 'Bounce'], ['next', 'Next']];
@@ -52,11 +54,19 @@ function editCells(L, cells, fn, label) {
 function transport(L, s, clip, m, live, edit) {
   const dur = m?.video?.duration || 0, fps = m?.video?.fps || 30, step = 1 / fps;
   const still = m?.kind === 'image';
+  // a still with no Out that does not move on by itself never ends: there is nothing to scrub, so the timeline says "Still"
+  const effEnd0 = clip.end === 'layer' ? L.layer(s.layerId)?.end : clip.end;
+  if (still && !(clip.out > clip.in) && !AUTOPILOT.has(effEnd0)) {
+    L.panelPaint = () => {};
+    return h('div', { class: `lv-tl still endless${live ? ' live' : ''}`, 'aria-label': 'Timeline of the clip' },
+      h('div', { class: 'lv-tl-still' }, h('b', {}, 'Still'), h('span', {}, 'It stays until another clip takes the layer. Give it an Out point to make it run for a time.')));
+  }
   const strip = h('div', { class: 'lv-tl-strip', 'data-dur': String(dur) });
   const dimL = h('i', { class: 'lv-tl-dim' }), dimR = h('i', { class: 'lv-tl-dim r' }), region = h('i', { class: 'lv-tl-region' });
   const hIn = h('i', { class: 'lv-tl-h in', title: 'In: drag', tabindex: '0', role: 'slider', 'aria-label': 'In point' }), hOut = h('i', { class: 'lv-tl-h out', title: 'Out: drag', tabindex: '0', role: 'slider', 'aria-label': 'Out point' });
   const ph = h('i', { class: 'lv-tl-ph' }), guide = h('i', { class: 'lv-tl-guide' }), tip = h('span', { class: 'lv-tl-tip tnum' });
   const readout = h('div', { class: 'lv-tl-read tnum' });
+  if (m?.kind === 'audio') strip.style.backgroundImage = `url("${L.thumbUrl(m, 480)}")`; // a sound's timeline is its waveform
   strip.append(dimL, dimR, region, ph, guide, tip, hIn, hOut);
   let tin = clip.in || 0, tout = clip.out ?? dur;
   const pct = (t) => `${(Math.max(0, Math.min(dur, t)) / (dur || 1)) * 100}%`;
@@ -100,7 +110,7 @@ function transport(L, s, clip, m, live, edit) {
     edit((c) => { c.in = a; c.out = b; }, which === 'in' ? 'clip in' : 'clip out');
   };
   hIn.addEventListener('keydown', nudge('in')); hOut.addEventListener('keydown', nudge('out'));
-  strip.addEventListener('pointermove', (e) => { const t = at(e.clientX); guide.style.left = pct(t); tip.style.left = pct(t); tip.textContent = stamp(t); });
+  strip.addEventListener('pointermove', (e) => { const t = at(e.clientX); guide.style.left = pct(t); tip.style.left = pct(t); tip.textContent = stamp(t); L.tlAt = { mediaId: m?.id, t }; });
   strip.addEventListener('click', (e) => {
     if (e.target.closest('.lv-tl-h') || !live || !dur) return;
     // the live clip jumps there: the same clip launched at that point of its segment
@@ -125,6 +135,60 @@ function transport(L, s, clip, m, live, edit) {
   return h('div', { class: `lv-tl${live ? ' live' : ''}${still ? ' still' : ''}`, 'aria-label': 'Timeline of the clip' }, strip, ticks, readout);
 }
 
+// ------------------------------------------------------------------ what the file is
+
+/** The kind and codec of a file as chips, with its size in pixels (the inspector's first look). */
+function kindRow(m) {
+  if (!m) return null;
+  const kb = badgeOf(m), v = m.video || {};
+  const size = kb.kind === 'image' ? `${m.image?.width || v.width} × ${m.image?.height || v.height}` : kb.kind === 'audio' ? '' : `${v.width} × ${v.height}`;
+  return h('div', { class: 'lv-kindrow', 'data-kind': kb.kind },
+    h('span', { class: `lv-chipk k-${kb.kind}` }, kb.label), kb.codec ? h('span', { class: 'lv-chipk' }, kb.codec) : null,
+    size ? h('span', { class: 'muted tnum' }, size) : null);
+}
+
+/** The facts that depend on the kind: a movie has a frame rate and a length, a still a size, a sound a length. */
+function factRows(m) {
+  const kb = badgeOf(m), v = m?.video || {};
+  const rows = [h('dt', {}, 'Kind'), h('dd', {}, [kb.label[0] + kb.label.slice(1).toLowerCase(), kb.codec].filter(Boolean).join(' · '))];
+  if (kb.kind === 'image') {
+    const im = m.image || {};
+    rows.push(h('dt', {}, 'Picture'), h('dd', {}, `${im.width || v.width} × ${im.height || v.height}${im.reduced ? ` (shown at ${im.reduced.width} × ${im.reduced.height})` : ''}`));
+  } else if (kb.kind === 'audio') rows.push(h('dt', {}, 'Length'), h('dd', {}, duration(m.audio?.duration || v.duration)));
+  else rows.push(h('dt', {}, 'Video'), h('dd', {}, `${v.width} × ${v.height} · ${Math.round((v.fps || 30) * 100) / 100} fps · ${duration(v.duration)} · ${kb.codec}`));
+  return rows;
+}
+
+/** What the import said about the file (the engine's own words), with the way out when converting to HAP would help. */
+export function notesBox(L, m) {
+  const notes = notesOf(m);
+  if (!notes.length) return null;
+  const c = L.conv?.ffmpeg;
+  return h('div', { class: `callout lv-notes${notes.some((n) => n.convert) ? ' attn' : ''}`, 'data-notes': String(notes.length) },
+    h('b', {}, notes.length === 1 ? 'Note' : 'Notes'),
+    h('ul', {}, notes.map((n) => h('li', {}, n.text))),
+    C.canConvert(L, m) ? h('div', { class: 'actions' },
+      h('button', { class: 'btn small lv-convbtn', title: convertHint(m) ? 'Converting it to HAP fixes this' : 'Makes a HAP copy that the room plays with no decoder to spare', onclick: () => C.convertDialog(L, m) }, 'Convert to HAP…')) : null,
+    c && c.installed === false && C.canConvert(L, m) ? h('div', { class: 'muted' }, 'FFmpeg is not installed on this computer: see System › Converter.') : null);
+}
+
+/** "Set cover frame" (the movie's picture in the grid, browser and panel): the playhead if it is live, else the point last pointed at. */
+function coverButtons(L, m, clip, live) {
+  if (!m || m.kind === 'image' || m.kind === 'audio') return [];
+  const fps = m.video?.fps || 30;
+  const where = () => {
+    const e = L.entry(L.sel?.layerId);
+    if (live && e?.play) return playhead(e.play, L.now() ?? e.play.startAt).time;
+    return L.tlAt?.mediaId === m.id ? L.tlAt.t : clip.in || 0;
+  };
+  return [
+    h('button', { class: 'btn small lv-cover', title: 'The picture of this file everywhere: the frame under the playhead (live), or where you last pointed on the timeline', disabled: L.locked() || undefined,
+      onclick: () => A.setCover(L, m.id, Math.round(where() * fps)) }, 'Set cover frame'),
+    m.thumbFrame !== null && m.thumbFrame !== undefined ? h('button', { class: 'btn small', title: 'Back to the default picture (at 10 %)', disabled: L.locked() || undefined, onclick: () => A.setCover(L, m.id, null) }, 'Reset cover') : null,
+  ];
+}
+export { kindRow, factRows, coverButtons };
+
 // ------------------------------------------------------------------ one clip
 
 export function clipPanel(L, s, clip, kit) {
@@ -142,12 +206,15 @@ export function clipPanel(L, s, clip, kit) {
   const top = sec([h('span', { class: 'lv-ititle', title: clip.name }, clip.name), h('span', { class: 'grow' }), live ? badge('LIVE', 'live') : null,
     h('button', { class: 'btn small primary', title: 'Launch it on its layer (Enter)', disabled: st.kind !== 'ready' || undefined, onclick: launch }, live ? 'Restart' : 'Launch')],
   h('div', { class: 'lv-ithumb' }, h('img', { src: L.thumbUrl(m, 480), alt: '', onerror: (ev) => ev.target.classList.add('gone') })),
+  kindRow(m),
   statusBox(L, st),
+  C.convertBox(L, clip.mediaId),
   lockIt(L, transport(L, s, clip, m, live, edit), true),
-  h('div', { class: 'seg lv-tabs', role: 'tablist' }, TABS.map(([k, t]) => h('button', { class: k === tab ? 'on' : '', role: 'tab', 'aria-selected': String(k === tab), 'data-tab': k, onclick: () => { L.itab = k; L.ctx.rerender(); } }, t))));
+  h('div', { class: 'seg lv-tabs', role: 'tablist' }, TABS.map(([k, t]) => h('button', { class: k === tab ? 'on' : '', role: 'tab', 'aria-selected': String(k === tab), 'data-tab': k, onclick: () => { L.itab = k; L.ctx.rerender(); } }, t, k === 'file' && notesOf(m).length ? h('i', { class: `lv-tabdot${notesOf(m).some((n) => n.convert) ? ' act' : ''}`, title: 'The import left a note about this file' }) : null))));
 
   const clipTab = lockIt(L, sec(null,
     field('Name', clip.name, (val) => { const n = String(val).trim(); if (n && n !== clip.name) edit((c) => { c.name = n.slice(0, 80); }, 'rename clip'); }),
+    row('Colour', A.colorRow(clip.color, (c) => edit((cl) => { cl.color = c; }, c ? 'clip colour' : 'clip colour off'))),
     row('End', seg(END_SEG, clip.end === 'layer' ? effEnd : clip.end, (x) => edit((c) => { c.end = x; }, 'clip end'), 'lv-endseg')),
     h('div', { class: 'row lv-follow' }, h('span', { class: 'k' }, ''),
       h('button', { class: `lv-chip${clip.end === 'layer' ? ' on' : ''}`, title: 'Follow the layer: the clip does what the layer says', onclick: () => edit((c) => { c.end = 'layer'; }, 'clip end') }, `Layer default · ${END_LABEL[layer.end]}`),
@@ -179,13 +246,16 @@ export function clipPanel(L, s, clip, kit) {
     sec(null, h('dl', { class: 'kv' },
       h('dt', {}, 'Cell'), h('dd', {}, `${layer.name} · column ${s.column + 1}${L.view().decks.length > 1 ? ` · ${L.deck().name}` : ''}`),
       h('dt', {}, 'File'), h('dd', {}, m?.file || '—'),
-      h('dt', {}, 'Video'), h('dd', {}, `${v.width} × ${v.height} · ${Math.round(fps * 100) / 100} fps · ${duration(dur)} · ${HAP_NAME[v.fourcc] || v.fourcc || m?.kind || ''}`),
+      ...factRows(m),
       h('dt', {}, 'Audio'), h('dd', {}, audioText(m?.audio)),
       h('dt', {}, 'Size'), h('dd', {}, bytes(m?.size)))),
+    notesBox(L, m),
     st.kind === 'missing' ? sec(null, h('div', { class: 'actions' }, h('button', { class: 'btn small', onclick: () => locate(L) }, 'Locate…'))) : null,
     lockIt(L, sec(null, h('div', { class: 'actions' },
       h('button', { class: 'btn small', title: 'Pick another file in the browser: the clip keeps its settings', onclick: () => A.replaceFile(L, cell) }, 'Replace file…'),
       h('button', { class: 'btn small', onclick: () => L.browser.reveal(clip.mediaId) }, 'Show in browser'),
+      ...coverButtons(L, m, clip, live),
+      C.canConvert(L, m) && !notesOf(m).length ? h('button', { class: 'btn small lv-convbtn', title: 'Makes a HAP copy of this video that the room plays with no decoder to spare', onclick: () => C.convertDialog(L, m) }, 'Convert to HAP…') : null,
       h('button', { class: 'btn small', title: 'Take it out of this cell (the file stays in the show)', onclick: () => A.removeFromGrid(L, cell) }, 'Remove from the grid'),
       h('button', { class: 'btn small danger', title: 'Take the file and its clips out of the show (the file stays in the library folder)', onclick: () => A.removeFile(L, clip) }, 'Remove the file…'))), true));
   return [top, { clip: clipTab, place: placeTab, audio: audioTab, file: fileTab }[tab]];

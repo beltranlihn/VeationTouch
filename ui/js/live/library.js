@@ -6,6 +6,7 @@
 
 import { store, cmd } from '../conn.js';
 import { h, fader, toast, modal } from '../dom.js';
+import * as C from './convert.js';
 
 const GB = 1024 ** 3, MB = 1024 ** 2;
 /** A size as Windows Explorer writes it (binary units, one decimal) — the engine's formatBytes. */
@@ -32,7 +33,7 @@ export const stamp = (s) => { s = Math.max(0, s || 0); const m = Math.floor(s / 
  * The batch is what is queued or copying plus what finished a moment ago (the engine keeps those 10 s).
  */
 export function copySummary(jobs = []) {
-  const mine = jobs.filter((j) => j.kind !== 'export'), exp = jobs.filter((j) => j.kind === 'export');
+  const mine = jobs.filter((j) => j.kind !== 'export' && j.kind !== 'convert'), exp = jobs.filter((j) => j.kind === 'export');
   const line = (list, verb) => {
     const active = list.filter((j) => j.state === 'queued' || j.state === 'copying');
     if (!active.length) return null;
@@ -127,6 +128,8 @@ export function createLibrary(L) {
     el.replaceChildren(
       h('div', { class: 'lv-copyline' }, h('span', { class: 'txt tnum' }), h('span', { class: 'lv-cbar' }, h('i'))),
       h('button', { class: 'btn small lv-cancel', hidden: true, title: 'Stop this copy (it leaves nothing behind)', onclick: cancel }, 'Cancel'),
+      h('div', { class: 'lv-convline' }, h('span', { class: 'txt tnum' }), h('span', { class: 'lv-cbar' }, h('i'))),
+      h('button', { class: 'btn small lv-convcancel', hidden: true, title: 'Stop this conversion (the original stays)', onclick: () => C.cancel(L, C.summary(L).job) }, 'Cancel'),
       h('div', { class: 'grow' }),
       h('div', { class: `lv-master lv-vmaster${vm < 0.999 ? ' off' : ''}`, title: 'The room picture level: every layer, together (the Blackout is the switch)' }, vfader),
       h('div', { class: 'lv-master' }, fader('Audio', A.master, { min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
@@ -152,6 +155,15 @@ export function createLibrary(L) {
     line.classList.toggle('stopped', sum.kind === 'stopped');
     line.classList.toggle('done', sum.kind === 'done');
     el.querySelector('.lv-cancel').hidden = !(sum.kind === 'copying' && sum.job && !L.locked());
+    // the conversions to HAP: their own line (they are not copies), with their own Cancel
+    const cv = C.summary(L), cl = el.querySelector('.lv-convline');
+    cl.querySelector('.txt').textContent = cv.text;
+    cl.querySelector('.lv-cbar i').style.width = `${(cv.frac * 100).toFixed(1)}%`;
+    cl.classList.toggle('on', !!cv.kind);
+    cl.classList.toggle('stopped', cv.kind === 'failed');
+    const cc = el.querySelector('.lv-convcancel');
+    cc.hidden = !(cv.job && !L.locked());
+    cc.textContent = cv.kind === 'failed' ? 'Dismiss' : 'Cancel'; // (a failed conversion stays until it is dismissed)
   }
 
   return { el, render, patch, paint() {} };

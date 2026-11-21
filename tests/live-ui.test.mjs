@@ -18,6 +18,7 @@ import { normalizeProfile } from '../engine/profile.js';
 import * as place from '../ui/js/live/place.js';
 import { makeHap } from './fixtures/media/make-hap.mjs';
 import { demoHap } from './fixtures/media/make-demo.mjs';
+import { pngFile, wavFile } from './fixtures/media/make-image.mjs';
 
 const quiet = { info() {}, warn() {}, error() {}, recent: () => [] };
 const root = path.resolve(import.meta.dirname, '..');
@@ -275,7 +276,7 @@ test('live: right-click on a column head makes it the room\'s start column (show
     setup: async ({ engine, file }) => { await imported(engine, [[file('A.mov'), { layerId: 'L1', column: 0 }], [file('B.mov', makeHap({ frames: 8 }).bytes), { layerId: 'L1', column: 1 }]]); },
   });
   assert.deepEqual(errors, [], errors.join(' | '));
-  assert.deepEqual(result.items, ['Launch column 2', 'Start the room with column 2']);
+  assert.deepEqual(result.items, ['Launch column 2', 'Rename column…', 'Start the room with column 2']);
   assert.deepEqual(result.start, { deckId: 'D1', column: 1, label: 'START', marks: 1, launched: false });
   assert.deepEqual(result.cleared, { column: null, marks: 0 });
   assert.equal(result.locked, true, 'Show mode: the start is locked');
@@ -291,7 +292,7 @@ test('live: a clip moved within the grid goes there with the show\'s revision; o
     dragTo(cellEl('L1', 0), cellEl('L2', 3));
     await until(() => store.state.show.rev > rev0);
     out.moved = cells();
-    out.selMoved = cellEl('L2', 3).classList.contains('sel');
+    out.selMoved = !!(await until(() => cellEl('L2', 3).classList.contains('sel'), 2000)); // (the selection follows the edit's answer)
     dragTo(cellEl('L2', 3), cellEl('L1', 1));
     await until(() => store.state.show.decks[0].cells['L1:1'] === A);
     out.swapped = cells();
@@ -737,9 +738,9 @@ test('live: a file dropped on a clip replaces its file and keeps its settings (C
   assert.deepEqual(result.afterReplace, { name: 'Spare', end: 'hold', banner: false, armed: null }, 'the double-click replaced it (settings kept) and disarmed');
 });
 
-test('live: the browser — Disk lists the drives and a typed folder (folders first, thumbnails for files it can read, the rest dimmed); a folder dragged on "+" makes a deck named after it; a file dragged on a cell is imported there', opt, async () => {
-  // fails if the Disk tab lists nothing / no roots, a folder is not first, a thumbnail never loads, an unknown file is not
-  // dimmed, the folder drop does not name the deck after the folder (or not one clip per column), or the file is not placed.
+test('live: the browser — Disk lists the drives and a typed folder (folders first, thumbnails for the files it can probably read; NOTHING is dimmed or filtered by its extension); a folder dragged on "+" makes a deck named after it; a file dragged on a cell is imported there', opt, async () => {
+  // fails if the Disk tab lists nothing / no roots, a folder is not first, a thumbnail never loads, a file is dimmed or made
+  // undraggable by its extension (the engine reads the bytes), the folder drop does not name the deck after the folder (or not one clip per column), or the file is not placed.
   const { result, errors } = await inLive((c) => `
     const out = {};
     $$('.lv-btabs button')[1].click();
@@ -751,6 +752,8 @@ test('live: the browser — Disk lists the drives and a typed folder (folders fi
     await until(() => $('.lv-folder'));
     out.order = $$('.lv-tiles.disk > *').map((e) => (e.classList.contains('lv-folder') ? 'dir:' : 'file:') + (e.querySelector('.t')?.textContent));
     out.dim = $$('.lv-file.dim').map((e) => e.querySelector('.t').textContent);
+    out.draggable = $$('.lv-file').map((e) => e.getAttribute('draggable'));
+    out.extBadge = $('.lv-file[data-path$="notes.txt"] .lv-kind')?.textContent;
     const img = $('.lv-file[data-path$="a.mov"] img');
     out.src = img.getAttribute('src').startsWith('/api/media/diskthumb?') ;
     out.loaded = !!(await until(() => img.naturalWidth > 0, 15000));
@@ -788,7 +791,9 @@ test('live: the browser — Disk lists the drives and a typed folder (folders fi
   assert.ok(result.roots.includes('Library'), `the library is a root: ${result.roots}`);
   assert.ok(result.roots.length >= 3, `the drives and the user's folders: ${result.roots}`);
   assert.deepEqual(result.order, ['dir:Reels', 'file:a.mov', 'file:b.mov', 'file:notes.txt'], 'folders first, then files by name');
-  assert.deepEqual(result.dim, ['notes.txt'], 'what Live does not read is dimmed (and has no picture)');
+  assert.deepEqual(result.dim, [], 'no file is dimmed by its extension: the engine says what it can read when it is dropped');
+  assert.deepEqual(result.draggable, ['true', 'true', 'true'], 'every file can be dragged, notes.txt too');
+  assert.equal(result.extBadge, 'TXT', 'an unknown file shows its extension, not a verdict');
   assert.equal(result.src, true);
   assert.equal(result.loaded, true, 'the engine made a thumbnail of a file that is not in any show');
   assert.equal(result.noThumbForText, true);
@@ -965,7 +970,7 @@ test('live: the clip panel — a timeline with In / Out handles you drag, a play
   assert.match(result.tabs.place.text, /Fit[\s\S]*Where/);
   assert.match(result.tabs.audio.text, /no audio|Route/);
   assert.match(result.tabs.file.text, /Cell[\s\S]*File[\s\S]*Video/);
-  assert.deepEqual(result.fileButtons, ['Replace file…', 'Show in browser', 'Remove from the grid', 'Remove the file…']);
+  assert.deepEqual(result.fileButtons, ['Replace file…', 'Show in browser', 'Set cover frame', 'Remove from the grid', 'Remove the file…']);
   assert.equal(engine.media.show.clips[0].end, 'layer');
 });
 
@@ -1182,5 +1187,445 @@ test('live: screenshots for review', { skip: (!electronPath && 'electron is not 
     cellEl('L2', 0).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     await wait(1600);
     return 'ok';`, { setup, media, shot: path.join(SHOTS, '5-multi-select-1440x900.png') }));
+  for (const s of shots) assert.deepEqual(s.errors, [], s.errors.join(' | '));
+});
+
+// ---------------------------------------------------------------------------------------------- round 2: formats, Convert to HAP, colours, names, order, cover
+
+const fixtureBytes = (name) => new Uint8Array(fs.readFileSync(path.join(root, 'tests', 'fixtures', 'media', name)));
+const COLORS = ['#7f8b99', '#8f8a7c', '#7e8e84', '#8a8296', '#977f78', '#7a8f96'];
+
+/** Opens a menu on an element the way a right-click does. */
+const MENU = `const menuOn = (el) => { const r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 20 })); };
+  const menuItems = () => $$('.lv-menu button').map((b) => b.querySelector('.grow')?.textContent || b.textContent);
+  const menuClick = (label) => { const b = $$('.lv-menu button').find((x) => (x.querySelector('.grow')?.textContent || x.textContent) === label); b?.click(); return !!b; };`;
+
+/** A test engine with no Electron: for what the engine does for the UI (waveforms, cover frames, names). */
+async function withEngine(fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-live2-'));
+  const store = new Store(path.join(dir, 'data'), path.join(root, 'profiles'), quiet);
+  const engine = new Engine({ store, log: quiet, version: 'test', experienceDirs: [EXPERIENCE_FIXTURES], media: { sourceOpener: FAKE } });
+  engine.start();
+  try {
+    const usb = path.join(dir, 'usb'); fs.mkdirSync(usb);
+    const file = (name, bytes) => { const f = path.join(usb, name); fs.writeFileSync(f, bytes); return f; };
+    return await fn({ engine, file, usb });
+  } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('live engine: a sound\'s picture is its waveform (cached, distinct per sound); media.cover moves a movie\'s cover frame; column names are kept clean; layers can be reordered', async () => {
+  // fails if: a sound's thumbnail is the generic card (no -fwave- file) or two different sounds draw the same picture, peakOf
+  // misreads an encoding, the cover frame is not saved / clamped / refused for a still or a sound / locked in Show mode,
+  // a column name out of range or empty survives normalisation, or a reordered layer list loses cells or does not reorder the transport.
+  const wave = await import('../engine/media/wave.js');
+  const s16 = (...v) => new Uint8Array(new Int16Array(v).buffer);
+  assert.equal(wave.peakOf(s16(0, 0, 0, 0), 's16le'), 0, 'silence has no peak');
+  assert.ok(Math.abs(wave.peakOf(s16(0, 16384, -32768, 100), 's16le') - 1) < 1e-6, 'the loudest sample, either sign');
+  assert.ok(Math.abs(wave.peakOf(new Uint8Array(new Float32Array([0.1, -0.5, 0.25]).buffer), 'f32le') - 0.5) < 1e-6, 'floats too');
+  assert.ok(Math.abs(wave.peakOf(Uint8Array.from([128, 255, 0]), 'u8') - 1) < 0.01, '8-bit unsigned');
+  const quietFirst = wave.renderWave(Array.from({ length: wave.WAVE_BARS }, (_, i) => (i < 48 ? 0 : 1)), 160);
+  const loud = wave.renderWave(Array.from({ length: wave.WAVE_BARS }, () => 1), 160);
+  assert.notDeepEqual([...quietFirst], [...loud], 'what is drawn depends on the peaks');
+
+  await withEngine(async ({ engine, file }) => {
+    const A = file('Tone.wav', wavFile({ frames: 48000, channels: 2, sample: (i) => Math.sin(i * 0.05) }));
+    const B = file('Half.wav', wavFile({ frames: 48000, channels: 2, sample: (i) => (i < 24000 ? 0 : Math.sin(i * 0.05)) }));
+    const P = file('Still.png', pngFile(64, 36));
+    const V = file('Reel.mov', makeHap({ frames: 20, fps: 2 }).bytes);
+    for (const [f, t] of [[A, { layerId: 'L1', column: 0 }], [B, { layerId: 'L1', column: 1 }], [P, { layerId: 'L1', column: 2 }], [V, { layerId: 'L2', column: 0 }]]) {
+      const r = await engine.command('media.import', { paths: [f], target: t, __local: true });
+      assert.equal(r.rejected.length, 0, JSON.stringify(r.rejected));
+    }
+    await until(() => [...engine.media.jobs.values()].every((j) => j.state === 'done'), 20000, 'the copies');
+    const show = engine.media.show, id = (n) => show.media.find((m) => m.file.endsWith(n)).id;
+    assert.deepEqual(show.media.map((m) => m.kind).sort(), ['audio', 'audio', 'hap', 'image']);
+
+    const ta = await engine.media.thumbFile(id('Tone.wav'), 160), tb = await engine.media.thumbFile(id('Half.wav'), 160);
+    assert.match(ta.file, /-fwave-160\.png$/, 'a sound is drawn as a waveform, not the generic card');
+    assert.ok(ta.fingerprint, 'cached for good (its URL carries the fingerprint)');
+    assert.notDeepEqual([...fs.readFileSync(ta.file)], [...fs.readFileSync(tb.file)], 'two different sounds, two different pictures');
+    const big = await engine.media.thumbFile(id('Tone.wav'), 480);
+    assert.match(big.file, /-fwave-480\.png$/);
+    assert.ok(fs.readFileSync(ta.file).subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'a PNG');
+
+    // the cover frame of a movie (20 frames: 0–19)
+    const vid = id('Reel.mov');
+    assert.deepEqual(await engine.command('media.cover', { mediaId: vid, frame: 7 }), { mediaId: vid, frame: 7 });
+    assert.equal(engine.media.show.media.find((m) => m.id === vid).thumbFrame, 7);
+    const t7 = await engine.media.thumbFile(vid, 160);
+    assert.match(t7.file, /-f7-160\.png$/, 'the thumbnail is made again for that frame (its name carries it)');
+    assert.equal((await engine.command('media.cover', { mediaId: vid, frame: 999 })).frame, 19, 'clamped to the last frame');
+    assert.equal((await engine.command('media.cover', { mediaId: vid, frame: null })).frame, null, 'null = back to the default');
+    await assert.rejects(engine.command('media.cover', { mediaId: id('Still.png'), frame: 1 }), /only a movie/);
+    await assert.rejects(engine.command('media.cover', { mediaId: id('Tone.wav'), frame: 1 }), /only a movie/);
+    await assert.rejects(engine.command('media.cover', { mediaId: vid, frame: 'x' }), /frame number/);
+    assert.ok((await import('../engine/media/index.js')).MEDIA_LOCKED_OPS.has('media.cover'), 'Show mode refuses it');
+
+    // column names: only the named columns that exist, trimmed
+    const s = structuredClone(engine.media.show);
+    s.decks[0].colNames = { 0: 'Intro', 3: '   ', 99: 'Beyond the deck', x: 'bad', 2: 'Drop'.padEnd(80, '!') };
+    await engine.command('show.update', { show: s, rev: engine.media.showRev });
+    assert.deepEqual(Object.keys(engine.media.show.decks[0].colNames), ['0', '2'], 'empty, out of range and non-numeric names are dropped');
+    assert.equal(engine.media.show.decks[0].colNames['0'], 'Intro');
+    assert.equal(engine.media.show.decks[0].colNames['2'].length, 40, 'names are 40 characters at most');
+    const s2 = structuredClone(engine.media.show); delete s2.decks[0].colNames;
+    await engine.command('show.update', { show: s2, rev: engine.media.showRev });
+    assert.equal('colNames' in engine.media.show.decks[0], false, 'a show with no names has no field');
+
+    // the order of the layers is the show's: bottom → top; the transport follows
+    const s3 = structuredClone(engine.media.show), before = s3.layers.map((l) => l.id), cells = { ...s3.decks[0].cells };
+    s3.layers.reverse();
+    await engine.command('show.update', { show: s3, rev: engine.media.showRev });
+    assert.deepEqual(engine.media.show.layers.map((l) => l.id), [...before].reverse());
+    assert.deepEqual(engine.media.show.decks[0].cells, cells, 'no cell is lost by moving a layer');
+    assert.deepEqual(Object.keys(engine.media.transport.state().layers), [...before].reverse(), 'the transport (and so the output) stacks them in the new order');
+  });
+});
+
+test('live: formats — a badge per kind and codec, the import notes in the File tab, a waveform for a sound, a still with no playhead, and the engine\'s own words for a refused file', opt, async () => {
+  // fails if: a cell or tile has no kind (still / audio / video) or codec badge, the H.264's import note is missing from its
+  // cell mark or from the File tab (or differs from the engine's), the sound's picture does not load or its timeline has no
+  // waveform, a still shows a timeline with handles or a playhead (or its live cell a playhead), or a refused file is shown with
+  // words other than the engine's.
+  const { result, errors, engine, ctx } = await inLive(`
+    const out = {};
+    out.marks = [0, 3].map((c) => $('.lv-note', cellEl('L1', c))?.textContent);
+    out.kinds = [0, 1, 2, 3].map((c) => { const el = cellEl('L1', c); return { kind: el.dataset.kind, badge: $('.lv-kindb', el).textContent, note: $('.lv-note', el)?.title || null }; });
+    out.tiles = $$('.lv-tile').map((t) => [t.dataset.kind, $('.lv-kind', t).textContent]);
+    const wimg = $('.lv-thumb img', cellEl('L1', 2));
+    out.wave = { loaded: !!(await until(() => wimg.naturalWidth > 0, 15000)), src: wimg.getAttribute('src') };
+    // the H.264: its notes, in words, in the File tab (and a dot on the tab)
+    $('.lv-name', cellEl('L1', 3)).click(); await wait(250);
+    out.dot = !!$('#panel .lv-tabdot');
+    $('#panel [data-tab="file"]').click(); await wait(150);
+    out.notes = $$('#panel .lv-notes li').map((li) => li.textContent);
+    out.kindRow = $('#panel .lv-kindrow')?.innerText.replace(/\\s+/g, ' ');
+    out.kv = $$('#panel .kv dt').map((d) => d.textContent);
+    // the sound: its timeline is its waveform
+    $('.lv-name', cellEl('L1', 2)).click(); await wait(250);
+    out.audioTl = { bg: $('#panel .lv-tl-strip')?.style.backgroundImage || '', handles: $$('#panel .lv-tl-h').length };
+    // the still: "Still", no handles, no playhead — and live, no playhead on the cell either
+    $('.lv-name', cellEl('L1', 1)).click(); await wait(250);
+    out.stillTl = { cls: $('#panel .lv-tl')?.className, text: $('#panel .lv-tl-still b')?.textContent, ph: $$('#panel .lv-tl-ph').length, handles: $$('#panel .lv-tl-h').length, strip: $$('#panel .lv-tl-strip').length };
+    $('.lv-thumb', cellEl('L1', 1)).click();
+    await until(() => cellEl('L1', 1).classList.contains('live'), 5000);
+    await wait(300); L.paint();
+    const sc = cellEl('L1', 1);
+    out.stillLive = { endless: sc.classList.contains('endless'), left: $('.lv-left', sc).textContent, ph: getComputedStyle($('.lv-ph', sc)).display, ring: sc.classList.contains('ind-ring'), bar: sc.classList.contains('ind-bar'), pill: getComputedStyle($('.lv-pill', sc)).display };
+    // a refused file: the engine's words, once
+    const files = $('#__vtFiles').files;
+    drop(cellEl('L2', 0), [files[0]]);
+    await until(() => $('.lv-report'));
+    out.report = { n: $$('.lv-report').length, title: $('.lv-report header b')?.textContent, items: $$('.lv-report .lv-rejected li .msg').map((e) => e.textContent), cells: $$('.lv-cell[data-clip]').length };
+    return out;`, {
+    setup: async (ctx) => {
+      const { engine, file } = ctx;
+      await imported(engine, [[file('Reel.mov', longHap()), { layerId: 'L1', column: 0 }], [file('Poster.png', pngFile(96, 54)), { layerId: 'L1', column: 1 }],
+        [file('Tone.wav', wavFile({ frames: 96000 })), { layerId: 'L1', column: 2 }], [file('Markers.mp4', fixtureBytes('h264-markers.mp4')), { layerId: 'L1', column: 3 }]]);
+      // what the engine says about a file like the one that will be dropped: asked directly, from another folder
+      fs.mkdirSync(path.join(ctx.usb, 'other'));
+      fs.writeFileSync(path.join(ctx.usb, 'other', 'notes.txt'), 'this is only a text file');
+      ctx.expected = (await engine.command('media.import', { paths: [path.join(ctx.usb, 'other', 'notes.txt')], target: null, __local: true })).rejected[0].message;
+    },
+    files: ({ file }) => [file('notes.txt', Buffer.from('this is only a text file'))],
+  });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  const show = engine.media.show, med = (n) => show.media.find((m) => m.file.endsWith(n));
+  assert.deepEqual(result.kinds.map((k) => k.kind), ['video', 'image', 'audio', 'video']);
+  assert.equal(result.kinds[0].badge, 'HAP', 'a HAP movie says its codec');
+  assert.equal(result.kinds[1].badge, 'STILL PNG', 'a still says STILL and its format');
+  assert.match(result.kinds[2].badge, /^AUDIO\b/, 'a sound says AUDIO');
+  assert.equal(result.kinds[3].badge, 'H.264');
+  assert.equal(result.kinds[0].note, med('Reel.mov').notes.join(String.fromCharCode(10)), 'a HAP the size of no wall says so too: the engine words');
+  assert.deepEqual(result.marks, ['i', 'i'], 'a plain note is a quiet i: amber is for a note with a way out');
+  assert.ok(med('Markers.mp4').notes.length > 0, 'the engine had something to say about the H.264');
+  assert.equal(result.kinds[3].note, med('Markers.mp4').notes.join('\n'), 'the cell mark carries the engine\'s own words');
+  assert.deepEqual(result.tiles.sort(), [['audio', 'AUDIO WAV'], ['image', 'STILL PNG'], ['video', 'H.264'], ['video', 'HAP']].sort(), 'the browser tiles have the same badges');
+  assert.equal(result.wave.loaded, true, 'the sound has a picture');
+  assert.match(result.wave.src, /^\/api\/media\/thumb\/m\d+\.png\?s=\d+&v=[0-9a-f]{40}&f=/, 'a thumbnail URL with the cover frame in it');
+  assert.equal(result.dot, true, 'the File tab carries a dot when the import left notes');
+  assert.deepEqual(result.notes, med('Markers.mp4').notes, 'the File tab shows media.notes, word for word');
+  assert.match(result.kindRow, /VIDEO\s+H\.264/);
+  assert.deepEqual(result.kv.slice(0, 4), ['Cell', 'File', 'Kind', 'Video']);
+  assert.match(result.audioTl.bg, /\/api\/media\/thumb\//, 'the sound\'s timeline is its waveform');
+  assert.equal(result.stillTl.text, 'Still');
+  assert.match(result.stillTl.cls, /still/);
+  assert.deepEqual([result.stillTl.ph, result.stillTl.handles, result.stillTl.strip], [0, 0, 0], 'a still with no Out has no timeline, handles or playhead');
+  assert.deepEqual(result.stillLive, { endless: true, left: 'Still', ph: 'none', ring: false, bar: false, pill: 'block' }, 'live: LIVE and "Still", no playhead, no ring');
+  assert.equal(result.report.n, 1);
+  assert.deepEqual(result.report.items, [ctx.expected], 'the refused file is shown with exactly the engine\'s message');
+  assert.equal(result.report.cells, 4, 'and it made no cell');
+});
+
+test('live: Convert to HAP — in the cell menu, the File tab and Problems; a job shows on the cell and in the bottom bar, with Cancel; a missing FFmpeg is said, with the way to System', opt, async () => {
+  // fails if: the action is missing from the cell menu / inspector / Problems of a native video (or offered for a HAP), the
+  // dialog does not send media.convert with the format chosen, the job's progress is not on the cell and in the bottom bar,
+  // Cancel does not send media.convertCancel with the job, a file refused by the engine (path) gets no dialog or no FFmpeg notice,
+  // or the notice does not lead to System.
+  const calls = [];
+  const { result, errors } = await inLive(`
+    ${MENU}
+    const out = {};
+    const C = await import('/js/live/convert.js');
+    await until(() => L.conv?.supported != null);
+    out.state = { supported: L.conv?.supported, ffmpeg: L.conv?.ffmpeg?.installed };
+    const h264 = () => cellEl('L1', 1), hap = () => cellEl('L1', 0);
+    out.mediaId = h264().dataset.media;
+    menuOn(hap()); out.hapMenu = menuItems(); document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(50);
+    menuOn(h264()); out.menu = menuItems();
+    menuClick('Convert to HAP…'); await until(() => $('.lv-convert'));
+    out.dialog = { codecs: $$('.lv-convcodec button').map((b) => b.textContent), ffmpegNotice: !!$('[data-ffmpeg="missing"]'), primary: $('.lv-convert .btn.primary').disabled };
+    $('.lv-convcodec [data-codec="hapq"]').click();
+    $$('.lv-convert .btn.primary').find((b) => b.textContent === 'Convert').click();
+    await until(() => h264().classList.contains('st-converting'), 5000);
+    out.cell = { band: $('.lv-conv em', h264()).textContent, width: $('.lv-conv i', h264()).style.width, dashed: getComputedStyle(h264()).borderTopStyle };
+    out.line = { text: $('.lv-convline .txt').textContent, on: $('.lv-convline').classList.contains('on'), cancelHidden: $('.lv-convcancel').hidden };
+    // the same job in the panel (File tab) of that clip
+    $('.lv-name', h264()).click(); await wait(250);
+    out.panel = { box: $('#panel .lv-convbox b')?.textContent };
+    $('#panel [data-tab="file"]').click(); await wait(150);
+    out.panel.convertBtn = !!$('#panel .lv-convbtn');
+    // cancel on the cell
+    $('.lv-conv .x', h264()).click();
+    await until(() => !h264().classList.contains('st-converting'), 5000);
+    out.cancelled = !h264().classList.contains('st-converting') && !$('.lv-convline').classList.contains('on');
+    // Problems (while nothing converts it): the H.264 has a note, and its entry has the action
+    v.go('status'); await wait(250);
+    out.problem = $$('.health .hrow').map((r) => r.innerText.replace(/\\s+/g, ' ')).filter((t) => /Convert to HAP/.test(t));
+    v.go('live'); await wait(250);
+    // a refused file (the engine gives its path): the dialog needs FFmpeg, and says so
+    C.convertDialog(L, { path: 'C:\\\\Footage\\\\clip.mxf', name: 'clip.mxf' });
+    await until(() => $('[data-ffmpeg="missing"]'));
+    out.pathDialog = { notice: $('[data-ffmpeg="missing"]').textContent, primary: $('.lv-convert .btn.primary').disabled };
+    [...$$('[data-ffmpeg="missing"] button')].find((b) => b.textContent === 'Open System').click();
+    await wait(300);
+    out.view = window.__vt.view;
+    return out;`, {
+    setup: async ({ engine, file }) => {
+      await imported(engine, [[file('Reel.mov', longHap()), { layerId: 'L1', column: 0 }], [file('Markers.mp4', fixtureBytes('h264-markers.mp4')), { layerId: 'L1', column: 1 }]]);
+      // the converter, as the engine's own seam: what is called, a job that runs, FFmpeg not installed
+      const cv = engine.media.convert;
+      let jobs = [];
+      cv.tool.status = () => ({ supported: true, installed: false, version: null });
+      cv.publicJobs = () => jobs;
+      cv.start = (args) => {
+        calls.push(['start', { mediaId: args.mediaId, codec: args.codec, ...(args.fps !== undefined ? { fps: args.fps } : {}) }]); // (the page's own arguments)
+        jobs = [{ id: 'v1', kind: 'convert', showId: engine.media.show.id, mediaId: args.mediaId, name: 'Markers.mp4', state: 'converting', done: 40, total: 100, mbps: 0, etaS: null, error: null, codec: args.codec, via: 'chromium', resultMediaId: null }];
+        engine.media._emitMedia();
+        return { jobId: 'v1' };
+      };
+      cv.cancel = (id) => { calls.push(['cancel', id]); jobs = []; engine.media._emitMedia(); return {}; };
+    },
+  });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.deepEqual(result.state, { supported: true, ffmpeg: false });
+  assert.ok(!result.hapMenu.includes('Convert to HAP…'), 'a HAP movie is not converted to HAP');
+  assert.ok(result.menu.includes('Convert to HAP…'), 'the cell menu offers it for an H.264');
+  assert.deepEqual(result.dialog, { codecs: ['HAP', 'HAP Q', 'HAP Alpha'], ffmpegNotice: false, primary: false }, 'a movie the app decodes itself does not need FFmpeg');
+  assert.deepEqual(calls[0], ['start', { mediaId: result.mediaId, codec: 'hapq' }], 'the format chosen is what is sent (no frame rate when it is Keep)');
+  assert.equal(result.cell.band, 'HAP 40 %');
+  assert.equal(result.cell.width, '40%');
+  assert.equal(result.cell.dashed, 'dashed', 'a converting cell looks different from a ready one');
+  assert.match(result.line.text, /^Converting "Markers\.mp4" to HAP — 40 %$/);
+  assert.deepEqual([result.line.on, result.line.cancelHidden], [true, false], 'the bottom bar says it and has its own Cancel');
+  assert.equal(result.panel.box, 'Converting to HAP — 40 %');
+  assert.equal(result.panel.convertBtn, true, 'the File tab has the action');
+  assert.equal(result.problem.length, 1, 'Problems: the movie with a note, with Convert to HAP…');
+  assert.deepEqual(calls[1], ['cancel', 'v1'], 'Cancel on the cell sends media.convertCancel with the job');
+  assert.equal(result.cancelled, true);
+  assert.match(result.pathDialog.notice, /FFmpeg is not installed[\s\S]*System › Converter/);
+  assert.equal(result.pathDialog.primary, true, 'no Convert until FFmpeg is there');
+  assert.equal(result.view, 'system', 'the notice leads to System');
+});
+
+test('live: if the engine has no converter operations the action is simply not there (no error, no dead button)', opt, async () => {
+  // fails if: an engine that answers "unknown command" to media.ffmpeg.status still shows Convert to HAP in the cell menu, the
+  // File tab, the notes or Problems, or the page throws.
+  const { result, errors } = await inLive(`
+    ${MENU}
+    const out = {};
+    await until(() => L.conv?.supported === false);
+    out.supported = L.conv?.supported;
+    menuOn(cellEl('L1', 0)); out.menu = menuItems(); document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(50);
+    $('.lv-name', cellEl('L1', 0)).click(); await wait(250);
+    $('#panel [data-tab="file"]').click(); await wait(150);
+    out.notes = $$('#panel .lv-notes li').length;
+    out.buttons = $$('#panel button').map((b) => b.textContent).filter((t) => /Convert/.test(t));
+    v.go('status'); await wait(250);
+    out.problems = $$('.health .hrow').map((r) => r.innerText).filter((t) => /Convert/.test(t));
+    return out;`, {
+    setup: async ({ engine, file }) => {
+      await imported(engine, [[file('Markers.mp4', fixtureBytes('h264-markers.mp4')), { layerId: 'L1', column: 0 }]]);
+      const orig = engine.media.command.bind(engine.media);
+      engine.media.command = (op, args) => (/^media\.(convert|ffmpeg)/.test(op) ? Promise.reject(new Error(`unknown command ${op}`)) : orig(op, args));
+    },
+  });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.equal(result.supported, false);
+  assert.ok(!result.menu.some((t) => /Convert/.test(t)), `no Convert in the menu: ${result.menu}`);
+  assert.ok(result.notes >= 1, 'the notes themselves are still shown');
+  assert.deepEqual(result.buttons, [], 'no Convert button in the panel');
+  assert.deepEqual(result.problems, [], 'none in Problems');
+});
+
+test('live: colours, column names, the order of the layers and the cover frame — each one edit, each undone with Ctrl+Z', opt, async () => {
+  // fails if: a swatch does not set clip.color (or the cell does not carry it), a colour outside the palette could be set, the
+  // column's menu does not name it / clear its name, dragging a layer by its grip does not reorder show.layers (cells kept, the
+  // grid's rows and the transport following), dropping it on itself does anything, or Set cover frame does not send the frame
+  // under the pointer / playhead (the thumbnail URL carries it) or Reset cover does not clear it.
+  const { result, errors, engine } = await inLive(`
+    ${MENU}
+    const out = {}, show = () => store.state.show;
+    // colours: the cell's menu, then the panel, then undo
+    menuOn(cellEl('L1', 0));
+    out.swatches = $$('.lv-menu .lv-sw').map((b) => b.dataset.color);
+    $('.lv-menu .lv-sw[data-color="${COLORS[0]}"]').click();
+    await until(() => show().clips.find((c) => c.name === 'A').color);
+    out.menuColor = { clip: show().clips.find((c) => c.name === 'A').color, attr: cellEl('L1', 0).dataset.color, cc: cellEl('L1', 0).style.getPropertyValue('--cc'), closed: !$('.lv-menu'), wash: getComputedStyle($('.lv-name', cellEl('L1', 0))).backgroundColor, plain: getComputedStyle($('.lv-name', cellEl('L2', 1))).backgroundColor };
+    $('.lv-name', cellEl('L1', 0)).click(); await wait(250);
+    out.panelOn = $('#panel .lv-sw.on')?.dataset.color;
+    $('#panel .lv-sw[data-color="${COLORS[3]}"]').click();
+    await until(() => show().clips.find((c) => c.name === 'A').color === '${COLORS[3]}');
+    key('z', { ctrlKey: true });
+    await until(() => show().clips.find((c) => c.name === 'A').color === '${COLORS[0]}');
+    key('z', { ctrlKey: true });
+    await until(() => show().clips.find((c) => c.name === 'A').color === null);
+    out.undone = show().clips.find((c) => c.name === 'A').color;
+    // column names
+    menuOn($$('.lv-col')[1]); out.colMenu = menuItems();
+    menuClick('Rename column…');
+    await until(() => $('.modal input'));
+    const input = $('.modal input'); input.value = 'Drop'; input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await until(() => show().decks[0].colNames?.['1'] === 'Drop');
+    out.named = { head: $$('.lv-col')[1].querySelector('.cn')?.textContent, cls: $$('.lv-col')[1].classList.contains('named'), other: !$$('.lv-col')[0].querySelector('.cn') };
+    menuOn($$('.lv-col')[1]); out.colMenu2 = menuItems(); menuClick('Clear the name');
+    await until(() => !show().decks[0].colNames);
+    out.cleared = !$$('.lv-col')[1].querySelector('.cn');
+    // layers: L1 (bottom) dragged by its grip to the top of L3 → order bottom→top L2, L3, L1
+    const ids = () => show().layers.map((l) => l.id), rows = () => $$('.lv-row[data-layer]').map((r) => r.dataset.layer);
+    out.before = { ids: ids(), rows: rows(), grips: $$('.lv-grip').length };
+    const cellsBefore = JSON.stringify(show().decks[0].cells);
+    let head = $('.lv-lh[data-layer="L3"]'), r = head.getBoundingClientRect();
+    dragTo($('.lv-lh[data-layer="L1"] .lv-grip'), head, { clientY: r.top + 3 });
+    await until(() => ids()[2] === 'L1');
+    await wait(150);
+    out.after = { ids: ids(), rows: rows(), transport: Object.keys(store.state.media.layers), cells: JSON.stringify(show().decks[0].cells) === cellsBefore, sel: store.state.show && L.sel?.kind };
+    // onto itself: nothing
+    const rev = show().rev;
+    head = $('.lv-lh[data-layer="L1"]'); r = head.getBoundingClientRect();
+    dragTo(head.querySelector('.lv-grip'), head, { clientY: r.top + 3 }); await wait(250);
+    out.self = show().rev === rev;
+    // a drag in flight draws the line where it will go
+    const dt = new DataTransfer(); const g = $('.lv-lh[data-layer="L2"] .lv-grip'); g.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    head = $('.lv-lh[data-layer="L3"]'); r = head.getBoundingClientRect();
+    head.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 20, clientY: r.bottom - 3 }));
+    out.mark = { below: head.classList.contains('lay-below'), tag: $('.lv-droptag')?.textContent };
+    g.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt })); await wait(50);
+    out.markGone = !head.classList.contains('lay-below');
+    key('z', { ctrlKey: true });
+    await until(() => ids()[0] === 'L1');
+    out.undoOrder = ids();
+    // the cover frame: the point last pointed at on the timeline (the clip is not playing)
+    $('.lv-name', cellEl('L1', 0)).click(); await wait(250);
+    $('#panel [data-tab="file"]').click(); await wait(150);
+    out.coverBtns = $$('#panel .lv-cover, #panel .btn').map((b) => b.textContent).filter((t) => /cover/i.test(t));
+    const strip = $('#panel .lv-tl-strip'), sr = strip.getBoundingClientRect();
+    strip.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: sr.left + sr.width * 0.5, clientY: sr.top + 5 }));
+    $('#panel .lv-cover').click();
+    await until(() => show().media.find((m) => m.file.endsWith('A.mov')).thumbFrame !== null);
+    const m = show().media.find((mm) => mm.file.endsWith('A.mov'));
+    out.cover = { frame: m.thumbFrame, src: $('.lv-thumb img', cellEl('L1', 0)).getAttribute('src') };
+    await until(() => [...$$('#panel .btn')].some((b) => b.textContent === 'Reset cover'));
+    [...$$('#panel .btn')].find((b) => b.textContent === 'Reset cover').click();
+    await until(() => show().media.find((mm) => mm.file.endsWith('A.mov')).thumbFrame === null);
+    out.reset = $('.lv-thumb img', cellEl('L1', 0)).getAttribute('src');
+    return out;`, {
+    setup: async ({ engine, file }) => {
+      await imported(engine, [[file('A.mov', longHap()), { layerId: 'L1', column: 0 }], [file('B.mov', makeHap({ frames: 8 }).bytes), { layerId: 'L2', column: 1 }], [file('C.mov', makeHap({ frames: 9 }).bytes), { layerId: 'L3', column: 2 }]]);
+    },
+  });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.deepEqual(result.swatches, ['', ...COLORS], 'none + the six tints: no other colour can be set from here');
+  assert.deepEqual({ ...result.menuColor, wash: undefined, plain: undefined }, { clip: COLORS[0], attr: COLORS[0], cc: COLORS[0], closed: true, wash: undefined, plain: undefined }, 'the swatch sets the clip colour, the cell wears it, the menu closes');
+  assert.notEqual(result.menuColor.wash, result.menuColor.plain, 'the name bar of a coloured clip is tinted (an uncoloured one is not)');
+  assert.equal(result.panelOn, COLORS[0], 'the panel shows the colour on');
+  assert.equal(result.undone, null, 'two undos: no colour again');
+  assert.deepEqual(result.colMenu, ['Launch column 2', 'Rename column…', 'Start the room with column 2']);
+  assert.deepEqual(result.named, { head: 'Drop', cls: true, other: true }, 'the head says its name; the others have none');
+  assert.deepEqual(result.colMenu2, ['Launch column 2', 'Rename column…', 'Clear the name', 'Start the room with column 2']);
+  assert.equal(result.cleared, true);
+  assert.deepEqual(result.before, { ids: ['L1', 'L2', 'L3'], rows: ['L3', 'L2', 'L1', 'xlayer'], grips: 3 }, 'the grid draws the top layer first; each layer has a grip, the experience row has none');
+  assert.deepEqual(result.after.ids, ['L2', 'L3', 'L1'], 'dropped on the upper half of L3: above it (bottom → top)');
+  assert.deepEqual(result.after.rows, ['L1', 'L3', 'L2', 'xlayer'], 'the rows follow');
+  assert.deepEqual(result.after.transport, ['L2', 'L3', 'L1'], 'the transport stacks the layers in the new order');
+  assert.equal(result.after.cells, true, 'no cell moved or was lost');
+  assert.equal(result.after.sel, 'layer', 'the moved layer is selected');
+  assert.equal(result.self, true, 'onto itself: nothing');
+  assert.equal(result.mark.below, true, 'the drag draws the line below the target');
+  assert.equal(result.mark.tag, 'Move Layer 2 below Layer 3');
+  assert.equal(result.markGone, true);
+  assert.deepEqual(result.undoOrder, ['L1', 'L2', 'L3'], 'Ctrl+Z puts the layer back');
+  assert.deepEqual(result.coverBtns, ['Set cover frame']);
+  assert.equal(result.cover.frame, 15, 'the middle of a 15 s movie at 2 fps is frame 15');
+  assert.match(result.cover.src, /&f=15(&|$)/, 'the thumbnail URL carries the frame: the old picture is not reused');
+  assert.match(result.reset, /&f=(&|$)/, 'and back to the default');
+  assert.equal(engine.media.show.media.find((m) => m.file.endsWith('A.mov')).thumbFrame, null);
+});
+
+test('live: round 2 screenshots for review', { skip: (!electronPath && 'electron is not installed') || (!SHOTS && 'set VT_LIVE_SHOTS=<folder> to take them') }, async () => {
+  fs.mkdirSync(SHOTS, { recursive: true });
+  const demo = (k, frames = 4, sps = 5) => demoHap({ palette: k, frames, secondsPerFrame: sps });
+  const setup = async ({ engine, file }) => {
+    const f = (k) => file(`Clip ${k}.mov`, demo(k));
+    await imported(engine, [
+      [file('Intro loop.mov', demo(0)), { layerId: 'L1', column: 0 }], [file('Embers.mov', demo(1)), { layerId: 'L1', column: 1 }], [file('Aurora wide.mov', demo(2)), { layerId: 'L1', column: 2 }],
+      [file('City night.mov', demo(4)), { layerId: 'L1', column: 4 }],
+      [f(3), { layerId: 'L2', column: 0 }], [file('Forest.mov', demo(5)), { layerId: 'L2', column: 2 }], [file('Ocean drift.mov', demo(6)), { layerId: 'L2', column: 3 }],
+      [file('Poster.png', pngFile(256, 144)), { layerId: 'L3', column: 0 }],
+      [file('Ambience.wav', wavFile({ frames: 48000 * 6, sample: (i) => Math.sin(i * 0.03) * Math.min(1, Math.abs(Math.sin(i / 14000)) * 1.1) })), { layerId: 'L3', column: 1 }],
+      [file('Markers.mp4', fixtureBytes('h264-markers.mp4')), { layerId: 'L3', column: 2 }]]);
+    await editShow(engine, (s) => {
+      s.name = 'Barcelona XR Lab — Tonight';
+      s.decks[0].colNames = { 0: 'Intro', 1: 'Drop', 2: 'Calm', 4: 'Finale' };
+      const by = (n) => s.clips.find((c) => c.name === n);
+      by('Intro loop').color = '#7f8b99'; by('Embers').color = '#977f78'; by('Aurora wide').color = '#7e8e84'; by('Forest').color = '#7e8e84'; by('Poster').color = '#8a8296';
+      by('City night').end = 'hold';
+      s.layers[0].name = 'Floor'; s.layers[1].name = 'Walls'; s.layers[2].name = 'Overlay';
+    });
+    await engine.command('media.import', { paths: [file('Copying.mov', demo(1, 2))], target: { layerId: 'L2', column: 4 }, __local: true });
+    await engine.command('column.trigger', { deckId: 'D1', column: 0 });
+    await engine.command('clip.trigger', { deckId: 'D1', layerId: 'L2', column: 2 });
+    // a conversion running on the H.264 (the converter's own seam)
+    const cv = engine.media.convert;
+    const jobs = [{ id: 'v1', kind: 'convert', showId: engine.media.show.id, mediaId: engine.media.show.media.find((m) => m.file.endsWith('Markers.mp4')).id, name: 'Markers.mp4', state: 'converting', done: 62, total: 100, mbps: 0, etaS: null, error: null, codec: 'hap', via: 'chromium', resultMediaId: null }];
+    cv.publicJobs = () => jobs; cv.tool.status = () => ({ supported: true, installed: true, version: '7.1' });
+    engine.media._emitMedia();
+  };
+  const media = { sourceOptions: { tail: { 'Copying.mov': 600 * MB }, delayMs: 300 } };
+  const shots = [];
+  shots.push(await inLive(`
+    $('.lv-name', cellEl('L3', 2)).click(); await wait(300);
+    $('#panel [data-tab="file"]').click(); await wait(1500);
+    return 'ok';`, { setup, media, shot: path.join(SHOTS, 'round2-1-grid-file-tab-1440x900.png') }));
+  shots.push(await inLive(`
+    $('.lv-sizes [data-size="L"]').click(); await wait(100);
+    $('.lv-name', cellEl('L1', 1)).click(); await wait(1500);
+    return 'ok';`, { setup, media, w: 1920, h: 1080, shot: path.join(SHOTS, 'round2-2-large-1920x1080.png') }));
+  shots.push(await inLive(`
+    $('.lv-name', cellEl('L3', 1)).click(); await wait(2000);
+    return 'ok';`, { setup, media, shot: path.join(SHOTS, 'round2-3-sound-1440x900.png') }));
+  shots.push(await inLive(`
+    $('.lv-thumb', cellEl('L3', 0)).click(); await wait(500);
+    $('.lv-name', cellEl('L3', 0)).click(); await wait(1500);
+    const dt = new DataTransfer(); const g = $('.lv-lh[data-layer="L1"] .lv-grip'); g.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    const head = $('.lv-lh[data-layer="L3"]'); const r = head.getBoundingClientRect();
+    head.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 40, clientY: r.top + 3 }));
+    await wait(500);
+    return 'ok';`, { setup, media, shot: path.join(SHOTS, 'round2-4-still-and-layer-drag-1440x900.png') }));
+  shots.push(await inLive(`
+    const r = $('.lv-cell[data-layer="L3"][data-col="2"]').getBoundingClientRect();
+    cellEl('L3', 2).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 30 }));
+    await wait(1200);
+    return 'ok';`, { setup, media, shot: path.join(SHOTS, 'round2-5-cell-menu-1440x900.png') }));
   for (const s of shots) assert.deepEqual(s.errors, [], s.errors.join(' | '));
 });

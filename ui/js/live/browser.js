@@ -13,14 +13,17 @@ import { cmd, store } from '../conn.js';
 import { h, toast } from '../dom.js';
 import { duration, bytes, locate } from './library.js';
 import { dropPaths, placeMedia } from './dnd.js';
+import { popMenu } from './grid.js';
+import * as C from './convert.js';
+import { badgeOf, notesOf } from './media-info.js';
 
+// Only a hint for what to ask a thumbnail of: NOTHING is filtered or dimmed by its extension — the engine reads the bytes
+// of whatever is dropped and says what it is (or why not).
 const MEDIA_EXT = /\.(mov|mp4|m4v|webm|avi|mkv|mpg|mpeg|wmv|png|jpe?g|gif|webp|bmp|tiff?|wav|mp3|flac|aiff?|ogg|m4a)$/i;
-const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|tiff?)$/i;
-const AUDIO_EXT = /\.(wav|mp3|flac|aiff?|ogg|m4a)$/i;
 const store_ = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const keep = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } };
 const joinPath = (dir, name) => (/[\\/]$/.test(dir) ? dir + name : `${dir}${dir.includes('\\') ? '\\' : '/'}${name}`);
-const kindOf = (name) => (IMAGE_EXT.test(name) ? 'IMG' : AUDIO_EXT.test(name) ? 'AUD' : /\.mov$/i.test(name) ? 'HAP' : 'VID');
+const extOf = (name) => (/\.([A-Za-z0-9]{1,5})$/.exec(name)?.[1] || '').toUpperCase(); // (what a file says it is: a hint, never a verdict)
 
 export function createBrowser(L) {
   const el = h('div', { class: 'lv-browser' });
@@ -81,19 +84,35 @@ export function createBrowser(L) {
   }
 
   function tile(m, order) {
-    const name = m.file.split('/').pop(), n = usedBy(m.id);
-    return h('div', { class: 'lv-tile', 'data-media': m.id, draggable: L.locked() ? 'false' : 'true', title: `${name}\nDrag it onto a cell, a column, a layer or a deck.` },
+    const name = m.file.split('/').pop(), n = usedBy(m.id), kb = badgeOf(m), notes = notesOf(m);
+    const mark = notes.length ? h('span', { class: `lv-note${notes.some((n) => n.convert) ? ' act' : ''}`, title: notes.map((x) => x.text).join('\n') }, notes.some((n) => n.convert) ? '!' : 'i') : null;
+    return h('div', { class: `lv-tile k-${kb.kind}`, 'data-media': m.id, 'data-kind': kb.kind, draggable: L.locked() ? 'false' : 'true', title: `${name}\nDrag it onto a cell, a column, a layer or a deck.` },
       h('div', { class: 'lv-tthumb' },
         h('img', { src: L.thumbUrl(m, 160), alt: '', draggable: 'false', loading: 'lazy', onerror: (e) => e.target.classList.add('gone') }),
-        h('span', { class: 'lv-tdur tnum' }, duration(m.video?.duration)), h('span', { class: 'lv-copy' }, h('i'), h('em', { class: 'tnum' }))),
+        h('span', { class: 'lv-tdur tnum' }, kb.kind === 'image' ? '' : duration(m.video?.duration)), h('span', { class: 'lv-copy' }, h('i'), h('em', { class: 'tnum' })),
+        h('span', { class: 'lv-conv' }, h('i'), h('em', { class: 'tnum' })),
+        h('span', { class: `lv-kind k-${kb.kind}`, title: [kb.label, kb.codec].filter(Boolean).join(' · ') }, kb.text),
+      ),
       h('div', { class: 'lv-tlbl' }, h('span', { class: 'dot' }),
         h('span', { class: 'lv-tname' }, h('span', { class: 't' }, name),
-          h('span', { class: `lv-tuse tnum${n ? '' : ' none'}` }, n ? `in the grid: ${n}` : 'unused'))),
+          h('span', { class: `lv-tuse tnum${n ? '' : ' none'}` }, n ? `in the grid: ${n}` : 'unused')), mark),
       null);
   }
   function wireTile(t, m, order) {
     t.addEventListener('click', (e) => { pick(m.id, e, order); L.select({ kind: 'media', mediaId: m.id }); });
     t.addEventListener('dblclick', () => { if (!replaceNow(m.id)) L.select({ kind: 'media', mediaId: m.id }); });
+    t.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (!B.sel.has(m.id)) { pick(m.id, {}, order); L.select({ kind: 'media', mediaId: m.id }); }
+      const off = L.locked();
+      popMenu(e.clientX, e.clientY, [
+        off ? 'Show mode: unlock the room to edit.' : null,
+        ['Select', () => L.select({ kind: 'media', mediaId: m.id })],
+        ...(C.canConvert(L, m) ? [['Convert to HAP…', () => C.convertDialog(L, m), { off, title: 'Makes a HAP copy of this video that the room plays with no decoder to spare' }]] : []),
+        'sep',
+        ['Remove the file…', () => L.run(cmd('media.remove', { mediaId: m.id })), { off, danger: true, title: 'Takes the file and its clips out of the show' }],
+      ].filter(Boolean));
+    });
     return t;
   }
 
@@ -133,11 +152,11 @@ export function createBrowser(L) {
         return h('div', { class: 'lv-folder', 'data-path': p, draggable: L.locked() ? 'false' : 'true', title: `${p}\nDrag it onto the grid to import its files (onto + for a deck named after it).`,
           onclick: () => go(p) }, h('span', { class: 'ico dir' }), h('span', { class: 't' }, x.name));
       }
-      const known = MEDIA_EXT.test(x.name);
-      const f = h('div', { class: `lv-file${known ? '' : ' dim'}${B.sel.has(p) ? ' sel' : ''}`, 'data-path': p, draggable: L.locked() ? 'false' : 'true',
+      const known = MEDIA_EXT.test(x.name); // (only whether a thumbnail is asked for)
+      const f = h('div', { class: `lv-file${B.sel.has(p) ? ' sel' : ''}`, 'data-path': p, draggable: L.locked() ? 'false' : 'true',
         title: `${x.name} — ${bytes(x.size)}${known ? '\nDrag it onto the grid; double-click to see it large.' : '\nNot a kind of file Live reads: the engine will say so if you drop it.'}` },
       h('div', { class: 'lv-tthumb' }, known ? h('img', { src: `/api/media/diskthumb?s=160&path=${encodeURIComponent(p)}`, alt: '', draggable: 'false', loading: 'lazy', onerror: (e) => e.target.classList.add('gone') }) : null,
-        h('span', { class: 'lv-kind' }, known ? kindOf(x.name) : '')),
+        h('span', { class: 'lv-kind' }, extOf(x.name))),
       h('div', { class: 'lv-tlbl' }, h('span', { class: 'lv-tname' }, h('span', { class: 't' }, x.name), h('span', { class: 'lv-tuse tnum' }, bytes(x.size)))));
       f.addEventListener('click', (e) => { pick(p, e, order); L.select({ kind: 'file', path: p, name: x.name, size: x.size }); render(true); });
       f.addEventListener('dblclick', () => { if (!replaceNow(null, p)) L.select({ kind: 'file', path: p, name: x.name, size: x.size, large: true }); });
@@ -156,7 +175,7 @@ export function createBrowser(L) {
   function render(force = false) {
     const S = store.state, show = L.show(), lib = S.library || {};
     const k = JSON.stringify([B.tab, B.view, B.sort, B.q, [...B.sel], B.dir, B.loading, B.error, B.rootsError, !!B.roots, show?.id, show?.rev, L.locked(), L.replace, lib.dir, lib.free, !!S.local,
-      (S.media?.problems || []).length]);
+      (S.media?.problems || []).length, L.conv?.supported ?? null]);
     if (!force && k === key) return;
     key = k;
     const keepScroll = el.querySelector('.lv-bbody')?.scrollTop || 0;

@@ -4,6 +4,7 @@
 
 import { h } from '../dom.js';
 import { duration, bytes } from './library.js';
+import { badgeOf, notesOf } from './media-info.js';
 
 const DELAY_MS = 500;
 const W = 300;
@@ -24,9 +25,12 @@ export function createHover(L, root) {
     const clip = t.matches('.lv-cell') ? L.clip(t.dataset.clip) : null;
     if (!m) return null;
     const v = m.video || {};
+    const kb = badgeOf(m), notes = notesOf(m);
     const lines = [
-      [duration(v.duration), v.width ? `${v.width} × ${v.height}` : null, v.fps ? `${Math.round(v.fps * 100) / 100} fps` : null, bytes(m.size)].filter(Boolean).join(' · '),
+      kb.text,
+      [m.kind === 'image' ? null : duration(v.duration), v.width ? `${v.width} × ${v.height}` : null, v.fps ? `${Math.round(v.fps * 100) / 100} fps` : null, bytes(m.size)].filter(Boolean).join(' · '),
       clip ? `${L.layer(t.dataset.layer)?.name} · column ${Number(t.dataset.col) + 1}` : m.file,
+      ...notes.map((n) => `! ${n.text}`),
     ];
     return { img: L.thumbUrl(m, 480), title: clip?.name || m.file.split('/').pop(), lines };
   }

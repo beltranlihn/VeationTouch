@@ -41,6 +41,7 @@ export function layerHead(L, layer) {
   const el = h('div', { class: `lv-lh${solo ? ' solo' : ''}${other ? ' dimmed' : ''}`, 'data-layer': layer.id, 'data-key': headKey(L, layer) },
     h('i', { class: 'lv-air' }),
     h('div', { class: 'lv-lh-top' },
+      h('span', { class: 'lv-grip', draggable: real && !L.locked() ? 'true' : 'false', title: 'Drag to change the order of the layers', 'aria-label': `Move ${layer.name}`, 'data-layer': layer.id }, '⋮⋮'),
       h('button', { class: 'lv-x', title: `Eject ${layer.name} (Delete)`, 'aria-label': `Eject ${layer.name}`, disabled: !real || undefined, onclick: () => L.run(cmd('layer.clear', { layerId: layer.id })) }, '✕'),
       h('button', { class: 'lv-lname', title: `${layer.name}: its settings (double-click to rename)`, onclick: () => L.select({ kind: 'layer', layerId: layer.id }), ondblclick: () => rename(L, layer) }, layer.name),
       ms('S', solo, solo ? 'Solo — click to show every layer again' : 'Solo: show only this layer', () => L.run(cmd('layer.solo', { layerId: solo ? null : layer.id })), 'solo'),

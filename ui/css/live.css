@@ -257,7 +257,6 @@
 .lv-tname .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;}
 .lv-tuse{font-size:10px;color:var(--ink-3);}
 .lv-tuse.none{color:var(--ink-dim);}
-.lv-file.dim{opacity:.45;}
 .lv-roots{display:flex;flex-wrap:wrap;gap:4px;padding:0 0 6px;}
 .lv-root{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:3px;background:var(--s2);border:.5px solid var(--line);color:var(--ink-2);}
 .lv-root:hover{background:var(--state-hover);color:var(--ink);}
@@ -388,3 +387,122 @@
 .lv-multi-thumbs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-bottom:var(--sp-8);}
 .lv-multi-thumbs img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:2px;background:var(--s2);}
 .lv-multi-thumbs img.gone{visibility:hidden;}
+
+/* =====================================================================================================================
+   Redesign, round 2: formats (kind and codec badges, notes, still, sound) · Convert to HAP · colours, column names,
+   layer order · states read from 2 m (resolume-ux.md §B #12, #13)
+   ===================================================================================================================== */
+
+/* ---------- kind and codec: one small badge on the picture (a movie says its codec; a still or a sound says what it is) ---------- */
+.lv-kindb,.lv-tthumb .lv-kind{position:absolute;right:3px;top:3px;max-width:calc(100% - 8px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+  font:600 9px/1.35 Geist,system-ui,sans-serif;letter-spacing:.06em;padding:1px 5px;border-radius:2px;background:rgba(0,0,0,.66);color:var(--ink-2);pointer-events:none;}
+.lv-kindb.k-image,.lv-kind.k-image,.lv-kindb.k-audio,.lv-kind.k-audio{color:var(--ink);box-shadow:inset 0 0 0 .5px rgba(224,224,224,.4);}
+.lv-rows[data-size="S"] .lv-kindb{font-size:8px;padding:0 3px;}
+.lv-tthumb .lv-kind{left:auto;}
+.lv-tthumb .lv-kind:empty{display:none;}
+/* what the import said about the file: a small amber mark (the words are in its title and in the inspector's File tab) */
+.lv-note{flex:0 0 auto;margin-left:auto;width:15px;height:15px;display:grid;place-items:center;border-radius:50%;background:rgba(0,0,0,.7);color:var(--ink-2);box-shadow:inset 0 0 0 .5px rgba(224,224,224,.4);
+  font:700 10px/1 Geist,system-ui,sans-serif;}
+.lv-note.act{background:var(--attn);color:var(--s0);box-shadow:none;} /* a note with a way out (a conversion fixes it) is the one that asks for a look */
+.lv-tlbl .lv-note{width:14px;height:14px;font-size:9px;}
+/* a sound has no picture of its own: its waveform fills the card (made by the engine, from its audio) */
+.lv-cell.k-audio .lv-thumb img,.lv-tile.k-audio .lv-tthumb img{object-fit:cover;}
+.lv-cell.k-image .lv-thumb{background:repeating-conic-gradient(var(--s2) 0 25%,var(--s1) 0 50%) 0 0/12px 12px;} /* (a still may be transparent) */
+.lv-cell.endless .lv-ph{display:none;}
+
+/* ---------- LIVE: a pill you can read from the door; the picture keeps its cyan border and glow ---------- */
+.lv-pill{position:absolute;left:4px;top:4px;z-index:2;display:none;font:700 10px/1.35 Geist,system-ui,sans-serif;letter-spacing:.08em;padding:1px 6px;border-radius:3px;background:var(--live);color:var(--s0);pointer-events:none;}
+.lv-cell.live .lv-pill{display:block;}
+.lv-cell.live .lv-flag:not(:empty){top:22px;}
+.lv-cell.out .lv-pill{display:block;background:transparent;color:var(--live);box-shadow:inset 0 0 0 1px rgba(79,195,232,.6);}
+.lv-cell.out .lv-pill::after{content:' · OUT';}
+.lv-rows[data-size="L"] .lv-pill{font-size:12px;padding:2px 8px;}
+.lv-rows[data-size="L"] .lv-kindb{font-size:11px;padding:2px 6px;}
+.lv-rows[data-size="L"] .lv-ph{width:3px;}
+
+/* ---------- the other states, each its own look (value and shape first, colour second) ---------- */
+.lv-cell.st-missing,.lv-cell.st-problem{border:1px solid var(--attn);}
+.lv-cell.st-missing .lv-flag,.lv-cell.st-problem .lv-flag{font-size:10px;padding:1px 6px;}
+.lv-cell.queued{border:1px dashed rgba(224,224,224,.45);}
+.lv-cell.st-copying .lv-name .t{color:var(--ink-3);}
+.lv-cell.sel .lv-name{background:rgba(224,224,224,.1);}
+.lv-cell.sel .lv-name .t{color:var(--ink);font-weight:600;}
+
+/* ---------- Convert to HAP: a band on the picture, a line in the bottom bar, a box in the panel ---------- */
+.lv-conv{position:absolute;left:0;right:0;bottom:0;height:16px;display:none;background:rgba(17,17,17,.82);}
+.lv-conv>i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink-3);transition:width .3s linear;}
+.lv-conv>em{position:absolute;left:6px;right:20px;top:0;bottom:0;display:flex;align-items:center;font:600 9px Geist,system-ui,sans-serif;font-style:normal;letter-spacing:.03em;color:var(--ink);}
+.lv-conv .x{position:absolute;right:0;top:0;bottom:0;width:18px;display:grid;place-items:center;cursor:pointer;color:var(--ink-2);font-size:12px;}
+.lv-conv .x:hover{color:#fff;background:rgba(255,255,255,.12);}
+.lv-cell.st-converting .lv-conv,.lv-tile.st-converting .lv-conv{display:block;}
+.lv-cell.st-converting .lv-left{bottom:20px;}
+.lv-cell.st-converting:not(.live){border-style:dashed;border-color:rgba(224,224,224,.45);}
+.lv-tile .lv-conv{height:14px;}
+.lv-tile .lv-conv .x{display:none;}
+.lv-tile .lv-conv>em{right:6px;}
+.lv-convline{display:none;align-items:center;gap:var(--sp-8);min-width:0;}
+.lv-convline.on{display:flex;}
+.lv-convline .txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);}
+.lv-convline.stopped .txt{color:var(--attn);}
+.lv-convline.stopped .lv-cbar{display:none;}
+.lv-cbar.wide{width:100%;margin-top:var(--sp-6);}
+.lv-convbox b{color:var(--ink);}
+.lv-convert .row{margin:var(--sp-8) 0;}
+.lv-convert .seg{flex:1;}
+.lv-convert .seg button{flex:1;}
+.lv-convhint{color:var(--ink-2);}
+.lv-convhint .btn{margin-left:4px;}
+
+/* ---------- the inspector: kind chips, notes, the dot on File, a still's timeline ---------- */
+.lv-kindrow{display:flex;align-items:center;gap:6px;margin:0 0 var(--sp-6);}
+.lv-chipk{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:3px;background:var(--s2);border:.5px solid var(--line);color:var(--ink-2);font:600 10px/1 Geist,system-ui,sans-serif;letter-spacing:.05em;}
+.lv-chipk.k-image,.lv-chipk.k-audio{color:var(--ink);border-color:var(--line-strong);}
+.lv-notes{margin:var(--sp-6) 0 var(--sp-8);}
+.lv-notes ul{margin:4px 0 0;padding-left:16px;line-height:1.5;}
+.lv-notes .actions{margin-top:var(--sp-6);}
+.lv-tabdot{display:inline-block;width:6px;height:6px;margin-left:5px;border-radius:50%;background:var(--ink-3);vertical-align:middle;}
+.lv-tabdot.act{background:var(--attn);}
+.lv-tl.still.endless .lv-tl-still{display:flex;flex-direction:column;gap:2px;justify-content:center;min-height:40px;padding:6px 10px;border-radius:3px;background:var(--well-deep);border:.5px solid var(--line);box-shadow:inset 0 1px 3px rgba(0,0,0,.5);}
+.lv-tl-still b{font-size:var(--fs-l);font-weight:600;color:var(--ink);letter-spacing:.04em;}
+.lv-tl-still span{color:var(--ink-3);font-size:var(--fs-s);line-height:1.4;}
+.lv-tl-strip[style*="background-image"]{background-size:100% 100%;background-repeat:no-repeat;}
+.lv-ithumb img{max-height:260px;object-fit:contain;background:var(--s0);}
+
+/* ---------- colours: six low-saturation tints; a stripe on the name bar and a faint wash — never an accent ---------- */
+.lv-cell.colored .lv-name{box-shadow:inset 4px 0 0 var(--cc);background:color-mix(in srgb,var(--cc) 26%,transparent);padding-left:10px;}
+.lv-cell.colored .lv-thumb{box-shadow:inset 0 3px 0 var(--cc);}
+.lv-cell.colored.sel .lv-name{background:color-mix(in srgb,var(--cc) 26%,rgba(224,224,224,.1));}
+.lv-swatches{display:flex;align-items:center;gap:5px;flex:1;min-height:22px;}
+.lv-menu .lv-swatches{padding:4px 9px 5px;}
+.lv-sw{width:16px;height:16px;border-radius:50%;border:.5px solid rgba(255,255,255,.18);padding:0;cursor:pointer;}
+.lv-sw:hover:not(:disabled){border-color:var(--ink);}
+.lv-sw.on{box-shadow:0 0 0 1.5px var(--s1),0 0 0 3px var(--ink);}
+.lv-sw.none{background:transparent;position:relative;}
+.lv-sw.none::after{content:'';position:absolute;left:2px;right:2px;top:50%;height:1px;background:var(--ink-3);transform:rotate(-45deg);}
+.lv-sw:disabled{opacity:.4;cursor:default;}
+.lv-menu .lv-swatches::before{content:'Colour';color:var(--ink-3);font-size:10px;margin-right:4px;}
+
+/* ---------- column names ---------- */
+.lv-col{min-width:0;padding:0 6px;}
+.lv-col .n{flex:0 0 auto;}
+.lv-col .cn{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-s);font-weight:500;color:var(--ink-2);}
+.lv-col .grow{flex:1;}
+.lv-col.named .n{color:var(--ink-2);}
+.lv-col.live .cn{color:var(--live);}
+.lv-rows[data-size="S"] .lv-col .cn{display:none;}
+
+/* ---------- reordering the layers: the grip, and the line that says where it will go ---------- */
+.lv-grip{flex:0 0 auto;width:10px;height:20px;display:grid;place-items:center;margin-left:-5px;color:var(--ink-dim);font-size:11px;line-height:1;letter-spacing:-2px;cursor:grab;user-select:none;}
+.lv-grip:hover{color:var(--ink-2);}
+.lv-grip[draggable="false"]{cursor:default;opacity:.35;}
+.lv-lh.dragging{opacity:.5;}
+.lv-lh.lay-above{box-shadow:0 -3px 0 0 var(--ink);}
+.lv-lh.lay-below{box-shadow:0 3px 0 0 var(--ink);}
+
+/* ---------- the bottom bar with two jobs at once (a copy and a conversion): each line shrinks, never overlaps the faders ---------- */
+.lv-copyline,.lv-convline{flex:0 1 auto;min-width:0;}
+.lv-copyline .txt,.lv-convline .txt{min-width:0;}
+.lv-copyline .lv-cbar,.lv-convline .lv-cbar{flex:0 1 90px;width:auto;min-width:36px;}
+.lv-bottom .btn.small{flex:0 0 auto;}
+.lv-master{flex:0 1 190px;min-width:120px;}
+.lv-bottom{gap:var(--sp-8);}

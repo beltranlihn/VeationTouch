@@ -184,10 +184,18 @@ function normDeck(d, i, layerIds, clipIds) {
     cells[`${m[1]}:${col}`] = clipId;
     maxCol = Math.max(maxCol, col);
   }
+  const columns = Math.max(int(d.columns, DEFAULT_COLUMNS, 1, MAX_COLUMNS), maxCol + 1); // the grid grows with what is in it
+  // names of columns ("Intro", "Drop"): { "0": "Intro" }; only the ones that have a name are kept
+  const colNames = {};
+  for (const [k, v] of Object.entries(d.colNames && typeof d.colNames === 'object' && !Array.isArray(d.colNames) ? d.colNames : {}).slice(0, MAX_COLUMNS)) {
+    const n = /^\d{1,3}$/.test(k) ? Number(k) : -1, t = str(v, '', 40).trim();
+    if (n >= 0 && n < columns && t) colNames[String(n)] = t;
+  }
   return {
     id: idOf(d.id), name: str(d.name, '', 60) || (i ? `Deck ${i + 1}` : 'Main'),
-    columns: Math.max(int(d.columns, DEFAULT_COLUMNS, 1, MAX_COLUMNS), maxCol + 1), // the grid grows with what is in it
+    columns,
     cells,
+    ...(Object.keys(colNames).length ? { colNames } : {}),
   };
 }
 

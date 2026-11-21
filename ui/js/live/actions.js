@@ -4,8 +4,9 @@
 // a paste or a copy goes to free cells and says how many it could not place.
 
 import { cmd } from '../conn.js';
-import { toast, confirmBox, promptBox } from '../dom.js';
+import { h, toast, confirmBox, promptBox } from '../dom.js';
 import { cellKey, freeRun, planPaste } from './place.js';
+import { CLIP_COLORS } from './media-info.js';
 
 const nextId = (list, prefix) => { const used = new Set(list.map((x) => x.id)); let k = 1; while (used.has(`${prefix}${k}`)) k++; return `${prefix}${k}`; };
 const same = (a, b) => a.layerId === b.layerId && a.column === b.column;
@@ -134,4 +135,51 @@ export function selectAll(L) {
   if (!list.length) return;
   L.select({ kind: 'cell', layerId: list[0].layerId, column: list[0].column });
   L.setMulti(list);
+}
+
+// ------------------------------------------------------------------ colours, column names, the cover frame
+
+/** Colours the selected clips (or only `cell`): color is a '#rrggbb' of CLIP_COLORS, or null for none. One undo step. */
+export function setColor(L, color, cell = null) {
+  if (L.locked()) return;
+  const list = targets(L, cell), deckId = L.deck().id;
+  if (!list.length) return;
+  L.editShow((s) => {
+    const deck = s.decks.find((d) => d.id === deckId);
+    if (!deck) return false;
+    let any = false;
+    for (const c of list) { const clip = s.clips.find((x) => x.id === deck.cells[cellKey(c.layerId, c.column)]); if (clip && clip.color !== color) { clip.color = color; any = true; } }
+    return any;
+  }, color ? 'clip colour' : 'clip colour off');
+}
+
+/** A row of swatches (none + the palette): `current` is lit; a click calls onPick(color | null). */
+export function colorRow(current, onPick, disabled = false) {
+  const sw = (color, name) => h('button', { class: `lv-sw${(current || null) === color ? ' on' : ''}${color ? '' : ' none'}`, 'data-color': color || '', title: name, 'aria-label': name, 'aria-pressed': String((current || null) === color),
+    disabled: disabled || undefined, style: color ? { background: color } : {}, onclick: () => onPick(color) });
+  return h('div', { class: 'lv-swatches', role: 'group', 'aria-label': 'Clip colour' }, sw(null, 'No colour'), CLIP_COLORS.map(([c, n]) => sw(c, n)));
+}
+
+/** Names a column of the deck in view ("Intro", "Drop"); an empty name clears it. */
+export async function renameColumn(L, deck, column) {
+  if (L.locked() || !L.show()) return;
+  const cur = deck.colNames?.[String(column)] || '';
+  const name = await promptBox(`Name of column ${column + 1}`, cur, 'Rename');
+  if (name !== null && name !== undefined) setColumnName(L, deck.id, column, name.trim().slice(0, 40));
+}
+export function setColumnName(L, deckId, column, name) {
+  return L.editShow((s) => {
+    const d = s.decks.find((x) => x.id === deckId);
+    if (!d) return false;
+    d.colNames = { ...(d.colNames || {}) };
+    if (name) d.colNames[String(column)] = name; else delete d.colNames[String(column)];
+    if (!Object.keys(d.colNames).length) delete d.colNames;
+    return true;
+  }, name ? 'name column' : 'clear column name');
+}
+
+/** The picture of a movie (cell, browser, panel): this frame of it (null = the default, at 10 %). */
+export function setCover(L, mediaId, frame) {
+  if (L.locked()) return null;
+  return L.run(cmd('media.cover', { mediaId, frame }), frame === null ? 'Cover frame reset.' : 'Cover frame set.');
 }

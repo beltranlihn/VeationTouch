@@ -14,6 +14,8 @@
 
 import { cmd, store } from '../conn.js';
 import { h, toast } from '../dom.js';
+import { messageOf, rejectConvert } from './media-info.js';
+import { convertDialog } from './convert.js';
 import { cellKey, planDrop, describePlan, planInsert, applyInsert, replaceFile, freeRun } from './place.js';
 
 const ALREADY = 'Already in the library.';
@@ -38,12 +40,23 @@ export function newClip(show, media, layerId) {
   };
 }
 
+/** "A conversion to HAP would fix it": the engine's hint (convert: true) as a way to System › Converter, where FFmpeg lives. */
+function convertTag(L, r) {
+  if (!rejectConvert(r) && !r.convert) return null;
+  if (L.conv?.supported === false) return null;
+  // a refused file the engine can convert carries its path: the dialog (it needs FFmpeg: it says so, with the way to System › Converter)
+  if (r.path) return h('span', { class: 'lv-convhint' }, ' ', h('button', { class: 'btn small lv-convbtn', onclick: () => convertDialog(L, { path: r.path, name: r.name }) }, 'Convert to HAP…'));
+  return null;
+}
+
 /** The one list of what an import refused (and the notes on what it took). Nothing when all went in quietly. */
 export function report(L, res, extra = []) {
   const old = L.root?.querySelector('.lv-report');
   old?.remove();
-  const notes = res.accepted.flatMap((a) => a.warnings.filter((w) => w !== ALREADY).map((w) => ({ name: a.name, message: w }))).concat(extra.map((message) => ({ message })));
-  const reused = res.accepted.filter((a) => a.warnings.includes(ALREADY));
+  // (a warning is a string, or {message, convert}: the engine's words either way)
+  const wtext = (w) => (typeof w === 'string' ? w : messageOf(w));
+  const notes = res.accepted.flatMap((a) => (a.warnings || []).filter((w) => wtext(w) !== ALREADY).map((w) => ({ name: a.name, message: wtext(w), convert: typeof w === 'object' && rejectConvert(w) }))).concat(extra.map((message) => ({ message })));
+  const reused = res.accepted.filter((a) => (a.warnings || []).some((w) => wtext(w) === ALREADY));
   if (!res.rejected.length && !notes.length) {
     if (res.accepted.length) toast(`${res.accepted.length} file${res.accepted.length === 1 ? '' : 's'} added${reused.length ? ` (${reused.length} already in the library)` : ''}${res.accepted.some((a) => a.copying) ? ' — copying into the library' : ''}`, 'ok');
     return null;
@@ -53,8 +66,8 @@ export function report(L, res, extra = []) {
   const panel = h('div', { class: 'lv-report', role: 'status' },
     h('header', {}, h('b', {}, title), res.accepted.length ? h('span', { class: 'muted' }, ` · ${res.accepted.length} added`) : null, h('span', { class: 'grow' }),
       h('button', { class: 'ibtn small', title: 'Close', onclick: () => panel.remove() }, 'Close')),
-    n ? h('ul', { class: 'lv-rejected' }, res.rejected.map((r) => h('li', {}, h('span', { class: 'msg' }, r.message)))) : null,
-    notes.length ? h('ul', { class: 'lv-notes' }, notes.map((r) => h('li', {}, h('span', { class: 'msg' }, r.message)))) : null);
+    n ? h('ul', { class: 'lv-rejected' }, res.rejected.map((r) => h('li', {}, h('span', { class: 'msg' }, messageOf(r)), convertTag(L, r)))) : null,
+    notes.length ? h('ul', { class: 'lv-notes' }, notes.map((r) => h('li', {}, h('span', { class: 'msg' }, r.message), convertTag(L, r)))) : null);
   (L.grid?.el || L.root)?.append(panel); // over the grid's bottom corner: never over the browser or the inspector
   return panel;
 }
@@ -159,7 +172,7 @@ export function createDnd(L, root) {
   document.body.append(tag);
 
   const clearMarks = () => {
-    for (const el of marked) el.classList.remove('dragover', 'range', 'skip', 'ins', 'nofit');
+    for (const el of marked) el.classList.remove('dragover', 'range', 'skip', 'ins', 'nofit', 'lay-above', 'lay-below');
     marked = []; tag.hidden = true; tagKey = '';
   };
   const mark = (el, cls) => { if (el) { el.classList.add(cls); marked.push(el); } };
@@ -168,6 +181,12 @@ export function createDnd(L, root) {
   /** What a drop at this event would land on: {kind, el, …} or null. */
   function targetOf(e) {
     const t = e.target;
+    if (L.drag?.kind === 'layer') { // a layer by its grip: any row says where it goes (above or below that one)
+      const row = t.closest?.('.lv-row[data-layer]');
+      if (!row || row.dataset.layer === 'xlayer') return null;
+      const r = row.getBoundingClientRect();
+      return { kind: 'layerrow', el: row.querySelector('.lv-lh'), layerId: row.dataset.layer, above: e.clientY < r.top + r.height / 2 };
+    }
     const c = t.closest?.('.lv-cell');
     if (c && c.dataset.layer) {
       const layerId = c.dataset.layer, column = Number(c.dataset.col), taken = !!c.dataset.clip;
@@ -196,6 +215,7 @@ export function createDnd(L, root) {
     if (hasFiles(e)) return true;
     const d = L.drag;
     if (!d) return false;
+    if (d.kind === 'layer') return t.kind === 'layerrow' && t.layerId !== d.layerId && L.show() && L.view().layers.length > 1;
     if (d.kind === 'clip') {
       if (!L.show()) return false;
       if (t.kind !== 'cell' && t.kind !== 'insert') return false;
@@ -211,6 +231,10 @@ export function createDnd(L, root) {
     const deck = t.kind === 'deck' ? view.decks.find((d) => d.id === t.deckId) : t.kind === 'newdeck' ? { id: null, name: '', columns: Math.min(256, Math.max(8, n)), cells: {} } : L.deck();
     if (!deck) return null;
     const noun = L.drag?.kind === 'clip' ? 'clip' : 'file';
+    if (t.kind === 'layerrow') {
+      const name = (id) => view.layers.find((l) => l.id === id)?.name || id;
+      return { slots: [], skipped: [], unplaced: 0, text: `Move ${name(L.drag.layerId)} ${t.above ? 'above' : 'below'} ${name(t.layerId)}`, single: true };
+    }
     if (t.kind === 'insert') {
       const pl = planInsert(deck, t.layerId, t.column, n);
       return { insert: true, ok: pl.ok, slots: pl.ok ? Array.from({ length: n }, (_, i) => ({ layerId: t.layerId, column: t.column + i })) : [], skipped: [], unplaced: 0,
@@ -231,6 +255,15 @@ export function createDnd(L, root) {
 
   root.addEventListener('dragstart', (e) => {
     if (L.locked()) { e.preventDefault(); return; }
+    const grip = e.target.closest?.('.lv-grip');
+    if (grip) { // a layer, by its grip
+      L.drag = { kind: 'layer', layerId: grip.dataset.layer };
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', grip.dataset.layer);
+      try { const head = grip.closest('.lv-lh'); e.dataTransfer.setDragImage(head, 20, 14); } catch { /* no custom ghost */ }
+      grip.closest('.lv-lh')?.classList.add('dragging');
+      return;
+    }
     const c = e.target.closest?.('.lv-cell[data-clip]');
     const t = e.target.closest?.('.lv-tile[data-media]');
     const f = e.target.closest?.('.lv-file[data-path], .lv-folder[data-path]');
@@ -258,12 +291,12 @@ export function createDnd(L, root) {
     }
     e.preventDefault();
     const plan = t.kind === 'browser' ? null : planFor(e, t);
-    e.dataTransfer.dropEffect = hasFiles(e) || L.drag?.kind !== 'clip' || e.ctrlKey || e.altKey ? 'copy' : 'move';
+    e.dataTransfer.dropEffect = L.drag?.kind === 'layer' ? 'move' : hasFiles(e) || L.drag?.kind !== 'clip' || e.ctrlKey || e.altKey ? 'copy' : 'move';
     // the marks change only when the plan does (a dragover fires every few ms)
-    const key = `${t.kind}|${t.layerId}|${t.column}|${t.deckId}|${plan?.text}|${(plan?.slots || []).length}|${e.ctrlKey || e.altKey}`;
+    const key = `${t.kind}|${t.layerId}|${t.column}|${t.deckId}|${t.above}|${plan?.text}|${(plan?.slots || []).length}|${e.ctrlKey || e.altKey}`;
     if (key !== tagKey) {
       clearMarks(); tagKey = key;
-      mark(t.el, 'dragover');
+      if (t.kind === 'layerrow') mark(t.el, t.above ? 'lay-above' : 'lay-below'); else mark(t.el, 'dragover');
       if (t.kind === 'insert') mark(t.el, plan?.ok ? 'ins' : 'nofit');
       for (const sl of plan?.slots || []) if (!(t.kind === 'insert')) mark(cellEl(sl.layerId, sl.column), 'range');
       for (const sl of plan?.skipped || []) mark(cellEl(sl.layerId, sl.column), 'skip');
@@ -294,10 +327,24 @@ export function createDnd(L, root) {
     const d = L.drag;
     L.drag = null;
     if (!ok || !d) return;
+    if (d.kind === 'layer') { moveLayer(d, t); return; }
     if (d.kind === 'files') { dropPaths(L, d.paths, t, { copy }); return; }
     if (d.kind === 'media') { placeMedia(L, d.mediaIds || [d.mediaId], t, { copy }); return; }
     moveClip(d, t, copy);
   });
+
+  /** A layer dragged by its grip onto another's row: it goes above or below it (show.layers is bottom → top: above = after). */
+  function moveLayer(d, t) {
+    L.editShow((s) => {
+      const before = s.layers.map((l) => l.id).join();
+      const i = s.layers.findIndex((l) => l.id === d.layerId);
+      if (i < 0 || !s.layers.some((l) => l.id === t.layerId)) return false;
+      const [lay] = s.layers.splice(i, 1);
+      const j = s.layers.findIndex((l) => l.id === t.layerId);
+      s.layers.splice(t.above ? j + 1 : j, 0, lay);
+      return s.layers.map((l) => l.id).join() !== before;
+    }, 'move layer').then((r) => { if (r) L.select({ kind: 'layer', layerId: d.layerId }); });
+  }
 
   /** A clip of the grid dropped on a cell (move / swap / copy) or in the gap before one (insert). */
   function moveClip(d, t, copy) {

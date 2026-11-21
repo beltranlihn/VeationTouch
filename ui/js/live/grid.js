@@ -20,6 +20,8 @@ import { playhead, passLength } from '/shared/transport.js';
 import { layerHead, xlayerHead, headKey } from './layers.js';
 import { locate } from './library.js';
 import * as A from './actions.js';
+import * as C from './convert.js';
+import { badgeOf, notesOf, CLIP_COLORS } from './media-info.js';
 
 const LH_W = 184;               // the layer head column (px)
 const ADD_W = 28;               // the "+" column at the end of the header row
@@ -66,17 +68,20 @@ export function popMenu(x, y, items) {
   const menu = h('div', { class: 'lv-menu', role: 'menu' }, items.map((it) => {
     if (it === 'sep') return h('div', { class: 'sep' });
     if (typeof it === 'string') return h('div', { class: 'lv-menu-note' }, it);
+    if (it instanceof Node) return it; // a row of its own (the colours)
     const [label, fn, o = {}] = it;
     return h('button', { class: o.danger ? 'danger' : '', disabled: o.off || undefined, title: o.title || '', onclick: () => { close(); fn(); } },
       h('span', { class: 'grow' }, label), o.key ? h('span', { class: 'lv-mkey' }, o.key) : null);
   }));
   document.body.append(menu);
+  menu.addEventListener('click', (e) => { if (e.target.closest('.lv-swatches button')) setTimeout(() => close(), 0); });
   Object.assign(menu.style, { left: `${Math.max(8, Math.min(innerWidth - menu.offsetWidth - 8, x))}px`, top: `${Math.max(8, Math.min(innerHeight - menu.offsetHeight - 8, y))}px` });
   const away = (e) => { if (!menu.contains(e.target)) close(); };
   const esc = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
   function close() { menu.remove(); removeEventListener('pointerdown', away, true); removeEventListener('keydown', esc, true); }
   setTimeout(() => { addEventListener('pointerdown', away, true); addEventListener('keydown', esc, true); }, 0);
   menu.querySelector('button:not([disabled])')?.focus();
+  menu.close = close;
   return close;
 }
 
@@ -100,20 +105,27 @@ export function createGrid(L) {
       return h('div', { class: 'lv-cell empty', ...base, title: L.locked() ? '' : 'Drop files here', onclick: select,
         oncontextmenu: (e) => { e.preventDefault(); cellMenu(e.clientX, e.clientY, deck, layer, col); } }, h('span', { class: 'plus' }, '+'));
     }
-    const m = L.mediaOf(clip);
+    const m = L.mediaOf(clip), kb = badgeOf(m), notes = m ? notesOf(m) : [];
     const img = h('img', { src: L.thumbUrl(m, size === 'L' ? 480 : 160), alt: '', draggable: 'false', loading: 'lazy', onerror: (e) => e.target.classList.add('gone') });
-    return h('div', { class: 'lv-cell', ...base, 'data-clip': clip.id, 'data-media': m?.id || '', draggable: L.locked() ? 'false' : 'true',
+    const mark = notes.length ? h('span', { class: `lv-note${notes.some((n) => n.convert) ? ' act' : ''}`, title: notes.map((n) => n.text).join(String.fromCharCode(10)) }, notes.some((n) => n.convert) ? '!' : 'i') : null;
+    const el = h('div', { class: `lv-cell k-${kb.kind}${clip.color ? ' colored' : ''}`, ...base, 'data-clip': clip.id, 'data-media': m?.id || '', 'data-kind': kb.kind, 'data-color': clip.color || '', draggable: L.locked() ? 'false' : 'true',
       oncontextmenu: (e) => { e.preventDefault(); if (!L.isInSel(layer.id, col)) L.select({ kind: 'cell', layerId: layer.id, column: col }); cellMenu(e.clientX, e.clientY, deck, layer, col); } },
     h('button', { class: 'lv-thumb', title: `Launch "${clip.name}"`, 'aria-label': `Launch ${clip.name}`, onclick: (e) => { if (e.shiftKey || e.ctrlKey || e.metaKey) selectCell(e, layer.id, col); else trigger(deck, layer.id, col); } },
       img,
       h('i', { class: 'lv-ph' }),
       h('span', { class: 'lv-copy' }, h('i'), h('em', { class: 'tnum' })),
+      h('span', { class: 'lv-conv' }, h('i'), h('em', { class: 'tnum' }),
+        h('span', { class: 'x', role: 'button', title: 'Cancel the conversion', onclick: (e) => { e.stopPropagation(); C.cancel(L, C.jobFor(L, m?.id)); } }, '×')),
       h('span', { class: 'lv-flag' }),
+      h('span', { class: 'lv-pill' }, 'LIVE'),
+      h('span', { class: `lv-kindb k-${kb.kind}`, title: [kb.label, kb.codec].filter(Boolean).join(' · ') }, kb.text),
       h('span', { class: 'lv-keylbl' }),
       h('span', { class: 'lv-left tnum' })), // the time left, on the picture (read from afar; the name keeps its room)
     h('button', { class: 'lv-name', title: `${clip.name} — select`, onclick: select },
-      h('span', { class: 'dot' }), h('span', { class: 't' }, clip.name)),
+      h('span', { class: 'dot' }), h('span', { class: 't' }, clip.name), mark),
     h('button', { class: 'btn small lv-locatebtn', title: 'Search a folder for the missing files of the show', onclick: (e) => { e.stopPropagation(); locate(L); } }, 'Locate…'));
+    if (clip.color) el.style.setProperty('--cc', clip.color);
+    return el;
   }
 
   /** Click on a cell's name or empty space: select (Ctrl: add or take away; Shift: the rectangle from the last one). */
@@ -188,7 +200,7 @@ export function createGrid(L) {
 
   function render(force = false) {
     const show = L.show(), deck = L.deck(), V = L.view();
-    const k = JSON.stringify([show?.id ?? null, show?.rev ?? null, deck.id, L.locked(), V.decks.map((d) => d.name), size]);
+    const k = JSON.stringify([show?.id ?? null, show?.rev ?? null, deck.id, L.locked(), V.decks.map((d) => d.name), size, L.conv?.supported ?? null]);
     if (!force && k === key) return;
     key = k;
     const sc = rows?.parentElement;
@@ -200,13 +212,13 @@ export function createGrid(L) {
         h('button', { class: 'ibtn small', title: 'Add a layer on top', disabled: !show || locked || V.layers.length >= MAX_LAYERS || undefined, onclick: addLayer }, '+ Layer')),
       Array.from({ length: deck.columns }, (_, c) => {
         // the room's start column (show.start: it launches by itself when the engine starts) carries START
-        const start = !!show && show.start?.deckId === deck.id && show.start?.column === c;
+        const start = !!show && show.start?.deckId === deck.id && show.start?.column === c, cname = deck.colNames?.[String(c)] || '';
         return h('button', {
-          class: `lv-col${start ? ' start' : ''}`, 'data-col': String(c), disabled: !show || undefined,
-          title: `Launch column ${c + 1}${start ? ' — the room opens with it' : ''}\nRight-click: start the room with it · drop files here: one per layer`,
+          class: `lv-col${start ? ' start' : ''}${cname ? ' named' : ''}`, 'data-col': String(c), disabled: !show || undefined,
+          title: `Launch column ${c + 1}${cname ? ` - ${cname}` : ''}${start ? ' — the room opens with it' : ''}\nRight-click: start the room with it · drop files here: one per layer`,
           onclick: () => L.run(cmd('column.trigger', { deckId: deck.id, column: c })),
           oncontextmenu: (e) => { e.preventDefault(); if (show) columnMenu(e.clientX, e.clientY, deck, c, start); },
-        }, h('span', { class: 'n tnum' }, String(c + 1)), h('span', { class: 'go' }, '▶'), start ? h('span', { class: 'st' }, 'START') : null);
+        }, h('span', { class: 'n tnum' }, String(c + 1)), cname ? h('span', { class: 'cn' }, cname) : h('span', { class: 'grow' }), h('span', { class: 'go' }, '▶'), start ? h('span', { class: 'st' }, 'START') : null);
       }),
       h('button', { class: 'lv-addcol', title: 'Add a column', disabled: !show || locked || deck.columns >= MAX_COLUMNS || undefined, onclick: addColumn }, '+'));
     rows = h('div', { class: 'lv-rows', 'data-size': size },
@@ -256,7 +268,9 @@ export function createGrid(L) {
       c.classList.toggle('live', live);
       c.classList.toggle('out', fading);
       c.classList.toggle('held', live && e.state === 'held');
-      const ind = live ? (LOOPING.has(e.play.end) ? 'ring' : 'bar') : '';
+      const still = live && !!e.play.still && !!e.play.endless; // a still with no end: there is no playhead to draw
+      c.classList.toggle('endless', still);
+      const ind = live && !still ? (LOOPING.has(e.play.end) ? 'ring' : 'bar') : '';
       c.classList.toggle('ind-ring', ind === 'ring');
       c.classList.toggle('ind-bar', ind === 'bar');
       const st = L.status(c.dataset.media);
@@ -269,7 +283,11 @@ export function createGrid(L) {
       flag.textContent = st.kind === 'missing' ? 'Missing' : st.kind === 'problem' ? 'Copy stopped' : '';
       const copy = c.querySelector('.lv-copy');
       if (st.kind === 'copying') { copy.querySelector('i').style.width = `${st.pct}%`; copy.querySelector('em').textContent = st.job.state === 'queued' ? 'Waiting' : `Copying ${st.pct} %`; }
-      if (!live) { c.querySelector('.lv-left').textContent = ''; c.querySelector('.lv-ph').style.left = '0'; }
+      c.classList.toggle('queued', st.kind === 'copying' && st.job.state === 'queued');
+      const cj = C.jobFor(L, c.dataset.media); // a conversion to HAP: the clip still plays (its original file), the band says what is going on
+      c.classList.toggle('st-converting', !!cj);
+      if (cj) { const pc = C.pctOf(cj); c.querySelector('.lv-conv i').style.width = `${pc}%`; c.querySelector('.lv-conv em').textContent = cj.state === 'queued' ? 'HAP: waiting' : `HAP ${pc} %`; }
+      if (!live) { c.querySelector('.lv-left').textContent = ''; c.querySelector('.lv-ph').style.left = '0'; } else if (still) c.querySelector('.lv-left').textContent = 'Still';
     }
     for (const b of rows.querySelectorAll('.lv-col')) b.classList.toggle('live', !!M.column && M.column.deckId === deck.id && M.column.index === Number(b.dataset.col));
     for (const r of rows.querySelectorAll('.lv-row[data-layer]')) {
@@ -317,6 +335,7 @@ export function createGrid(L) {
     for (const c of rows.querySelectorAll('.lv-cell.live')) {
       const e = L.entry(c.dataset.layer);
       if (!e?.play) continue;
+      if (e.play.still && e.play.endless) continue; // 'Still' (patch): nothing moves
       const pr = progressOf(e.play, now, e.state === 'held');
       c.querySelector('.lv-ph').style.left = `${(pr.frac * 100).toFixed(2)}%`;
       c.querySelector('.lv-left').textContent = pr.kind === 'bar' ? (e.state === 'held' ? 'Hold' : `−${clockText(pr.left)}`) : '';
@@ -373,6 +392,8 @@ export function createGrid(L) {
       ['Rename…', () => A.rename(L, { layerId: layer.id, column: col }), { off, key: 'F2' }],
       ['Replace file…', () => A.replaceFile(L, { layerId: layer.id, column: col }), { off, title: 'Pick the new file in the browser: the clip keeps its settings' }],
       ['Show in browser', () => L.browser.reveal(clip.mediaId)],
+      ...(C.canConvert(L, L.mediaOf(clip)) ? [['Convert to HAP…', () => C.convertDialog(L, L.mediaOf(clip)), { off, title: 'Makes a HAP copy of this video that the room plays with no decoder to spare' }]] : []),
+      A.colorRow(clip.color, (c) => { A.setColor(L, c, { layerId: layer.id, column: col }); }, off),
       'sep',
       [n > 1 ? `Duplicate ${n} clips` : 'Duplicate', () => A.duplicate(L), { off, key: 'Ctrl+D' }],
       [n > 1 ? `Copy ${n} clips` : 'Copy', () => A.copy(L), { key: 'Ctrl+C' }],
@@ -401,6 +422,9 @@ export function createGrid(L) {
     popMenu(x, y, [
       locked ? 'Show mode: unlock the room to change the start.' : null,
       [`Launch column ${c + 1}`, () => L.run(cmd('column.trigger', { deckId: deck.id, column: c }))],
+      'sep',
+      ['Rename column…', () => A.renameColumn(L, deck, c), { off: locked, title: 'A name for the moment this column is ("Intro", "Drop")' }],
+      deck.colNames?.[String(c)] ? ['Clear the name', () => A.setColumnName(L, deck.id, c, ''), { off: locked }] : null,
       'sep',
       start ? ['Do not start the room with it', () => setStart(false), { off: locked }]
         : [`Start the room with column ${c + 1}`, () => setStart(true), { off: locked, title: 'When the computer starts, this column launches by itself (with the start card, if one is set)' }],

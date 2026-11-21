@@ -27,6 +27,8 @@ import { createDnd } from './dnd.js';
 import { inspector, inspectorKey } from './inspector.js';
 import { KEY_ROWS } from './grid.js';
 import * as A from './actions.js';
+import * as C from './convert.js';
+import { notesOf, convertHint } from './media-info.js';
 
 const clone = (o) => structuredClone(o);
 const UNDO_MAX = 60;
@@ -96,7 +98,7 @@ L.onAir = () => Object.values(L.media().layers || {}).concat(L.media().xlayer ||
 L.status = (mediaId) => {
   const M = L.media(), show = L.show();
   if (!show) return { kind: 'ready', text: 'Ready' };
-  const job = (M.import || []).find((j) => j.mediaId === mediaId && j.showId === show.id && j.kind !== 'export' && j.state !== 'done' && j.state !== 'cancelled');
+  const job = (M.import || []).find((j) => j.mediaId === mediaId && j.showId === show.id && j.kind !== 'export' && j.kind !== 'convert' && j.state !== 'done' && j.state !== 'cancelled');
   if (job && ACTIVE_COPY.has(job.state)) {
     const pct = job.total ? Math.floor((job.done / job.total) * 100) : 0;
     return { kind: 'copying', job, pct, text: job.state === 'queued' ? 'Waiting to be copied into the library' : `Copying into the library — ${pct} %` };
@@ -131,7 +133,7 @@ L.defaultSel = () => {
 L.thumbUrl = (m, size = 160) => {
   if (!m) return '';
   const S = store.state;
-  return `/api/media/thumb/${encodeURIComponent(m.id)}.png?s=${size}&v=${m.fingerprint || ''}${S?.local ? '' : `&k=${encodeURIComponent(S?.token || '')}`}`;
+  return `/api/media/thumb/${encodeURIComponent(m.id)}.png?s=${size}&v=${m.fingerprint || ''}&f=${m.thumbFrame ?? ''}${S?.local ? '' : `&k=${encodeURIComponent(S?.token || '')}`}`;
 };
 
 // ------------------------------------------------------------------ doing things
@@ -264,6 +266,7 @@ function mount(ctx) {
   L.root.addEventListener('faderend', () => setTimeout(() => L.refresh(), 0));
   L.root.addEventListener('focusout', () => setTimeout(() => L.refresh(), 0));
   new ResizeObserver(() => L.grid.resize()).observe(L.grid.el);
+  C.probe(L); // can the engine convert to HAP? (the Convert actions are hidden when it has no such operations)
 }
 
 let pendingRefresh = false;
@@ -303,7 +306,7 @@ L.paint = () => {
 let looping = false;
 function loop() {
   if (looping || !L.root) return;
-  const busy = () => L.ctx?.view === 'live' && (L.onAir() || (L.media().import || []).some((j) => ACTIVE_COPY.has(j.state)));
+  const busy = () => L.ctx?.view === 'live' && (L.onAir() || (L.media().import || []).some((j) => ACTIVE_COPY.has(j.state) || (j.kind === 'convert' && C.isActive(j))));
   if (!busy()) return;
   looping = true;
   const step = () => {
@@ -333,7 +336,7 @@ function paintTop() {
 
 // ------------------------------------------------------------------ Problems: missing media, copies that stopped
 
-V.problemSources.push(() => missingProblems(L));
+V.problemSources.push(() => missingProblems(L).concat(C.convertProblems(L, notesOf, convertHint)));
 
 // ------------------------------------------------------------------ the monitor: the room's real output while clips are on air
 
@@ -441,7 +444,10 @@ addEventListener('keydown', (e) => {
 // ------------------------------------------------------------------ store events
 
 let inspKey = '';
-on('state', () => { paintTop(); });
+on('state', () => {
+  paintTop();
+  if (L.root && !L.conv?.asked) C.probe(L); // does the engine convert to HAP? (hides the action when it has no such operations)
+});
 on('media', () => {
   if (!L.root) { paintTop(); return; }
   L.patch();

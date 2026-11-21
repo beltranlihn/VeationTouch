@@ -14,7 +14,8 @@ import { store, cmd } from '../conn.js';
 import { h, sec, field, selectField, toggle, fader, badge, confirmBox, toast } from '../dom.js';
 import * as V from '../views.js';
 import { locate, bytes, duration } from './library.js';
-import { clipPanel, bulkPanel, filePanel } from './clip-panel.js';
+import { clipPanel, bulkPanel, filePanel, kindRow, factRows, notesBox, coverButtons } from './clip-panel.js';
+import * as C from './convert.js';
 import { newClip } from './dnd.js';
 import { mixOf } from './layers.js';
 
@@ -67,13 +68,14 @@ const audioText = (a) => (!a ? 'None' : `${a.channels} ch · ${a.rate / 1000} kH
 /** What the inspector depends on beyond the state messages (it is rebuilt when this changes, not at every media message). */
 export function inspectorKey(L) {
   const s = L.sel || L.defaultSel();
+  const cv = (mediaId) => { const j = C.jobFor(L, mediaId); return j ? [j.id, j.state, Math.floor(C.pctOf(j) / 10)] : null; };
   const st = (mediaId) => { const x = L.status(mediaId); return [x.kind, x.kind === 'copying' ? Math.floor(x.pct / 10) : 0]; };
   if (s.kind === 'cell') {
     const clip = L.clipAt(L.deck(), s.layerId, s.column);
-    return JSON.stringify(['cell', s.layerId, s.column, clip?.id ?? null, clip ? st(clip.mediaId) : null, L.entry(s.layerId)?.play?.clipId === clip?.id, L.itab, L.multi.length]);
+    return JSON.stringify(['cell', s.layerId, s.column, clip?.id ?? null, clip ? st(clip.mediaId) : null, clip ? cv(clip.mediaId) : null, L.entry(s.layerId)?.play?.clipId === clip?.id, L.itab, L.multi.length, L.conv?.supported ?? null]);
   }
   if (s.kind === 'file') return JSON.stringify(['file', s.path]);
-  if (s.kind === 'media') return JSON.stringify(['media', s.mediaId, st(s.mediaId)]);
+  if (s.kind === 'media') return JSON.stringify(['media', s.mediaId, st(s.mediaId), cv(s.mediaId), L.conv?.supported ?? null]);
   if (s.kind === 'layer' || s.kind === 'xlayer') { const e = L.entry(s.layerId || 'xlayer'); return JSON.stringify([s.kind, s.layerId, e?.play?.playId ?? null, e ? mixOf(L, { id: s.layerId || 'xlayer', audio: {} }) : null]); }
   return JSON.stringify([s.kind, s.id, L.liveCard()]);
 }
@@ -333,11 +335,17 @@ function mediaInspector(L, m) {
   for (const d of L.view().decks) for (const [k, id] of Object.entries(d.cells)) if (L.clip(id)?.mediaId === m.id) cells.push(`${L.layer(k.slice(0, k.lastIndexOf(':')))?.name} · column ${Number(k.slice(k.lastIndexOf(':') + 1)) + 1}${L.view().decks.length > 1 ? ` (${d.name})` : ''}`);
   return [sec([h('span', { class: 'lv-ititle', title: name }, name)],
     h('div', { class: 'lv-ithumb' }, h('img', { src: L.thumbUrl(m, 480), alt: '', onerror: (ev) => ev.target.classList.add('gone') })),
+    kindRow(m),
     statusBox(L, st),
+    C.convertBox(L, m.id),
     h('dl', { class: 'kv' },
-      h('dt', {}, 'Video'), h('dd', {}, `${v.width} × ${v.height} · ${Math.round((v.fps || 0) * 100) / 100} fps · ${duration(v.duration)} · ${HAP_NAME[v.fourcc] || v.fourcc}`),
+      ...factRows(m),
       h('dt', {}, 'Audio'), h('dd', {}, audioText(m.audio)),
       h('dt', {}, 'Size'), h('dd', {}, bytes(m.size)),
       h('dt', {}, 'In the grid'), h('dd', {}, cells.join(' · ') || 'Not yet — drag it onto a cell'))),
-  lockIt(L, sec(null, h('div', { class: 'actions' }, h('button', { class: 'btn small danger', onclick: () => removeMedia(L, m) }, 'Remove the file…'))), true)];
+  notesBox(L, m),
+  lockIt(L, sec(null, h('div', { class: 'actions' },
+    ...coverButtons(L, m, { in: 0 }, false),
+    C.canConvert(L, m) ? h('button', { class: 'btn small lv-convbtn', onclick: () => C.convertDialog(L, m) }, 'Convert to HAP…') : null,
+    h('button', { class: 'btn small danger', onclick: () => removeMedia(L, m) }, 'Remove the file…'))), true)];
 }

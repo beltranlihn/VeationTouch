@@ -32,6 +32,7 @@ import { parseWav, cacheAudio } from './wav.js';
 import { HelperLink } from './helper.js';
 import { Converter } from './convert.js';
 import { kindIcon } from './icons.js';
+import { peakOf, renderWave, WAVE_BARS, WAVE_WINDOW } from './wave.js';
 import { writeJsonAtomic } from '../store.js';
 
 const CHECK_MS = 10000;      // missing files, drives that came back, free space (§4d.5)
@@ -65,7 +66,7 @@ const NO_HOST = {
 /** Commands refused in Show mode (merged into the engine's LOCKED_OPS). */
 export const MEDIA_LOCKED_OPS = new Set([
   'show.update', 'show.load', 'show.create', 'show.delete', 'show.export', 'show.import', 'show.restore',
-  'media.import', 'media.importCancel', 'media.relink', 'media.remove', 'media.setDir',
+  'media.import', 'media.importCancel', 'media.relink', 'media.remove', 'media.setDir', 'media.cover',
   'media.convert', 'media.ffmpeg.install', 'media.ffmpeg.remove',
 ]);
 
@@ -310,6 +311,7 @@ export class MediaEngine extends EventEmitter {
       case 'media.importCancel': return this.cancelImport(args.id);
       case 'media.relink': return this.relink(args.dir, args);
       case 'media.remove': return this.remove(args.mediaId, args);
+      case 'media.cover': return this.cover(args.mediaId, args.frame);
       case 'media.setDir': return this.setDir(args.dir, args);
       // Convert to HAP (convert.js)
       case 'media.convert': return this.convert.start(args);
@@ -1020,6 +1022,26 @@ export class MediaEngine extends EventEmitter {
     return { removed: mediaId, deleted };
   }
 
+  /**
+   * The cover frame of a movie: the frame its thumbnails show (null = the default, at 10 %). Only a video has one: a still
+   * is its own picture and a sound's is its waveform. The thumbnails are made again for the new frame (their names carry it).
+   */
+  cover(mediaId, frame) {
+    if (!this.show) throw new Error('no show is open');
+    const m = this.show.media.find((x) => x.id === mediaId);
+    if (!m) throw new Error('no such media');
+    if (m.kind === 'image' || m.kind === 'audio') throw new Error('only a movie has a cover frame');
+    let f = null;
+    if (frame !== null && frame !== undefined) {
+      f = Math.round(Number(frame));
+      if (!Number.isFinite(f)) throw new Error('the cover frame is a frame number');
+      f = Math.max(0, Math.min(Math.max(0, (m.video?.frames || 1) - 1), f));
+    }
+    this._saveShow({ ...this.show, media: this.show.media.map((x) => (x.id === mediaId ? { ...x, thumbFrame: f } : x)) });
+    this._emitMedia();
+    return { mediaId, frame: f };
+  }
+
   /** Points the library at another folder (this computer only). Files are not moved: "Locate…" finds them. */
   async setDir(dir, args = {}) {
     if (!args.__local) throw new Error('the library folder is chosen on this computer');
@@ -1237,6 +1259,10 @@ export class MediaEngine extends EventEmitter {
     const show = this.show, m = show?.media.find((x) => x.id === mediaId);
     if (!m?.fingerprint) return null;
     const w = Number(width) === 480 ? 480 : 160;
+    if (m.kind === 'audio' && m.audio?.supported) { // a sound's picture is its waveform (wave.js), made once from its PCM
+      const wf = path.join(this.thumbsDir, thumbName(m.fingerprint, w, 'wave'));
+      if (fs.existsSync(wf) || await this._waveThumb(m).catch((e) => { this.log.warn(`waveform of "${fileName(m.file)}": ${e.message}`); return false; })) return { file: wf, fingerprint: m.fingerprint };
+    }
     const file = path.join(this.thumbsDir, thumbName(m.fingerprint, w, m.thumbFrame));
     if (fs.existsSync(file)) return { file, fingerprint: m.fingerprint };
     const lib = absoluteIn(this.libraryDir, m.file), job = this._jobFor(show.id, m.id);
@@ -1249,6 +1275,34 @@ export class MediaEngine extends EventEmitter {
     const made = await this.thumbing.get(key);
     if (fs.existsSync(file)) return { file, fingerprint: m.fingerprint };
     return made?.icon ? { file: made.icon(w), fingerprint: null } : null; // a generic card is not cached for good: the helper may come
+  }
+
+  /**
+   * The waveform pictures of a sound (both widths) into <data>/thumbs/<fingerprint>-fwave-<w>.png: WAVE_BARS windows of PCM
+   * spread along the file, the loudest sample of each (wave.js). Asked again while it runs, it is the same job.
+   * → Promise<boolean> (made). A sound still being prepared or copied is not drawn yet: false, and the card stands in.
+   */
+  _waveThumb(m) {
+    const key = `wave|${m.fingerprint}`;
+    if (this.thumbing.has(key)) return this.thumbing.get(key);
+    const run = (async () => {
+      const total = m.audio.frames;
+      if (!total || this._jobFor(this.show.id, m.id)) return false;
+      const peaks = [];
+      for (let i = 0; i < WAVE_BARS; i++) {
+        const from = Math.max(0, Math.min(total - 1, Math.floor(((i + 0.5) / WAVE_BARS) * total) - (WAVE_WINDOW >> 1)));
+        const r = await this.pcm({ media: m.id, from, n: Math.min(WAVE_WINDOW, total - from) });
+        peaks.push(peakOf(r.body, r.encoding, r.channels));
+      }
+      fs.mkdirSync(this.thumbsDir, { recursive: true });
+      for (const w of THUMB_WIDTHS) {
+        const f = path.join(this.thumbsDir, thumbName(m.fingerprint, w, 'wave')), tmp = `${f}.${process.pid}.tmp`;
+        fs.writeFileSync(tmp, renderWave(peaks, w)); fs.renameSync(tmp, f);
+      }
+      return true;
+    })().finally(() => this.thumbing.delete(key));
+    this.thumbing.set(key, run);
+    return run;
   }
 
   /**
