@@ -90,6 +90,7 @@ export function connect() {
     switch (m.type) {
       case 'state':
         if (serverProfile && serverProfile.id !== m.profile.id) { history.clear(); store.events.length = 0; emit('events', []); } // another room: its own history and events
+        if (m.showSame) { m.show = store.state?.show; delete m.showSame; } // the server left out an unchanged show
         store.state = m; serverProfile = m.profile; emit('state', m);
         break;
       case 'status': store.status = { ...m, clients: m.clients ?? store.status?.clients }; emit('status', m); break;
@@ -125,7 +126,7 @@ export function connect() {
 
 function sendHello() {
   if (ws?.readyState !== 1) return;
-  ws.send(JSON.stringify({ type: 'hello', role, viz: wantViz, vizHz: isCoarse ? 5 : 10 }));
+  ws.send(JSON.stringify({ type: 'hello', role, showDelta: true, viz: wantViz, vizHz: isCoarse ? 5 : 10 }));
 }
 
 export function setViz(on) { wantViz = on; sendHello(); if (!on) store.viz.clear(); }
