@@ -244,12 +244,18 @@ export class MediaEngine extends EventEmitter {
           const cur = l && this.show.layers.find((x) => x.id === l.id);
           return cur ? { ...l, opacity: cur.opacity, blend: cur.blend, bypass: cur.bypass, audio: { ...l.audio, volume: cur.audio?.volume, mute: cur.audio?.mute } } : l;
         }) : args.show.layers;
-        // preset parameters are live too (preset.param writes them without a revision): keep the current ones
+        // preset parameters are live too (preset.param writes them without a revision): the ones moved live since the
+        // last edit keep their current value; every other parameter is the edit's to change
+        const live = this._liveParams || new Map();
+        const pick = (src, keys) => Object.fromEntries([...(keys || [])].filter((k) => src && k in src).map((k) => [k, src[k]]));
         const presets = Array.isArray(args.show.presets) ? args.show.presets.map((p) => {
           const cur = p && this.show.presets?.find((x) => x.id === p.id);
           if (!cur) return p;
-          return { ...p, params: cur.params, ...(p.sound && cur.sound ? { sound: { ...p.sound, params: cur.sound.params } } : {}) };
+          const l = live.get(p.id) || {};
+          return { ...p, params: { ...p.params, ...pick(cur.params, l.params) },
+            ...(p.sound && cur.sound ? { sound: { ...p.sound, params: { ...p.sound.params, ...pick(cur.sound.params, l.sound) } } } : {}) };
         }) : args.show.presets;
+        this._liveParams = new Map();
         this._saveShow({ ...args.show, layers, presets, id: this.show.id, media: this.show.media });
         return { rev: this.showRev };
       }
@@ -406,6 +412,7 @@ export class MediaEngine extends EventEmitter {
     const r = this.presets.param(this.show, args.presetId, args.key, args.value, { sound });
     if (sound) r.preset.sound.params = { ...r.preset.sound.params, [r.key]: r.value };
     else r.preset.params = { ...r.preset.params, [r.key]: r.value };
+    this._markLiveParam(r.preset.id, sound, r.key);
     this._deferShowSave();
     if (r.live) this.host.setParam(sound ? 'sound' : 'experience', r.entry.id, r.key, r.value);
     return { value: r.value };
@@ -457,7 +464,16 @@ export class MediaEngine extends EventEmitter {
     if (!p) return;
     if (kind === 'sound') { if (p.sound?.id === id) p.sound.params = { ...p.sound.params, [key]: value }; else return; }
     else p.params = { ...p.params, [key]: value };
+    this._markLiveParam(p.id, kind === 'sound', key);
     this._deferShowSave();
+  }
+
+  /** a preset parameter moved live (no revision): show.update keeps its value over an edit made with an older copy */
+  _markLiveParam(presetId, sound, key) {
+    if (!this._liveParams) this._liveParams = new Map();
+    const e = this._liveParams.get(presetId) || { params: new Set(), sound: new Set() };
+    (sound ? e.sound : e.params).add(key);
+    this._liveParams.set(presetId, e);
   }
 
   // the snapshot (<data>/run/transport.json): plain write + rename, no fsync — it is run state, not a document
