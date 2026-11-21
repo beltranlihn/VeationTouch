@@ -200,6 +200,90 @@
         "opacity": 1,
         "blend": "screen"
       }
+    ],
+    "screens": [
+      {
+        "id": "SC1",
+        "name": "Fx4",
+        "enabled": true,
+        "display": null,
+        "width": 3840,
+        "height": 2400,
+        "slices": [
+          {
+            "id": "SL1",
+            "name": "P4",
+            "wallId": "P4",
+            "enabled": true,
+            "input": null,
+            "output": {
+              "mode": "rect",
+              "rect": {
+                "x": 4,
+                "y": 144,
+                "w": 1912,
+                "h": 912
+              }
+            },
+            "flipH": false,
+            "flipV": false
+          },
+          {
+            "id": "SL2",
+            "name": "P1",
+            "wallId": "P1",
+            "enabled": true,
+            "input": null,
+            "output": {
+              "mode": "rect",
+              "rect": {
+                "x": 2034,
+                "y": 144,
+                "w": 1692,
+                "h": 912
+              }
+            },
+            "flipH": false,
+            "flipV": false
+          },
+          {
+            "id": "SL3",
+            "name": "P2",
+            "wallId": "P2",
+            "enabled": true,
+            "input": null,
+            "output": {
+              "mode": "rect",
+              "rect": {
+                "x": 0,
+                "y": 1344,
+                "w": 1920,
+                "h": 912
+              }
+            },
+            "flipH": false,
+            "flipV": false
+          },
+          {
+            "id": "SL4",
+            "name": "P3",
+            "wallId": "P3",
+            "enabled": true,
+            "input": null,
+            "output": {
+              "mode": "rect",
+              "rect": {
+                "x": 2044,
+                "y": 1344,
+                "w": 1672,
+                "h": 912
+              }
+            },
+            "flipH": false,
+            "flipV": false
+          }
+        ]
+      }
     ]
   },
   "audio": {
@@ -220,6 +304,9 @@
     "master": 0.5,
     "mute": false,
     "ceilingDb": -2,
+    "media": {
+      "front": "P1"
+    },
     "sound": {
       "id": null,
       "autostart": false,

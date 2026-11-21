@@ -3,12 +3,16 @@
 //   profiles/<id>.json               room profiles
 //   profiles/<id>/bg-<sensor>.json   learned backgrounds (large arrays kept out of the profile)
 //   backups/<id>/<timestamp>.json    the last 30 versions of every profile
+//   shows/<id>.json                  media-server shows (engine/media/show.js); their last 30 versions in show-backups/<id>/
+//   media/                           the media library, unless settings.mediaDir puts it elsewhere (engine/media/library.js)
+//   thumbs/<fingerprint>-<w>.png     clip thumbnails, made by the engine (regenerated when missing)
 // Writes are atomic (temp file + rename) so a power cut never leaves half a JSON.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { normalizeProfile, slug } from './profile.js';
+import { normalizeShow, showSummary } from './media/show.js';
 
 const BACKUPS_KEPT = 30;
 
@@ -49,8 +53,12 @@ export class Store {
     this.dir = dataDir;
     this.profilesDir = path.join(dataDir, 'profiles');
     this.backupDir = path.join(dataDir, 'backups');
+    this.showsDir = path.join(dataDir, 'shows');
+    this.showBackupDir = path.join(dataDir, 'show-backups');
+    this.thumbsDir = path.join(dataDir, 'thumbs');
     this.log = log;
     fs.mkdirSync(this.profilesDir, { recursive: true });
+    fs.mkdirSync(this.showsDir, { recursive: true });
     this._seed(bundledProfilesDir);
   }
 
@@ -82,12 +90,17 @@ export class Store {
       // name answered over mDNS: http://<localName>.local:<port>/
       cloud: cloudSettings(s.cloud),
       localName: typeof s.localName === 'string' && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(s.localName) ? s.localName : 'veation-touch',
+      // where this machine keeps the media library (null = <data>/media): per machine, never in a profile or a show
+      mediaDir: typeof s.mediaDir === 'string' && path.isAbsolute(s.mediaDir) ? path.resolve(s.mediaDir) : null,
     };
     if (JSON.stringify(out) !== JSON.stringify(s)) this.saveSettings(out);
     return out;
   }
 
   saveSettings(s) { writeJsonAtomic(path.join(this.dir, 'settings.json'), s); }
+
+  /** The media library folder of these settings. */
+  mediaDir(s) { return s?.mediaDir || path.join(this.dir, 'media'); }
 
   // ---------------------------------------------------------------- profiles
 
@@ -137,8 +150,8 @@ export class Store {
     return id;
   }
 
-  _backup(id, file) {
-    const dir = path.join(this.backupDir, id);
+  _backup(id, file, base = this.backupDir) {
+    const dir = path.join(base, id);
     fs.mkdirSync(dir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     fs.copyFileSync(file, path.join(dir, `${stamp}.json`));
@@ -147,8 +160,8 @@ export class Store {
   }
 
   /** Saved versions of a profile, newest first: [{version, at, walls, sensors, zones}] */
-  listVersions(id) {
-    const dir = path.join(this.backupDir, id);
+  listVersions(id, base = this.backupDir) {
+    const dir = path.join(base, id);
     if (!fs.existsSync(dir)) return [];
     return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort().reverse().map((f) => {
       let info = {};
@@ -168,11 +181,85 @@ export class Store {
     return this.saveProfile(p);
   }
 
-  _latestBackup(id) {
-    const dir = path.join(this.backupDir, id);
+  _latestBackup(id, base = this.backupDir) {
+    const dir = path.join(base, id);
     if (!fs.existsSync(dir)) return null;
     const all = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
     return all.length ? path.join(dir, all[all.length - 1]) : null;
+  }
+
+  // ---------------------------------------------------------------- shows (engine/media/show.js)
+
+  _showFile(id) {
+    if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(id)) throw new Error('invalid show id');
+    return path.join(this.showsDir, `${id}.json`);
+  }
+
+  /** [{id, name, media, clips}] by name. */
+  listShows() {
+    const out = [];
+    for (const f of fs.readdirSync(this.showsDir)) {
+      if (!f.endsWith('.json')) continue;
+      try { out.push(showSummary(readJson(path.join(this.showsDir, f)))); } catch { /* skip unreadable */ }
+    }
+    return out.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }
+
+  hasShow(id) { try { return fs.existsSync(this._showFile(id)); } catch { return false; } }
+
+  loadShow(id) {
+    const file = this._showFile(id);
+    if (!fs.existsSync(file)) throw new Error(`show ${id} not found`);
+    try {
+      return normalizeShow(readJson(file));
+    } catch (e) {
+      const b = this._latestBackup(id, this.showBackupDir);
+      if (b) { this.log.error(`show ${id} unreadable (${e.message}); restored from backup ${path.basename(b)}`); return normalizeShow({ ...readJson(b), id }); }
+      throw e;
+    }
+  }
+
+  /** Saves a show (the previous file becomes a version, unless backup: false — bookkeeping such as a copy finishing). */
+  saveShow(show, { backup = true } = {}) {
+    const s = normalizeShow(show);
+    const file = this._showFile(s.id);
+    if (backup && fs.existsSync(file)) this._backup(s.id, file, this.showBackupDir);
+    writeJsonAtomic(file, s);
+    return s;
+  }
+
+  deleteShow(id) {
+    const file = this._showFile(id);
+    if (fs.existsSync(file)) { this._backup(id, file, this.showBackupDir); fs.rmSync(file); }
+  }
+
+  uniqueShowId(name) {
+    const base = slug(name);
+    let id = base, k = 2;
+    while (fs.existsSync(this._showFile(id))) id = `${base}-${k++}`;
+    return id;
+  }
+
+  /** Saved versions of a show, newest first: [{version, at, name, media, clips}] */
+  listShowVersions(id) {
+    this._showFile(id);
+    const dir = path.join(this.showBackupDir, id);
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort().reverse().map((f) => {
+      let info = {};
+      try { const { name, media, clips } = showSummary(readJson(path.join(dir, f))); info = { name, media, clips }; } catch { /* unreadable */ }
+      const at = f.replace(/\.json$/, '').replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/, 'T$1:$2:$3.$4Z');
+      return { version: f, at, ...info };
+    });
+  }
+
+  /** Make an old version of a show current again (the current one becomes a version first). */
+  restoreShowVersion(id, version) {
+    if (!/^[\w.-]+\.json$/.test(version)) throw new Error('invalid version');
+    const file = path.join(this.showBackupDir, id, version);
+    this._showFile(id);
+    if (!fs.existsSync(file)) throw new Error('version not found');
+    return this.saveShow({ ...readJson(file), id });
   }
 
   // ---------------------------------------------------------------- content underlay (one image per profile)

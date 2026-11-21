@@ -2,6 +2,8 @@
 
 LiDAR touch-wall tracking for immersive rooms — Alma Digital Studio.
 2D LiDARs (Slamtec RPLIDAR S2E over Ethernet) → calibrated touches → OSC · TUIO · WebSocket · Spout · Webhook · Art-Net · sACN.
+It is also the room's **media server**: HAP clips in a grid of layers and columns, presets of experiences, a GPU mix
+and the clips' audio over the room's speakers (`docs/plans/MEDIA-SERVER.md`), driven from the desktop or from a phone.
 
 ## Run
 
@@ -13,8 +15,9 @@ npm test            # unit, driver end-to-end and UI tests (the real UI in a hid
 ```
 
 Calibrate from a phone or tablet at the wall: **Connect device** (top bar) shows a QR code with the LAN address and
-the access key. The phone (same network as the server) opens the calibration remote — prepare, calibrate, fit,
-verify, wall by wall; **Full app** opens the whole app on it.
+the access key. The phone (same network as the server) opens the room's remote with two modes: **Live** (see what is on,
+launch clips and columns, load the experience, volume, blackout) and **Calibrate** (prepare, calibrate, fit, verify, wall by
+wall). Importing media, editing the grid, the Advanced Output, zones and the system are done on the computer only.
 
 No sensors at hand? Pick the room **Barcelona XR Lab (simulated)**, turn on **Virtual hands** in *Live* and
 touch the walls in the view.
@@ -32,6 +35,9 @@ touch the walls in the view.
 | `engine/server.js` | HTTP + WebSocket: serves the UI to the window and to tablets, `/ws/data` for apps |
 | `engine/mdns.js` | mDNS responder: tablets open `http://veation-touch.local:8770/` |
 | `engine/cloud.js` | internet access: the server's outbound link to the relay |
+| `engine/media/` | the media server: library and shows, transport, HAP/MOV/PCM readers, thumbnails, Advanced Output geometry |
+| `ui/js/mixer/` · `ui/js/live/` | the output page's WebGL2 mixer and HAP player · Live on the desktop (shelf, grid, inspector, library) |
+| `docs/plans/` | build plans by phase; `MEDIA-SERVER.md` is the media server's |
 | `experiences/` | interactive pieces sent straight to the room (`runtime.js` + one folder per piece, e.g. `alma-fluid/`), and sound pieces for the room's speakers (`SOUND-API.md`, e.g. `ambient-notes/`) |
 | `cloud/relay/` | the relay (Cloudflare Worker + Durable Object; `node-relay.mjs` for tests/self-hosting) — `npx wrangler deploy` |
 | `cloud/launcher/` | the rooms page on Vercel (`veation-touch.vercel.app`) — `npx vercel deploy --prod` |
@@ -39,7 +45,7 @@ touch the walls in the view.
 | `sdk/veation-touch.js` | client SDK for web/Electron apps |
 | `profiles/` | bundled room profiles (seeded into the data folder on first run) |
 | `tests/` | `node --test` suites |
-| `docs/OSC.md` | output protocol reference (public API) |
+| `docs/OSC.md` | output protocol reference (public API), including the media server's commands, state and `vt.media` |
 | `docs/MANUAL-OPERACION.md` | operator manual (Spanish) |
 | `docs/ux/` | UX proposal, reference-product analysis, phone screenshots |
 | `native/spout-send/` | prebuilt Spout sender (studio's own addon, from VEATION) |

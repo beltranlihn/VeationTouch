@@ -1,0 +1,21 @@
+{
+  "id": "reel",
+  "name": "Reel",
+  "description": "Alma Digital Studio's interactive reel. A landing with the brand and two buttons on every wall: Play Reel plays the studio's reel; See Projects opens floating 3D blobs, one per project, each playing its project's video. Assign the clips in Live.",
+  "entry": "index.html",
+  "transparent": true,
+  "media": [
+    { "key": "reel", "label": "Reel clip", "type": "clip" },
+    { "key": "projects", "label": "Projects", "type": "clips", "max": 12 }
+  ],
+  "params": [
+    { "key": "dwellMs", "label": "Touch and hold to choose", "type": "number", "min": 0, "max": 2000, "step": 50, "default": 500, "unit": "ms" },
+    { "key": "holdToExit", "label": "Hold to exit a video", "type": "bool", "default": true },
+    { "key": "idleBackS", "label": "Menu back to start after", "type": "number", "min": 10, "max": 600, "step": 5, "default": 60, "unit": "s" },
+    { "key": "menuLayout", "label": "Projects menu", "type": "select", "default": "per-wall", "options": [["per-wall", "Every wall shows every project"], ["around", "One set around the room"]] },
+    { "key": "buttonHeight", "label": "Button height", "type": "number", "min": 1, "max": 1.5, "step": 0.05, "default": 1.25, "unit": "m" },
+    { "key": "blobSize", "label": "Blob size", "type": "number", "min": 0.3, "max": 0.9, "step": 0.05, "default": 0.8, "unit": "m" },
+    { "key": "brandWall", "label": "Logo wall (empty = every wall)", "type": "wall", "default": null },
+    { "key": "quality", "label": "Quality", "type": "select", "default": "medium", "options": [["low", "Low"], ["medium", "Medium"], ["high", "High"]] }
+  ]
+}

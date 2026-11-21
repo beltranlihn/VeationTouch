@@ -7,10 +7,14 @@
 //   profile everything is folded into left / right on the computer's default device.
 // Contract: experiences/SOUND-API.md, ARCHITECTURE.md › Room audio. The engine tells this page what to do through its state
 // (profile.audio, state.audio.test, state.audio.sound) and this page tells the engine what it found through `audio.report`.
+// The clips' audio (MEDIA-SERVER.md §4c) follows state.media: ui/js/audio-media.js, on the same graph, on the engine's clock.
 
 import { store, on, connect, cmd } from './conn.js';
 import { layoutDevices, createRing, linToDb, SAMPLE_RATE, RING_TARGET } from './audio-core.js';
 import { buildRoomAudio } from './audio-graph.js';
+import { ClipAudio } from './audio-media.js';
+import { makeClock } from './clock.js';
+import { roomPlan } from '/shared/geometry.js';
 
 const FADE_MS = 1000;          // start / stop fades of the sound piece
 const REPORT_MS = 500;
@@ -31,8 +35,26 @@ let error = null, soundError = null;
 const peaks = [];              // { t, lin } from the limiter
 let epoch = 0;
 let lastTest = 0;
+const clock = makeClock();     // the engine's clock (the live feed carries its time): the clips play on it
+const CLIPS_TICK_MS = 100;
 
 const A = () => store.state.profile.audio;
+
+/** A synthesis-context time and the engine time (ms) it is output at: getOutputTimestamp ↔ performance.now ↔ the clock. */
+function timingOf(ctx) {
+  let ctxT = ctx.currentTime, perf = performance.now();
+  const ts = typeof ctx.getOutputTimestamp === 'function' ? ctx.getOutputTimestamp() : null;
+  if (ts && ts.performanceTime > 0 && ts.contextTime > 0) { ctxT = ts.contextTime; perf = ts.performanceTime; }
+  const engMs = clock.engineNow(perf);
+  return engMs === null ? null : { ctxT, engMs };
+}
+
+/** From the synthesis context to the speakers: the device rings' target and the slowest sink's own latency (ms). */
+function outLatencyMs() {
+  let sink = 0;
+  for (const s of room?.sinks || []) if (s.ctx) sink = Math.max(sink, ((s.ctx.baseLatency || 0) + (s.ctx.outputLatency || 0)) * 1000);
+  return (RING_TARGET / SAMPLE_RATE) * 1000 + sink;
+}
 
 // ---------------------------------------------------------------------------------------------- devices
 
@@ -116,7 +138,7 @@ async function teardown() {
   const r = room;
   room = null;
   if (!r) return;
-  try { r.built.dispose(); r.writer.disconnect(); } catch { /* gone */ }
+  try { r.clips?.dispose(); r.built.dispose(); r.writer.disconnect(); } catch { /* gone */ }
   for (const c of [r.synth, ...r.sinks.map((s) => s.ctx)]) c?.close().catch(() => {});
 }
 
@@ -137,6 +159,7 @@ async function build(layout, key) {
   built.onMeter((m) => { peaks.push({ t: performance.now(), lin: m.peak }); });
   await synth.resume();
   room = { key, synth, built, writer, sinks, layout, epoch };
+  room.clips = new ClipAudio({ ctx: synth, room: built, timing: () => timingOf(synth), latencyMs: outLatencyMs, roomPlan });
   const bad = sinks.filter((s) => s.error);
   error = bad.length ? `${bad[0].label}: ${bad[0].error}` : null;
 }
@@ -194,6 +217,7 @@ async function sync() {
       if (!room || room.key !== key) { try { await build(layout, key); } catch (e) { error = `Audio could not start: ${msg(e)}`; await teardown(); } }
       if (room) {
         room.built.set({ master: P.audio.master, mute: P.audio.mute, ceilingDb: P.audio.ceilingDb, wallHighpassHz: P.audio.wallHighpassHz, crossoverHz: P.audio.sub.crossoverHz });
+        room.clips?.update(S);
         const want = S.audio.sound.running ? S.audio.sound.id : null;
         if (!want) failedPiece = null;
         if (piece && piece.id !== want) await stopPiece();
@@ -240,10 +264,14 @@ async function main() {
   if (!store.state) await new Promise((res) => { const off = on('state', () => { off(); res(); }); });
   navigator.mediaDevices?.addEventListener?.('devicechange', async () => { if (!devicesRead) return; chCache.clear(); await refreshDevices(); sync(); });
   on('state', () => { checkTest(); sync(); });
+  // the transport (state.media) comes as its own message, often: the clips follow it without rebuilding anything
+  on('media', () => { if (room && store.state) room.clips?.update(store.state); });
+  on('live', (m) => { if (m && Number.isFinite(m.t)) clock.sample(m.t); });
   await sync();
   setInterval(report, REPORT_MS);
+  setInterval(() => room?.clips?.tick(), CLIPS_TICK_MS);
   report();
-  window.__vtAudio = { get room() { return room; }, get piece() { return piece; }, get devices() { return devices; } }; // (tests, debugging)
+  window.__vtAudio = { get room() { return room; }, get piece() { return piece; }, get devices() { return devices; }, get clips() { return room?.clips?.stats() ?? []; }, clock }; // (tests, debugging)
   window.__vtStarted?.();
 }
 main().catch((e) => { error = msg(e); say(`Room audio failed: ${error}`); });

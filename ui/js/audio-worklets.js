@@ -2,8 +2,10 @@
 //   vt-limiter      the final stage of the synthesis context (N channels in, N out), reports its peak and gain reduction
 //   vt-ring-writer  the end of the synthesis context: writes the channels into each device's ring buffer (outputs silence)
 //   vt-ring-reader  one per output device (its own context): plays that device's ring buffer
+//   vt-media-player one per clip that sounds (synthesis context): plays the clip's PCM ring where the engine's clock says
+//                   (audio-core.js › ClipReader; the page fills the ring: ui/js/audio-media.js)
 
-import { Limiter, RingWriter, RingReader } from './audio-core.js';
+import { Limiter, RingWriter, RingReader, ClipReader } from './audio-core.js';
 
 registerProcessor('vt-limiter', class extends AudioWorkletProcessor {
   constructor(options) {
@@ -47,5 +49,27 @@ registerProcessor('vt-ring-reader', class extends AudioWorkletProcessor {
     const st = this.reader.read(out, out[0]?.length || 128);
     if (st !== this.state) { this.state = st; this.port.postMessage({ state: st, underruns: this.reader.underruns }); }
     return true;
+  }
+});
+
+registerProcessor('vt-media-player', class extends AudioWorkletProcessor {
+  constructor(options) {
+    super(options);
+    const o = options.processorOptions || {};
+    this.player = new ClipReader(o.sab, { rate: o.rate, sampleRate, startAt: o.startAt, offset: o.offset, off: o.off, fadeIn: o.fadeIn, fadeOut: o.fadeOut });
+    this.blocks = 0; this.alive = true;
+    this.port.onmessage = (e) => {
+      const m = e.data || {};
+      if ('off' in m) this.player.setMap(m.off, !!m.seek);
+      if ('fadeIn' in m || 'fadeOut' in m) this.player.setFades(m.fadeIn, m.fadeOut);
+      if ('startAt' in m) this.player.setPlay(m.startAt, m.offset);
+      if (m.stop) this.alive = false;
+    };
+  }
+  process(_inputs, outputs) {
+    const out = outputs[0];
+    this.player.process(out, out[0]?.length || 128, currentFrame);
+    if (++this.blocks >= 94) { this.blocks = 0; this.port.postMessage(this.player.stats()); } // ~every 250 ms
+    return this.alive;
   }
 });

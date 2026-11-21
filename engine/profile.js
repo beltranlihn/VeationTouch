@@ -297,17 +297,58 @@ export function normAudio(a, walls = []) {
       autostart: bool(sound.autostart, false),
       params: normParamValues(sound.params),
     },
+    media: normAudioMedia(a?.media, walls, channels),
+  };
+}
+
+/** How the audio of a clip is routed to the room (MEDIA-SERVER.md §4c.3). 'auto' picks by the clip's channel count. */
+export const AUDIO_ROUTES = ['auto', 'spread', 'mono', 'walls', 'direct', 'matrix'];
+
+/**
+ * The clips' audio in this room (MEDIA-SERVER.md §5.3, §4c): the common "Clips" level, the audio/video offset of the room
+ * (projectors vs. speakers), the room's route, the stereo width of `spread`, the wall that is the front, the Advanced
+ * matrix ([source channel][logical channel] in dB, null = no cross) and how far the sound piece ducks under a clip.
+ * Absent in profiles saved before the media server: the defaults below, which change nothing until a clip plays.
+ */
+function normAudioMedia(m, walls, channels) {
+  m = m && typeof m === 'object' ? m : {};
+  const known = new Set(walls.map((w) => w.id));
+  let matrix = null;
+  if (Array.isArray(m.matrix)) {
+    matrix = m.matrix.slice(0, 16).map((row) => (Array.isArray(row) ? row : []).slice(0, channels)
+      .map((v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Math.round(num(v, 0, -60, 6) * 10) / 10)));
+    while (matrix.length && matrix[matrix.length - 1].every((v) => v === null)) matrix.pop();
+    if (!matrix.length) matrix = null;
+  }
+  return {
+    level: Math.round(num(m.level, 1, 0, 1) * 100) / 100,
+    avOffsetMs: int(m.avOffsetMs, 0, -200, 200),
+    route: AUDIO_ROUTES.includes(m.route) ? m.route : 'auto',
+    width: Math.round(num(m.width, 0.6, 0, 1) * 100) / 100,
+    front: typeof m.front === 'string' && known.has(m.front) ? m.front : walls[0]?.id ?? null, // 0° of `spread`
+    matrix,
+    duckDb: Math.round(num(m.duckDb, -60, -60, 0) * 10) / 10,
+  };
+}
+
+/** Which show (engine/media/show.js) the room plays, and whether it starts with the app. */
+function normMediaRef(m) {
+  m = m && typeof m === 'object' ? m : {};
+  return {
+    showId: typeof m.showId === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(m.showId) ? m.showId : null,
+    autostart: bool(m.autostart, true),
   };
 }
 
 // ---------------------------------------------------------------- the room output (ONE Spout sender for the whole app)
 
-export const OUTPUT_LAYERS = ['experience', 'touches', 'grid']; // default order, bottom → top
+// `media` = the media server's clip layers as one group (MEDIA-SERVER.md §4.5): on by default, above the experience.
+export const OUTPUT_LAYERS = ['experience', 'media', 'touches', 'grid']; // default order, bottom → top
 export const OUTPUT_BLENDS = ['normal', 'screen', 'add', 'multiply'];
 export const OUTPUT_SCALES = [0.25, 0.5, 0.75, 1];
 export const OUTPUT_FPS = [30, 60];
 export const TOUCH_LAYER_SCALES = [0.125, 0.25, 0.5, 1];
-const LAYER_DEFAULTS = { experience: { on: true, blend: 'normal' }, touches: { on: false, blend: 'screen' }, grid: { on: false, blend: 'screen' } };
+const LAYER_DEFAULTS = { experience: { on: true, blend: 'normal' }, media: { on: true, blend: 'normal' }, touches: { on: false, blend: 'screen' }, grid: { on: false, blend: 'screen' } };
 
 function normLayer(l, lid) {
   const d = LAYER_DEFAULTS[lid];
@@ -333,16 +374,23 @@ function normLayer(l, lid) {
 /**
  * The room output: what leaves the app as ONE image (the single Spout sender, or a full-screen window) and the layers
  * it is made of, bottom → top (array order). Each layer: on, opacity, blend; `touches` also carries the mask settings.
+ * A layer that is missing is added: the experience at the bottom, `media` right above the experience (that is how the
+ * profiles saved before the media server get it), the others on top.
  */
 export function normRoomOutput(o) {
   const seen = new Set(), layers = [];
   for (const l of Array.isArray(o?.layers) ? o.layers : []) {
     if (l && OUTPUT_LAYERS.includes(l.id) && !seen.has(l.id)) { seen.add(l.id); layers.push(normLayer(l, l.id)); }
   }
-  for (const lid of OUTPUT_LAYERS) if (!seen.has(lid)) layers[lid === 'experience' ? 'unshift' : 'push'](normLayer(null, lid));
+  for (const lid of OUTPUT_LAYERS) {
+    if (seen.has(lid)) continue;
+    if (lid === 'experience') layers.unshift(normLayer(null, lid));
+    else if (lid === 'media') layers.splice(layers.findIndex((l) => l.id === 'experience') + 1, 0, normLayer(null, lid));
+    else layers.push(normLayer(null, lid));
+  }
   return {
     on: bool(o?.on, false),
-    sink: o?.sink === 'window' ? 'window' : 'spout',
+    sink: ['window', 'screens'].includes(o?.sink) ? o.sink : 'spout', // screens: the Advanced Output (output.screens)
     senderName: str(o?.senderName, 'VEATION Touch').replace(/[^\w .-]/g, '').trim().slice(0, 60) || 'VEATION Touch',
     displayId: Number.isFinite(o?.displayId) ? o.displayId : null,
     fit: o?.fit === 'stretch' ? 'stretch' : 'fit',
@@ -350,6 +398,84 @@ export function normRoomOutput(o) {
     fps: o?.fps === 30 ? 30 : 60,
     layers,
   };
+}
+
+// ---- the Advanced Output (MEDIA-SERVER.md §5.3; engine/media/screens.js): screens ▸ slices. No `screens` = [] and nothing
+// changes (the sink stays what it was): the migration is decided by the field's presence, like migrateRoomOutput.
+const SCREEN_MAX = 16384;
+
+function normDisplayRef(d) {
+  if (!d || typeof d !== 'object') return null;
+  const n = (v) => (Number.isFinite(v) ? Math.round(v) : null);
+  const out = { id: Number.isFinite(d.id) ? d.id : null, x: n(d.x), y: n(d.y), width: n(d.width), height: n(d.height), label: str(d.label).slice(0, 60) };
+  return out.id === null && out.x === null ? null : out;
+}
+
+/** A slice's output region in its screen (px): rect, corner pin (4 corners) or grid (normGrid), points kept near the screen. */
+function normSliceOutput(o, sc) {
+  const size = { width: sc.width, height: sc.height };
+  if (o?.mode === 'grid') { const g = normGrid(o, size); if (g) return g; }
+  const okCorners = o?.mode === 'corners' && Array.isArray(o.corners) && o.corners.length === 4 &&
+    o.corners.every((c) => Array.isArray(c) && c.length === 2 && c.every(Number.isFinite));
+  if (okCorners) {
+    const cl = (v, max) => Math.round(Math.min(max * 2, Math.max(-max, v)) * 10) / 10;
+    return { mode: 'corners', corners: o.corners.map(([x, y]) => [cl(x, sc.width), cl(y, sc.height)]) };
+  }
+  const r = o?.rect || {};
+  return { mode: 'rect', rect: { x: int(r.x, 0, -sc.width, sc.width * 2), y: int(r.y, 0, -sc.height, sc.height * 2), w: int(r.w, sc.width, 1, sc.width * 2), h: int(r.h, sc.height, 1, sc.height * 2) } };
+}
+
+/** The canvas rectangle a slice shows (px), inside the canvas — or null: its wall's pixelRect (or the whole canvas). */
+function normSliceInput(r, canvas) {
+  if (!r || typeof r !== 'object') return null;
+  const x = int(r.x, 0, 0, canvas.width - 1), y = int(r.y, 0, 0, canvas.height - 1);
+  return { x, y, w: int(r.w, canvas.width - x, 1, canvas.width - x), h: int(r.h, canvas.height - y, 1, canvas.height - y) };
+}
+
+export function normSlice(s, i, sc, canvas, wallIds) {
+  const wallId = typeof s?.wallId === 'string' && wallIds.includes(s.wallId) ? s.wallId : null;
+  return {
+    id: id(s?.id, `SL${i + 1}`),
+    name: str(s?.name, wallId || `Slice ${i + 1}`).slice(0, 60) || `Slice ${i + 1}`,
+    wallId,
+    enabled: bool(s?.enabled, true),
+    input: normSliceInput(s?.input, canvas),
+    output: normSliceOutput(s?.output, sc),
+    flipH: bool(s?.flipH, false),
+    flipV: bool(s?.flipV, false),
+  };
+}
+
+/** profile.output.screens: up to 8 screens (one per physical output), up to 64 slices each; ids unique (SC…, SL…). */
+export function normScreens(list, canvas, walls = []) {
+  const wallIds = walls.map((w) => w.id);
+  const screens = (Array.isArray(list) ? list : []).slice(0, 8).filter((s) => s && typeof s === 'object').map((s, i) => {
+    const sc = { width: int(s.width, 1920, 16, SCREEN_MAX), height: int(s.height, 1080, 16, SCREEN_MAX) };
+    return {
+      id: id(s.id, `SC${i + 1}`),
+      name: str(s.name, `Screen ${i + 1}`).slice(0, 60) || `Screen ${i + 1}`,
+      enabled: bool(s.enabled, true),
+      display: normDisplayRef(s.display),
+      ...sc,
+      slices: (Array.isArray(s.slices) ? s.slices : []).slice(0, 64).map((x, k) => normSlice(x, k, sc, canvas, wallIds)),
+    };
+  });
+  uniqueIds(screens, 'SC');
+  uniqueIds(screens.flatMap((s) => s.slices), 'SL');
+  return screens;
+}
+
+/**
+ * output.layers from a client that knows only the three layers of before (experience, touches, grid): the `media` layer
+ * keeps its settings and its place — right above the layer it was above (at the bottom if it was at the bottom).
+ */
+export function withMediaLayer(layers, before = []) {
+  const i = before.findIndex((l) => l?.id === 'media');
+  if (i < 0 || layers.some((l) => l?.id === 'media')) return layers; // (none before: normRoomOutput puts it above the experience)
+  const below = i > 0 ? before[i - 1].id : null;
+  const out = [...layers];
+  out.splice(below ? out.findIndex((l) => l?.id === below) + 1 : 0, 0, before[i]);
+  return out;
 }
 
 /**
@@ -403,8 +529,9 @@ export function normalizeProfile(input) {
     canvas,
     walls, sensors, zones, outputs,
     experience: normExperience(p.experience),
-    output: normRoomOutput(p.output),
+    output: { ...normRoomOutput(p.output), screens: normScreens(p.output?.screens, canvas, walls) },
     audio: normAudio(p.audio, walls),
+    media: normMediaRef(p.media), // the show this room plays (MEDIA-SERVER.md §5.3); the show itself is shows/<id>.json
     processing: {
       minQuality: int(pr.minQuality, D.minQuality, 0, 255),
       minRangeMm: int(pr.minRangeMm, D.minRangeMm, 0, 2000),

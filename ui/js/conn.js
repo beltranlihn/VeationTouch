@@ -1,5 +1,8 @@
 // Connection to the engine (WebSocket /ws/ui) + the client-side store.
 // The access key arrives in the pairing URL (?k=…) and is remembered on the device.
+// Through the internet relay the state arrives compact (engine/media/wire.js): it is expanded here, before anything reads it.
+
+import { expandState } from '/shared/media/wire.js';
 
 const listeners = new Map();
 export const store = {
@@ -83,10 +86,11 @@ export function connect() {
   };
   ws.onmessage = (ev) => {
     if (typeof ev.data !== 'string') return onViz(ev.data);
-    const m = JSON.parse(ev.data);
+    const m = expandState(JSON.parse(ev.data)); // (a compact message of the relay gets its defaults back)
     switch (m.type) {
       case 'state':
         if (serverProfile && serverProfile.id !== m.profile.id) { history.clear(); store.events.length = 0; emit('events', []); } // another room: its own history and events
+        if (m.showSame) { m.show = store.state?.show; delete m.showSame; } // the server left out an unchanged show
         store.state = m; serverProfile = m.profile; emit('state', m);
         break;
       case 'status': store.status = { ...m, clients: m.clients ?? store.status?.clients }; emit('status', m); break;
@@ -100,6 +104,15 @@ export function connect() {
         if (m.events) { store.events.unshift(...m.events.map((e) => ({ ...e, at: Date.now() }))); store.events.length = Math.min(store.events.length, 40); emit('events', m.events); }
         emit('live', m);
         break;
+      case 'media': {
+        // the media server's transport, copies and problems (engine/media/index.js › mediaState): small and frequent
+        // (4 a second while copying), so it is its own event — the panels are not rebuilt for it, only what shows it
+        const { type, ...media } = m;
+        if (store.state) store.state = { ...store.state, media };
+        emit('media', media);
+        break;
+      }
+      case 'mediaEvent': emit('mediaEvent', m); break; // started / ended / error of a play
       case 'log': store.logs.push(m.entry); if (store.logs.length > 400) store.logs.shift(); emit('log', m.entry); break;
       case 'ack': {
         const p = pending.get(m.id);
@@ -113,7 +126,7 @@ export function connect() {
 
 function sendHello() {
   if (ws?.readyState !== 1) return;
-  ws.send(JSON.stringify({ type: 'hello', role, viz: wantViz, vizHz: isCoarse ? 5 : 10 }));
+  ws.send(JSON.stringify({ type: 'hello', role, showDelta: true, viz: wantViz, vizHz: isCoarse ? 5 : 10 }));
 }
 
 export function setViz(on) { wantViz = on; sendHello(); if (!on) store.viz.clear(); }

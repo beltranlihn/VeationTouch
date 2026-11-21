@@ -11,7 +11,10 @@
 // Test fixture for experiences/runtime.js: draws a colour and records what the runtime reports (window.__probe).
 import { connectExperience } from '/experiences/runtime.js';
 const vt = await connectExperience();
-const probe = window.__probe = { vt, events: [], params: [], frames: 0, gl: false };
+// boots: how many times a probe page started in this window (the room output must not restart its experience)
+let boots = 1;
+try { boots = Number(sessionStorage.getItem('vt-probe-boots') || 0) + 1; sessionStorage.setItem('vt-probe-boots', String(boots)); } catch { /* no storage */ }
+const probe = window.__probe = { vt, events: [], params: [], frames: 0, gl: false, boots };
 vt.on('touch', (e) => probe.events.push(e));
 vt.on('params', (p) => probe.params.push({ ...p }));
 const c = document.getElementById('c');
@@ -24,6 +27,12 @@ vt.loop((dt) => {
   gl.viewport(0, 0, c.width, c.height);
   gl.clearColor((Math.sin(t) + 1) / 2, vt.params.gain / 2, 0.4, 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
+  // an orientation mark: the TOP-LEFT eighth × quarter of the canvas is (0, 1, 1) — GL's scissor counts rows from the bottom
+  const mw = Math.ceil(c.width / 8), mh = Math.ceil(c.height / 4);
+  gl.enable(gl.SCISSOR_TEST); gl.scissor(0, c.height - mh, mw, mh);
+  gl.clearColor(0, 1, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.disable(gl.SCISSOR_TEST);
+  probe.mark = { w: mw, h: mh };
   probe.frames++;
 }, gl);
 </script>

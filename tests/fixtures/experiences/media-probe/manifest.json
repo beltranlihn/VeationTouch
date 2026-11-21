@@ -1,0 +1,15 @@
+{
+  "id": "media-probe",
+  "name": "Media probe",
+  "description": "Test fixture: plays the clips of its slots through vt.media and records what the runtime reports.",
+  "entry": "index.html",
+  "transparent": true,
+  "params": [
+    { "key": "level", "label": "Level", "type": "number", "min": 0, "max": 1, "step": 0.1, "default": 0.5 },
+    { "key": "stall", "label": "Never draw", "type": "bool", "default": false }
+  ],
+  "media": [
+    { "key": "reel", "label": "Reel clip", "type": "clip" },
+    { "key": "projects", "label": "Projects", "type": "clips", "max": 4 }
+  ]
+}

@@ -1,16 +1,27 @@
 // UI test runner: loads the REAL operator UI in a hidden Electron window against a test engine, runs a script in the
 // page and prints its result. Used by tests/ui.test.mjs (npm test). Not shipped (tests/ is not in the installer).
 //   electron tests/ui/runner.cjs --url=http://127.0.0.1:<port>/ --script=<file> [--w=1440 --h=900 --mobile]
+//                                [--preload=<file>] [--files=<path>|<path>…] [--shot=<png>]
 // The script file is the body of an async function run in the page; whatever it returns is printed as
 // "UI-RESULT <json>". Page errors (uncaught exceptions, console.error) are collected and printed too.
 // A hidden window paints no frames (requestAnimationFrame does not run): scripts that read a canvas draw it first.
+// --preload gives the window that preload (the desktop app's main window has app/main-preload.cjs); --files puts real
+// files in a hidden <input type=file id="__vtFiles"> before the script runs; --shot saves a PNG of the page after it.
+// --output-window: the room output's window as the app makes it (app/output-window.cjs: Node in its WORKERS — the HAP
+// decoders —, and its navigation guard), rendered off screen so it gets frames; the navigations the guard refused are
+// printed with the result (`refused`).
 
 const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
+const path = require('path');
 
 const arg = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) || '').slice(k.length + 3) || d;
 const URL_ = arg('url'), SCRIPT = fs.readFileSync(arg('script'), 'utf8');
 const W = Number(arg('w', 1440)), H = Number(arg('h', 900)), mobile = process.argv.includes('--mobile');
+const PRELOAD = arg('preload', ''), FILES = arg('files', ''), SHOT = arg('shot', '');
+const OUTPUT_WINDOW = process.argv.includes('--output-window');
+const { outputWebPreferences, guardOutputWindow } = require(path.join(__dirname, '..', '..', 'app', 'output-window.cjs'));
+const refused = [];
 const waitState = arg('wait', 'state') === 'state'; // 'load': do not wait for the engine's state (unpaired pages)
 const out = (tag, obj) => process.stdout.write(`${tag} ${JSON.stringify(obj)}\n`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -20,7 +31,13 @@ setTimeout(() => { out('UI-ERROR', { message: 'runner timeout (40 s)' }); app.ex
 app.whenReady().then(async () => {
   const errors = [];
   // an in-memory session per run: nothing a test leaves in localStorage (last view, Full app…) reaches the next one
-  const win = new BrowserWindow({ show: false, width: W, height: H, webPreferences: { backgroundThrottling: false, partition: `vt-ui-test-${process.pid}` } });
+  // (a screenshot needs frames: that window renders off screen, which paints while hidden — nothing shows on the desktop)
+  const win = new BrowserWindow({ show: false, width: W, height: H, ...(OUTPUT_WINDOW ? { useContentSize: true } : {}), webPreferences: OUTPUT_WINDOW
+    ? { ...outputWebPreferences({ spout: false }), partition: `vt-ui-test-${process.pid}`, offscreen: true }
+    : { backgroundThrottling: false, partition: `vt-ui-test-${process.pid}`,
+      ...(PRELOAD ? { preload: PRELOAD, contextIsolation: true, nodeIntegration: false, sandbox: true } : {}), ...(SHOT ? { offscreen: true } : {}) } });
+  if (OUTPUT_WINDOW) win.setContentSize(W, H); // off screen it may be larger than the screen (as the app's output window)
+  if (OUTPUT_WINDOW) guardOutputWindow(win.webContents, new URL(URL_).origin, (url) => refused.push(url));
   win.webContents.on('console-message', (e, level, message) => {
     const lv = e?.level ?? level, msg = e?.message ?? message;
     // the UI retries its WebSocket while the engine is not up yet: not a page error
@@ -44,11 +61,21 @@ app.whenReady().then(async () => {
   }
   await sleep(300);
   try {
+    if (FILES) {
+      // real files from disk, as a drop or a file dialog gives them (the page cannot make a File with a path)
+      await win.webContents.executeJavaScript(`(() => { const i = document.createElement('input'); i.type = 'file'; i.multiple = true; i.id = '__vtFiles'; i.hidden = true; document.body.append(i); })()`);
+      const dbg = win.webContents.debugger;
+      if (!dbg.isAttached()) dbg.attach('1.3');
+      const { root } = await dbg.sendCommand('DOM.getDocument');
+      const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector: '#__vtFiles' });
+      await dbg.sendCommand('DOM.setFileInputFiles', { nodeId, files: FILES.split('|') });
+    }
     const result = await win.webContents.executeJavaScript(`(async () => { ${SCRIPT}\n})()`);
     await sleep(200); // late errors from what the script triggered
-    out('UI-RESULT', { result, errors });
+    if (SHOT) fs.writeFileSync(SHOT, (await win.webContents.capturePage()).toPNG());
+    out('UI-RESULT', { result, errors, refused, url: win.webContents.getURL() });
   } catch (e) {
-    out('UI-ERROR', { message: e.message, errors });
+    out('UI-ERROR', { message: e.message, errors, refused });
   }
   app.exit(0);
 });

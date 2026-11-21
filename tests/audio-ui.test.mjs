@@ -1,7 +1,7 @@
 // Room audio in a real Chromium (Electron's renderer, tests/ui/runner.cjs): the routing graph on an OfflineAudioContext — which
 // channel each source comes out on, the crossover, master / mute, the limiter, test tones, the fold — the worklet that writes the
 // per-device ring buffers (on the cross-origin-isolated audio page), the sound mode of the runtime against a live engine, and the
-// Audio card in the Experiences tab. The pure parts are in tests/audio.test.mjs.
+// Audio card (Output › Audio) and the sound pieces (Live). The pure parts are in tests/audio.test.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -298,8 +298,9 @@ test('sound mode of the runtime, against a live engine: a hand lands as a down w
 
 test('audio card: faders (no range inputs), Test per channel sends audio.test, the device readout, sound pieces play and stop, Show mode locks the setup', opt, async () => {
   const fakeSound = { id: 'tone', name: 'Tone', description: 'a test piece', kind: 'sound', entry: 'sound.js', dir: os.tmpdir(), params: [{ key: 'depth', label: 'Depth', type: 'number', min: 0, max: 10, step: 1, default: 3, unit: '' }, { key: 'mode', label: 'Mode', type: 'select', options: [['a', 'A'], ['b', 'B']], default: 'a' }] };
+  // (both were the Experiences tab: the audio card is in Output › Audio now, the sound pieces in Live)
   const { result, errors, engine } = await inUi(`
-    const v = window.__vt; v.go('experiences');
+    const v = window.__vt; v.go('audio');
     await new Promise((r) => setTimeout(r, 500));
     const q = (s) => [...document.querySelectorAll(s)];
     const card = () => document.querySelector('[data-card="audio"]');
@@ -313,6 +314,9 @@ test('audio card: faders (no range inputs), Test per channel sends audio.test, t
     out.wallRows = q('[data-card="audio"] .au-wall').map((e) => e.dataset.wall);
     card().querySelector('[data-test="2"]').click();
     await new Promise((r) => setTimeout(r, 300));
+    out.soundInAudio = !!document.querySelector('[data-sound="tone"]');
+    v.go('live'); await new Promise((r) => setTimeout(r, 200));
+    out.audioInLive = !!card();
     out.soundCard = !!document.querySelector('[data-sound="tone"]');
     document.querySelector('[data-sound="tone"] .btn.primary').click();
     await new Promise((r) => setTimeout(r, 500));
@@ -336,6 +340,8 @@ test('audio card: faders (no range inputs), Test per channel sends audio.test, t
   assert.deepEqual(result.wallRows, ['P4', 'P1', 'P2', 'P3']);
   assert.ok(result.devices.some((d) => /DVS Transmit 1-2.*2 ch/.test(d)) && result.devices.some((d) => /Interface 8 outputs.*8 ch/.test(d)), `the readout lists every device with its channels (${result.devices})`);
   assert.equal(engine.aud.test?.channel, 2, 'Test sent audio.test for that channel');
+  assert.equal(result.soundInAudio, false, 'the sound pieces are not in the audio setup…');
+  assert.equal(result.audioInLive, false, '…nor the setup in Live');
   assert.equal(result.soundCard, true);
   assert.deepEqual(result.params, ['Depth'], 'the piece\'s parameters are faders');
   assert.equal(result.selects, 1);
@@ -344,7 +350,7 @@ test('audio card: faders (no range inputs), Test per channel sends audio.test, t
   assert.equal(engine.profile.audio.sound.id, 'tone');
 
   const locked = await inUi(`
-    const v = window.__vt; v.go('experiences');
+    const v = window.__vt; v.go('audio');
     await new Promise((r) => setTimeout(r, 500));
     const card = document.querySelector('[data-card="audio"]');
     return { tests: [...card.querySelectorAll('[data-test]')].map((b) => b.disabled), selects: [...card.querySelectorAll('.au-setup select')].map((s) => s.disabled), chips: [...card.querySelectorAll('.au-chips button')].every((b) => b.disabled),
@@ -379,7 +385,7 @@ test('audio card: dropouts (underruns) show on the output that had them and in t
   const report = (a, b) => ({ devices: [{ label: D1, channels: 2 }, { label: D2, channels: 2 }], logical: 4, available: 4, fold: false, peakDb: -18, isolated: true,
     sinks: [{ label: D1, first: 0, count: 2, state: 'play', underruns: a }, { label: D2, first: 2, count: 2, state: 'play', underruns: b }] });
   const { result, errors } = await inUi(`
-    const v = window.__vt; v.go('experiences');
+    const v = window.__vt; v.go('audio');
     await new Promise((r) => setTimeout(r, 500));
     const card = document.querySelector('[data-card="audio"]');
     return { drops: [...card.querySelectorAll('[data-drop]')].map((e) => [e.dataset.drop, e.textContent.trim(), getComputedStyle(e).color]) };`,
@@ -387,4 +393,44 @@ test('audio card: dropouts (underruns) show on the output that had them and in t
   assert.deepEqual(errors, [], errors.join(' | '));
   assert.deepEqual(result.drops.map((d) => d.slice(0, 2)).sort(), [['2', '3 dropouts'], ['total', '· 3 dropouts']], `only the output that had them, and the total (${JSON.stringify(result.drops)})`);
   assert.ok(result.drops.every((d) => d[2] === 'rgb(229, 181, 103)'), 'in amber: it needs attention');
+});
+
+test('audio card: the Clips block — level, route, stereo width, A/V offset, ducking as faders; the matrix as dB fields; Show mode locks the routing, not the level', opt, async () => {
+  const { result, errors, engine } = await inUi(`
+    const v = window.__vt; v.go('audio');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    await wait(500);
+    const q = (s) => [...document.querySelectorAll(s)];
+    const block = () => document.querySelector('[data-card="audio"] [data-clips]');
+    const out = { block: !!block(), ranges: document.querySelectorAll('input[type=range]').length };
+    out.faders = q('[data-clips] .vfield').map((f) => f.getAttribute('aria-label'));
+    const sel = block().querySelector('select');
+    out.routes = [...sel.options].map((o) => o.textContent);
+    sel.value = 'matrix'; sel.dispatchEvent(new Event('change'));
+    await wait(400);
+    out.cells = q('[data-clips] [data-cell]').length;
+    const cell = block().querySelector('[data-cell="1:2"]');
+    cell.value = '-6'; cell.dispatchEvent(new Event('change'));
+    await wait(400);
+    out.fadersMatrix = q('[data-clips] .vfield').map((f) => f.getAttribute('aria-label'));
+    const { cmd } = await import('/js/conn.js');
+    await cmd('app.lock', { locked: true });
+    await wait(500);
+    out.lockedRoute = block().querySelector('select').disabled;
+    out.lockedLevel = block().querySelector('[aria-label="Clips level"]').getAttribute('aria-disabled');
+    await cmd('app.lock', { locked: false });
+    return out;`, { setup: async (e) => { await e.command('audio.set', { on: true }); } });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.ok(result.block, 'the audio card has a Clips block');
+  assert.equal(result.ranges, 0, 'no native sliders');
+  // Fails if a value of the block is a native range input or missing
+  for (const f of ['Clips level', 'Stereo width', 'A/V offset', 'Sound pieces under a clip']) assert.ok(result.faders.includes(f), `${f} is a VEATION fader (${result.faders})`);
+  assert.deepEqual(result.routes, ['Automatic (by the clip\'s channels)', 'All speakers', 'Mono, all speakers', 'One channel per wall', 'Direct', 'Advanced matrix']);
+  assert.equal(result.cells, 2 * 5, 'the matrix: stereo rows × the room\'s 5 logical channels');
+  assert.ok(!result.fadersMatrix.includes('Stereo width'), 'the width is for All speakers / Automatic only');
+  const M = engine.profile.audio.media;
+  assert.equal(M.route, 'matrix', 'the route select sent audio.media');
+  assert.deepEqual(M.matrix, [[null, null, null, null, null], [null, null, -6, null, null]], 'R → channel 3 at −6 dB');
+  assert.equal(result.lockedRoute, true, 'Show mode locks the route');
+  assert.equal(result.lockedLevel, null, 'but not the Clips level (allowed in Show mode)');
 });

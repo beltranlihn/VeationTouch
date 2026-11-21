@@ -33,6 +33,7 @@ process.on('unhandledRejection', (e) => log.error(`unhandled rejection: ${e?.sta
 
 const store = new Store(dataDir, path.join(root, 'profiles'), log);
 const engine = new Engine({ store, log, version: pkg.version });
+engine.desktop = !!parent; // the desktop app opens the output and audio windows (their health is checked); headless: none
 engine.start();
 
 const wantPort = Number(args.port) || engine.settings.httpPort || 8770;

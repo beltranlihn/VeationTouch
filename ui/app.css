@@ -18,10 +18,10 @@
   --sp-2:2px; --sp-4:4px; --sp-6:6px; --sp-8:8px; --sp-12:12px; --sp-16:16px; --sp-20:20px; --sp-24:24px; --sp-32:32px;
   --r:3px;
   --fs:11px; --fs-s:10px; --fs-l:13px; --fs-xl:18px;
-  --ctl-h:22px; --top-h:36px; --nav-w:64px; --panel-w:340px; --status-h:22px;
+  --ctl-h:22px; --top-h:36px; --nav-w:64px; --panel-w:340px; --status-h:22px; --subnav-h:28px;
 }
 @media (pointer:coarse){
-  :root{ --fs:13px; --fs-s:11.5px; --fs-l:15px; --fs-xl:22px; --ctl-h:38px; --top-h:52px; --nav-w:76px; --panel-w:400px; --status-h:28px; }
+  :root{ --fs:13px; --fs-s:11.5px; --fs-l:15px; --fs-xl:22px; --ctl-h:38px; --top-h:52px; --nav-w:76px; --panel-w:400px; --status-h:28px; --subnav-h:46px; }
 }
 
 *{box-sizing:border-box;}
@@ -54,6 +54,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:1.5px soli
 .chip .n{color:var(--ink);font-weight:500;}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--ink-dim);flex:0 0 auto;}
 .dot.ok{background:var(--ok-ink);} .dot.warn{background:var(--attn);} .dot.bad{background:var(--danger);} .dot.live{background:var(--live);}
+/* Problems (n): a chip like the others, only there while something needs attention (app.js › renderProblems) */
+.problems{display:flex;}
+.problems:empty{display:none;}
+.problems .chip:hover{background:var(--state-hover);color:var(--ink);}
 
 /* ---------- controls ---------- */
 select,input[type=text],input[type=number],input[type=password]{font-family:inherit;font-size:inherit;color:var(--ink);
@@ -91,10 +95,26 @@ a.btn{text-decoration:none;}
 .nav{width:var(--nav-w);flex:0 0 auto;display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-8) var(--sp-6);
   background:var(--s1);border-right:.5px solid var(--line);}
 .nav button{display:flex;flex-direction:column;align-items:center;gap:var(--sp-4);padding:var(--sp-8) 0;border-radius:var(--r);color:var(--ink-3);font-size:var(--fs-s);}
+.nav button span{max-width:100%;padding:0 2px;text-align:center;line-height:1.25;}
 .nav button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;}
 .nav button:hover{color:var(--ink-2);background:var(--state-hover);}
 .nav button.on{color:var(--ink);background:var(--s2);}
 .stage{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--well-deep);}
+/* sub-tabs of the section: the stage's own bar (VEATION's viewport bar, .vptool) holding one well of tabs, as the
+   inspector tabs of Immersive Studio Pro (#inspTabs): transparent tabs, the active one on state-on, a hairline between
+   two inactive neighbours so they never read as one strip of text */
+.subnav{height:var(--subnav-h);flex:0 0 auto;display:flex;align-items:center;padding:0 var(--sp-8);
+  background:var(--s1);border-bottom:.5px solid rgba(0,0,0,0.35);overflow:hidden;}
+.subtabs{display:flex;align-items:center;gap:var(--sp-8);min-width:0;}
+.subtabs .lbl{white-space:nowrap;}
+.well{display:inline-flex;align-items:stretch;gap:var(--sp-4);padding:2px;height:var(--ctl-h);background:var(--s2);
+  border:.5px solid var(--line);border-radius:var(--r);flex-shrink:0;}
+.well button{position:relative;display:grid;place-items:center;padding:0 var(--sp-8);border-radius:2px;color:var(--ink-2);
+  font-size:var(--fs-s);font-weight:600;white-space:nowrap;transition:background .12s,color .12s;}
+.well button:hover:not(.on){color:var(--ink);}
+.well button.on{background:var(--state-on);color:var(--ink);}
+.well button+button::before{content:'';position:absolute;left:-2.5px;top:50%;width:1px;height:10px;margin-top:-5px;background:var(--line-strong);pointer-events:none;}
+.well button.on::before,.well button.on+button::before{display:none;}
 .view-wrap{position:relative;flex:1;min-height:0;}
 #roomCanvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;}
 #room3d{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;}
@@ -256,6 +276,10 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:.95em;color:var(--ink
     padding-bottom:max(var(--sp-4), env(safe-area-inset-bottom));}
   .nav button{flex:1 1 0;min-width:0;font-size:10px;padding:var(--sp-6) 0;}
   .nav button svg{width:22px;height:22px;}
+  /* the sub-tabs: one row that scrolls sideways, without the section's name (the tab bar below says it) */
+  .subnav{overflow-x:auto;scrollbar-width:none;}
+  .subnav::-webkit-scrollbar{display:none;}
+  .subtabs .lbl{display:none;}
   #projSeg{display:none;}
   .chip{padding:0 var(--sp-6);}
   .profile-pick{flex:1;}
@@ -379,8 +403,7 @@ kbd{font:500 11px/1 Geist, system-ui;color:var(--ink);background:var(--s2);borde
 .cloud-h{margin:var(--sp-8) 0 var(--sp-4);font-size:var(--fs-l);font-weight:600;color:var(--ink);}
 .cloud-sep{border:0;border-top:1px solid var(--line);margin:var(--sp-12) 0;}
 
-/* experiences */
-.nav button[data-view=experiences] span{font-size:9px;letter-spacing:-.02em;}
+/* experience cards (Live), the room output card (Output › Screens) */
 .xp-list{display:flex;flex-direction:column;gap:var(--sp-8);}
 .xp-card{display:flex;flex-direction:column;gap:var(--sp-8);padding:var(--sp-8) var(--sp-12);border-radius:var(--r);background:var(--s1);border:.5px solid var(--line);}
 .xp-card.on{border-color:rgba(79,195,232,.45);background:var(--s2);}
@@ -407,7 +430,7 @@ kbd{font:500 11px/1 Geist, system-ui;color:var(--ink);background:var(--s2);borde
 .xp-fold>summary{cursor:pointer;color:var(--ink-3);font-size:var(--fs-s);padding:var(--sp-4) 0;}
 .xp-fold-body{display:flex;flex-direction:column;gap:var(--sp-4);padding-top:var(--sp-4);}
 .xp-calib>.muted{margin-top:var(--sp-4);}
-/* Audio card (Experiences tab): channels, outputs, devices */
+/* Audio card (Output › Audio): channels, outputs, devices */
 .xp-audio h3,.au-setup h3{margin:var(--sp-8) 0 0;font-size:var(--fs-s);font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);}
 .xp-audio h3 small{margin-left:var(--sp-8);font-weight:400;text-transform:none;letter-spacing:0;}
 .au-chans,.au-devices{display:flex;flex-direction:column;gap:2px;padding-top:var(--sp-8);border-top:.5px solid var(--line-soft);}

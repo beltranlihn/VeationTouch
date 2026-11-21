@@ -13,7 +13,8 @@ import { CalibrationSession, defaultTargets, VerifySession, verifyTargets } from
 import { verifyPassMm, poseMatrix, apply } from './core/geometry.js';
 import { OutputManager } from './outputs/outputs.js';
 import { overlayOf } from './core/mask.js';
-import { normalizeProfile, blankProfile, wallToUv, OUTPUT_SCALES, OUTPUT_FPS, OUTPUT_BLENDS, OUTPUT_LAYERS, TOUCH_LAYER_SCALES, normRoomOutput, normAudio, AUDIO_MAX_CHANNELS } from './profile.js';
+import { normalizeProfile, blankProfile, wallToUv, OUTPUT_SCALES, OUTPUT_FPS, OUTPUT_BLENDS, OUTPUT_LAYERS, TOUCH_LAYER_SCALES, normRoomOutput, normAudio, AUDIO_MAX_CHANNELS, AUDIO_ROUTES, withMediaLayer, normScreens } from './profile.js';
+import { screensLayout, applyTemplate, TEMPLATES } from './media/screens.js';
 import { firewallStatus, fixFirewall, setInterfaceAddress, openHotspotSettings } from './net.js';
 import { autoAlign, backgroundPoints } from './core/autoalign.js';
 import { levelCheck } from './core/levelcheck.js';
@@ -23,19 +24,28 @@ import { lanInterfaces } from './mdns.js';
 import { CloudLink, normalizeRelayUrl } from './cloud.js';
 import { cloudSettings } from './store.js';
 import { scanCatalog, publicCatalog, checkParam, visualOnly, soundOnly } from './experiences.js';
+import { MediaEngine, MEDIA_LOCKED_OPS } from './media/index.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const TICK_HZ = 60;
+// health (status.health — Problems and Status › Health; MEDIA-SERVER.md F13)
+const STALL_MS = 250;          // a gap between two ticks this long is a stall the room felt (touches that late)
+const STALL_SHOW_MS = 30000;   // … and it stays in Problems this long
+const OUT_SILENT_MS = 5000;    // the desktop app reports the output window every second: this long without a report = not answering
+const OUT_OPEN_MS = 15000;     // a window asked for this long ago that never reported did not open
+const AUD_SILENT_MS = 10000;   // the audio window reports twice a second
+const DROPS_MS = 60000;        // audio dropouts (underruns) counted over this window
 const EXPERIENCES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'experiences');
 
 export class Engine extends EventEmitter {
   /**
-   * @param {{store: import('./store.js').Store, log: object, version: string, experienceDirs?: string[]}} deps
+   * @param {{store: import('./store.js').Store, log: object, version: string, experienceDirs?: string[], media?: object}} deps
    *   experienceDirs: extra folders of experiences to list after the app's own `experiences/` (tests)
+   *   media: test seams of the media server (engine/media/index.js: freeSpace, sourceOpener, sourceOptions, blockSize)
    */
-  constructor({ store, log, version, experienceDirs = [] }) {
+  constructor({ store, log, version, experienceDirs = [], media = {} }) {
     super();
     this.store = store;
     this.log = log;
@@ -55,6 +65,7 @@ export class Engine extends EventEmitter {
     this.seq = 0;
     this.startedAt = Date.now();
     this.displays = [];
+    this.testCard = false; // the Advanced Output's test card on every screen (output.testCard): never saved in the profile
     // internet access: outbound link to the relay (off unless settings.cloud.enabled)
     this.cloud = new CloudLink({ cfg: this.settings.cloud, log, version, port: () => this.port || this.settings.httpPort, token: () => this.settings.token, name: () => this.profile?.name || '' });
     this.cloud.on('change', () => this.emit('state'));
@@ -70,6 +81,11 @@ export class Engine extends EventEmitter {
     this._outKey = 'null';
     this.lastFrame = null;
     this.tickStats = { fps: 0, n: 0, t0: performance.now(), maxMs: 0 };
+    // the media server: library, show, imports, transport, presets. `media.*` `show.*` `clip.*` `column.*` `layer.*` `preset.*` go to it.
+    this.media = new MediaEngine({ store, log, settings: this.settings, profile: () => this.profile, setShowId: (id) => this._setShowId(id), host: this._mediaHost(), ...media });
+    this.media.on('state', () => this.emit('state'));
+    this.media.on('media', (m) => this.emit('media', m));
+    this.media.on('event', (e) => this.emit('mediaEvent', e)); // started / ended / error of a play (the experience runtime listens)
   }
 
   start() {
@@ -81,8 +97,12 @@ export class Engine extends EventEmitter {
     if (!prof) prof = this.store.saveProfile(blankProfile('New room'));
     this.catalog = scanCatalog(this.experienceDirs, this.log);
     this._activate(prof);
+    this.media.start(); // (a transport snapshot from a restart is taken back here)
+    // the room starts on its own: the show's start card and start column (engine/media/index.js › autostart)
+    const auto = this.media.autostart();
     const x = this.profile.experience;
-    if (x.autostart && x.id && this._visual().some((e) => e.id === x.id)) { this._experienceRun(); this.log.info(`experience "${x.id}" started with the app`); }
+    if (auto?.preset) { /* the start card decided what plays (its experience, or none) */ }
+    else if (x.autostart && x.id && this._visual().some((e) => e.id === x.id)) { this._experienceRun(); this.log.info(`experience "${x.id}" started with the app`); }
     else if (this.profile.output.on) this.log.info(`room output "${this.profile.output.senderName}" on`);
     this._soundAutostart();
     this._timer = setInterval(() => this._tick(), 1000 / TICK_HZ);
@@ -95,6 +115,7 @@ export class Engine extends EventEmitter {
   async stop() {
     clearInterval(this._timer);
     clearInterval(this._audTimer);
+    await this.media.stop();
     this._flushExperience();
     this.cloud.stop();
     if (this.recorder) await this.recorder.stop().catch(() => {});
@@ -173,7 +194,14 @@ export class Engine extends EventEmitter {
     this.outputs.configure(profile);
     if (this.calib && !profile.walls.some((w) => w.id === this.calib.wall.id)) this.calib = null;
     if (this.verify && !profile.walls.some((w) => w.id === this.verify.wall.id)) this.verify = null;
+    this.media.profileChanged(profile);
     this.emit('state');
+  }
+
+  /** The room plays another show (profile.media.showId); the media server loads it from _activate. */
+  _setShowId(id) {
+    if (this.profile.media.showId === id) return;
+    this._activate(this.store.saveProfile({ ...this.profile, media: { ...this.profile.media, showId: id } }));
   }
 
   // ------------------------------------------------------------------ data path
@@ -236,7 +264,15 @@ export class Engine extends EventEmitter {
     this.emit('frame', frame);
     const s = this.tickStats;
     s.n++; s.maxMs = Math.max(s.maxMs, performance.now() - t0);
-    if (t0 - s.t0 >= 1000) { s.fps = Math.round((s.n * 1000) / (t0 - s.t0)); s.n = 0; s.t0 = t0; s.lastMax = s.maxMs; s.maxMs = 0; }
+    // the gap between two ticks: what the 60 Hz loop could not do while the process was busy elsewhere (a GC, a long
+    // command, a blocked disk read). tickMaxMs is the tick's own cost; this is the touches' real lateness.
+    if (s.prev !== undefined) s.gapMax = Math.max(s.gapMax || 0, t0 - s.prev);
+    s.prev = t0;
+    if (t0 - s.t0 >= 1000) {
+      s.fps = Math.round((s.n * 1000) / (t0 - s.t0)); s.n = 0; s.t0 = t0; s.lastMax = s.maxMs; s.maxMs = 0;
+      s.lastGap = s.gapMax || 0; s.gapMax = 0;
+      if (s.lastGap >= STALL_MS) { s.stallMs = Math.round(s.lastGap); s.stallAt = Date.now(); }
+    }
   }
 
   /**
@@ -300,7 +336,8 @@ export class Engine extends EventEmitter {
     }
     return {
       type: 'status', sensors, outputs: this.outputs.snapshot(),
-      engine: { fps: this.tickStats.fps, tickMaxMs: Math.round((this.tickStats.lastMax || 0) * 100) / 100, uptime: Math.round((Date.now() - this.startedAt) / 1000), rss: Math.round(process.memoryUsage().rss / 1048576) },
+      engine: this.engineStats(),
+      health: this.healthItems(), // what needs attention beyond the sensors: room output, clips, audio, library, the engine's own loop
       calib: this.calib ? this.calib.snapshot(now) : null,
       verify: this.verify ? this.verify.snapshot(now) : null,
       control: this._owner() ? { ...this.control } : null,
@@ -308,6 +345,50 @@ export class Engine extends EventEmitter {
       recording: this.recorder ? { file: path.basename(this.recorder.file), seconds: Math.round(this.recorder.elapsed / 1000), frames: this.recorder.frames, mb: Math.round(this.recorder.bytes / 1e5) / 10 } : null,
       replay: this.replay ? { file: this.replay.file, pos: Math.round(this.replay.source.pos / 1000), duration: Math.round(this.replay.source.duration / 1000), from: this.replay.source.header?.profileName || null } : null,
     };
+  }
+
+  /**
+   * The 60 Hz loop: fps, tickMaxMs (the longest tick of the last second: its own cost), tickGapMs (the longest gap between
+   * two ticks of the last second: how late the touches were), the process's uptime (s) and memory (MB).
+   */
+  engineStats() {
+    const s = this.tickStats, r2 = (v) => Math.round((v || 0) * 100) / 100;
+    return { fps: s.fps, tickMaxMs: r2(s.lastMax), tickGapMs: r2(s.lastGap), uptime: Math.round((Date.now() - this.startedAt) / 1000), rss: Math.round(process.memoryUsage().rss / 1048576) };
+  }
+
+  /**
+   * Everything beyond the sensors that needs attention, worst first: [{kind: 'bad'|'warn', code, text}] (status.health;
+   * the UI shows them in Problems and Status › Health, the phone in its Live mode). Codes (stable, for scripts reading
+   * /api/health): output-down, output-error, decode-lag, library-missing, library-full, audio-device, audio-error,
+   * audio-down, audio-dropouts, engine-stall. Missing clips are state.media.problems (they have their own fix).
+   * The window checks need the desktop app (`this.desktop`, set by engine/main.js): a headless engine has no windows.
+   */
+  healthItems(now = Date.now()) {
+    const out = [], P = this.profile, O = P.output, A = P.audio;
+    if (this.desktop && O.on && this.outputWindow()) {
+      const since = this.out.at ?? null;
+      if (since === null ? now - (this.out.since ?? this.startedAt) > OUT_OPEN_MS : now - since > OUT_SILENT_MS) {
+        out.push({ kind: 'bad', code: 'output-down', text: since === null ? 'The room output window did not open.' : `The room output window is not answering (${Math.round((now - since) / 1000)} s) — it is being restarted.` });
+      } else if (this.out.error) out.push({ kind: 'bad', code: 'output-error', text: `Room output: ${this.out.error}` });
+    }
+    out.push(...this.media.health(now));
+    if (A.on) {
+      const rep = this.aud.report;
+      for (const k of rep?.sinks || []) {
+        if (k.missing) out.push({ kind: 'bad', code: 'audio-device', text: `Audio: "${k.label}" is not connected — its speakers are silent (Dante Virtual Soundcard running? the device plugged in?).` });
+        else if (k.error) out.push({ kind: 'bad', code: 'audio-device', text: `Audio: "${k.label}": ${k.error}` });
+      }
+      if (rep?.error) out.push({ kind: 'bad', code: 'audio-error', text: `Room audio: ${rep.error}` });
+      if (!rep && this.desktop && now - (this.aud.since ?? this.startedAt) > AUD_SILENT_MS) out.push({ kind: 'warn', code: 'audio-down', text: 'The room audio window is not answering.' });
+      const drops = (this.aud.drops || []).filter((d) => now - d.at < DROPS_MS);
+      if (drops.length) {
+        const n = drops.reduce((a, d) => a + d.n, 0), where = [...new Set(drops.map((d) => d.label))].slice(0, 3).join(', ');
+        out.push({ kind: 'warn', code: 'audio-dropouts', text: `Audio: ${n} dropout${n === 1 ? '' : 's'} in the last minute (${where}).` });
+      }
+    }
+    const s = this.tickStats;
+    if (s.stallAt && now - s.stallAt < STALL_SHOW_MS) out.push({ kind: 'warn', code: 'engine-stall', text: `The engine stalled for ${s.stallMs} ms ${Math.max(1, Math.round((now - s.stallAt) / 1000))} s ago (touches were that late).` });
+    return out.sort((a, b) => (a.kind === 'bad' ? 0 : 1) - (b.kind === 'bad' ? 0 : 1));
   }
 
   state() {
@@ -328,10 +409,11 @@ export class Engine extends EventEmitter {
       cloud: this.cloud.status(), // never the secret
       localName: this.mdns ? { ...this.mdns.info(), port: this.port || null } : null,
       underlay: (() => { const u = this.store.underlayInfo(this.profile.id); return u ? { url: `/api/underlay?p=${encodeURIComponent(this.profile.id)}&v=${u.v}` } : null; })(),
+      ...this.media.state(), // show (with its rev), media (copies, problems), library (folder, free space)
     };
   }
 
-  setDisplays(list) { this.displays = list || []; this.emit('state'); }
+  setDisplays(list) { this.displays = list || []; if (this.profile) this._syncOutputWindow(); this.emit('state'); } // (the screens are found among them)
 
   // ------------------------------------------------------------------ commands
 
@@ -354,6 +436,7 @@ export class Engine extends EventEmitter {
       this.log.info(`${what} cancelled from ${who.device || 'a device'} (it was driven by ${owner.device})`);
       this.notice = { to: owner.id, text: `The ${what} was cancelled from ${who.device || 'another device'}.`, at: Date.now() };
     }
+    if (this.media.handles(op)) return this.media.command(op, args); // media.* / show.* (engine/media/index.js)
     switch (op) {
       case 'control.take': {
         if (!this.calib && !this.verify) throw new Error('no calibration or verification is running');
@@ -732,22 +815,18 @@ export class Engine extends EventEmitter {
         return { experiences: publicCatalog(this._visual()), sounds: publicCatalog(this._sounds()) };
       }
       case 'experience.play': {
+        // the old API (docs/OSC.md): loads the show's preset of this experience, if there is one (MEDIA-SERVER.md §4b.4)
         const e = this._visual().find((x) => x.id === args.id);
         if (!e) throw new Error(`unknown experience "${args.id}"`);
-        P.experience.id = e.id;
-        this._experienceRun();
+        this.media.playExperience(e.id);
         const O = P.output;
         this.log.info(`experience "${e.id}" started (${O.sink === 'spout' ? `Spout "${O.senderName}"` : 'full screen'})`);
         return {};
       }
       case 'experience.stop': {
         // the experience layer goes off; the room output itself stays as it is (the other layers keep showing)
-        if (this.experienceState().running) this.log.info('experience stopped');
-        this._layer('experience').on = false;
-        this.exp = { fps: 0, error: null };
-        this._saveExperience(true);
-        this._syncOutputWindow();
-        this.emit('state');
+        this._stopExperience();
+        this.media.experienceStopped();
         return {};
       }
       case 'experience.set': {
@@ -764,7 +843,7 @@ export class Engine extends EventEmitter {
         if (this.settings.locked && Object.keys(args).some((k) => k !== 'on' && !k.startsWith('__'))) throw new Error('the room is locked (Show mode) — unlock it first');
         const o = P.output, next = {};
         if ('on' in args) next.on = !!args.on;
-        if ('sink' in args) { if (!['spout', 'window'].includes(args.sink)) throw new Error('sink: spout or window'); next.sink = args.sink; }
+        if ('sink' in args) { if (!['spout', 'window', 'screens'].includes(args.sink)) throw new Error('sink: spout, window or screens'); next.sink = args.sink; }
         if ('senderName' in args) {
           next.senderName = String(args.senderName ?? '').replace(/[^\w .-]/g, '').trim().slice(0, 60);
           if (!next.senderName) throw new Error('the sender name cannot be empty (letters, digits, spaces, . - _)');
@@ -779,14 +858,36 @@ export class Engine extends EventEmitter {
         const was = o.on;
         Object.assign(o, next);
         if (was && !o.on) { this.exp = { fps: 0, error: null }; this.out = { fps: 0, error: null, previewAt: null }; this.outPreview = null; }
-        if (next.on !== undefined && next.on !== was) this.log.info(`room output ${o.on ? `on (${o.sink === 'spout' ? `Spout "${o.senderName}"` : 'full screen'})` : 'off'}`);
+        if (next.on !== undefined && next.on !== was) this.log.info(`room output ${o.on ? `on (${o.sink === 'spout' ? `Spout "${o.senderName}"` : o.sink === 'screens' ? 'screens' : 'full screen'})` : 'off'}`);
         this._saveExperience(true);
         this._syncOutputWindow();
         this.emit('state');
         return {};
       }
+      case 'output.screens': {
+        // the Advanced Output (MEDIA-SERVER.md §5): the whole list of screens ▸ slices, or one of the templates
+        // ('fx4' with `fit`, 'walls' into `screenId`, 'per-wall'). The UI edits slices through profile.update (undo).
+        let list;
+        if (args.template !== undefined) {
+          if (!TEMPLATES.includes(args.template)) throw new Error(`template: one of ${TEMPLATES.join(', ')}`);
+          list = applyTemplate(args.template, P, { fit: args.fit === true, displays: this.displays, screenId: args.screenId ?? null });
+        } else if (Array.isArray(args.screens)) list = args.screens;
+        else throw new Error('screens: a list of screens, or template: one of ' + TEMPLATES.join(', '));
+        P.output.screens = normScreens(list, P.canvas, P.walls);
+        this._saveExperience(true);
+        this._syncOutputWindow();
+        this.emit('state');
+        return { screens: P.output.screens.map((s) => ({ id: s.id, slices: s.slices.length })) };
+      }
+      case 'output.testCard': {
+        // the test card on every screen, above the slices: it checks the cable and the Fx4, not the content. Not saved.
+        this.testCard = args.on === true;
+        this.emit('state');
+        return { on: this.testCard };
+      }
       case 'output.layers': {
-        // the layers, bottom to top: each one its switch, opacity, blend; the touches layer also its mask settings
+        // the layers, bottom to top: each one its switch, opacity, blend; the touches layer also its mask settings.
+        // `media` (the clip layers) is optional: a client that knows the three layers of before keeps it where it is.
         if (!Array.isArray(args.layers)) throw new Error('layers: a list');
         const seen = new Set();
         for (const l of args.layers) {
@@ -805,10 +906,11 @@ export class Engine extends EventEmitter {
             if ('walls' in l && !(Array.isArray(l.walls) && l.walls.every((w) => P.walls.some((x) => x.id === w)))) throw new Error('touches: walls are walls of this room ([] = all)');
           }
         }
-        if (seen.size !== OUTPUT_LAYERS.length) throw new Error(`layers: all of ${OUTPUT_LAYERS.join(', ')}, once each`);
+        const need = OUTPUT_LAYERS.filter((id) => id !== 'media');
+        if (!need.every((id) => seen.has(id))) throw new Error(`layers: all of ${need.join(', ')}, once each (media is optional)`);
         // each layer keeps what the command leaves out; the normaliser fills in and clamps the rest
         const old = new Map(P.output.layers.map((l) => [l.id, l]));
-        P.output.layers = normRoomOutput({ layers: args.layers.map((l) => ({ ...old.get(l.id), ...l })) }).layers;
+        P.output.layers = normRoomOutput({ layers: withMediaLayer(args.layers.map((l) => ({ ...old.get(l.id), ...l })), P.output.layers) }).layers;
         this._saveExperience();
         this._syncOutputWindow();
         this.emit('state');
@@ -822,6 +924,7 @@ export class Engine extends EventEmitter {
         const value = checkParam(param, args.value, P.walls.map((w) => w.id));
         (x.params[e.id] ??= {})[param.key] = value;
         this._saveExperience();
+        this.media.liveParam('experience', e.id, param.key, value); // the live preset keeps it too
         this.emit('state'); // the page listens to the state: no reload
         return { value };
       }
@@ -833,6 +936,7 @@ export class Engine extends EventEmitter {
         const err = typeof args.error === 'string' && args.error.trim() ? args.error.replace(/[\u0000-\u001f]+/g, ' ').slice(0, 300) : null;
         if (err && err !== this.exp.error) this.log.warn(`experience "${this.profile.experience.id}": ${err}`);
         this.exp.error = err;
+        this.media.experienceReport(this.exp.fps, err); // a loading preset goes live (or shows the error)
         this.emit('state');
         return {};
       }
@@ -912,23 +1016,33 @@ export class Engine extends EventEmitter {
         this._audioReport(args);
         return {};
       }
-      case 'sound.play': {
-        const e = this._sounds().find((x) => x.id === args.id);
-        if (!e) throw new Error(`unknown sound "${args.id}"`);
-        P.audio.sound.id = e.id;
-        P.audio.on = true;
-        this.aud.playing = true; this.aud.error = null;
-        this.log.info(`sound "${e.id}" started`);
-        this._saveExperience(true);
-        this._syncAudioWindow();
+      case 'sound.play': { this._playSound(args.id); return {}; }
+      case 'sound.stop': { this._stopSound(); return {}; }
+      case 'audio.media': {
+        // the clips' audio in the room (MEDIA-SERVER.md §4c, profile.audio.media). Show mode: the level only, not the routing
+        const KEYS = ['level', 'avOffsetMs', 'route', 'width', 'front', 'matrix', 'duckDb'];
+        const given = KEYS.filter((k) => k in args);
+        if (!given.length) throw new Error(`audio.media: one of ${KEYS.join(', ')}`);
+        if (this.settings.locked && given.some((k) => k !== 'level')) throw new Error('the room is locked (Show mode) — unlock it first');
+        const range = (k, min, max) => { const n = Number(args[k]); if (typeof args[k] === 'boolean' || !(n >= min && n <= max)) throw new Error(`${k}: from ${min} to ${max}`); return n; };
+        const next = {};
+        if ('level' in args) next.level = range('level', 0, 1);
+        if ('avOffsetMs' in args) next.avOffsetMs = range('avOffsetMs', -200, 200);
+        if ('width' in args) next.width = range('width', 0, 1);
+        if ('duckDb' in args) next.duckDb = range('duckDb', -60, 0);
+        if ('route' in args) { if (!AUDIO_ROUTES.includes(args.route)) throw new Error(`route: one of ${AUDIO_ROUTES.join(', ')}`); next.route = args.route; }
+        if ('front' in args) { if (!P.walls.some((w) => w.id === args.front)) throw new Error('front: a wall of this room'); next.front = args.front; }
+        if ('matrix' in args) {
+          const m = args.matrix;
+          if (m !== null && !(Array.isArray(m) && m.length <= 16 && m.every((row) => Array.isArray(row) && row.every((v) => v === null || (Number.isFinite(v) && v >= -60 && v <= 6))))) {
+            throw new Error('matrix: null or rows (one per source channel) of dB from -60 to 6, or null for no cross');
+          }
+          next.matrix = m;
+        }
+        P.audio = normAudio({ ...P.audio, media: { ...P.audio.media, ...next } }, P.walls);
+        this._saveExperience(!given.every((k) => k === 'level')); // a level fader settles; a routing change is written at once
         this.emit('state');
-        return {};
-      }
-      case 'sound.stop': {
-        if (this.aud.playing) this.log.info('sound stopped');
-        this.aud.playing = false; this.aud.error = null;
-        this.emit('state');
-        return {};
+        return { media: P.audio.media };
       }
       case 'sound.set': {
         if ('autostart' in args) P.audio.sound.autostart = !!args.autostart;
@@ -944,6 +1058,7 @@ export class Engine extends EventEmitter {
         const value = checkParam(param, args.value, P.walls.map((w) => w.id));
         (s.params[e.id] ??= {})[param.key] = value;
         this._saveExperience();
+        this.media.liveParam('sound', e.id, param.key, value); // the live preset keeps it too
         this.emit('state'); // the piece listens to the state: no restart
         return { value };
       }
@@ -1077,6 +1192,44 @@ export class Engine extends EventEmitter {
     this.emit('state');
   }
 
+  /** experience.play's own path (presets load through it too): the room plays this experience; `params` become its live values. */
+  _runExperience(id, params) {
+    const e = this._visual().find((x) => x.id === id);
+    if (!e) throw new Error(`unknown experience "${id}"`);
+    this.profile.experience.id = e.id;
+    if (params) this.profile.experience.params[e.id] = { ...params };
+    this._experienceRun();
+  }
+
+  /** experience.stop's own path: the experience layer off; the output stays (its other layers keep showing). */
+  _stopExperience() {
+    if (this.experienceState().running) this.log.info('experience stopped');
+    this._layer('experience').on = false;
+    this.exp = { fps: 0, error: null };
+    this._saveExperience(true);
+    this._syncOutputWindow();
+    this.emit('state');
+  }
+
+  /** What the media server's presets drive here, the same way experience.play / sound.play do (engine/media/presets.js). */
+  _mediaHost() {
+    return {
+      visual: () => this._visual(), sounds: () => this._sounds(), walls: () => this.profile.walls.map((w) => w.id),
+      running: () => (this.experienceState().running ? this.profile.experience.id : null),
+      soundPlaying: () => (this.profile.audio.on && this.aud.playing ? this.profile.audio.sound.id : null),
+      run: (id, params) => this._runExperience(id, params),
+      stop: () => this._stopExperience(),
+      playSound: (id, params) => this._playSound(id, params),
+      stopSound: () => this._stopSound(),
+      setParam: (kind, id, key, value) => { // preset.param on the live preset: the live value, like experience.param / sound.param
+        const x = kind === 'sound' ? this.profile.audio.sound : this.profile.experience;
+        (x.params[id] ??= {})[key] = value;
+        this._saveExperience();
+        this.emit('state');
+      },
+    };
+  }
+
   /** What the UI is told about the experience: the selected one, whether it runs (output on + its layer on) and how it is doing. */
   experienceState() {
     const x = this.profile.experience, e = this._visual().find((c) => c.id === x.id);
@@ -1090,17 +1243,20 @@ export class Engine extends EventEmitter {
   /**
    * The room output as the UI and the output page see it. `calibrating`: a calibration, verification, Fit or walk test
    * runs, or the grid is on. The output then shows only what calibration needs (the touches, with the grid and its
-   * targets on top, on black) whatever the operator's layers are. `layersEffective` is what the page draws, bottom to top.
+   * targets on top, on black) whatever the operator's layers are. `layersEffective` is what the page draws, bottom to top;
+   * the `media` layer (the clip layers) is in it only when the room plays a show — without one there is nothing to draw.
    */
   outputState() {
     const O = this.profile.output, calibrating = this.calibrating();
     const touches = this._layer('touches');
     const layersEffective = calibrating
       ? [{ ...touches, on: true, opacity: 1, blend: 'screen' }, { id: 'grid', on: true, opacity: 1, blend: 'screen' }]
-      : O.layers;
+      : this.media.show ? O.layers : O.layers.filter((l) => l.id !== 'media');
     return {
       running: O.on, calibrating, layersEffective, url: O.on ? '/output?run=1' : null,
       fps: O.on ? this.out.fps : 0, error: O.on ? this.out.error : null, previewAt: O.on ? this.out.previewAt : null,
+      // the Advanced Output: which screens are connected, where each one is in the output window, the problems
+      screens: this.screensLayout(), testCard: this.testCard,
     };
   }
 
@@ -1108,11 +1264,22 @@ export class Engine extends EventEmitter {
   calibrating() { return !!(this.calib || this.verify || this.fit || this.walk || this.grid); }
 
   /** The window the desktop app opens for the room output (null = none): relative URL, the app adds the origin. */
+  /** The screens of the Advanced Output against the displays the desktop app reports (engine/media/screens.js). */
+  screensLayout() { return screensLayout(this.profile.output, this.displays); }
+
   outputWindow() {
     const O = this.profile.output;
     if (!O.on) return null;
     // width x height: the render size, which the Spout window paints at 1:1 (its frames go to Spout on the GPU)
     const c = this.profile.canvas;
+    if (O.sink === 'screens') {
+      // one visible window over the connected screens' displays (their bounding rectangle); none connected = no window,
+      // never one opened blindly on another display (Problems says which screen is missing)
+      const L = this.screensLayout();
+      if (!L.window) return null;
+      return { url: '/output?run=1&screens=window', sink: 'screens', displayId: null, fit: O.fit, scale: O.scale, fps: O.fps, senderName: O.senderName,
+        width: Math.round(c.width * O.scale), height: Math.round(c.height * O.scale), screens: L.window };
+    }
     return { url: '/output?run=1', sink: O.sink, displayId: O.displayId, fit: O.fit, scale: O.scale, fps: O.fps, senderName: O.senderName,
       width: Math.round(c.width * O.scale), height: Math.round(c.height * O.scale) };
   }
@@ -1121,12 +1288,14 @@ export class Engine extends EventEmitter {
     const m = this.outputWindow(), key = JSON.stringify(m);
     if (key === this._outKey) return;
     this._outKey = key;
+    if (m) this.out.since = Date.now(); // (health: a window asked for that never reports did not open)
     this.emit('outputWindow', m);
   }
 
   /** The desktop app sends a JPEG of the whole output once a second, with how the window is doing (engine/main.js). */
   setOutputPreview(buf, { fps, error } = {}) {
     if (!this.profile.output.on) return false;
+    this.out.at = Date.now(); // the window answers (health: output-down when this gets old)
     const was = `${this.out.fps}|${this.out.error}|${this.out.previewAt !== null}`;
     if (buf) { this.outPreview = { buf, at: Date.now() }; this.out.previewAt = this.outPreview.at; } // (no image = only how it is doing)
     if (Number.isFinite(fps)) this.out.fps = Math.max(0, Math.min(1000, Math.round(fps * 10) / 10));
@@ -1164,6 +1333,27 @@ export class Engine extends EventEmitter {
   _visual() { return visualOnly(this.catalog); }
   _sounds() { return soundOnly(this.catalog); }
 
+  /** sound.play's own path (presets too): the room's sound on, this piece playing; `params` become its live values. */
+  _playSound(id, params) {
+    const e = this._sounds().find((x) => x.id === id);
+    if (!e) throw new Error(`unknown sound "${id}"`);
+    const A = this.profile.audio;
+    A.sound.id = e.id;
+    if (params) A.sound.params[e.id] = { ...params };
+    A.on = true;
+    this.aud.playing = true; this.aud.error = null;
+    this.log.info(`sound "${e.id}" started`);
+    this._saveExperience(true);
+    this._syncAudioWindow();
+    this.emit('state');
+  }
+
+  _stopSound() {
+    if (this.aud.playing) this.log.info('sound stopped');
+    this.aud.playing = false; this.aud.error = null;
+    this.emit('state');
+  }
+
   /** The sound piece plays when the room starts, if the room says so (and audio is on). */
   _soundAutostart() {
     const A = this.profile.audio;
@@ -1200,7 +1390,12 @@ export class Engine extends EventEmitter {
     const seen = this.aud.underruns || (this.aud.underruns = new Map());
     for (const k of rep.sinks) {
       const was = seen.get(k.label) ?? 0;
-      if (k.underruns > was) this.log.warn(`room audio: ${k.underruns - was} underrun${k.underruns - was === 1 ? '' : 's'} on "${k.label}" (a short cut in the sound; ${k.underruns} since it opened)`);
+      if (k.underruns > was) {
+        this.log.warn(`room audio: ${k.underruns - was} underrun${k.underruns - was === 1 ? '' : 's'} on "${k.label}" (a short cut in the sound; ${k.underruns} since it opened)`);
+        // the last minute's, for the health item (cortes de audio)
+        const now = Date.now();
+        this.aud.drops = [...(this.aud.drops || []).filter((d) => now - d.at < DROPS_MS), { at: now, n: k.underruns - was, label: k.label }].slice(-200);
+      }
       seen.set(k.label, k.underruns);
     }
     if (JSON.stringify(rep) !== before) this.emit('state');
@@ -1228,6 +1423,7 @@ export class Engine extends EventEmitter {
     const m = this.audioWindow(), key = JSON.stringify(m);
     if (key === this._audKey) return;
     this._audKey = key;
+    if (m) this.aud.since = Date.now(); // (health: a window asked for that never reports)
     this.emit('audioWindow', m);
   }
 
@@ -1354,8 +1550,9 @@ const LOCKED_OPS = new Set([
   'profile.update', 'profile.load', 'profile.create', 'profile.import', 'profile.delete', 'profile.restore',
   'bg.capture', 'bg.clear', 'calib.start', 'calib.apply', 'calib.clear', 'verify.start', 'sensor.autoAlign',
   'replay.start', 'rec.delete', 'sensor.discover', 'sensor.readdress', 'net.setSensorNic',
-  'experience.set', // play / stop / param stay available in Show mode: they are how a show is run
+  'experience.set', 'output.screens', // play / stop / param stay available in Show mode: they are how a show is run
   // the room's sound: where it goes (devices, map, test) is locked; play / stop / parameters / master / mute / the switch are how a show
   // is run (audio.set checks its own keys)
   'audio.map', 'audio.test', 'sound.set',
+  ...MEDIA_LOCKED_OPS, // show edits, imports, relink, remove, library folder (engine/media/index.js)
 ]);

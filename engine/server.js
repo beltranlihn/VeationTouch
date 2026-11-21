@@ -4,6 +4,7 @@
 //   /sdk/…            client SDK for apps  /api/qr.svg   QR code for pairing a device
 //   /ws/ui            UI channel (state, commands, live view) — LAN clients need ?k=<token>
 //   /ws/data          touch stream for apps (JSON frames), read-only, no token
+//   /api/media/thumb/<mediaId>.png   clip thumbnails (UI rule)   /api/media/pcm   raw clip audio (this computer only)
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -13,6 +14,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import v8 from 'node:v8';
 import { WebSocketServer } from 'ws';
+import { compactState } from './media/wire.js';
 import { wifiSsids, looksLikeGuestNetwork } from './net.js';
 
 const require = createRequire(import.meta.url);
@@ -170,14 +172,27 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (p === '/audio') return serveFile(res, path.join(uiDir, 'audio.html'), ISOLATED);        // the room's sound: a hidden window of the desktop app (or a browser tab)
     if (p === '/output') return serveFile(res, path.join(uiDir, 'output.html'));   // the room output: the layers composed (the desktop app's window sends it to Spout)
     // the browser uses the very same geometry code as the engine (one implementation of the mapping)
-    if (p === '/shared/geometry.js') return serveFile(res, path.join(root, 'engine', 'core', 'geometry.js'), OWN);
+    if (p === '/shared/geometry.js' || p === '/shared/core/geometry.js') return serveFile(res, path.join(root, 'engine', 'core', 'geometry.js'), OWN);
+    // the Advanced Output's geometry and templates (screens ▸ slices): the engine, the output page and the UI share it
+    // (it imports ../core/geometry.js, hence the alias above)
+    if (p === '/shared/media/screens.js') return serveFile(res, path.join(root, 'engine', 'media', 'screens.js'), OWN);
+    // the compact state of the relay's clients, expanded back by conn.js (engine/media/wire.js)
+    if (p === '/shared/media/wire.js') return serveFile(res, path.join(root, 'engine', 'media', 'wire.js'), OWN);
     if (p === '/shared/mask.js') return serveFile(res, path.join(root, 'engine', 'core', 'mask.js')); // the Texture output's rasteriser (live preview)
+    // the transport's playhead() — THE formula of a clip's position — for the mixer, the HAP player and the audio page
+    if (p === '/shared/transport.js') return serveFile(res, path.join(root, 'engine', 'media', 'transport.js'), OWN);
+    // the HAP decoders of the output page's workers read the movies with the engine's own code (mov.js imports ./hap.js)
+    if (p === '/shared/mov.js') return serveFile(res, path.join(root, 'engine', 'media', 'mov.js'), OWN);
+    if (p === '/shared/hap.js') return serveFile(res, path.join(root, 'engine', 'media', 'hap.js'), OWN);
     if (p === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       const mem = process.memoryUsage(), mb = (b) => Math.round(b / 1048576);
       return res.end(JSON.stringify({
         ok: true, version: engine.version, profile: engine.profile?.id, uptimeS: Math.round(process.uptime()),
         memory: { rssMb: mb(mem.rss), heapUsedMb: mb(mem.heapUsed), heapLimitMb: mb(v8.getHeapStatistics().heap_size_limit) },
+        // the 60 Hz loop (fps, tickMaxMs, tickGapMs) and what needs attention, as codes only (no file names: no key here)
+        engine: (({ fps, tickMaxMs, tickGapMs }) => ({ fps, tickMaxMs, tickGapMs }))(engine.engineStats()),
+        problems: engine.healthItems().map((x) => `${x.kind}:${x.code}`),
       }));
     }
     if (p === '/api/pair-check') {
@@ -249,6 +264,32 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       });
       return undefined;
     }
+    if (p.startsWith('/api/media/thumb/') && req.method === 'GET') {
+      // a clip's thumbnail (MEDIA-SERVER.md §4d.4): same rule as the UI channel (this computer, or the key). The URL
+      // carries the file's fingerprint (?v=), so a phone keeps it for good; it also travels through the relay.
+      if (!peerOf(req).trusted && url.searchParams.get('k') !== engine.settings.token) { res.writeHead(401); return res.end(); }
+      const m = /^\/api\/media\/thumb\/([A-Za-z0-9_-]{1,40})\.png$/.exec(p);
+      if (!m) { res.writeHead(404); return res.end(); }
+      engine.media.thumbFile(m[1], url.searchParams.get('s')).then((t) => {
+        if (!t) { res.writeHead(404); return res.end(); }
+        const immutable = url.searchParams.get('v') === t.fingerprint;
+        serveFile(res, t.file, { ...OWN, 'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache' });
+      }, (e) => { log.warn(`thumbnail ${m[1]}: ${e.message}`); res.writeHead(500); res.end(); });
+      return undefined;
+    }
+    if (p === '/api/media/pcm' && req.method === 'GET') {
+      // raw PCM of a clip for the audio window (§4c.1): THIS computer only — refused from the LAN and through the relay
+      // (peerOf: tunnel traffic arrives on loopback but is never local)
+      if (!peerOf(req).local) { res.writeHead(403); return res.end(); }
+      engine.media.pcm({ clip: url.searchParams.get('clip'), media: url.searchParams.get('media'), from: url.searchParams.get('from') ?? 0, n: url.searchParams.get('n') }).then((r) => {
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream', 'Content-Length': r.body.length, 'Cache-Control': 'no-store', ...OWN,
+          'X-VT-Encoding': r.encoding, 'X-VT-Channels': r.channels, 'X-VT-Rate': r.rate, 'X-VT-From': r.from, 'X-VT-Frames': r.frames, 'X-VT-Total': r.total,
+        });
+        res.end(r.body);
+      }, (e) => { res.writeHead(e.status || 500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: e.message })); });
+      return undefined;
+    }
     if (p.startsWith('/sdk/')) { const f = safeJoin(sdkDir, p.slice(5)); return f ? serveFile(res, f) : (res.writeHead(400), res.end()); }
     const f = safeJoin(uiDir, p.slice(1));
     if (f) return serveFile(res, f, OWN);
@@ -280,15 +321,34 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
 
   const uiClients = new Set();
   const send = (ws, obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+  /** A device that comes through the internet relay gets the state compact (engine/media/wire.js; conn.js expands it). */
+  const forClient = (c, obj) => (c.tunnel ? compactState(obj) : obj);
+  /**
+   * The state message for one client, without the show when the client already has this very version of it and said it
+   * can keep it (hello.showDelta: the state then says `showSame: true` and conn.js carries its own show over). The whole
+   * show used to go to every client with every state (~every 2 s, and with each audio report): 60 kB for a big show.
+   * A client always gets the show when it connects, after a stale refusal, and whenever the engine's showStamp moved.
+   */
+  const slim = new WeakMap();
+  const showFor = (c, st) => {
+    const stamp = engine.media?.showStamp;
+    if (stamp === undefined || !st.show) return st;
+    if (c.showDelta && c.showStamp === stamp) {
+      if (!slim.has(st)) { const { show, ...rest } = st; slim.set(st, { ...rest, showSame: true }); } // (one per message, shared by its clients)
+      return slim.get(st);
+    }
+    c.showStamp = stamp;
+    return st;
+  };
 
   let clientSeq = 0;
   function onUi(ws, peer, url, ua = '') {
     const addr = peer.addr;
-    const client = { ws, addr, id: `d${++clientSeq}`, role: url.searchParams.get('role') || 'ui', viz: false, vizEvery: 1, vizN: 0, local: peer.local, ua, since: Date.now() };
+    const client = { ws, addr, id: `d${++clientSeq}`, role: url.searchParams.get('role') || 'ui', viz: false, vizEvery: 1, vizN: 0, local: peer.local, tunnel: !!peer.tunnel, ua, since: Date.now() };
     if (!client.local) log.info(`device connected from ${addr.replace('::ffff:', '')} (${deviceName(ua)})`);
     uiClients.add(client);
     updateVizListener();
-    send(ws, { ...engine.state(), lan: lan(), token: engine.settings.token, local: client.local, you: client.id });
+    send(ws, forClient(client, showFor(client, { ...engine.state(), lan: lan(), token: engine.settings.token, local: client.local, you: client.id })));
     send(ws, engine.status());
     ws.on('message', async (raw) => {
       let m;
@@ -296,6 +356,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       if (m.type === 'hello') {
         client.role = m.role || client.role;
         client.viz = !!m.viz;
+        client.showDelta = m.showDelta === true;
         client.vizEvery = Math.max(1, Math.round(10 / Math.max(1, Math.min(10, m.vizHz || 10))));
         updateVizListener();
       } else if (m.type === 'cmd') {
@@ -307,7 +368,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
           send(ws, { type: 'ack', id: m.id, ok: true, result });
         } catch (e) {
           send(ws, { type: 'ack', id: m.id, ok: false, error: e.message });
-          if (/^stale/.test(e.message)) send(ws, engine.state());
+          if (/^stale/.test(e.message)) { client.showStamp = undefined; send(ws, forClient(client, showFor(client, engine.state()))); }
         }
       }
     });
@@ -339,9 +400,25 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     // another room: events still waiting for the next live message belong to the old one
     if (liveRoom !== engine.profile.id) { liveRoom = engine.profile.id; pendingEvents = []; }
     const st = { ...engine.state(), lan: lan(), token: engine.settings.token };
-    for (const c of uiClients) send(c.ws, { ...st, local: c.local, you: c.id });
+    const small = new Map(); // the compact message, made once for the clients that get the same one
+    for (const c of uiClients) {
+      const msg = showFor(c, st);
+      let out = msg;
+      if (c.tunnel) { if (!small.has(msg)) small.set(msg, compactState(msg)); out = small.get(msg); }
+      send(c.ws, { ...out, local: c.local, you: c.id });
+    }
   });
   const unsubLog = log.onEntry?.((entry) => broadcast({ type: 'log', entry }, (c) => c.role === 'ui'));
+  // the media server's own changes (copies in progress, problems): small, so the whole state is not sent each time
+  const onMedia = (m) => { // copies, problems AND the transport (engine/media/transport.js); compact through the relay
+    const msg = { type: 'media', ...m };
+    broadcast(msg, (c) => !c.tunnel);
+    if ([...uiClients].some((c) => c.tunnel)) broadcast(compactState(msg), (c) => c.tunnel);
+  };
+  engine.on('media', onMedia);
+  // a play started, ended (with why) or failed: { event, playId, clipId, layerId, … } — for the experience runtime (vt.media.on)
+  const onMediaEvent = (e) => broadcast({ type: 'mediaEvent', ...e });
+  engine.on('mediaEvent', onMediaEvent);
 
   // The UI's live feed (internal; not /ws/data or OSC) sends each touch as [id, x, y, size, coasting, rx, ry, seenAt]. x, y are the
   // tracker's (up to predictMs of extrapolation); rx, ry (m) are the filtered position at the touch's last REAL reading and
@@ -434,7 +511,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       log.info(`server listening on :${bound}`);
       resolve({
         port: bound,
-        close: () => { clearInterval(ssidTimer); unsubLog?.(); for (const c of uiClients) c.ws.terminate(); for (const c of dataClients) c.ws.terminate(); server.close(); },
+        close: () => { clearInterval(ssidTimer); unsubLog?.(); engine.off('media', onMedia); engine.off('mediaEvent', onMediaEvent); for (const c of uiClients) c.ws.terminate(); for (const c of dataClients) c.ws.terminate(); server.close(); },
       });
     });
   });

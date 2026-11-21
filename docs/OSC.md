@@ -123,6 +123,16 @@ everything but `on`), `output.layers {layers}` (all three layers, bottom to top,
 also `radius, sizeMode, softness, trailMs, walls, scale`), `experience.play` / `experience.stop` (select the experience
 and switch its layer on or off). State: `state.output = {running, calibrating, layersEffective, …}`.
 
+**Screens (Advanced Output, `sink: 'screens'`).** Instead of the whole canvas, the room output is cut into **slices**
+drawn onto the room's displays (`profile.output.screens[]`: each screen `{id, name, enabled, display, width, height,
+slices}`, each slice `{id, name, wallId, enabled, input, output, flipH, flipV}` — `input` a canvas rectangle or `null`
+= its wall's region; `output` `{mode: 'rect', rect}`, `{mode: 'corners', corners}` or a grid `{mode: 'grid', us, vs,
+points}` in screen pixels). One window covers the screens' displays; a screen whose display is not connected opens
+nothing and is listed in `state.output.screens.problems`. Commands: `output.set {sink: 'screens'}`, `output.screens
+{screens}` or `{template: 'fx4' | 'walls' | 'per-wall', fit?, screenId?}` (locked in Show mode), `output.testCard {on}`
+(a test card on every screen; never saved). State: `state.output.screens = {list, window, problems}`,
+`state.output.testCard`. Spout and the single window are unchanged.
+
 ## Texture (NDI or full screen)
 
 A greyscale mask of the touches — white discs on black — rendered in output-canvas pixels through each wall's
@@ -173,3 +183,64 @@ Then frames (`zones` / `zoneEvents` as described in *Zones* above):
 "fromX":6.483}` — `fromX` is where it left the previous wall). Send `{"type":"subscribe","rateHz":30}` to lower the
 rate. `x, y` are wall metres (origin bottom-left). The SDK emits `cross` like `down` / `up`.
 SDK: `http://<server>:<port>/sdk/veation-touch.js` (see the header of the file).
+
+
+## Media server (additive — nothing above changes)
+
+The engine is also the room's media server (clips in a grid of layers × columns, presets, GPU mix, audio of the clips).
+It is driven through the **app socket** `ws://<server>:<port>/ws/ui` (same access key as the UI; the `/ws/data` socket
+above is untouched and carries no media). Video and audio never travel on any socket: only state, commands and
+thumbnails. **The `media` layer is optional for clients:** a client that only reads touches, zones or `/ws/data` can ignore
+every `media`, `show` and `library` field and every `media*` message — they are additions, an old client keeps working.
+
+**Commands** — `{"type":"cmd","id":1,"op":"<op>","args":{…}}`, answered by `{"type":"ack","id":1,"ok":true,"result":…}`.
+Allowed in Show mode (the room locked): the launch ops.
+
+| Op | Args | Does |
+|---|---|---|
+| `clip.trigger` | `clipId` or `{deckId, layerId, column}` | Launches a clip on its layer (a second launch restarts or ejects, per the layer's trigger) |
+| `column.trigger` · `column.next` · `column.prev` | `{deckId, column}` · `{dir: 1 \| -1}` | Launches a column (layers with `ignoreColumn` are skipped) / steps through them |
+| `layer.clear` · `media.clearAll` | `{layerId}` | Ejects with the layer's transition |
+| `layer.set` | `{layerId, opacity, blend, bypass, volume, mute}` | Live mix |
+| `media.blackout` | `{on}` | Fades to black and silences; lifting it brings everything back |
+| `preset.load` · `preset.unload` · `preset.param` | `{presetId}` · — · `{presetId, key, value}` | The live experience of a preset card |
+| `output.testCard` | `{on, screenId}` | Test card on the Advanced Output screens |
+
+Blocked in Show mode: `show.update` (revision-checked), `show.load/create/delete/export/import`, `media.import`,
+`media.importCancel`, `media.relink`, `media.remove`, `media.setDir`, `output.screens`, `audio.media`.
+
+**State** (additions to the `state` message and the `status` message):
+- `show` — `{id, name, rev, media[], clips[], layers[], decks[], presets[], start}` (`start`: the card/column the room
+  launches by itself when the engine starts).
+- `media` — the transport: `{rev, blackout, column, preload[], layers{<id>: {play, from, …}}, xlayer, preset, import[], problems[]}`.
+  Positions are never sent as a moving value: a play carries `startAt`, `in`, `out`, `loops`, `end` and the clock does the rest
+  (`/shared/transport.js › playhead()` is the one formula).
+- `library` — `{dir, freeBytes}`.
+- `status.health` — `[{kind: 'bad' | 'warn', code, text}]`; codes: `output-down`, `output-error`, `decode-lag`,
+  `library-missing`, `library-full`, `audio-device`, `audio-error`, `audio-down`, `audio-dropouts`, `engine-stall`.
+  `status.engine` gains `tickGapMs` (the longest gap between two ticks of the last second).
+- `GET /api/health` also returns `engine: {fps, tickMaxMs, tickGapMs}` and `problems: ["bad:output-down", …]` (codes only).
+
+**Messages**
+- `{"type":"media", …state.media}` — sent alone when only the transport changes (a launch is ~300 bytes).
+- `{"type":"mediaEvent","event":"started"|"ended"|"error","playId","clipId","layerId"}` — `ended` carries `reason`, `error` carries `error`.
+- Through the internet relay a client receives `state`/`media` **compact** (`"compact":1`): clip fields equal to the defaults
+  and finished copies are left out, to stay well under 64 kB. `/shared/media/wire.js › expandState()` restores them; a
+  message without `compact` is complete.
+
+**HTTP**: `GET /api/media/thumb/<mediaId>.png?s=160|480` (same access rule as the UI; also through the relay). There is no
+route that serves video; PCM (`/api/media/pcm`) is for this computer only.
+
+### `vt.media` (experiences)
+
+Experiences (`experiences/runtime.js`) get `vt.media`; in the viewer and standalone it is a simulation that resolves at once.
+
+```js
+vt.media.available                  // false in standalone / viewer
+vt.media.slot('reel')               // → clip | null  (slots declared in the manifest's "media")
+vt.media.preload(clipId)            // first frame kept ready (8 clips at most)
+vt.media.play(clipId, { end: 'clear', transitionMs: 600 })  // → Promise<{ playId }>  (reserved layer)
+vt.media.stop({ transitionMs: 400 })
+vt.media.on('started' | 'ended' | 'error', fn)               // { playId, clipId }
+vt.media.state()                    // { playing, clipId, position, duration }
+```

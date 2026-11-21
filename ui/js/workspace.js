@@ -56,6 +56,7 @@ export class Workspace {
     this.selection = null;          // {kind:'wall'|'sensor'|'zone'|'mask'|'region', id, wallId?}
     this.showPoints = true;
     this.showContent = true;
+    this.monitorFrame = null;       // Live: the room's real output (a preview frame) while clips are on air (ui/js/live/index.js)
     this.view = { s: 80, ox: 40, oy: 40 };
     this.fitKey = '';
     this.pointers = new Map();
@@ -808,8 +809,10 @@ export class Workspace {
   _drawWalls() {
     const ctx = this.ctx, P = this.P, s = this.view.s, C = this.colors;
     const L = this.walls();
-    // the profile's experience, simulated (a frame of the hidden viewer page), takes the place of the content image
-    const xf = expview.frame();
+    // the profile's experience, simulated (a frame of the hidden viewer page), takes the place of the content image —
+    // and in Live, while clips are on air, the room's real output does (the simulation knows nothing of the clips)
+    const mf = this.mode === 'live' ? this.monitorFrame : null;
+    const xf = mf ? { bitmap: mf } : expview.frame();
     const ul = xf ? xf.bitmap : this.underlay();
     if (ul) {
       // each wall shows ITS part of the content (its pixel region; corner/grid maps use the bounding box)

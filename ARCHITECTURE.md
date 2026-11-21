@@ -380,10 +380,19 @@ in the state as `experience` (running, fps, error, previewAt) and `experiences` 
 - **Window:** a frameless full-screen window on the chosen display.
 
 **Runtime** (`experiences/runtime.js`). It gives the page:
-- the canvas, and the walls in render px (`wallUvToCanvas` × scale);
+- the canvas, and the walls in render px (`wallUvToCanvas` × scale), each also with its `width` / `height` in metres,
+  `pxPerM` and `masks` (render-px boxes of the wall's masks: doors, lamps — where the sensor does not see);
 - `closedLoop` (`planCloses`);
 - live touches as down/move/up with velocity — wrap-aware across the seam when the loop closes;
-- live params, and `loop(fn, gl)` / `frame(gl)`.
+- live params, and `loop(fn, gl)` / `frame(gl)`;
+- `vt.media` (MEDIA-SERVER.md §4.4): the clips the operator put in the live card's slots (`slot(key)`, the slots the
+  manifest declares in `media`), `play(clip, {end = 'clear', transitionMs})` → `{playId}` on the reserved layer
+  (`clip.trigger` with `layerId: 'xlayer'`; an experience's launch never toggles), `stop`, `preload` (`clip.preload`:
+  `state.media.preload`, 8 clips at most, let go with the experience), the `started` / `ended` / `error` events with
+  their `playId`, a `slots` event when the operator changes them, and `state()` from the transport and the engine's
+  clock. Only the room's running instance launches: the app's viewer and a page on its own get a simulation (same
+  calls and events, stand-in clips standalone). What a card's experience launched stops when another experience loads
+  or the card unloads (`tests/runtime-media.test.mjs`, fixture `tests/fixtures/experiences/media-probe`).
 
 `frame` does three things:
 - reads the pixels to Spout (`readPixels`, flipY);
@@ -474,6 +483,13 @@ other file loads the addon, which a test checks. Texture outputs keep NDI and fu
 - a canvas of the mask (`TouchMask`);
 - a full-size Canvas 2D grid from `wallPattern`, redrawn only when the profile, session or target changes.
 
+**Switching experiences** (MEDIA-SERVER.md §4.5). Another experience is a fresh iframe, but the outgoing one's last
+texture stays, frozen, until the incoming page draws its first frame (however long: one that never starts leaves it
+there and its card turns to error after 5 s), then fades to it in 0.8 s. Two cards of one experience only change its
+parameters: the page is not reloaded. An experience whose manifest says `"transparent": true` is drawn just above the
+`media` group (when the profile has it below) and not opaque, so the clips show through it. `tests/mixer.test.mjs`
+samples the image: never black during a switch, the clip through a transparent piece.
+
 **Calibration mode.** While a calibration, verification, Fit or walk test runs, or the grid is on,
 `state.output.layersEffective` is `[touches, grid]` on black. The experience is only hidden, not torn down, so it comes
 back as it was. When the session ends, the operator's layers return.
@@ -484,6 +500,19 @@ regardless. Output, layer and parameter changes move the profile revision on, so
 refused. Switches are saved at once; faders are saved 700 ms after they settle.
 
 **Measured** on an RTX 4060 laptop: 7196 × 912 at 59–60 fps, with frame gaps ≤ 15 ms over 5 s.
+
+**Screens (Advanced Output, `sink: 'screens'`; `engine/media/screens.js`, `ui/js/mixer/screens.js`, Output › Screens).**
+A second stage after the mixer: canvas → screens. Each screen is a physical output (the Datapath Fx4's 3840 × 2400
+input in XR Lab) and holds slices: a canvas rectangle (by default its wall's `pixelRect`, which it follows) drawn to a
+rect, a corner pin (a homography, as a 16 × 16 mesh) or a grid mesh of the screen, with flips. `wall.mapping` keeps its
+meaning (wall → canvas: touches, zones, calibration); the calibration grid is a layer of the FBO, so it goes through the
+slices. The display of a screen is found by id, then by position and resolution, or — none chosen — the only display of
+its resolution; never another one. One visible, frameless window covers the connected screens' displays (full screen
+for one), vsync'd; the page draws each screen where its display is (`state.output.screens.list[].rel`) and the test card
+on top. Elsewhere (`/output?screens=preview`, Output › Screens › Preview window) the screens are laid side by side at
+scale. In that window the monitor's preview is the canvas itself (a 640 px blit of the FBO), not a capture of the
+screens. Templates: Datapath Fx4 (2 × 2: walls in canvas order → TL, TR, BL, BR, 1:1 centred, or Fit), Slices from
+walls, One display per wall.
 
 ## Room audio — sound pieces over the room's speakers (`profile.audio`, `ui/audio.html`, `ui/js/audio-*.js`)
 
@@ -580,6 +609,47 @@ audio window (hidden BrowserWindow, /audio — COOP/COEP so SharedArrayBuffer ex
   at 60 fps: no underrun, no error, peak −18 dBFS at Master 0.3. The Q-SYS does NOT have one speaker per channel: ch1 =
   left + front, ch2 = back + right, ch3 = front, nothing on 4–8 and no sub (`profiles/xrlab.json` has that map).
   Not measured yet: the latency from touch to sound.
+
+## Media server — `engine/media/`, `ui/js/mixer/`, `ui/js/live/` (design and phases: `docs/plans/MEDIA-SERVER.md`)
+
+The engine is also the room's media server: HAP clips in a grid of layers × columns, presets of experiences, a GPU mix and
+the clips' audio over the room's speakers. Every piece below is optional: a room without a show is exactly the touch product.
+
+- **Library and show** (`library.js`, `show.js`, `index.js`). Files are copied into the library (`<data>/media`, or the folder
+  set in System) in a worker thread (`import-worker.js`), fingerprinted, probed and given thumbnails (`thumb.js`, `png.js`;
+  `mov.js` / `hap.js` read MOV and HAP in plain Node). A *show* (`<data>/shows/<id>.json`, versioned like profiles) holds the
+  media, clips, layers, decks (the grid), presets and `start`. Edits are revision-checked (`show.update {rev}`: a stale one is
+  refused). Missing files are `state.media.problems`, never an exception.
+- **Transport** (`transport.js`, also served as `/shared/transport.js`). The engine decides *what plays and since when*
+  (`startAt`, `in`, `out`, `loops`, `end`); nobody sends a moving position. `playhead()` is the one formula every page
+  uses (mixer, audio page, progress bars) against the shared clock (`ui/js/clock.js`). Launches are sent as the small
+  `media` message, not the whole state.
+- **Output page** (`ui/js/mixer/`, `ui/js/output.js`). One WebGL2 compositor: the experience canvas, the media layers
+  (`media-layers.js`, HAP decoded in workers) and the calibration grid; then the Advanced Output slices (`screens.js`).
+  Clips named in `state.media.preload` get a parked player that holds only their first frame; launching one adopts it.
+- **Audio** (`ui/js/audio-media.js`, `/api/media/pcm`, this computer only). The clip's PCM is pulled in blocks and played
+  through the same room graph as the sound experiences; `audio.media.avOffsetMs` compensates the speakers' chain.
+- **Phone** (`ui/js/remote-live.js`): Live on the phone is the same commands over the same socket. Through the relay the
+  state is sent compact (`wire.js`: clip fields equal to the defaults, finished copies and `mtimeMs` are dropped;
+  `conn.js` expands it back) and stays well under 64 kB for a 60-clip show.
+
+**Robustness (F13).**
+- *The room starts by itself*: `show.start` (a preset card and/or a column) is launched once, when the engine starts
+  (`MediaEngine.autostart()`); `profile.media.autostart = false` turns it off. A missing file leaves that clip out and the
+  rest plays.
+- *Engine restart*: every transport change is written to `<data>/run/transport.json` (plain write + rename). The next engine
+  takes it back if it is the same show and recent, moving the times by the time that went by, so clips are where the clock
+  puts them. The output page never stops: it keeps playing and re-syncs when the socket returns, without recreating players.
+- *Output window*: `app/main.js` reopens the output window when its renderer dies, hangs (no report) or its page fails to load;
+  the page rebuilds its players from the state and places them by clock.
+- *Health* (`Engine.healthItems()` → `status.health`, `/api/health › problems`): output window down or in error, clips late
+  (decode lag), library missing or full, audio device missing / error / dropouts in the last minute, and the engine's own loop
+  (`engine.tickGapMs`: the longest gap between two 60 Hz ticks; ≥ 250 ms shows `engine-stall` for 30 s). Problems and
+  Status › Health show them; the phone shows them in Live.
+- *Packaging*: the import worker and everything it imports live in `engine/` (inside `app.asar`, which Electron's workers
+  read); `tests/media-library.test.mjs` checks this statically against `package.json › build`.
+- Tests: `tests/media-restart.test.mjs` (restart, autostart, health, compact wire), `tests/hap-player.test.mjs` (the page's side of
+  a restart), `tests/runtime-media.test.mjs` (`vt.media`, the early first-frame report).
 
 ## Internet access — `engine/cloud.js`, `cloud/`
 

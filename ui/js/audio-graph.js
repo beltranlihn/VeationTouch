@@ -1,24 +1,49 @@
 // Room audio — the routing graph of the synthesis context (contract: experiences/SOUND-API.md).
 //
 //   piece ─ wallInput(wall, u) ─ speaker gains ─┐
-//        ├─ roomInput() ──────── every wall ────┼─ bus[c] ─ wall high-pass ─┐
-//        └─ subInput() ──────────────── (sub) ──┘                           │
-//   wall inputs + room input ─ subSum ─ low-pass at the crossover ─ sub ────┼─ post[c] ─ (fold to L/R) ─ merger
-//                                                                           │      (discrete, one channel per output)
-//   test tones ─────────────────────────────────────────────────────────────┘             │
-//                                                           master × mute ─ limiter ─ output
+//        ├─ roomInput() ──────── every wall ────┼─ bus[c] (fade) ─ duck[c] ─┐
+//        └─ subInput() ──────────────── (sub) ──┘                           ├─ wall high-pass ─┐
+//   clips ─ clipInput(gains) ─ routing matrix ─────── mbus[c] (Clips level) ┘                  │
+//   wall inputs + room input ─ subSum (fade) ─ duck ─┐                                         │
+//   clips (mono sum) ─ msub (Clips level) ───────────┴─ low-pass at the crossover ─ sub ───────┼─ post[c] ─ (fold to L/R) ─ merger
+//                                                                                              │   (discrete, one channel per output)
+//   test tones ────────────────────────────────────────────────────────────────────────────────┘             │
+//                                                                              master × mute ─ limiter ─ output
+//
+// The clips (MEDIA-SERVER.md §4c, ui/js/audio-media.js) join the pieces before the wall's high-pass but OUTSIDE the pieces'
+// fade, with a common level of their own; the pieces duck under them (duck()). Master, mute and the limiter are the same
+// for both: a clip never leaves above the ceiling.
 //
 // Channels are the profile's logical channels (1-based in the profile, 0-based here). The output node carries
 // `fold ? 2 : channels` channels; whoever owns the context connects it (a ring writer in the app, the destination in tests).
 // A change of map / channels / sub needs a new graph: the live ones are master, mute, ceiling, crossover, wall high-pass.
 
-import { speakerGains, foldMatrix, dbToLin } from './audio-core.js';
+import { speakerGains, foldMatrix, dbToLin, LIMITER_WINDOW } from './audio-core.js';
 
 const SMOOTH_S = 0.03;
 const TONE_WALL_HZ = 110, TONE_SUB_HZ = [55, 110];
 const TONE_LEVEL = 0.07;        // the sub's tone: −23 dBFS before master and limiter, soft
 const TONE_STRIKES = 3;         // a wall channel's test: three low strikes in the test's second
 const TONE_STRIKE_LEVEL = 0.12; // each strike's peak (before master and limiter)
+
+const clamp01 = (v) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1);
+
+const ramps = new WeakMap(); // AudioParam → the last ramp scheduled here { v0, v1, t0, t1 }
+
+/**
+ * A gain from where it is NOW to `to` over `ms` (linear; 0 = at once), whatever was scheduled before. The value now is
+ * worked out from the last ramp (param.value lags a block, and a linear ramp with no event just before it would start
+ * from the previous event's time: a jump), set at now, and the ramp goes from there.
+ */
+export function rampTo(ctx, param, to, ms) {
+  const now = ctx.currentTime, r = ramps.get(param);
+  const cur = !r ? param.value : now >= r.t1 ? r.v1 : now <= r.t0 ? r.v0 : r.v0 + ((r.v1 - r.v0) * (now - r.t0)) / (r.t1 - r.t0);
+  param.cancelScheduledValues(now);
+  param.setValueAtTime(cur, now);
+  const t1 = now + Math.max(0, ms) / 1000;
+  if (ms > 0) param.linearRampToValueAtTime(to, t1); else param.setValueAtTime(to, now);
+  ramps.set(param, { v0: cur, v1: to, t0: now, t1 });
+}
 
 /** A mono GainNode (anything connected to it is summed down to one channel). */
 function mono(ctx, gain = 1) {
@@ -55,22 +80,34 @@ export async function buildRoomAudio(ctx, cfg, { workletUrl = '/js/audio-worklet
   }
   const wallChannels = [...new Set([...speakers.values()].flat())];
 
-  // ---- per channel: the bus the pieces feed (it also carries the fade), the filter, and `post` (what leaves the channel)
+  // ---- per channel: the bus the pieces feed (it also carries the fade), their duck, the clips' bus (with the Clips level),
+  // the filter, and `post` (what leaves the channel)
   const bus = Array.from({ length: N }, () => mono(ctx, fadeStart));
+  const mbus = Array.from({ length: N }, () => mono(ctx, clamp01(cfg.media?.level ?? 1)));
   const post = Array.from({ length: N }, () => mono(ctx));
   const hp = cfg.wallHighpassHz > 0 ? cfg.wallHighpassHz : 0;
-  const hpFilters = new Map();
+  const hpFilters = new Map(), duckNodes = [];
   for (const c of wallChannels) {
-    if (hp) { const f = filter4(ctx, 'highpass', hp); bus[c].connect(f.input); f.output.connect(post[c]); hpFilters.set(c, f); } else bus[c].connect(post[c]);
+    const duck = mono(ctx);
+    duckNodes.push(duck);
+    bus[c].connect(duck);
+    if (hp) { const f = filter4(ctx, 'highpass', hp); duck.connect(f.input); f.output.connect(post[c]); hpFilters.set(c, f); } else duck.connect(post[c]);
   }
+  // a clip may reach any logical channel (Direct, the matrix): a wall's through its high-pass, the others as they are
+  for (let c = 0; c < N; c++) mbus[c].connect(hpFilters.get(c)?.input ?? post[c]);
   // the sub: every wall input and the room input also go to subSum; it is low-passed at the crossover; subInput() joins after
   const subSum = mono(ctx, fadeStart), subDirect = mono(ctx, fadeStart), subFold = mono(ctx, fadeStart);
+  const msub = mono(ctx, clamp01(cfg.media?.level ?? 1)); // the clips' share of the sub (their mono sum)
+  const duckSub = [mono(ctx), mono(ctx), mono(ctx)];
+  duckNodes.push(...duckSub);
+  subSum.connect(duckSub[0]); subDirect.connect(duckSub[1]); subFold.connect(duckSub[2]);
   let lp = null;
   if (hasSub) {
     lp = filter4(ctx, 'lowpass', cfg.sub.crossoverHz || 90);
-    subSum.connect(lp.input); lp.output.connect(post[sub]); subDirect.connect(post[sub]);
-  } else for (const c of wallChannels) subFold.connect(post[c]); // no sub in the map: the low end is heard on the walls
+    duckSub[0].connect(lp.input); msub.connect(lp.input); lp.output.connect(post[sub]); duckSub[1].connect(post[sub]);
+  } else for (const c of wallChannels) duckSub[2].connect(post[c]); // no sub in the map: the low end is heard on the walls
   const fadeNodes = [...bus, subSum, subDirect, subFold];
+  const clipNodes = [...mbus, msub];
 
   // ---- output: one merger input per output channel (discrete), or the fold to stereo
   const merger = ctx.createChannelMerger(outN);
@@ -129,10 +166,44 @@ export async function buildRoomAudio(ctx, cfg, { workletUrl = '/js/audio-worklet
     },
   };
 
+  /**
+   * A clip's way in (the host's, not the pieces'): `gains[k][c]` from audio-core.js › mediaRouting — source channel k to
+   * logical channel c. → { node, setGains(gains), disconnect() }: connect the clip's `sources` channels to `node`
+   * (discrete). With a sub, the clip's mono sum also feeds the sub's low-pass.
+   */
+  function clipInput(gains, sources) {
+    const S = Math.max(1, sources | 0);
+    const node = ctx.createGain();
+    node.channelCount = S; node.channelCountMode = 'explicit'; node.channelInterpretation = 'discrete';
+    const split = ctx.createChannelSplitter(S);
+    node.connect(split);
+    let cross = [];
+    const wire = (g) => {
+      for (const x of cross) x.disconnect();
+      cross = [];
+      for (let k = 0; k < S; k++) for (let c = 0; c < N; c++) {
+        const v = g?.[k]?.[c] || 0;
+        if (v > 1e-6) { const x = mono(ctx, v); split.connect(x, k); x.connect(mbus[c]); cross.push(x); }
+      }
+    };
+    wire(gains);
+    const toSub = [];
+    if (hasSub) for (let k = 0; k < S; k++) { const x = mono(ctx, 1 / Math.sqrt(S)); split.connect(x, k); x.connect(msub); toSub.push(x); }
+    const h = { node, setGains: wire, disconnect() { node.disconnect(); split.disconnect(); for (const x of [...cross, ...toSub]) x.disconnect(); track.delete(h); } };
+    track.add(h);
+    return h;
+  }
+
   // ---- host controls
   const smooth = (param, v) => param.setTargetAtTime(v, ctx.currentTime, SMOOTH_S);
   return {
-    audio, output: limiter, channels: N, outputChannels: outN, fold, hasSub,
+    audio, output: limiter, channels: N, outputChannels: outN, fold, hasSub, clipInput,
+    /** What the graph itself delays (the limiter's look-ahead), ms: the clips start that much earlier. */
+    latencyMs: ((LIMITER_WINDOW - 1) / ctx.sampleRate) * 1000,
+    /** The common "Clips" level (profile.audio.media.level × blackout × calibration mode), 0..1, over `ms`. */
+    setClips(level, ms = 50) { for (const g of clipNodes) rampTo(ctx, g.gain, clamp01(level), ms); },
+    /** The pieces' ducking under a clip: `db` (−60 = silent, 0 = none) over `ms`. Not the start / stop fade, not the clips. */
+    duck(db, ms = 500) { const v = db <= -60 ? 0 : Math.min(1, dbToLin(db)); for (const g of duckNodes) rampTo(ctx, g.gain, v, ms); },
     /**
      * A test signal on ONE logical channel (1-based), after the filters so a wall test is not cut by its high-pass.
      * A wall channel gets low STRIKES (110 Hz with its harmonics, quick attack, ringing down): in a room a strike is placed

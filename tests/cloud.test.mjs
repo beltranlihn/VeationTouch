@@ -11,6 +11,8 @@ import { Engine } from '../engine/engine.js';
 import { createServer } from '../engine/server.js';
 import { startRelay } from '../cloud/relay/node-relay.mjs';
 import { route, RoomHub, LIMITS } from '../cloud/relay/core.mjs';
+import { makeHap } from './fixtures/media/make-hap.mjs';
+import { expandState } from '../engine/media/wire.js';
 
 const quiet = { info() {}, warn() {}, error() {}, recent: () => [] };
 const root = path.resolve(import.meta.dirname, '..');
@@ -251,6 +253,81 @@ test('cloud: at most 8 browser sockets per room', async () => {
     await until(() => ninth.closed !== null, 8000, 'the 9th socket to be refused');
     assert.equal(ninth.status, 429);
     for (const s of socks) s.ws.close();
+  } finally { await t.close(); }
+});
+
+// ---------------------------------------------------------------- the phone's Live over the relay (MEDIA-SERVER.md §7.3, F11)
+
+/** A show of 60 clips (3 layers × 20 columns), each its own tiny HAP file copied into the library as the desktop does. */
+async function sixtyClipShow(t) {
+  const usb = path.join(t.dir, 'usb');
+  fs.mkdirSync(usb, { recursive: true });
+  for (const [k, layerId] of ['L1', 'L2', 'L3'].entries()) {
+    const paths = Array.from({ length: 20 }, (_, i) => {
+      const f = path.join(usb, `${layerId} scene ${String(i + 1).padStart(2, '0')} - immersive loop.mov`);
+      fs.writeFileSync(f, makeHap({ frames: 2 + k * 20 + i }).bytes); // different bytes: 60 media, not one reused
+      return f;
+    });
+    const r = await t.engine.command('media.import', { paths, target: { deckId: 'D1', layerId, column: 0 }, __local: true });
+    assert.equal(r.rejected.length, 0, JSON.stringify(r.rejected));
+  }
+  await until(() => [...t.engine.media.jobs.values()].every((j) => j.state === 'done'), 30000, 'the 60 copies');
+  const show = t.engine.media.show;
+  assert.equal(show.clips.length, 60);
+  assert.equal(show.media.length, 60);
+  return show;
+}
+
+test('cloud: the phone Live through the relay — a 160 px thumbnail arrives, cacheable for good; PCM is refused (403); the initial state of a 60-clip show weighs under 64 kB', async () => {
+  // fails if: the thumbnail route stops passing the relay with the key (or loses its immutable cache: the phone would
+  // fetch every picture again), the PCM route trusts tunnelled traffic (it arrives on loopback), or the state a phone
+  // gets when it connects grows past 64 kB with a 60-clip show (too slow over a guest network and the relay)
+  const t = await rig();
+  try {
+    const show = await sixtyClipShow(t);
+    const m = show.media[0], clip = show.clips[0];
+    const thumb = await t.get(`/api/media/thumb/${m.id}.png?s=160&v=${m.fingerprint}&k=${t.token}`);
+    assert.equal(thumb.status, 200);
+    assert.match(thumb.headers.get('content-type'), /image\/png/);
+    assert.match(thumb.headers.get('cache-control') || '', /immutable/, 'cached by fingerprint for good');
+    const png = new Uint8Array(await thumb.arrayBuffer());
+    assert.deepEqual([...png.slice(1, 4)], [0x50, 0x4e, 0x47], 'a PNG');
+    assert.ok(png.length < 64 * 1024, `a thumbnail is small (${png.length} B)`);
+    assert.equal((await t.get(`/api/media/thumb/${m.id}.png?s=160&v=${m.fingerprint}`)).status, 401, 'not without the key');
+    // raw PCM: never through the relay (it would be the clip's audio), even with the key; the desktop itself is not refused
+    const pcm = `/api/media/pcm?clip=${clip.id}&from=0&n=256&k=${t.token}`;
+    assert.equal((await t.get(pcm)).status, 403, 'no audio crosses the relay');
+    assert.notEqual((await fetch(`http://127.0.0.1:${t.server.port}${pcm}`)).status, 403, 'the rule is the tunnel, not the route');
+    // what a phone receives when it connects: the first state, measured as it travels (text frame)
+    const ws = new WebSocket(`ws://127.0.0.1:${t.relay.port}/ws/ui?k=${t.token}&role=ui`, { headers: { cookie: t.cookie() } });
+    const frames = [];
+    ws.on('message', (d, bin) => { if (!bin) frames.push(d.toString()); });
+    ws.on('error', () => {});
+    const isState = (f) => { try { return JSON.parse(f).type === 'state'; } catch { return false; } };
+    const first = await until(() => frames.find(isState), 8000, 'the state through the relay');
+    const st = JSON.parse(first);
+    assert.equal(st.show.clips.length, 60, 'the state carries the whole show');
+    const kB = Buffer.byteLength(first) / 1024;
+    assert.ok(kB < 64, `the initial state is ${kB.toFixed(1)} kB (limit 64 kB)`);
+    // F13: it travels compact (engine/media/wire.js) — ~60 kB → ~36 kB here, right after the 60 copies — and conn.js
+    // expands it to the very show the engine has. Fails without the compaction (the full one is ~59 kB) or if the
+    // expansion differs from the engine's show
+    assert.equal(st.compact, 1, 'compact through the relay');
+    assert.ok(kB < 42, `the compact initial state is ${kB.toFixed(1)} kB (budget 42 kB)`);
+    const back = expandState(st);
+    assert.deepEqual(back.show.clips, show.clips, 'expanded, the clips are the engine\'s');
+    assert.deepEqual(back.show.media, t.engine.media.show.media.map(({ mtimeMs, ...m }) => m));
+    assert.ok(!(back.media.import || []).some((j) => j.state === 'done'), 'finished copies stay at home');
+    // a device on the LAN (or this computer) still gets the full state
+    const local = new WebSocket(`ws://127.0.0.1:${t.server.port}/ws/ui?k=${t.token}&role=ui`);
+    const lf = [];
+    local.on('message', (d, bin) => { if (!bin) lf.push(d.toString()); });
+    local.on('error', () => {});
+    const lst = JSON.parse(await until(() => lf.find(isState), 8000, 'the local state'));
+    assert.equal(lst.compact, undefined, 'not compact on the LAN');
+    assert.deepEqual(lst.show.clips, t.engine.media.show.clips);
+    local.close();
+    ws.close();
   } finally { await t.close(); }
 });
 

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Media probe</title>
+<style>html,body{margin:0;background:transparent}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+// Test fixture for vt.media (experiences/runtime.js, MEDIA-SERVER.md §4.4): records every media event and slot change
+// (window.__probe); the tests drive it through probe.vt.media. Draws a transparent frame with one opaque magenta
+// square in the top-left corner (premultiplied: what a transparent experience over the clips looks like). With the
+// parameter `stall` it draws nothing (an experience that never starts) until the parameter goes off.
+import { connectExperience } from '/experiences/runtime.js';
+const vt = await connectExperience();
+let boots = 1;
+try { boots = Number(sessionStorage.getItem('vt-media-probe-boots') || 0) + 1; sessionStorage.setItem('vt-media-probe-boots', String(boots)); } catch { /* no storage */ }
+const probe = window.__probe = { vt, events: [], slots: [], frames: 0, boots };
+for (const type of ['started', 'ended', 'error']) vt.media.on(type, (e) => probe.events.push({ type, ...e }));
+vt.media.on('slots', (s) => probe.slots.push(s));
+const c = document.getElementById('c');
+c.width = vt.size.width; c.height = vt.size.height;
+const gl = c.getContext('webgl2', { premultipliedAlpha: true, alpha: true });
+let running = false;
+const go = () => { if (running || vt.params.stall) return; running = true; vt.loop(() => {
+  gl.viewport(0, 0, c.width, c.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  const s = Math.max(1, Math.ceil(Math.min(c.width, c.height) / 4));
+  gl.enable(gl.SCISSOR_TEST); gl.scissor(0, c.height - s, s, s);
+  gl.clearColor(1, 0, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.disable(gl.SCISSOR_TEST);
+  probe.frames++;
+}, gl); };
+go();
+vt.on('params', go);
+</script>
+</body>
+</html>

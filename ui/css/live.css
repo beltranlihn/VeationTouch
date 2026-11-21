@@ -1,0 +1,242 @@
+/* Live — the room running (ui/js/live/). Same tokens as app.css (VEATION: three surfaces, ink ramp, cyan = live,
+   amber = attention, Geist). The criteria are Immersive Studio Pro's: tiles of 3 px radius with a .5 px hairline, the
+   selection in ink (never in an accent), LIVE as a small cyan pill, progress as a thin bar, drop targets that light
+   up in ink, menus like its .menu. Scoped to the Live view: .app[data-view="live"] (app.js sets it on #app).
+   Read from 2 m: what plays is the only thing in cyan (border + glow, ring or bar, the column number, the layer's edge);
+   what needs a look is the only thing in amber (missing, copy stopped, mute, bypass, blackout). */
+
+/* ---------- the stage: the monitor gives the deck its room ---------- */
+.live-deck{display:none;}
+.app[data-view="live"] .view-wrap{flex:0 0 clamp(140px, 27vh, 320px);}
+.app[data-view="live"] .live-deck{display:flex;flex-direction:column;flex:1;min-height:0;position:relative;background:var(--s1);border-top:.5px solid var(--line);}
+
+/* ---------- Blackout (top bar) ---------- */
+#blackoutBtn.on{background:var(--attn);color:#111;border-color:transparent;transition:none;} /* at once, never a fade */
+.lv-bo-caption{position:absolute;left:50%;top:46px;transform:translateX(-50%);z-index:4;padding:4px 12px;border-radius:var(--r);pointer-events:none;
+  background:rgba(229,181,103,.14);border:.5px solid rgba(229,181,103,.6);color:var(--attn);font-weight:600;letter-spacing:.04em;white-space:nowrap;}
+.lv-bo-caption[hidden],.app:not([data-view="live"]) .lv-bo-caption{display:none;}
+
+/* ---------- menus (Immersive Studio Pro › .menu) ---------- */
+.lv-menu{position:fixed;z-index:500;background:var(--s1);border:.5px solid rgba(255,255,255,.13);border-radius:2px;box-shadow:0 12px 34px rgba(0,0,0,.55);padding:4px;min-width:190px;}
+.lv-menu button{display:flex;align-items:center;gap:var(--sp-8);width:100%;min-height:26px;text-align:left;padding:0 9px;font-size:11px;color:var(--ink-2);border-radius:2px;}
+.lv-menu button:hover:not(:disabled),.lv-menu button:focus-visible{background:var(--state-hover);color:var(--ink);outline:none;}
+.lv-menu button.danger{color:var(--danger);}
+.lv-menu .sep{height:.5px;background:rgba(255,255,255,.08);margin:4px 2px;}
+.lv-menu-note{padding:4px 9px;color:var(--ink-3);font-size:var(--fs-s);}
+
+/* ---------- the experience shelf ---------- */
+.lv-shelf{flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-12);padding:var(--sp-8) var(--sp-12);border-bottom:.5px solid var(--line);min-width:0;}
+.lv-shelf-lbl{flex:0 0 auto;}
+.lv-cards{flex:1;min-width:0;display:flex;align-items:center;gap:var(--sp-8);overflow-x:auto;padding:3px;}
+.lv-card{flex:0 0 auto;position:relative;display:flex;align-items:center;gap:var(--sp-8);height:54px;max-width:250px;padding:4px 10px 4px 4px;border-radius:var(--r);
+  background:var(--s0);border:.5px solid rgba(255,255,255,.08);transition:border-color .12s;}
+.lv-card:hover{border-color:rgba(224,224,224,.45);}
+.lv-card.sel{border-color:var(--ink-3);box-shadow:0 0 0 1px var(--ink-3);}
+.lv-card.live{border-color:var(--live);box-shadow:0 0 0 1.5px var(--live),0 0 14px rgba(79,195,232,.20);transition:none;}
+.lv-card.loading{border-color:rgba(79,195,232,.55);border-style:dashed;}
+.lv-card.error{border-color:var(--attn);box-shadow:0 0 0 1px var(--attn);}
+.lv-card.broken .lv-cname .t{color:var(--ink-3);}
+.lv-cthumb{position:relative;flex:0 0 auto;width:80px;height:45px;border-radius:2px;overflow:hidden;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--s2),var(--s1));border:.5px solid rgba(255,255,255,.09);}
+.lv-cthumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.lv-cthumb .glyph{font-size:18px;font-weight:600;color:var(--ink-3);}
+.lv-cthumb .go{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.5);color:var(--ink);font-size:13px;opacity:0;transition:opacity .12s;}
+.lv-cthumb:hover .go,.lv-cthumb:focus-visible .go{opacity:1;}
+.lv-cname{display:flex;flex-direction:column;align-items:flex-start;min-width:0;text-align:left;gap:1px;}
+.lv-cname .t{max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--fs-l);font-weight:600;color:var(--ink);}
+.lv-cname small{max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--fs-s);color:var(--ink-3);}
+.lv-cname:hover .t{color:#fff;}
+/* LIVE: Immersive Studio Pro's pill (.pxb.lv) */
+.lv-badge{align-self:flex-start;margin-top:3px;font:600 9px/1.35 Geist,system-ui,sans-serif;letter-spacing:.06em;padding:1px 5px;border-radius:3px;background:var(--live);color:var(--s0);white-space:nowrap;}
+.lv-badge:empty{display:none;}
+.lv-card.loading .lv-badge{background:transparent;color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--ink-dim);}
+.lv-card.error .lv-badge{background:var(--attn);}
+.lv-addcard{flex:0 0 auto;width:38px;height:54px;border-radius:var(--r);border:1px dashed rgba(255,255,255,.12);color:var(--ink-3);font-size:18px;}
+.lv-addcard:hover:not(:disabled){border-color:var(--ink-2);color:var(--ink);}
+
+/* ---------- the clip grid ---------- */
+.lv-grid{flex:1;min-height:0;display:flex;flex-direction:column;position:relative;}
+.lv-gbar{flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-8);height:36px;padding:0 var(--sp-12);}
+.lv-decks button{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lv-adddeck{width:var(--ctl-h);padding:0;}
+.lv-locknote{display:inline-flex;align-items:center;gap:6px;color:var(--ink-3);font-size:var(--fs-s);}
+.lv-locknote::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--attn);}
+.lv-showbtn{gap:6px;max-width:280px;}
+.lv-showbtn .lbl{font-size:9px;}
+.lv-showbtn .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lv-showbtn .caret{color:var(--ink-3);font-size:9px;}
+.lv-empty{flex:0 0 auto;padding:0 var(--sp-12) var(--sp-6);color:var(--ink-2);font-size:var(--fs-s);}
+.lv-empty b{color:var(--ink);font-weight:600;}
+.lv-scroll{flex:1;min-height:0;overflow:auto;padding:0 var(--sp-12) var(--sp-12);}
+.lv-rows{display:flex;flex-direction:column;gap:var(--sp-4);width:max-content;min-width:100%;}
+.lv-row{display:grid;grid-template-columns:var(--lhw, 184px) repeat(var(--n, 8), var(--cw, 120px)) 28px;gap:var(--sp-4);align-items:stretch;}
+.lv-head{position:sticky;top:0;z-index:3;background:var(--s1);padding:var(--sp-4) 0 2px;}
+.lv-corner{position:sticky;left:0;z-index:2;display:flex;align-items:center;background:var(--s1);}
+.lv-corner .ibtn{height:24px;font-size:var(--fs-s);}
+/* column heads launch the column */
+.lv-col{height:28px;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:var(--r);background:var(--s2);border:.5px solid var(--line);
+  color:var(--ink-2);font-size:var(--fs-l);font-weight:600;transition:background .12s;}
+.lv-col .go{font-size:8px;color:var(--ink-3);}
+.lv-col:hover:not(:disabled){background:var(--state-hover);color:var(--ink);}
+.lv-col:hover:not(:disabled) .go{color:var(--ink);}
+.lv-col.live{background:rgba(79,195,232,.14);border-color:var(--live);color:var(--live);}
+.lv-col.live .go{color:var(--live);}
+/* the room's start column (show.start): a quiet label, in ink — it is a setting, not something live or wrong */
+.lv-col .st{font-size:8px;font-weight:600;letter-spacing:.08em;color:var(--ink-3);border:.5px solid var(--line-strong);border-radius:2px;padding:0 3px;line-height:11px;}
+.lv-col.live .st{color:var(--live);border-color:rgba(79,195,232,.5);}
+.lv-addcol{height:28px;border-radius:var(--r);border:1px dashed rgba(255,255,255,.12);color:var(--ink-3);}
+.lv-addcol:hover:not(:disabled){border-color:var(--ink-2);color:var(--ink);}
+
+/* the layer heads (layers.js): sticky on the left, the cyan edge while the layer is on air */
+.lv-lh{position:sticky;left:0;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:1px;min-height:84px;padding:4px 8px 4px 11px;overflow:hidden;
+  border-radius:var(--r);background:var(--s2);border:.5px solid var(--line);}
+.lv-lh .lv-air{position:absolute;left:0;top:0;bottom:0;width:3px;background:transparent;}
+.lv-row.on-air .lv-lh .lv-air{background:var(--live);}
+.lv-lh.sel{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.6);}
+.lv-lh.dragover{box-shadow:inset 0 0 0 1px rgba(224,224,224,.6);background:var(--s2);}
+.lv-lh-top{display:flex;align-items:center;gap:5px;height:22px;}
+.lv-x{flex:0 0 auto;width:20px;height:20px;display:grid;place-items:center;border-radius:2px;background:var(--s1);border:.5px solid rgba(255,255,255,.1);color:var(--ink-2);font-size:10px;}
+.lv-x:hover:not(:disabled){background:var(--state-hover);color:var(--ink);}
+.lv-lname{flex:1;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;color:var(--ink);}
+.lv-lname:hover{color:#fff;}
+.lv-lh .ms{flex:0 0 auto;width:18px;height:18px;display:grid;place-items:center;border-radius:2px;border:.5px solid rgba(255,255,255,.1);background:var(--s1);
+  color:var(--ink-2);font-size:10px;font-weight:600;}
+.lv-lh .ms:hover:not(:disabled){color:var(--ink);background:var(--state-hover);}
+.lv-lh .ms.on{background:var(--attn);color:var(--s0);border-color:transparent;}
+.lv-lh .row.fader{min-height:22px;gap:5px;}
+.lv-lh .row.fader>label{flex:0 0 44px;font-size:var(--fs-s);color:var(--ink-3);}
+.lv-lh .row.fader .vfield{height:20px;min-width:40px;}
+.lv-lh .vbox{min-width:40px;height:17px;}
+.lv-xrow{margin-top:var(--sp-6);}
+.lv-xh{min-height:46px;}
+.lv-xnote{color:var(--ink-3);font-size:var(--fs-s);padding-left:25px;}
+
+/* cells: picture = launch, name = select */
+.lv-cell{position:relative;display:flex;flex-direction:column;min-height:84px;overflow:hidden;border-radius:var(--r);background:var(--s0);border:.5px solid rgba(255,255,255,.08);
+  transition:border-color .12s;}
+.lv-cell:not(.empty):hover{border-color:rgba(224,224,224,.45);}
+.lv-cell.empty{background:transparent;border:1px dashed rgba(255,255,255,.07);cursor:default;}
+.lv-cell.empty:hover{border-color:rgba(255,255,255,.16);}
+.lv-cell.sel{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink);}
+.lv-cell.dragover{border:1px solid rgba(224,224,224,.6);background:rgba(224,224,224,.08);}
+.lv-cell.dragging{opacity:.45;}
+.lv-cell.live{border-color:var(--live);box-shadow:0 0 0 1.5px var(--live),0 0 16px rgba(79,195,232,.24);transition:none;} /* a launch shows at once */
+.lv-cell.live.sel{box-shadow:0 0 0 1.5px var(--live),0 0 0 3.5px rgba(224,224,224,.85);}
+.lv-cell.out{border:1px dashed rgba(79,195,232,.55);}
+.lv-thumb{position:relative;display:block;width:100%;aspect-ratio:16/9;flex:0 0 auto;overflow:hidden;cursor:pointer;background:linear-gradient(135deg,var(--s2),var(--s1));}
+.lv-thumb img{display:block;width:100%;height:100%;object-fit:cover;}
+.lv-thumb img.gone{visibility:hidden;}
+.lv-thumb::after{content:'▶';position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.35);color:var(--ink);font-size:14px;opacity:0;transition:opacity .12s;}
+.lv-thumb:hover::after{opacity:1;}
+.lv-cell.live .lv-thumb:hover::after{content:'↺';}
+.lv-grid.locked .lv-cell{cursor:default;}
+/* the play indicators (Ableton): a ring for loops, a bar with the time left for clips that end */
+.lv-ring{position:absolute;right:4px;top:4px;width:22px;height:22px;display:none;filter:drop-shadow(0 0 2px rgba(0,0,0,.6));}
+.lv-ring svg{display:block;width:100%;height:100%;transform:rotate(-90deg);}
+.lv-ring circle{fill:none;stroke-width:3.2;}
+.lv-ring .bg{stroke:rgba(0,0,0,.6);}
+.lv-ring .fg{stroke:var(--live);}
+.lv-cell.ind-ring .lv-ring{display:block;}
+.lv-bar{position:absolute;left:0;right:0;bottom:0;height:4px;display:none;background:rgba(0,0,0,.6);}
+.lv-bar>i{display:block;height:100%;width:0;background:var(--live);}
+.lv-cell.ind-bar .lv-bar{display:block;}
+/* copying: grey (the status dot too), the share copied in a band, Immersive Studio Pro's proxy bar */
+.lv-copy{position:absolute;left:0;right:0;bottom:0;height:16px;display:none;background:rgba(17,17,17,.78);}
+.lv-copy>i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--state-on);transition:width .2s linear;}
+.lv-copy>em{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:600 9px Geist,system-ui,sans-serif;font-style:normal;letter-spacing:.03em;color:var(--ink);}
+.lv-cell.st-copying .lv-copy{display:block;}
+.lv-cell.st-copying .lv-thumb img{opacity:.55;}
+.lv-flag{position:absolute;left:4px;top:4px;font:600 9px/1.35 Geist,system-ui,sans-serif;letter-spacing:.06em;padding:1px 5px;border-radius:3px;background:var(--attn);color:var(--s0);}
+.lv-flag:empty{display:none;}
+.lv-cell.st-missing .lv-thumb img,.lv-cell.st-problem .lv-thumb img{opacity:.35;filter:grayscale(1);}
+.lv-name{display:flex;align-items:center;gap:6px;height:22px;padding:0 6px;min-width:0;text-align:left;}
+.lv-name .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink-2);}
+.lv-name:hover .t{color:var(--ink);}
+.lv-cell.live .lv-name .t{color:var(--ink);font-weight:600;}
+/* the time left: on the picture, bottom right, above the bar (Immersive Studio Pro's duration badge, .tdur) */
+.lv-left{flex:0 0 auto;font-size:var(--fs-s);font-weight:600;color:var(--live);}
+.lv-thumb .lv-left{position:absolute;right:3px;bottom:7px;padding:1px 5px;border-radius:2px;background:rgba(0,0,0,.7);font:600 11px/1.3 Geist,system-ui,sans-serif;}
+.lv-left:empty{display:none;}
+/* the experience's own row */
+.lv-xcell{grid-column:2 / -1;position:relative;display:flex;align-items:center;gap:var(--sp-8);min-height:46px;padding:0 var(--sp-8);overflow:hidden;
+  border-radius:var(--r);border:1px dashed rgba(255,255,255,.07);color:var(--ink-2);}
+.lv-xcell.live{border:1px solid var(--live);background:rgba(79,195,232,.06);color:var(--ink);}
+.lv-xcell img{height:32px;aspect-ratio:16/9;object-fit:cover;border-radius:2px;}
+.lv-xcell img.gone{visibility:hidden;}
+.lv-xcell .t{font-weight:600;}
+.lv-xcell .lv-bar{display:block;}
+
+/* ---------- the library drawer ---------- */
+.lv-drawer{flex:0 0 auto;border-top:.5px solid var(--line);background:var(--s1);}
+.lv-drawer.dragover{box-shadow:inset 0 0 0 1px rgba(224,224,224,.55);background:var(--s1);}
+.lv-dbar{display:flex;align-items:center;gap:var(--sp-12);height:40px;padding:0 var(--sp-12);min-width:0;}
+.lv-dtoggle{display:flex;align-items:center;gap:6px;color:var(--ink-2);flex:0 0 auto;}
+.lv-dtoggle:hover{color:var(--ink);}
+.lv-dtoggle .caret{width:10px;color:var(--ink-3);}
+.lv-dtoggle .n{color:var(--ink-3);font-size:var(--fs-s);}
+.lv-copyline{display:none;align-items:center;gap:var(--sp-8);min-width:0;}
+.lv-copyline.on{display:flex;}
+.lv-copyline .txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);}
+.lv-cbar{flex:0 0 auto;width:140px;height:3px;border-radius:2px;overflow:hidden;background:var(--s0);box-shadow:inset 0 1px 2px rgba(0,0,0,.55);}
+.lv-cbar>i{display:block;height:100%;width:0;background:var(--ink-2);transition:width .2s linear;}
+.lv-copyline.stopped .txt{color:var(--attn);}
+.lv-copyline.done .txt{color:var(--ink-3);}
+.lv-copyline.stopped .lv-cbar,.lv-copyline.done .lv-cbar{display:none;}
+.lv-master{flex:0 1 230px;min-width:160px;}
+.lv-master .row.fader{min-height:0;}
+.lv-master .row.fader>label{flex:0 0 46px;color:var(--ink-3);}
+.lv-mute.on{background:var(--attn);color:#111;border-color:transparent;}
+.lv-dbody{padding:0 var(--sp-12) var(--sp-8);}
+.lv-tiles{display:flex;gap:var(--sp-8);overflow-x:auto;padding:2px 2px var(--sp-8);}
+.lv-tile{flex:0 0 124px;position:relative;display:flex;flex-direction:column;overflow:hidden;cursor:grab;border-radius:3px;background:var(--s0);border:.5px solid rgba(255,255,255,.08);transition:border-color .12s;}
+.lv-tile:hover{border-color:rgba(224,224,224,.45);}
+.lv-tile.sel{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink);}
+.lv-tile.dragging{opacity:.45;}
+.lv-tthumb{position:relative;aspect-ratio:16/9;overflow:hidden;background:linear-gradient(135deg,var(--s2),var(--s1));}
+.lv-tthumb img{display:block;width:100%;height:100%;object-fit:cover;}
+.lv-tthumb img.gone{visibility:hidden;}
+.lv-tdur{position:absolute;right:2px;bottom:2px;font:9px Geist,system-ui,sans-serif;background:rgba(0,0,0,.62);color:var(--ink-2);padding:0 3px;border-radius:2px;}
+.lv-tile .lv-copy{height:14px;}
+.lv-tile.st-copying .lv-copy{display:block;}
+.lv-tile.st-missing .lv-tthumb img,.lv-tile.st-problem .lv-tthumb img{opacity:.35;filter:grayscale(1);}
+.lv-tlbl{display:flex;align-items:center;gap:5px;min-width:0;padding:3px 5px;font-size:11px;color:var(--ink-2);}
+.lv-tlbl .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lv-drop{border:1px dashed rgba(255,255,255,.12);border-radius:2px;padding:12px 10px;text-align:center;color:var(--ink-2);font-size:11px;line-height:1.5;}
+.lv-drop.dragover{border-color:var(--ink-2);background:rgba(224,224,224,.12);color:var(--ink);}
+.lv-tiledrop{flex:0 0 210px;display:grid;place-items:center;}
+.lv-libinfo{display:flex;align-items:center;gap:4px;font-size:var(--fs-s);min-width:0;}
+.lv-libinfo b{color:var(--ink-2);font-weight:500;overflow-wrap:anywhere;}
+.lv-libinfo .grow{flex:1;}
+
+/* ---------- what an import refused: one list, the exact messages ---------- */
+.lv-report{position:absolute;right:var(--sp-16);bottom:var(--sp-12);z-index:6;width:min(480px,calc(100% - 24px));padding:var(--sp-8) var(--sp-12) var(--sp-12);
+  background:var(--s2);border:.5px solid rgba(229,181,103,.6);border-radius:4px;box-shadow:0 8px 24px rgba(0,0,0,.45);}
+.lv-report header{display:flex;align-items:center;gap:4px;margin-bottom:var(--sp-6);}
+.lv-report header b{color:var(--attn);font-weight:600;}
+.lv-report header .grow{flex:1;}
+.lv-report .ibtn.small{height:20px;font-size:var(--fs-s);}
+.lv-report ul{margin:0;padding-left:16px;max-height:180px;overflow:auto;line-height:1.5;color:var(--ink);}
+.lv-report li+li{margin-top:3px;}
+.lv-report .lv-notes{color:var(--ink-2);margin-top:var(--sp-6);}
+
+/* ---------- the inspector ---------- */
+.sec h2 .lv-ititle{min-width:0;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-l);font-weight:600;color:var(--ink);text-transform:none;letter-spacing:0;}
+.sec h2 .lv-livehint{margin-left:6px;color:var(--live);text-transform:none;letter-spacing:0;font-weight:500;}
+.lv-ithumb{margin:0 0 var(--sp-8);border-radius:2px;overflow:hidden;background:linear-gradient(135deg,var(--s2),var(--s0));min-height:24px;}
+.lv-ithumb img{display:block;width:100%;}
+.lv-ithumb img.gone{display:none;}
+.lv-istatus{margin:var(--sp-6) 0 var(--sp-8);}
+.lv-istatus .actions{margin-top:var(--sp-6);}
+.lv-locked{font-size:var(--fs-s);}
+.lv-locate input{margin-bottom:var(--sp-8);}
+.lv-locate .lv-drop{padding:16px 10px;}
+/* a card's clip slots: drop zones (a clip of the grid or a file of the library), one row per clip */
+.lv-slot{margin:0 0 var(--sp-8);padding:var(--sp-6);border:.5px solid rgba(255,255,255,.08);border-radius:3px;background:var(--s0);}
+.lv-slot.dragover{border-color:rgba(224,224,224,.6);background:rgba(224,224,224,.08);}
+.lv-slothead{display:flex;justify-content:space-between;gap:var(--sp-6);margin-bottom:var(--sp-6);font-size:var(--fs-s);}
+.lv-slothead .k{color:var(--ink-2);font-weight:500;}
+.lv-slotclip{display:flex;align-items:center;gap:4px;min-width:0;padding:2px 0 2px 6px;border-left:2px solid rgba(224,224,224,.45);}
+.lv-slotclip+.lv-slotclip{margin-top:3px;}
+.lv-slotclip .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lv-slotclip .ibtn.small{height:20px;font-size:var(--fs-s);}
+.lv-slot .row{margin-top:var(--sp-6);}
