@@ -68,7 +68,8 @@ test('thumbnails: at most two workers run at a time, and every request is still 
     assert.equal(spawned, 6, 'each thumbnail got its turn');
     assert.ok(max <= 2, `${max} thumbnail workers at once`);
     assert.ok(max === 2, 'and they do run two by two');
-    assert.deepEqual(out, new Array(6).fill(null), '(the stub makes no file)');
+    // (the stub makes no file: the clip gets the generic card of its kind — never cached under its fingerprint — instead of a hole)
+    assert.ok(out.every((t) => t && t.fingerprint === null && t.file.endsWith('icon-hap-160.png')), JSON.stringify(out));
   } finally { await r.close(); }
 });
 

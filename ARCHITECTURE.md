@@ -629,6 +629,21 @@ the clips' audio over the room's speakers. Every piece below is optional: a room
   Clips named in `state.media.preload` get a parked player that holds only their first frame; launching one adopts it.
 - **Audio** (`ui/js/audio-media.js`, `/api/media/pcm`, this computer only). The clip's PCM is pulled in blocks and played
   through the same room graph as the sound experiences; `audio.media.avOffsetMs` compensates the speakers' chain.
+- **Formats** (`docs/research/media-formats.md`; round 1). A file is what its bytes say (`sniff.js`), never its extension; a
+  medium has a `kind`: `hap` (the original), `image`, `video` (H.264 in MP4/MOV) or `audio`. Images: header size in Node (PNG, JPEG +
+  EXIF, WebP, GIF, BMP, AVIF), decoded once by an output worker, one mipmapped texture (`still-player.js`), reduced above
+  16384 px / 64 Mpx; a still with no `out` is always there (`playhead()`: `still` + `endless`). Video: `mov.js` also reads the
+  avcC, ctts (B-frames), stss, tkhd rotation and AAC (esds); `video-worker.js` runs a WebCodecs decoder **with state** per clip
+  (`video-pool.js`: affinity, depth, a 'main' and a 'wrap' lane for the loop), frames are presented by the engine's clock like
+  HAP's; Chromium's codecs only (no FFmpeg in the product). Sound: WAV in Node (`wav.js`, same PCM route as a movie's
+  audio), AAC/MP3/FLAC/Ogg decoded once into `<data>/audio-cache/<fingerprint>.pcm` (s16le, starting at the clip's time 0: the
+  encoder's priming and the edit lists taken off), served by `/api/media/pcm` — 409 (quietly silent) until it exists.
+  **The media helper** (`engine/media/helper.js`, `ui/helper.html`, `ui/js/helper/`): a hidden Chromium window of the desktop
+  app (`app/main.js › applyHelperWindow`) that the engine asks, by long poll (`/api/helper/*`, this computer only), for what Node
+  cannot do: thumbnails of images / video frames / waveforms, "can this computer decode it?" (a real sample, hardware or CPU)
+  and the audio cache. With no helper (engine alone) images and WAV still import; MP3/AAC refuse with a message; H.264 is
+  accepted with a note and its AAC is silent. CPU-decoded video (H.264 wider than the GPU's 4096) is limited to ~250 Mpx/s
+  (`MediaEngine._checkVideo`; measured in `docs/research/media-formats-medidas.md`).
 - **Phone** (`ui/js/remote-live.js`): Live on the phone is the same commands over the same socket. Through the relay the
   state is sent compact (`wire.js`: clip fields equal to the defaults, finished copies and `mtimeMs` are dropped;
   `conn.js` expands it back) and stays well under 64 kB for a 60-clip show.

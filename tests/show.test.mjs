@@ -22,7 +22,7 @@ const med = (id, file, extra = {}) => ({ id, file, size: 1000, fingerprint: 'a'.
 // twice changes anything (every load would rewrite the file and add a version).
 test('show: defaults (three layers, one Main deck of eight columns) and normalising twice changes nothing', () => {
   const s = normalizeShow({ name: 'Reel' }, { canvas: { width: 7196, height: 912 } });
-  assert.equal(s.schema, 1);
+  assert.equal(s.schema, 2);
   assert.equal(s.id, 'reel');
   assert.deepEqual(s.canvas, { width: 7196, height: 912 }, 'a new show takes the room canvas');
   assert.deepEqual(s.layers.map((l) => [l.id, l.name, l.end, l.trigger, l.transitionMs]), [['L1', 'Layer 1', 'loop', 'restart', 500], ['L2', 'Layer 2', 'loop', 'restart', 500], ['L3', 'Layer 3', 'loop', 'restart', 500]]);

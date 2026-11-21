@@ -176,8 +176,8 @@ test('import: every case of the validation table gives its exact message, all re
     const full = hap();
     const paths = [
       r.file('hap.mov', hap()), r.file('alpha.mov', hap({ variant: 'hapa' })), r.file('q.mov', hap({ variant: 'hapq' })),
-      r.file('clip.mp4', hap({ fourcc: 'avc1' })),
-      r.file('clip.mov', hap({ fourcc: 'avc1' })), r.file('prores.mov', hap({ fourcc: 'apcn' })), r.file('hevc.mov', hap({ fourcc: 'hvc1' })),
+      r.file('clip.mp4', hap({ fourcc: 'mp4v' })),
+      r.file('clip.mov', hap({ fourcc: 'xd5c' })), r.file('prores.mov', hap({ fourcc: 'apcn' })), r.file('hevc.mov', hap({ fourcc: 'hvc1' })),
       r.file('qalpha.mov', hap({ fourcc: 'HapM' })), r.file('r.mov', hap({ fourcc: 'Hap7' })), r.file('hdr.mov', hap({ fourcc: 'HapH' })),
       r.file('cut.mov', full.subarray(0, full.length - 40)), r.file('renamed.mov', Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 1, 0, 0, 0, 0, 0, 0, 0])),
       r.file('aac.mov', hap({ audio: { codec: 'mp4a' } })), r.file('wide.mov', hap({ width: 512, height: 64, frames: 2 })),
@@ -186,15 +186,15 @@ test('import: every case of the validation table gives its exact message, all re
     const res = await r.import(paths);
     const why = Object.fromEntries(res.rejected.map((x) => [x.name, x.message]));
     assert.deepEqual(why, {
-      'clip.mp4': '"clip.mp4" is not a HAP movie. VEATION Touch plays HAP (.mov) — export it as HAP or HAP Q.',
-      'clip.mov': '"clip.mov" is H.264, not HAP. Export it as HAP or HAP Q.',
-      'prores.mov': '"prores.mov" is ProRes 422, not HAP. Export it as HAP or HAP Q.',
-      'hevc.mov': '"hevc.mov" is HEVC, not HAP. Export it as HAP or HAP Q.',
+      'clip.mp4': '"clip.mp4" is MPEG-4, which VEATION Touch cannot play. Export it as H.264 or HAP.',
+      'clip.mov': '"clip.mov" is XDCAM, which VEATION Touch cannot play. Export it as H.264 or HAP.',
+      'prores.mov': '"prores.mov" is ProRes 422, which VEATION Touch cannot play. Export it as H.264 or HAP.',
+      'hevc.mov': '"hevc.mov" is HEVC (H.265), which is not supported yet. Export it as H.264 or HAP.',
       'qalpha.mov': 'HAP Q Alpha is not supported yet. Use HAP, HAP Alpha or HAP Q.',
       'r.mov': 'HAP R is not supported yet. Use HAP, HAP Alpha or HAP Q.',
       'hdr.mov': 'HAP HDR is not supported yet. Use HAP, HAP Alpha or HAP Q.',
       'cut.mov': '"cut.mov" is incomplete (no index). Copy it again from the source.',
-      'renamed.mov': '"renamed.mov" is not a HAP movie. VEATION Touch plays HAP (.mov) — export it as HAP or HAP Q.',
+      'renamed.mov': '"renamed.mov" is Matroska, which cannot be read. Export it as H.264 (MP4) or HAP.',
       'gone.mov': '"gone.mov" was not found.',
     });
     const ok = Object.fromEntries(res.accepted.map((x) => [x.name, x.warnings]));
