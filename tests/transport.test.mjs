@@ -397,18 +397,22 @@ test('engine: a clip whose file is missing (or still copying) does not change th
   try {
     const { engine, lib } = r;
     await engine.command('clip.trigger', { clipId: 'loop' });
-    const before = JSON.stringify(engine.state().media);
+    const noProblems = (m) => JSON.stringify({ ...m, problems: null });
+    const before = noProblems(engine.state().media);
     const msgs = [];
     engine.on('media', (m) => msgs.push(m));
+    // a launch does not stat the file: it uses what the library check found (every 10 s, and after a change)
     fs.rmSync(path.join(lib, 'shw', 'five.mov'));
+    await engine.media.check();
     await assert.rejects(engine.command('clip.trigger', { clipId: 'c', layerId: 'L2' }), /"five\.mov" is missing from the media library\./);
     fs.writeFileSync(path.join(lib, 'shw', 'five.mov'), Buffer.alloc(10)); // the wrong size: not the file the show knows
+    await engine.media.check();
     await assert.rejects(engine.command('clip.trigger', { clipId: 'c', layerId: 'L2' }), /missing from the media library/);
     engine.media.jobs.set('i9', { id: 'i9', kind: 'import', showId: 'shw', mediaId: 'm300', name: 'reel.mov', state: 'copying', done: 0, total: 1400, dst: path.join(lib, 'shw', 'reel.mov') });
     await assert.rejects(engine.command('clip.trigger', { clipId: 'reel', layerId: 'L1' }), /"reel\.mov" is still being copied into the library\./);
     engine.media.jobs.delete('i9');
-    assert.equal(JSON.stringify(engine.state().media), before, 'the transport is as it was');
-    assert.equal(msgs.length, 0, 'and nobody was told of a change');
+    assert.equal(noProblems(engine.state().media), before, 'the transport is as it was');
+    assert.equal(msgs.filter((m) => m.rev !== engine.state().media.rev).length, 0, 'and no transport change was announced');
     await assert.rejects(engine.command('clip.trigger', { clipId: 'nope' }), /unknown clip/);
     await assert.rejects(engine.command('clip.trigger', { deckId: 'D1', layerId: 'L1', column: 5 }), /that cell is empty/);
   } finally { await r.close(); }

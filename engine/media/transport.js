@@ -164,7 +164,8 @@ export class Transport {
       e.mix = mixOf(l);
       next.set(l.id, e);
     }
-    for (const [id, e] of this.entries) if (!next.has(id)) { this._end(e.play, 'removed'); this._end(e.from, 'removed'); }
+    // an entry that is not carried over (another show, a layer that went) ends its plays: 'ended' for each
+    for (const [id, e] of this.entries) if (next.get(id) !== e) { this._end(e.play, 'removed'); this._end(e.from, 'removed'); }
     for (const e of [...next.values(), this.x]) {
       for (const k of ['play', 'from']) {
         const p = e[k];

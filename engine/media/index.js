@@ -31,7 +31,9 @@ const CHECK_MS = 10000;      // missing files, drives that came back, free space
 const MEDIA_EMIT_MS = 250;   // at most 4 'media' messages a second while copying
 const DONE_KEEP_MS = 10000;  // a finished copy stays in the list this long once nothing is copying
 const PCM_MAX_FRAMES = 1 << 20;
-const MOVIES_OPEN = 4;       // movies the PCM route keeps open (index + handle)
+const MOVIES_OPEN = 16;      // movies the PCM route keeps open (index + handle), least recently used out first
+const THUMB_JOBS = 2;        // thumbnail workers at once (a show of 60 clips with no thumbnails is not 60 threads)
+const CANCEL_WAIT_MS = 3000; // a cancelled copy that does not stop by itself in this long (a dead USB in a blocked read) is killed
 const SHOW_SAVE_MS = 700;    // a layer's mix or a preset's parameter, moved live, is written once it settles
 const SNAP_LAZY_MS = 250;    // a mix moved live (a fader) rewrites the transport snapshot at most this often; launches write at once
 const RESTORE_MAX_MS = 10 * 60000; // a transport snapshot older than this is not taken back (the room starts as show.start says)
@@ -74,25 +76,29 @@ export class MediaEngine extends EventEmitter {
    * @param {object} [deps.sourceOptions] passed to that `open`
    * @param {number} [deps.blockSize] copy block (8 MB)
    * @param {number} [deps.checkMs] period of the library check (10 s)
+   * @param {number} [deps.cancelMs] how long a cancelled copy may take to stop before its worker is terminated (3 s)
    * @param {{now: () => number, wall: () => number}} [deps.clock] the engine clock (performance.now, the clock of live.t) and the wall clock
    * @param {() => number} [deps.random] for the 'random' autopilot
    */
-  constructor({ store, log, settings, profile, setShowId, host = null, freeSpace = null, sourceOpener = null, sourceOptions = null, blockSize = null, checkMs = CHECK_MS, clock = null, random = Math.random }) {
+  constructor({ store, log, settings, profile, setShowId, host = null, freeSpace = null, sourceOpener = null, sourceOptions = null, blockSize = null, checkMs = CHECK_MS, cancelMs = CANCEL_WAIT_MS, clock = null, random = Math.random }) {
     super();
     this.store = store;
     this.log = log;
     this.settings = settings;
     this.profile = profile;
     this.setShowId = setShowId;
-    this.opts = { freeSpace, sourceOpener, sourceOptions, blockSize, checkMs };
+    this.opts = { freeSpace, sourceOpener, sourceOptions, blockSize, checkMs, cancelMs };
     this.show = null;
     this.showRev = 0;
     this.jobs = new Map();       // id → copy job (state.media.import)
     this.problems = [];          // missing-media, from the last check
     this.space = { free: null, total: null };
     this.workers = new Set();
-    this.movies = new Map();     // absolute path → { fh, size, mtimeMs, index, at } for the PCM route
+    this.movies = new Map();     // absolute path → { p: Promise<{fh, size, mtimeMs, index}>, mv, refs, at, dead } for the PCM route (LRU: the last key is the newest)
     this.thumbing = new Map();   // thumbnail being regenerated → Promise
+    this._thumbQ = [];           // thumbnails waiting for one of the THUMB_JOBS workers
+    this._thumbRun = 0;
+    this.layerRev = 0;           // live mixes written into show.layers (layer.set): they do not bump showRev
     this._seq = 0;
     this._loaded = undefined;
     this.clock = clock || { now: () => performance.now(), wall: () => Date.now() };
@@ -139,7 +145,8 @@ export class MediaEngine extends EventEmitter {
       if (this.show) { try { this.store.saveShow(this.show, { backup: false }); } catch (e) { this.log.warn(`show ${this.show.id}: ${e.message}`); } }
     }
     await Promise.all([...this.workers].map((w) => w.terminate().catch(() => {})));
-    await Promise.all([...this.movies.values()].map((m) => m.fh.close().catch(() => {})));
+    for (const q of this._thumbQ.splice(0)) q.res([]);
+    await Promise.all([...this.movies.values()].map((e) => this._evictMovie(e)));
     this.movies.clear();
     await this._checking?.catch(() => {});
   }
@@ -160,11 +167,15 @@ export class MediaEngine extends EventEmitter {
     this.show = show;
     this.showRev++;
     this.problems = [];
+    this._checkedFor = null;
     this._showSet();
     if (this._started) { this._restoreJobs(); this.check(); }
   }
 
   // ------------------------------------------------------------------ state
+
+  /** Changes whenever what a client has of the show goes stale: an edit (showRev) or a live mix written into its layers. */
+  get showStamp() { return `${this.showRev}.${this.layerRev}`; }
 
   /** The three state fields: show (with its revision), media (copies and problems), library (folder, free space). */
   state() { return { show: this.show ? { ...this.show, rev: this.showRev } : null, media: this.mediaState(), library: this.libraryState() }; }
@@ -227,7 +238,13 @@ export class MediaEngine extends EventEmitter {
         if (!args.show || typeof args.show !== 'object' || Array.isArray(args.show)) throw new Error('no show to save');
         if (args.rev !== undefined && args.rev !== this.showRev) throw new Error('stale: the show changed on another device — reloaded');
         // the media list is the library's to change (import, relink, remove): an edit cannot point a show at a file
-        this._saveShow({ ...args.show, id: this.show.id, media: this.show.media });
+        // the live mix is the transport's (layer.set does not bump the revision): an edit made with an old copy of the
+        // show keeps the mix the layers have now
+        const layers = Array.isArray(args.show.layers) ? args.show.layers.map((l) => {
+          const cur = l && this.show.layers.find((x) => x.id === l.id);
+          return cur ? { ...l, opacity: cur.opacity, blend: cur.blend, bypass: cur.bypass, audio: { ...l.audio, volume: cur.audio?.volume, mute: cur.audio?.mute } } : l;
+        }) : args.show.layers;
+        this._saveShow({ ...args.show, layers, id: this.show.id, media: this.show.media });
         return { rev: this.showRev };
       }
       case 'show.load': {
@@ -350,9 +367,15 @@ export class MediaEngine extends EventEmitter {
     if (!m) return 'the clip has no media';
     const name = fileName(m.file);
     if (this._jobFor(show.id, m.id)) return `"${name}" is still being copied into the library.`;
-    let st = null;
-    try { st = fs.statSync(absoluteIn(this.libraryDir, m.file)); } catch { /* missing */ }
-    if (!st || !st.isFile() || (m.size && st.size !== m.size)) return `"${name}" is missing from the media library.`;
+    // what the periodic check found (every 10 s, and at once after a change): no stat on the launch path. Only before
+    // the first check of a show has finished (the start of the engine, restoring what played) the file is looked at.
+    if (this._checkedFor !== show.id) {
+      let st = null;
+      try { st = fs.statSync(absoluteIn(this.libraryDir, m.file)); } catch { /* missing */ }
+      if (!st || !st.isFile() || (m.size && st.size !== m.size)) return `"${name}" is missing from the media library.`;
+      return null;
+    }
+    if (this.problems.some((p) => p.kind === 'missing-media' && p.mediaId === m.id)) return `"${name}" is missing from the media library.`;
     return null;
   }
 
@@ -365,6 +388,7 @@ export class MediaEngine extends EventEmitter {
     if (id !== XLAYER) {
       const l = this.show.layers.find((x) => x.id === id);
       Object.assign(l, { opacity: mix.opacity, blend: mix.blend, bypass: mix.bypass, audio: { ...l.audio, volume: mix.volume, mute: mix.mute } });
+      this.layerRev++;
       this._deferShowSave();
     }
     return mix;
@@ -659,11 +683,11 @@ export class MediaEngine extends EventEmitter {
     if (!job) return;
     this._copying = job;
     job.state = 'copying'; job.error = null; job.mbps = 0; job.etaS = null; job._last = null;
-    const { ctrl, done } = this._spawn({ kind: 'copy', src: job.src, dst: job.dst, size: job.size, fingerprint: job.fingerprint, block: this.opts.blockSize || undefined }, (m) => this._onCopy(job, m));
-    job.ctrl = ctrl;
+    const { worker, ctrl, done } = this._spawn({ kind: 'copy', src: job.src, dst: job.dst, size: job.size, fingerprint: job.fingerprint, block: this.opts.blockSize || undefined }, (m) => this._onCopy(job, m));
+    job.ctrl = ctrl; job.worker = worker;
     this._jobEvent(job);
     done.then(() => {
-      job.ctrl = null;
+      job.ctrl = null; job.worker = null;
       if (job.state === 'copying') { job.state = 'failed'; job.error = 'the copy stopped unexpectedly'; this._jobEvent(job); }
       this._copying = null;
       job._ended?.();
@@ -724,7 +748,14 @@ export class MediaEngine extends EventEmitter {
     if (job.state === 'copying' && job.ctrl) {
       const ended = new Promise((r) => { job._ended = r; });
       Atomics.store(job.ctrl, 0, 1);
-      await ended;
+      const wait = (ms) => new Promise((r) => { const t = setTimeout(() => r('late'), ms); t.unref?.(); ended.then(() => { clearTimeout(t); r('ended'); }); });
+      if (await wait(this.opts.cancelMs) === 'late' && job.state === 'copying') {
+        // the worker is stuck in a read that never returns (a drive that died): it is killed, the copy is over
+        job.state = 'cancelled';
+        this.log.warn(`copy of "${job.name}" did not stop: its worker was terminated`);
+        await job.worker?.terminate().catch(() => {});
+        await wait(1000);
+      }
     }
     const finished = job.state === 'done';
     if (!finished) { fs.rmSync(`${job.dst}.part`, { force: true }); fs.rmSync(`${job.dst}.part.json`, { force: true }); }
@@ -780,12 +811,13 @@ export class MediaEngine extends EventEmitter {
     if (![...this.jobs.values()].some((j) => PENDING.has(j.state))) {
       for (const [id, j] of this.jobs) if (j.state === 'done' && Date.now() - j.finishedAt > DONE_KEEP_MS) { this.jobs.delete(id); this._emitMedia(); }
     }
-    for (const [file, mv] of this.movies) if (Date.now() - mv.at > 60000) { this.movies.delete(file); mv.fh.close().catch(() => {}); }
+    for (const [file, e] of this.movies) if (e.refs === 0 && Date.now() - e.at > 60000) { this.movies.delete(file); this._evictMovie(e); }
     const before = this.space;
     this.space = await this._space(lib);
     // the library's folder itself (its drive unplugged, a network share gone): every clip of the show is then missing
     this.libReachable = !show?.media.length || await fs.promises.stat(lib).then((s) => s.isDirectory(), () => false);
     if (show && show.id === this.show?.id) { // (an edit during the awaits: drop what no longer holds)
+      this._checkedFor = show.id;
       const now = missing.filter((p) => this.show.media.some((m) => m.id === p.mediaId && m.file === p.file && !this._jobFor(show.id, m.id)));
       if (JSON.stringify(now) !== JSON.stringify(this.problems)) { this.problems = now; this._emitMedia(); }
     } else if (!this.show && this.problems.length) { this.problems = []; this._emitMedia(); }
@@ -982,6 +1014,19 @@ export class MediaEngine extends EventEmitter {
     return msgs;
   }
 
+  /** A thumbnail task, at most THUMB_JOBS at a time (the rest wait their turn). */
+  _thumbTask(task) {
+    return new Promise((res, rej) => { this._thumbQ.push({ task, res, rej }); this._thumbPump(); });
+  }
+
+  _thumbPump() {
+    while (!this._stopped && this._thumbRun < THUMB_JOBS && this._thumbQ.length) {
+      const q = this._thumbQ.shift();
+      this._thumbRun++;
+      this._task(q.task).then(q.res, q.rej).finally(() => { this._thumbRun--; this._thumbPump(); });
+    }
+  }
+
   async _inspect(files) {
     const out = [];
     for (const m of await this._task({ kind: 'inspect', files, thumbsDir: this.thumbsDir })) if (m.type === 'inspected') out[m.i] = m.result;
@@ -1011,7 +1056,7 @@ export class MediaEngine extends EventEmitter {
     if (!src) return null;
     const key = `${m.fingerprint}|${m.thumbFrame}`;
     if (!this.thumbing.has(key)) {
-      this.thumbing.set(key, this._task({ kind: 'thumb', file: src, fingerprint: m.fingerprint, frame: m.thumbFrame, thumbsDir: this.thumbsDir }).finally(() => this.thumbing.delete(key)));
+      this.thumbing.set(key, this._thumbTask({ kind: 'thumb', file: src, fingerprint: m.fingerprint, frame: m.thumbFrame, thumbsDir: this.thumbsDir }).finally(() => this.thumbing.delete(key)));
     }
     await this.thumbing.get(key);
     return fs.existsSync(file) ? { file, fingerprint: m.fingerprint } : null;
@@ -1031,7 +1076,10 @@ export class MediaEngine extends EventEmitter {
     if (this._jobFor(show.id, m.id)) throw httpError(409, 'the file is still being copied into the library');
     const start = Math.trunc(Number(from)), count = Math.trunc(Number(n));
     if (!Number.isFinite(start) || !(count >= 1 && count <= PCM_MAX_FRAMES)) throw httpError(400, `from and n (1–${PCM_MAX_FRAMES}) are sample frames`);
-    const mv = await this._movie(absoluteIn(this.libraryDir, m.file));
+    return this._withMovie(absoluteIn(this.libraryDir, m.file), (mv) => this._pcm(mv, start, count));
+  }
+
+  async _pcm(mv, start, count) {
     const a = mv.index.audio;
     if (!a || !a.supported) throw httpError(415, a ? `the audio is ${a.reason}` : 'the clip has no audio');
     const ranges = pcmRanges(a, start, count);
@@ -1046,23 +1094,48 @@ export class MediaEngine extends EventEmitter {
     return { body, encoding: a.encoding, channels: a.channels, rate: a.rate, from: ranges.length ? start + ranges[0].outFrame : Math.max(0, Math.min(a.frames, start)), frames, total: a.frames };
   }
 
-  /** An open movie with its index, kept for the next requests (the PCM route asks every half second). */
-  async _movie(file) {
+  /**
+   * Runs fn(mv) with an open movie ({fh, size, mtimeMs, index}), kept for the next requests (the PCM route asks every
+   * half second): MOVIES_OPEN of them, least recently used out first. The cache holds the Promise (two requests for the
+   * same file open it once) and a handle is closed only when no read of it is in flight.
+   */
+  async _withMovie(file, fn) {
     const st = await fs.promises.stat(file).catch(() => null);
     if (!st) throw httpError(404, 'the file is missing from the library');
-    let mv = this.movies.get(file);
-    if (mv && (mv.size !== st.size || mv.mtimeMs !== st.mtimeMs)) { this.movies.delete(file); mv.fh.close().catch(() => {}); mv = null; }
-    if (!mv) {
-      const fh = await fs.promises.open(file, 'r');
-      try {
-        const read = async (off, len) => { const b = Buffer.allocUnsafe(Math.max(0, Math.min(len, st.size - off))); const { bytesRead } = await fh.read(b, 0, b.length, off); return b.subarray(0, bytesRead); };
-        mv = { fh, size: st.size, mtimeMs: st.mtimeMs, index: await movIndexAsync(read, st.size), at: 0 };
-      } catch (e) { await fh.close().catch(() => {}); throw httpError(422, e.message); }
-      this.movies.set(file, mv);
-      while (this.movies.size > MOVIES_OPEN) { const [k, old] = this.movies.entries().next().value; this.movies.delete(k); old.fh.close().catch(() => {}); }
+    let e = this.movies.get(file);
+    if (e && e.mv && (e.mv.size !== st.size || e.mv.mtimeMs !== st.mtimeMs)) { this.movies.delete(file); this._evictMovie(e); e = null; }
+    if (e) { this.movies.delete(file); this.movies.set(file, e); } // (used now: the newest)
+    else {
+      e = { refs: 0, at: 0, dead: false, mv: null, p: null };
+      const mine = e;
+      e.p = this._openMovie(file, st).then((mv) => { mine.mv = mv; return mv; });
+      e.p.catch(() => { if (this.movies.get(file) === mine) this.movies.delete(file); });
+      this.movies.set(file, e);
+      while (this.movies.size > MOVIES_OPEN) { const [k, old] = this.movies.entries().next().value; this.movies.delete(k); this._evictMovie(old); }
     }
-    mv.at = Date.now();
-    return mv;
+    e.refs++; e.at = Date.now();
+    try { return await fn(await e.p); }
+    finally { e.refs--; e.at = Date.now(); if (e.dead && e.refs === 0) this._closeMovie(e); }
+  }
+
+  async _openMovie(file, st) {
+    const fh = await fs.promises.open(file, 'r');
+    try {
+      const read = async (off, len) => { const b = Buffer.allocUnsafe(Math.max(0, Math.min(len, st.size - off))); const { bytesRead } = await fh.read(b, 0, b.length, off); return b.subarray(0, bytesRead); };
+      return { fh, size: st.size, mtimeMs: st.mtimeMs, index: await movIndexAsync(read, st.size) };
+    } catch (err) { await fh.close().catch(() => {}); throw httpError(422, err.message); }
+  }
+
+  /** Out of the cache: closed now, or by the last reader that is still using it. */
+  _evictMovie(e) {
+    e.dead = true;
+    return e.refs === 0 ? this._closeMovie(e) : Promise.resolve();
+  }
+
+  _closeMovie(e) {
+    const mv = e.mv;
+    e.mv = null;
+    return mv ? mv.fh.close().catch(() => {}) : Promise.resolve();
   }
 }
 

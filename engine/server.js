@@ -323,6 +323,23 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
   const send = (ws, obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
   /** A device that comes through the internet relay gets the state compact (engine/media/wire.js; conn.js expands it). */
   const forClient = (c, obj) => (c.tunnel ? compactState(obj) : obj);
+  /**
+   * The state message for one client, without the show when the client already has this very version of it and said it
+   * can keep it (hello.showDelta: the state then says `showSame: true` and conn.js carries its own show over). The whole
+   * show used to go to every client with every state (~every 2 s, and with each audio report): 60 kB for a big show.
+   * A client always gets the show when it connects, after a stale refusal, and whenever the engine's showStamp moved.
+   */
+  const slim = new WeakMap();
+  const showFor = (c, st) => {
+    const stamp = engine.media?.showStamp;
+    if (stamp === undefined || !st.show) return st;
+    if (c.showDelta && c.showStamp === stamp) {
+      if (!slim.has(st)) { const { show, ...rest } = st; slim.set(st, { ...rest, showSame: true }); } // (one per message, shared by its clients)
+      return slim.get(st);
+    }
+    c.showStamp = stamp;
+    return st;
+  };
 
   let clientSeq = 0;
   function onUi(ws, peer, url, ua = '') {
@@ -331,7 +348,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (!client.local) log.info(`device connected from ${addr.replace('::ffff:', '')} (${deviceName(ua)})`);
     uiClients.add(client);
     updateVizListener();
-    send(ws, forClient(client, { ...engine.state(), lan: lan(), token: engine.settings.token, local: client.local, you: client.id }));
+    send(ws, forClient(client, showFor(client, { ...engine.state(), lan: lan(), token: engine.settings.token, local: client.local, you: client.id })));
     send(ws, engine.status());
     ws.on('message', async (raw) => {
       let m;
@@ -339,6 +356,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       if (m.type === 'hello') {
         client.role = m.role || client.role;
         client.viz = !!m.viz;
+        client.showDelta = m.showDelta === true;
         client.vizEvery = Math.max(1, Math.round(10 / Math.max(1, Math.min(10, m.vizHz || 10))));
         updateVizListener();
       } else if (m.type === 'cmd') {
@@ -350,7 +368,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
           send(ws, { type: 'ack', id: m.id, ok: true, result });
         } catch (e) {
           send(ws, { type: 'ack', id: m.id, ok: false, error: e.message });
-          if (/^stale/.test(e.message)) send(ws, forClient(client, engine.state()));
+          if (/^stale/.test(e.message)) { client.showStamp = undefined; send(ws, forClient(client, showFor(client, engine.state()))); }
         }
       }
     });
@@ -382,8 +400,13 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     // another room: events still waiting for the next live message belong to the old one
     if (liveRoom !== engine.profile.id) { liveRoom = engine.profile.id; pendingEvents = []; }
     const st = { ...engine.state(), lan: lan(), token: engine.settings.token };
-    const small = [...uiClients].some((c) => c.tunnel) ? compactState(st) : null;
-    for (const c of uiClients) send(c.ws, { ...(c.tunnel ? small : st), local: c.local, you: c.id });
+    const small = new Map(); // the compact message, made once for the clients that get the same one
+    for (const c of uiClients) {
+      const msg = showFor(c, st);
+      let out = msg;
+      if (c.tunnel) { if (!small.has(msg)) small.set(msg, compactState(msg)); out = small.get(msg); }
+      send(c.ws, { ...out, local: c.local, you: c.id });
+    }
   });
   const unsubLog = log.onEntry?.((entry) => broadcast({ type: 'log', entry }, (c) => c.role === 'ui'));
   // the media server's own changes (copies in progress, problems): small, so the whole state is not sent each time
