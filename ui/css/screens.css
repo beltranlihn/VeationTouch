@@ -1,0 +1,4 @@
+/* Output › Screens (ui/js/outputview/index.js, view id 'mapping'). Linked from index.html; same tokens as app.css.
+   Today the sub-tab is the Mapping (the workspace in canvas space, styled in app.css) with the room output card under it
+   (.xp-card rules of app.css). The Advanced Output of the media server — screens ▸ slices, Input / Output stages, test
+   card (plan F9) — is styled here, scoped to .app[data-view="mapping"]. */

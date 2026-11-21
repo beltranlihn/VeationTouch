@@ -1,6 +1,7 @@
 // VEATION Touch — operator UI (desktop window and phones/tablets on the LAN).
-// Each tool turns the central canvas into its own workspace (see workspace.js); the right
-// panel is the inspector of what is selected there.
+// Three sections in the rail — Live · Output · System & Calibration — each with its sub-tabs (index.html › #subnav).
+// A sub-tab is a view: it turns the central canvas into its own workspace (see workspace.js), and the right panel is
+// the inspector of what is selected there.
 
 import { store, on, connect, cmd, editProfile, setViz, isCoarse, undo, redo, history, otherControl, editBlocked } from './conn.js';
 import { h, toast, confirmBox, modal } from './dom.js';
@@ -9,6 +10,8 @@ import * as expview from './expview.js';
 import { Room3D } from './room3d.js';
 import { withGeom, geomOf, translateGeom, boundsOfGeom } from './shapes.js';
 import * as V from './views.js';
+import * as LiveView from './live/index.js';
+import * as OutputView from './outputview/index.js';
 
 const $ = (id) => document.getElementById(id);
 const panel = $('panel');
@@ -27,6 +30,7 @@ const handHook = (() => {
 
 const ctx = {
   view: 'live',
+  section: 'live',
   live3d: (() => { try { return localStorage.getItem('vt-live-3d') === '1'; } catch { return false; } })(),
   sel: null,
   calibWall: null,
@@ -44,6 +48,7 @@ const ctx = {
     render(); renderBar(); hint();
   },
   go(view) { setView(view); },
+  goSection(section) { goSection(section); },
   rerender: () => { render(); renderBar(); },
 };
 
@@ -96,11 +101,11 @@ ctx.ws = ws;
 const r3d = new Room3D($('room3d'), { hand: handHook, ws, changed: () => renderBar() });
 ctx.r3d = r3d;
 
-/** Live › 3D: the WebGL view replaces the 2D strip (which stops drawing meanwhile). */
+/** The room monitor › 3D (Live and Status): the WebGL view replaces the 2D strip (which stops drawing meanwhile). */
 function update3d() {
-  const want = ctx.view === 'live' && ctx.live3d;
+  const want = onMonitor() && ctx.live3d;
   if (want && !r3d.ok) { ctx.live3d = false; toast('The 3D view needs WebGL 2, which this browser does not offer.', 'bad'); }
-  const on = ctx.view === 'live' && ctx.live3d;
+  const on = onMonitor() && ctx.live3d;
   r3d.setActive(on);
   ws.suspended = on;
 }
@@ -114,25 +119,67 @@ ctx.rv = ws; // views use ctx.rv for the hand tool
 window.__vt = ctx; // debugging aid (DevTools / automated UI checks)
 ctx.views = V;
 
-// ------------------------------------------------------------------ views & render
+// ------------------------------------------------------------------ sections, sub-tabs & views
+
+/** View id → the panel it shows. The ids are the ones the views have always had (ctx.go('<id>') keeps working). */
+const VIEWS = {
+  ...LiveView.views,                                       // Live
+  ...OutputView.views,                                     // Output: mapping (Screens) · audio · outputs (Protocols)
+  status: V.status, room: V.room, sensors: V.sensors, calibrate: V.calibrate, zones: V.zones, system: V.system, // System & Calibration
+};
+/** Old ids that no longer are a view of their own. */
+const ALIASES = { experiences: 'live' }; // the Experiences tab was split: the experience and the sound piece are in Live
+/** The workspace mode of a view, when it is not the view's own id: Status shares the room monitor with Live. */
+const WS_MODE = { status: 'live' };
+const wsMode = (view) => WS_MODE[view] || view;
+const onMonitor = () => wsMode(ctx.view) === 'live';
+
+// the markup is the one list of sections and sub-tabs: a section opens on data-home, every data-view of its group is its sub-tab
+const SECTIONS = [...$('nav').querySelectorAll('button[data-section]')].map((b) => b.dataset.section);
+const HOME = {}, SECTION_OF = {};
+for (const b of $('nav').querySelectorAll('button[data-section]')) { HOME[b.dataset.section] = b.dataset.home; SECTION_OF[b.dataset.home] = b.dataset.section; }
+for (const g of $('subnav').querySelectorAll('.subtabs[data-section]')) for (const b of g.querySelectorAll('button[data-view]')) SECTION_OF[b.dataset.view] = g.dataset.section;
+for (const v of Object.keys(VIEWS)) if (!SECTION_OF[v]) console.error(`view "${v}" has no section`);
+ctx.nav = { sections: SECTIONS, home: HOME, sectionOf: (v) => SECTION_OF[ALIASES[v] || v] ?? null, views: Object.keys(VIEWS), aliases: ALIASES };
 
 const RERENDER_ON = {
-  live: ['state', 'status', 'live'], room: ['state'], mapping: ['state'], sensors: ['state', 'status'],
-  calibrate: ['state', 'status', 'calib'], zones: ['state', 'live'], outputs: ['state', 'status'], experiences: ['state'], system: ['state', 'recording'],
+  live: ['state'], status: ['state', 'status', 'live'],
+  mapping: ['state'], audio: ['state'], outputs: ['state', 'status'],
+  room: ['state'], sensors: ['state', 'status'], calibrate: ['state', 'status', 'calib'], zones: ['state', 'live'], system: ['state', 'recording'],
 };
 
 function setView(view) {
-  ctx.view = view;
-  for (const b of $('nav').querySelectorAll('button')) b.classList.toggle('on', b.dataset.view === view);
-  ws.setMode(view);
+  view = ALIASES[view] || view;
+  if (!VIEWS[view]) return;
+  const section = SECTION_OF[view];
+  ctx.view = view; ctx.section = section;
+  app.dataset.section = section; app.dataset.view = view;
+  for (const b of $('nav').querySelectorAll('button[data-section]')) {
+    b.classList.toggle('on', b.dataset.section === section);
+    if (b.dataset.section === section) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  }
+  let tabs = null;
+  for (const g of $('subnav').querySelectorAll('.subtabs[data-section]')) { g.hidden = g.dataset.section !== section; if (!g.hidden) tabs = g; }
+  $('subnav').hidden = !tabs; // Live is one screen: no sub-tab bar
+  for (const b of $('subnav').querySelectorAll('button[data-view]')) { b.classList.toggle('on', b.dataset.view === view); b.setAttribute('aria-selected', String(b.dataset.view === view)); }
+  ws.setMode(wsMode(view));
   update3d();
-  const keep = { room: ['wall'], mapping: ['wall'], sensors: ['sensor', 'wall'], zones: ['zone', 'mask', 'wall'], outputs: ['output'], live: ['wall'], calibrate: ['wall'] }[view] || [];
+  const keep = { room: ['wall'], mapping: ['wall'], sensors: ['sensor', 'wall'], zones: ['zone', 'mask', 'wall'], outputs: ['output'], live: ['wall'], status: ['wall'], calibrate: ['wall'] }[view] || [];
   if (ctx.sel && !keep.includes(ctx.sel.kind)) { ctx.sel = null; ws.selection = null; }
   if (view === 'calibrate' && ws.focus) ctx.calibWall = ws.focus;
-  try { localStorage.setItem('vt-view', view); } catch { /* ignore */ }
+  // remembered on this device: the last view, and the last sub-tab of each section (a section opens where it was left)
+  try { localStorage.setItem('vt-view', view); localStorage.setItem(`vt-tab-${section}`, view); } catch { /* ignore */ }
   panel.scrollTop = 0;
   updateFocusMode();
   hint(); render(); renderBar();
+}
+
+/** A section opens on its last sub-tab on this device (the first time: its home). */
+function goSection(section) {
+  if (!HOME[section]) return;
+  let view = HOME[section];
+  try { const t = localStorage.getItem(`vt-tab-${section}`); if (t && SECTION_OF[t] === section && VIEWS[t]) view = t; } catch { /* ignore */ }
+  setView(view);
 }
 
 let pending = false, lastRender = 0;
@@ -144,7 +191,7 @@ function render() {
   pending = false;
   lastRender = performance.now();
   const top = panel.scrollTop;
-  panel.replaceChildren(...V[ctx.view](ctx));
+  panel.replaceChildren(...VIEWS[ctx.view](ctx));
   panel.scrollTop = top;
 }
 panel.addEventListener('focusout', () => setTimeout(() => { if (pending) render(); }, 0));
@@ -175,10 +222,13 @@ function zoneHint() {
 }
 
 function hint() {
+  const monitor = ctx.live3d
+    ? (ws.tool === 'hand' ? 'Virtual hand: touch a wall in 3D · two fingers to zoom' : 'Drag to orbit · right-drag or Shift-drag to pan · wheel or pinch to zoom · double-click resets · walls facing away hide so you see inside')
+    : ws.tool === 'hand' ? 'Virtual hands: touch or click a wall · two fingers to zoom' : 'Read-only view of the whole room · drag to pan · wheel or pinch to zoom';
   const t = {
-    live: ctx.live3d
-      ? (ws.tool === 'hand' ? 'Virtual hand: touch a wall in 3D · two fingers to zoom' : 'Drag to orbit · right-drag or Shift-drag to pan · wheel or pinch to zoom · double-click resets · walls facing away hide so you see inside')
-      : ws.tool === 'hand' ? 'Virtual hands: touch or click a wall · two fingers to zoom' : 'Read-only view of the whole room · drag to pan · wheel or pinch to zoom',
+    live: monitor,
+    status: monitor,
+    audio: '',
     room: 'Drag the amber handles to resize a wall · tap a wall to edit it',
     mapping: 'The output canvas in pixels · drag a wall to move it · drag its corners · arrows nudge 1 px (Shift 10 px)',
     sensors: 'Drag a sensor to move it · drag the amber dot to rotate · the floor line should lie on the bottom edge',
@@ -225,7 +275,7 @@ function renderBar() {
   syncTexture();
   const bar = [];
   const sims = P.sensors.some((s) => s.driver === 'sim' && s.enabled);
-  const wallSpace = ctx.view !== 'mapping' && ctx.view !== 'outputs' && ctx.view !== 'experiences' && ctx.view !== 'system' && ws.space === 'wall';
+  const wallSpace = !['mapping', 'outputs', 'audio', 'system'].includes(ctx.view) && ws.space === 'wall';
 
   // wall navigator
   if (wallSpace && P.walls.length > 1) {
@@ -235,7 +285,7 @@ function renderBar() {
       P.walls.map((w) => h('button', { class: `wallnav${ws.focus === w.id ? ' on' : ''}`, title: w.name, onclick: () => { ws.setFocus(w.id); if (ctx.view === 'calibrate') { ctx.calibWall = w.id; render(); } } }, w.id))));
   }
 
-  if (ctx.view === 'live') {
+  if (onMonitor()) {
     bar.push(h('div', { class: 'seg', title: 'The room as a strip of walls (2D) or standing around the floor (3D)' },
       h('button', { class: `view${ctx.live3d ? '' : ' on'}`, onclick: () => setLive3d(false) }, '2D'),
       h('button', { class: `view${ctx.live3d ? ' on' : ''}`, onclick: () => setLive3d(true) }, '3D')));
@@ -245,8 +295,8 @@ function renderBar() {
   if (ctx.view === 'outputs' && ws.texture && sims) {
     bar.push(h('div', { class: 'seg' }, toolBtn('select', 'View', 'Pan and zoom'), toolBtn('hand', 'Virtual hand', 'Touch the walls with a simulated hand (through the Mapping) to try the texture')));
   }
-  if (ctx.view === 'live' || ctx.view === 'sensors') {
-    if (sims) bar.push(h('div', { class: 'seg' }, toolBtn('select', 'View', ctx.live3d && ctx.view === 'live' ? 'Orbit, pan and zoom' : 'Pan and select'), toolBtn('hand', 'Virtual hand', 'Touch the wall with a simulated hand')));
+  if (onMonitor() || ctx.view === 'sensors') {
+    if (sims) bar.push(h('div', { class: 'seg' }, toolBtn('select', 'View', ctx.live3d && onMonitor() ? 'Orbit, pan and zoom' : 'Pan and select'), toolBtn('hand', 'Virtual hand', 'Touch the wall with a simulated hand')));
   }
   if (ctx.view === 'zones') {
     const onCanvas = ws.space === 'canvas';
@@ -366,17 +416,15 @@ addEventListener('keydown', (e) => {
   if (e.key === '?') { shortcuts(); return; }
   const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
   if (arrows && ws.nudge(arrows[0], arrows[1], e.shiftKey)) e.preventDefault();
-  if (!mod && /^[1-9]$/.test(e.key)) {
-    const views = ['live', 'room', 'mapping', 'sensors', 'calibrate', 'zones', 'outputs', 'experiences', 'system'];
-    setView(views[Number(e.key) - 1]);
-  }
+  // 1 · 2 · 3: the sections (each opens on its last sub-tab); the sub-tabs are clicked
+  if (!mod && !e.altKey && /^[1-9]$/.test(e.key) && SECTIONS[Number(e.key) - 1]) goSection(SECTIONS[Number(e.key) - 1]);
 });
 
 function shortcuts() {
   const rows = [
-    ['1 – 9', 'Switch tool: Live, Room, Mapping, Sensors, Calibrate, Zones, Outputs, Experiences, System'],
+    ['1 · 2 · 3', 'Switch section: Live, Output, System & Calibration (each opens on its last sub-tab)'],
     ['Ctrl+Z · Ctrl+Shift+Z / Ctrl+Y', 'Undo · redo'],
-    ['Arrows', 'Nudge the selection: 1 px in Mapping, one snap step (1 cm by default) on walls'],
+    ['Arrows', 'Nudge the selection: 1 px in Output › Screens, one snap step (1 cm by default) on walls'],
     ['Shift + arrows', '10 px · ten snap steps'],
     ['Ctrl+D', 'Duplicate the selected zone'],
     ['Delete', 'Delete the selected zone or mask — or the selected polygon point (Zones)'],
@@ -426,6 +474,22 @@ function renderChips() {
   ].filter(Boolean));
 }
 
+/**
+ * Problems (n) in the top bar: how many things need attention (V.problems — the Health list of Status, and any source a
+ * later part adds to V.problemSources), in amber, or red with a fault. It opens Status, where each one has its fix.
+ * Nothing at all when there is no problem.
+ */
+function renderProblems() {
+  const list = store.state ? V.problems(ctx) : [];
+  const key = list.map((p) => `${p[0]}|${p[1]}`).join('\n');
+  const box = $('problems');
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  box.replaceChildren(...(list.length ? [h('button', { class: 'chip', title: `${list.map((p) => p[1]).join('\n')}\n\nOpen Status`, onclick: () => ctx.go('status') },
+    h('span', { class: `dot ${list.some((p) => p[0] === 'bad') ? 'bad' : 'warn'}` }), 'Problems', h('span', { class: 'n tnum' }, `(${list.length})`))] : []));
+}
+ctx.renderProblems = renderProblems; // a problem source that changes outside state/status asks for a refresh
+
 /** Another device drives the calibration: say so, and offer to take over (a tablet can die mid-session). */
 function renderControl() {
   const c = otherControl();
@@ -456,11 +520,12 @@ function renderStatusBar() {
     h('span', {}, `engine ${e.fps ?? '—'} fps`),
     h('span', {}, `${e.rss ?? '—'} MB`),
     h('span', {}, `v${S.version}`),
-    h('button', { class: 'linkish muted', onclick: shortcuts, title: 'Keyboard shortcuts' }, 'keys 1–9 tools · Ctrl+Z undo · ? shortcuts'),
+    h('button', { class: 'linkish muted', onclick: shortcuts, title: 'Keyboard shortcuts' }, 'keys 1–3 sections · Ctrl+Z undo · ? shortcuts'),
   ].filter(Boolean));
 }
 
-$('nav').addEventListener('click', (e) => { const b = e.target.closest('button[data-view]'); if (b) setView(b.dataset.view); });
+$('nav').addEventListener('click', (e) => { const b = e.target.closest('button[data-section]'); if (b) goSection(b.dataset.section); });
+$('subnav').addEventListener('click', (e) => { const b = e.target.closest('button[data-view]'); if (b) setView(b.dataset.view); });
 $('profileSelect').addEventListener('change', async (e) => {
   // switching rooms stops sensors and outputs: confirm, and put the selector back if not
   const ok = await V.switchRoom(store.state.profiles.find((p) => p.id === e.target.value));
@@ -491,19 +556,21 @@ let firstState = true;
 on('state', () => {
   if (firstState) {
     firstState = false;
+    // where this device was last (an old id still works: 'experiences' opens Live)
     let v = 'live';
     try { v = localStorage.getItem('vt-view') || 'live'; } catch { /* ignore */ }
-    if (!V[v]) v = 'live';
+    v = ALIASES[v] || v;
+    if (!VIEWS[v]) v = 'live';
     setView(v);
   }
   if (ctx.sel && !exists(ctx.sel)) { ctx.sel = null; ws.selection = null; }
   if (ws.focus && !store.state.profile.walls.some((w) => w.id === ws.focus)) ws.setFocus(['sensors', 'calibrate', 'zones'].includes(ctx.view) ? store.state.profile.walls[0]?.id ?? null : null);
-  renderTop(); renderChips(); renderStatusBar(); renderControl(); renderBar();
+  renderTop(); renderChips(); renderProblems(); renderStatusBar(); renderControl(); renderBar();
   maybeRender('state');
 });
 let recKey = '';
 on('status', () => {
-  renderChips(); renderStatusBar(); renderControl(); maybeRender('status');
+  renderChips(); renderProblems(); renderStatusBar(); renderControl(); maybeRender('status');
   // follow the wall being calibrated / verified (a view-only device did not choose it)
   const cw = (store.status?.calib || store.status?.verify)?.wallId;
   if (ctx.view === 'calibrate' && cw && ws.focus !== cw) { ctx.calibWall = cw; ws.setFocus(cw); }

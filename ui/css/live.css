@@ -1,0 +1,5 @@
+/* Live — the room running (ui/js/live/index.js). Linked from index.html; same tokens as app.css (VEATION: three
+   surfaces, ink ramp, cyan = live, amber = attention, Geist).
+   Today Live is the room monitor (the workspace, styled in app.css) and the Experience panel (the .xp-card rules of
+   app.css). The preset shelf, the clip grid, the layer strip and the library drawer of the media server (plan F8) are
+   styled here, scoped to the section: .app[data-section="live"] (app.js sets data-section and data-view on #app). */

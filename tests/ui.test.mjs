@@ -18,9 +18,10 @@ try { electronPath = (await import('electron')).default; } catch { /* not instal
 
 /**
  * Start a test engine (bundled profiles → the simulated XR Lab room), run `script` in the UI, return
- * {result, errors, engine}. `setup(engine)` may change the engine before the page loads.
+ * {result, errors, engine}. `setup(engine)` may change the engine before the page loads. `preload`: the window gets that
+ * preload (as the desktop app's main window does); `files`: real files put in a hidden <input type=file id=__vtFiles>.
  */
-async function inUi(script, { setup, w = 1440, h = 900, mobile = false, server: serverOpts = {}, wait = 'state', page = '/' } = {}) {
+async function inUi(script, { setup, w = 1440, h = 900, mobile = false, server: serverOpts = {}, wait = 'state', page = '/', preload = null, files = null, shot = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-ui-'));
   const store = new Store(dir, path.join(root, 'profiles'), quiet);
   const engine = new Engine({ store, log: quiet, version: 'test' });
@@ -33,6 +34,9 @@ async function inUi(script, { setup, w = 1440, h = 900, mobile = false, server: 
     if (setup) await setup(engine);
     const args = [path.join(root, 'tests', 'ui', 'runner.cjs'), `--url=http://127.0.0.1:${server.port}${page}`, `--script=${file}`, `--w=${w}`, `--h=${h}`, `--wait=${wait}`];
     if (mobile) args.push('--mobile');
+    if (preload) args.push(`--preload=${preload}`);
+    if (files) args.push(`--files=${files.join('|')}`);
+    if (shot) args.push(`--shot=${shot}`);
     const outText = await new Promise((resolve, reject) => {
       const p = spawn(electronPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
       let buf = '';
@@ -191,17 +195,18 @@ test('ui: Sensors — one button captures the background of every sensor; the in
   assert.deepEqual(result.titles.filter((t) => order.some((o) => t.toUpperCase().startsWith(o.toUpperCase()))).map((t) => t.toUpperCase()), order.map((o) => o.toUpperCase()));
 });
 
-test('ui: Health offers the fix — grouped "4 sensors without background" with Capture all', opt, async () => {
+test('ui: Status › Health offers the fix — grouped "4 sensors without background" with Capture all', opt, async () => {
+  // (Health was the panel of the old Live tab; it is System & Calibration › Status now)
   const { result, errors } = await inUi(`
     const { store } = await import('/js/conn.js');
-    const v = window.__vt; v.go('live');
+    const v = window.__vt; v.go('status');
     await new Promise((r) => setTimeout(r, 900)); // first status
     const text = () => document.querySelector('#panel .health').innerText;
     const before = text();
     [...document.querySelectorAll('#panel .health button')].find((b) => b.innerText === 'Capture all').click();
     [...document.getElementById('overlay').querySelectorAll('button')].find((b) => b.innerText === 'Start now').click();
     for (let k = 0; k < 40 && Object.values(store.status.sensors).filter((x) => x.background).length < 4; k++) await new Promise((r) => setTimeout(r, 250));
-    await new Promise((r) => setTimeout(r, 700)); v.go('live');
+    await new Promise((r) => setTimeout(r, 700)); v.go('status');
     return { before, after: text() };`);
   assert.deepEqual(errors, []);
   assert.match(result.before, /4 sensors without background/);
@@ -345,6 +350,171 @@ test('ui: a phone opens the calibration remote, not the full app; ?ui=full gives
   assert.deepEqual(full.result, { remote: false, nav: true });
   const desk = await inUi(`return { remote: !!window.__vt.remote, nav: !!document.getElementById('nav') };`);
   assert.deepEqual(desk.result, { remote: false, nav: true }, 'the computer keeps the full app');
+});
+
+// ---------------------------------------------------------------------------------------------------- navigation (sections · sub-tabs)
+
+const SETUP_TABS = [['status', 'Status'], ['room', 'Room'], ['sensors', 'Sensors'], ['calibrate', 'Calibrate'], ['zones', 'Zones'], ['system', 'System']];
+const OUTPUT_TABS = [['mapping', 'Screens'], ['audio', 'Audio'], ['outputs', 'Protocols']];
+
+test('ui: three sections in the rail; every sub-tab belongs to one of them and every view is a sub-tab; clicking opens it', opt, async () => {
+  // fails if a tab is left loose (a data-view button outside a section's group), if a view of the router has no tab or a
+  // tab no view, if a section shows another one's tabs, or if a section's name does not fit the rail
+  const { result, errors } = await inUi(`
+    const v = window.__vt, wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const sections = [...document.querySelectorAll('#nav button')].map((b) => { const s = b.querySelector('span'); return { id: b.dataset.section, label: b.innerText.replace(/\\s+/g, ' ').trim(), home: b.dataset.home, clipped: s.scrollWidth > s.clientWidth + 1 || b.scrollWidth > b.clientWidth + 1 }; });
+    const groups = [...document.querySelectorAll('#subnav .subtabs')].map((g) => ({ section: g.dataset.section, tabs: [...g.querySelectorAll('button[data-view]')].map((b) => [b.dataset.view, b.innerText.trim()]) }));
+    const loose = [...document.querySelectorAll('button[data-view]')].filter((b) => !b.closest('#subnav .subtabs[data-section]')).map((b) => b.dataset.view);
+    const seen = {};
+    for (const s of sections) {
+      document.querySelector('#nav button[data-section="' + s.id + '"]').click(); await wait(80);
+      seen[s.id] = { view: v.view, section: v.section, bar: !document.getElementById('subnav').hidden, shown: [...document.querySelectorAll('#subnav .subtabs')].filter((g) => !g.hidden).map((g) => g.dataset.section),
+        on: [...document.querySelectorAll('#nav button.on')].map((b) => b.dataset.section), current: document.querySelector('#nav [aria-current="page"]')?.dataset.section, app: document.getElementById('app').dataset.section };
+    }
+    const clicks = [];
+    for (const b of document.querySelectorAll('#subnav button[data-view]')) {
+      document.querySelector('#nav button[data-section="' + b.closest('.subtabs').dataset.section + '"]').click(); await wait(40);
+      b.click(); await wait(80);
+      const on = [...document.querySelectorAll('#subnav .subtabs:not([hidden]) button.on')];
+      clicks.push([b.dataset.view, v.view, on.length, on[0]?.dataset.view, on[0]?.getAttribute('aria-selected'), document.getElementById('panel').children.length > 0]);
+    }
+    return { sections, groups, loose, seen, clicks, views: v.nav.views };`);
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.deepEqual(result.sections.map((s) => [s.id, s.label, s.home]), [['live', 'Live', 'live'], ['output', 'Output', 'mapping'], ['setup', 'System & Calibration', 'status']], 'exactly three sections');
+  for (const s of result.sections) assert.equal(s.clipped, false, `"${s.label}" fits the rail`);
+  assert.deepEqual(result.groups, [{ section: 'output', tabs: OUTPUT_TABS }, { section: 'setup', tabs: SETUP_TABS }]);
+  assert.deepEqual(result.loose, [], 'no tab outside a section');
+  for (const g of result.groups) assert.ok(result.sections.some((s) => s.id === g.section), `${g.section} is a section`);
+  const tabbed = [...result.groups.flatMap((g) => g.tabs.map(([v]) => v)), 'live'].sort();
+  assert.deepEqual([...result.views].sort(), tabbed, 'every view is a sub-tab (or Live) and every sub-tab is a view');
+  assert.deepEqual(result.seen.live, { view: 'live', section: 'live', bar: false, shown: [], on: ['live'], current: 'live', app: 'live' }, 'Live: one screen, no sub-tabs');
+  assert.deepEqual(result.seen.output, { view: 'mapping', section: 'output', bar: true, shown: ['output'], on: ['output'], current: 'output', app: 'output' }, 'Output opens on Screens');
+  assert.deepEqual(result.seen.setup, { view: 'status', section: 'setup', bar: true, shown: ['setup'], on: ['setup'], current: 'setup', app: 'setup' }, 'System & Calibration opens on Status');
+  for (const [tab, view, n, on, sel, panel] of result.clicks) assert.deepEqual([view, n, on, sel, panel], [tab, 1, tab, 'true', true], `clicking ${tab}`);
+});
+
+test('ui: __vt.go() with every old view id opens its section and sub-tab; keys 1 · 2 · 3 switch section back to its last sub-tab; the place is remembered', opt, async () => {
+  // fails if an old id lands in the wrong place, if `experiences` stops opening Live, if `live` still shows the old
+  // health panel (now Status), or if a section forgets its last sub-tab
+  const { result, errors } = await inUi(`
+    const v = window.__vt, wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const panel = document.getElementById('panel');
+    const where = () => ({ view: v.view, section: v.section, rail: document.querySelector('#nav button.on')?.dataset.section ?? null,
+      tab: document.querySelector('#subnav .subtabs:not([hidden]) button.on')?.innerText.trim() ?? null, bar: !document.getElementById('subnav').hidden });
+    const go = {};
+    for (const id of ['live', 'room', 'mapping', 'sensors', 'calibrate', 'zones', 'outputs', 'experiences', 'system', 'status', 'audio']) { v.go(id); await wait(60); go[id] = where(); }
+    v.go('live'); await wait(80);
+    const live = { health: !!panel.querySelector('.health'), experiences: [...panel.querySelectorAll('.sec h2')].map((x) => x.firstChild.textContent.trim().toLowerCase()).filter((t) => /experiences|sound/.test(t)) };
+    v.go('status'); await wait(80);
+    const status = { health: !!panel.querySelector('.health'), feed: !!panel.querySelector('#eventFeed') };
+    // the keys: the section opens where it was left (Output: Audio was the last of the loop above; Setup: Status)
+    v.go('zones'); await wait(50);
+    const key = async (k) => { dispatchEvent(new KeyboardEvent('keydown', { key: k })); await wait(80); return v.view; };
+    const keys = [await key('2'), await key('3'), await key('1'), await key('4'), await key('9')];
+    v.go('outputs'); await wait(50); v.go('room'); await wait(50);
+    const back = [await key('2'), await key('3')];
+    // a digit typed in a field is text, not a section
+    v.go('system'); await wait(80);
+    const field = document.getElementById('profileSelect');
+    field.focus(); field.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true })); await wait(60);
+    const typed = v.view; field.blur();
+    // unknown ids do nothing
+    v.go('nowhere'); await wait(40);
+    return { go, live, status, keys, back, typed, unknown: v.view, stored: localStorage.getItem('vt-view'), tabs: { output: localStorage.getItem('vt-tab-output'), setup: localStorage.getItem('vt-tab-setup') } };`);
+  assert.deepEqual(errors, [], errors.join(' | '));
+  const S = (view, section, tab) => ({ view, section, rail: section, tab, bar: tab !== null });
+  assert.deepEqual(result.go, {
+    live: S('live', 'live', null),
+    room: S('room', 'setup', 'Room'),
+    mapping: S('mapping', 'output', 'Screens'),
+    sensors: S('sensors', 'setup', 'Sensors'),
+    calibrate: S('calibrate', 'setup', 'Calibrate'),
+    zones: S('zones', 'setup', 'Zones'),
+    outputs: S('outputs', 'output', 'Protocols'),
+    experiences: S('live', 'live', null),
+    system: S('system', 'setup', 'System'),
+    status: S('status', 'setup', 'Status'),
+    audio: S('audio', 'output', 'Audio'),
+  });
+  assert.deepEqual(result.live, { health: false, experiences: ['experiences', 'sound'] }, 'Live: the experience panel, not the health list');
+  assert.deepEqual(result.status, { health: true, feed: true }, 'the old Live panel (health, events) is Status');
+  assert.deepEqual(result.keys, ['audio', 'zones', 'live', 'live', 'live'], 'keys 1–3: sections (each on its last sub-tab); 4–9 nothing');
+  assert.deepEqual(result.back, ['outputs', 'room']);
+  assert.equal(result.typed, 'system', 'a digit in a field is not a shortcut');
+  assert.equal(result.unknown, 'system', 'an unknown id is ignored');
+  assert.equal(result.stored, 'system', 'the last view, for the next start on this device');
+  assert.deepEqual(result.tabs, { output: 'outputs', setup: 'system' }, 'and the last sub-tab of each section');
+});
+
+test('ui: Problems (n) in the top bar counts the Health items, opens Status, and is not there with nothing to report', opt, async () => {
+  // fails if the count is not the Health list's, if the click does not open Status, or if an empty list leaves a chip
+  const { result, errors } = await inUi(`
+    const V = await import('/js/views.js');
+    const v = window.__vt, wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    await wait(900); // first status: the simulated sensors report (no background, not calibrated)
+    v.go('live'); await wait(80);
+    const chip = () => document.querySelector('#problems button');
+    const out = { text: chip()?.innerText.replace(/\\s+/g, ' ').trim(), dot: chip()?.querySelector('.dot')?.className, title: chip()?.title };
+    chip().click(); await wait(100);
+    out.view = v.view;
+    out.rows = document.querySelectorAll('#panel .health .hrow').length;
+    // a later source (the media server's missing files…) adds to the same list
+    V.problemSources.push(() => [['bad', 'Clip "Reel" is missing']]);
+    v.renderProblems(); await wait(50);
+    out.withSource = { text: chip()?.innerText.replace(/\\s+/g, ' ').trim(), dot: chip()?.querySelector('.dot')?.className };
+    // nothing to report: nothing in the bar
+    V.problemSources.length = 0;
+    v.renderProblems(); await wait(50);
+    out.empty = { children: document.getElementById('problems').children.length, shown: getComputedStyle(document.getElementById('problems')).display };
+    return out;`);
+  assert.deepEqual(errors, [], errors.join(' | '));
+  const n = Number(/\((\d+)\)/.exec(result.text)?.[1]);
+  assert.match(result.text, /^Problems \(\d+\)$/);
+  assert.ok(n >= 2, `the simulated room has things to fix (${result.text} · ${result.title})`);
+  assert.equal(result.rows, Math.min(n, 8), 'the same items as the Health list of Status');
+  assert.match(result.title, /without background/);
+  assert.match(result.dot, /\bwarn\b/, 'warnings: amber');
+  assert.equal(result.view, 'status', 'the chip opens Status');
+  assert.deepEqual(result.withSource, { text: `Problems (${n + 1})`, dot: 'dot bad' }, 'a source added later counts, and a fault turns it red');
+  assert.deepEqual(result.empty, { children: 0, shown: 'none' });
+});
+
+test('ui: the desktop window gives the page the disk paths of dropped files (vtDesktop.pathsFor) and nothing else; a browser and the phone have none', opt, async () => {
+  // fails if the preload is not registered on the main window, if pathsFor stops using webUtils.getPathForFile (no real
+  // path), if the bridge exposes more than that one function, or if the app breaks without it
+  const tmp = path.join(os.tmpdir(), `vt-drop-${process.pid}.txt`);
+  fs.writeFileSync(tmp, 'dropped');
+  try {
+    const desk = await inUi(`
+      const api = window.vtDesktop, files = document.getElementById('__vtFiles').files;
+      const dt = new DataTransfer(); dt.items.add(new File(['x'], 'made-by-the-page.txt'));
+      return { keys: api ? Object.keys(api) : null, list: api.pathsFor(files), arr: api.pathsFor([...files]), made: api.pathsFor(dt.files),
+        none: api.pathsFor(null), junk: api.pathsFor([1, 'a', {}]), node: typeof window.require + typeof window.process, app: !!window.__vt };`,
+    { preload: path.join(root, 'app', 'main-preload.cjs'), files: [tmp] });
+    assert.deepEqual(desk.errors, [], desk.errors.join(' | '));
+    assert.deepEqual(desk.result.keys, ['pathsFor'], 'one function, nothing else');
+    assert.deepEqual(desk.result.list, [tmp], 'a FileList (what a drop gives) → the real path');
+    assert.deepEqual(desk.result.arr, [tmp], 'a File[] too');
+    assert.deepEqual(desk.result.made, [], 'a file the page made has no path');
+    assert.deepEqual([desk.result.none, desk.result.junk], [[], []], 'anything else: harmless');
+    assert.equal(desk.result.node, 'undefinedundefined', 'no Node in the page');
+    assert.equal(desk.result.app, true);
+
+    const browser = await inUi(`return { api: typeof window.vtDesktop, app: !!window.__vt, nav: document.querySelectorAll('#nav button').length };`);
+    assert.deepEqual(browser.errors, []);
+    assert.deepEqual(browser.result, { api: 'undefined', app: true, nav: 3 }, 'a browser: no vtDesktop, the app runs');
+    const phone = await inUi(`return { api: typeof window.vtDesktop, remote: !!window.__vt.remote, app: !!document.getElementById('app'), subnav: !!document.getElementById('subnav') };`, { mobile: true, w: 390, h: 844 });
+    assert.deepEqual(phone.errors, []);
+    assert.deepEqual(phone.result, { api: 'undefined', remote: true, app: false, subnav: false }, 'a phone still opens the calibration remote, not the app');
+
+    // the desktop app registers it on its main window, with the window kept isolated
+    const src = fs.readFileSync(path.join(root, 'app', 'main.js'), 'utf8');
+    const from = src.indexOf('function createMainWindow'), body = src.slice(from, src.indexOf('\n}\n', from));
+    assert.match(body, /preload: path\.join\(ROOT, 'app', 'main-preload\.cjs'\)/);
+    for (const k of [/contextIsolation: true/, /nodeIntegration: false/, /sandbox: true/]) assert.match(body, k);
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 });
 
 test('ui: remote Fit — make the mesh, the point follows the hand, Match puts the hand on the point, the arrows move it', opt, async () => {
@@ -503,13 +673,16 @@ test('ui: pixel map — the projection page and the full-screen texture page dra
 });
 
 test('ui: no knob-and-dot sliders anywhere — values use the VEATION fader (groove + fill + value box)', opt, async () => {
+  // every view of the three sections, the new ones included (Live's Experience panel, Output › Screens with the room
+  // output's layers, Output › Audio); a view that drew a native range input anywhere on the page fails it
   const { result, errors } = await inUi(`
     const v = window.__vt, wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    const ranges = {};
-    const look = (name) => { ranges[name] = document.querySelectorAll('input[type=range]').length; };
-    for (const [view, kind, id] of [['live'], ['room', 'wall', 'P2'], ['mapping', 'wall', 'P2'], ['sensors', 'sensor', 'S2'], ['calibrate'], ['zones', 'zone', 'Z1'], ['outputs', 'output', 'TX'], ['system']]) {
+    const ranges = {}, panelFaders = {};
+    const look = (name) => { ranges[name] = document.querySelectorAll('input[type=range]').length; panelFaders[name] = document.querySelectorAll('#panel .vfield[role=slider]').length; };
+    for (const [view, kind, id] of [['live'], ['status'], ['room', 'wall', 'P2'], ['mapping', 'wall', 'P2'], ['audio'], ['sensors', 'sensor', 'S2'], ['calibrate'], ['zones', 'zone', 'Z1'], ['outputs', 'output', 'TX'], ['system']]) {
       v.go(view); if (kind) v.select(kind, id); await wait(150); look(view);
     }
+    const seen = Object.keys(ranges);
     const faders = [...document.querySelectorAll('#panel .vfield[role=slider]')].map((f) => f.getAttribute('aria-label'));
     v.go('outputs'); v.select('output', 'TX'); await wait(150);
     // the value box is a field: tap, type, Enter
@@ -518,9 +691,13 @@ test('ui: no knob-and-dot sliders anywhere — values use the VEATION fader (gro
     const inp = box.querySelector('input'); inp.value = '450'; inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await wait(400);
     const { store } = await import('/js/conn.js');
-    return { ranges, faders: [...document.querySelectorAll('#panel .vfield[role=slider]')].map((f) => f.getAttribute('aria-label')), trail: store.state.profile.outputs.find((o) => o.id === 'TX').trailMs };`, { setup: still });
+    return { ranges, panelFaders, seen, views: v.nav.views, faders: [...document.querySelectorAll('#panel .vfield[role=slider]')].map((f) => f.getAttribute('aria-label')), trail: store.state.profile.outputs.find((o) => o.id === 'TX').trailMs };`, { setup: still });
   assert.deepEqual(errors, []);
+  assert.deepEqual([...result.seen].sort(), [...result.views].sort(), 'every view of the app was looked at');
   assert.ok(Object.values(result.ranges).every((n) => n === 0), JSON.stringify(result.ranges));
+  // the new containers really hold values (so the count above looked at them): the experience's parameters in Live,
+  // the layers' opacity in Screens, master / crossover / high-pass / ceiling in Audio
+  for (const v of ['live', 'mapping', 'audio']) assert.ok(result.panelFaders[v] > 0, `${v} shows VEATION faders (${JSON.stringify(result.panelFaders)})`);
   assert.deepEqual(result.faders, ['Radius', 'Soft edge', 'Trail']);
   assert.equal(result.trail, 450, 'typed in the value box');
 });
@@ -531,7 +708,7 @@ test('ui: Texture — Send to NDI or Full screen (Spout is the room output, not 
     const v = window.__vt, wait = (ms) => new Promise((r) => setTimeout(r, ms));
     v.go('outputs'); v.select('output', 'TX');
     const pick = async (t) => { [...document.querySelectorAll('#panel .seg button')].find((b) => b.innerText === t).click(); await wait(300); };
-    const r = { spoutNote: document.getElementById('panel').innerText.includes('Spout goes through the single room output (Experiences › Output).'), start: store.state.profile.outputs.find((o) => o.id === 'TX').sink, options: [...[...document.querySelectorAll('#panel .row')].find((x) => x.innerText.startsWith('Send to')).querySelectorAll('button')].map((b) => b.innerText) };
+    const r = { spoutNote: document.getElementById('panel').innerText.includes('Spout goes through the single room output (Output › Screens).'), start: store.state.profile.outputs.find((o) => o.id === 'TX').sink, options: [...[...document.querySelectorAll('#panel .row')].find((x) => x.innerText.startsWith('Send to')).querySelectorAll('button')].map((b) => b.innerText) };
     await pick('NDI');
     r.ndi = store.state.profile.outputs.find((o) => o.id === 'TX').sink; r.ndiText = document.getElementById('panel').innerText.includes('NDI® is a registered trademark of Vizrt NDI AB');
     await pick('Full screen');
@@ -1160,37 +1337,45 @@ test('ui: Spout on the GPU — the page never reads its pixels back and its canv
   assert.deepEqual(result.rect, { x: 0, y: 0, w: result.size.width, h: result.size.height }, 'the canvas is the window, 1:1 device pixels, at the top-left');
 });
 
-test('ui: Experiences — the catalog, Play and Stop, the manifest controls, and the Output card (destination, scale, rate); no knob-and-dot sliders', opt, async () => {
+test('ui: Live — the experience catalog, Play and Stop, the manifest controls; Output › Screens — the room output card (destination, scale, rate); no knob-and-dot sliders', opt, async () => {
+  // (both were the Experiences tab; the media-server navigation split it: the experience in Live, where its image goes
+  // under the Mapping in Output › Screens — the assertions are the old ones, each looked for in its new place)
   const { result, errors, engine } = await inUi(`
     const { store, cmd } = await import('/js/conn.js');
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const out = {};
+    const v = window.__vt;
     const panel = document.getElementById('panel');
     const card = () => panel.querySelector('.xp-card[data-id="touch-probe"]');
     const outCard = () => panel.querySelector('.xp-card[data-card="output"]');
     const btn = (root, t) => [...root.querySelectorAll('button')].find((b) => b.innerText.trim() === t);
-    // the tab, and its key
-    out.nav = !!document.querySelector('#nav button[data-view="experiences"]');
-    window.__vt.go('live'); await wait(100);
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '8' })); await wait(150);
-    out.keyView = window.__vt.view;
+    const live = async () => { v.go('live'); await wait(150); };
+    const screens = async () => { v.go('mapping'); await wait(150); };
+    // no tab of its own any more: the old id opens Live
+    out.nav = !!document.querySelector('button[data-view="experiences"]');
+    v.go('system'); await wait(50); v.go('experiences'); await wait(150);
+    out.oldId = v.view;
     out.catalog = [...panel.querySelectorAll('.xp-card[data-id]')].map((c) => c.dataset.id);
-    out.outputFirst = panel.querySelector('.xp-card') === outCard() && /Output — VEATION Touch/.test(outCard().innerText);
-    out.idleHasPlay = !!btn(card(), 'Play'); out.idleHasStop = !!btn(card(), 'Stop'); out.idlePreview = !!outCard().querySelector('img');
+    out.liveCards = { output: !!outCard(), audio: !!panel.querySelector('[data-card="audio"]') };
+    out.idleHasPlay = !!btn(card(), 'Play'); out.idleHasStop = !!btn(card(), 'Stop');
+    await screens();
+    const last = panel.lastElementChild;
+    out.outputUnderMapping = !!outCard() && last.contains(outCard()) && /output canvas/i.test(panel.firstElementChild.innerText) && /Output — VEATION Touch/.test(outCard().innerText);
+    out.idlePreview = !!outCard().querySelector('img');
     out.idleOutputOn = outCard().querySelector('.row .switch').classList.contains('on');
     // Play
+    await live();
     btn(card(), 'Play').click();
     for (let k = 0; k < 30 && !store.state.experience.running; k++) await wait(50);
     await wait(200);
     out.running = store.state.experience.running; out.outRunning = store.state.output.running; out.url = store.state.experience.url;
-    out.on = card().classList.contains('on'); out.hasStop = !!btn(card(), 'Stop'); out.preview = !!outCard().querySelector('img.xp-preview');
-    out.text = outCard().innerText;
+    out.on = card().classList.contains('on'); out.hasStop = !!btn(card(), 'Stop');
     out.faders = card().querySelectorAll('.vfield').length;
     out.labels = [...card().querySelectorAll('.row > label')].map((l) => l.innerText);
-    out.scaleOptions = [...outCard().querySelectorAll('select')].flatMap((s) => [...s.options].map((o) => o.textContent)).filter((t) => /px/.test(t));
     out.switches = card().querySelectorAll('.switch').length;
     out.rangeInputs = document.querySelectorAll('input[type=range]').length;
     out.focusOptions = [...card().querySelectorAll('select')].map((s) => [...s.options].map((o) => o.value)).find((v) => v.includes('') && v.length > 2);
+    out.cardHasDestination = !!btn(card(), 'Spout') || !!btn(card(), 'Full screen');
     // a fader (keyboard: one step), a toggle, a select
     card().querySelector('.vfield').focus();
     card().querySelector('.vfield').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
@@ -1202,8 +1387,11 @@ test('ui: Experiences — the catalog, Play and Stop, the manifest controls, and
     const modeSel = [...card().querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'hard'));
     modeSel.value = 'hard'; modeSel.dispatchEvent(new Event('change')); await wait(250);
     out.mode = store.state.profile.experience.params['touch-probe']?.mode;
-    // the output: the scale, the rate, the destination — in the Output card, not in the experience's
-    out.cardHasDestination = !!btn(card(), 'Spout') || !!btn(card(), 'Full screen');
+    // the output: the preview, the scale, the rate, the destination — in Output › Screens, not in the experience's card
+    await screens();
+    out.preview = !!outCard().querySelector('img.xp-preview');
+    out.text = outCard().innerText;
+    out.scaleOptions = [...outCard().querySelectorAll('select')].flatMap((s) => [...s.options].map((o) => o.textContent)).filter((t) => /px/.test(t));
     const scaleSel = [...outCard().querySelectorAll('select')].find((s) => [...s.options].some((o) => /^0\\.25 —/.test(o.textContent)));
     scaleSel.value = '1'; scaleSel.dispatchEvent(new Event('change')); await wait(250);
     out.scale = store.state.profile.output.scale;
@@ -1214,12 +1402,14 @@ test('ui: Experiences — the catalog, Play and Stop, the manifest controls, and
     out.fullText = outCard().innerText;
     btn(outCard(), 'Spout').click(); await wait(250);
     out.spoutText = outCard().innerText;
+    out.rangeInputsScreens = document.querySelectorAll('input[type=range]').length;
     // Show mode: where it goes is locked, running it and choosing what is seen are not
     await cmd('app.lock', { locked: true }); await wait(300);
     out.lockedControls = [...outCard().querySelectorAll('.xp-set button, .xp-set select, .xp-set input')].every((e) => e.disabled);
-    out.lockedStop = !btn(card(), 'Stop').disabled; out.lockedFader = !!card().querySelector('.vfield');
     out.lockedLayers = [...outCard().querySelectorAll('.xp-layer .switch, .xp-layer select')].every((e) => !e.disabled);
     out.lockedSet = await cmd('output.set', { fps: 60 }).then(() => 'accepted', (e) => e.message);
+    await live();
+    out.lockedStop = !btn(card(), 'Stop').disabled; out.lockedFader = !!card().querySelector('.vfield');
     await cmd('experience.param', { key: 'gain', value: 0.7 });
     await cmd('app.lock', { locked: false }); await wait(200);
     // Stop: the experience layer goes, the output stays
@@ -1229,10 +1419,11 @@ test('ui: Experiences — the catalog, Play and Stop, the manifest controls, and
     out.rangeInputsEnd = document.querySelectorAll('input[type=range]').length;
     return out;`, { setup: (e) => withProbe(e) });
   assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
-  assert.equal(result.nav, true, 'a tab in the navigation');
-  assert.equal(result.keyView, 'experiences', 'key 8');
-  assert.ok(result.catalog.includes('touch-probe'), 'the catalog is listed');
-  assert.equal(result.outputFirst, true, 'the "Output — VEATION Touch" card is at the top');
+  assert.equal(result.nav, false, 'no Experiences tab any more');
+  assert.equal(result.oldId, 'live', 'the old id opens Live');
+  assert.ok(result.catalog.includes('touch-probe'), 'the catalog is listed in Live');
+  assert.deepEqual(result.liveCards, { output: false, audio: false }, 'Live holds the experience, not the output nor the audio setup');
+  assert.equal(result.outputUnderMapping, true, 'the "Output — VEATION Touch" card is in Output › Screens, under the Mapping');
   assert.equal(result.idleHasPlay, true);
   assert.equal(result.idleHasStop, false);
   assert.equal(result.idlePreview, false, 'no preview while the output is off');
@@ -1252,6 +1443,7 @@ test('ui: Experiences — the catalog, Play and Stop, the manifest controls, and
   assert.ok(result.focusOptions.length >= 3, `the wall select lists the room's walls: ${result.focusOptions}`);
   assert.ok(result.switches >= 2, 'start with the app + the bool');
   assert.equal(result.rangeInputs, 0, 'no native range inputs');
+  assert.equal(result.rangeInputsScreens, 0);
   assert.equal(result.rangeInputsEnd, 0);
   assert.equal(result.gain, 1.05, 'a fader step is experience.param');
   assert.equal(result.trails, true);
@@ -1544,12 +1736,13 @@ test('ui: calibration mode — the output page shows only the grid on the touche
   assert.deepEqual(result.gridOff, ['experience']);
 });
 
-test('ui: Experiences › Output card — on/off, layer switches, reorder, opacity faders and blend; the calibration banner; no range inputs', opt, async () => {
+test('ui: Output › Screens › room output card — on/off, layer switches, reorder, opacity faders and blend; the calibration banner; no range inputs', opt, async () => {
+  // (the card was in the Experiences tab; it is under the Mapping in Output › Screens now — view id 'mapping')
   const { result, errors } = await inUi(`
     const { store, cmd } = await import('/js/conn.js');
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const panel = document.getElementById('panel');
-    window.__vt.go('experiences'); await wait(300);
+    window.__vt.go('mapping'); await wait(300);
     const card = () => panel.querySelector('.xp-card[data-card="output"]');
     const L = (id) => card().querySelector('.xp-layer[data-layer="' + id + '"]');
     const layersNow = () => store.state.profile.output.layers;

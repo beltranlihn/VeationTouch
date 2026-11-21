@@ -47,9 +47,10 @@ const zoneWhere = (z) => (z.space === 'canvas' ? `canvas · ${(z.walls || []).jo
 const nextId = (list, prefix) => { let k = list.length + 1; while (list.some((x) => x.id === `${prefix}${k}`)) k++; return `${prefix}${k}`; };
 const fmtTime = (t) => new Date(t).toLocaleTimeString([], { hour12: false });
 
-// ======================================================================= LIVE
+// ======================================================================= SYSTEM & CALIBRATION › STATUS
+// (the Live tab's panel until the media-server navigation: health, counters, walls, zones, simulator, events)
 
-export function live(ctx) {
+export function status(ctx) {
   const L = store.live || {};
   const st = store.status?.sensors || {};
   const prof = P();
@@ -87,7 +88,6 @@ export function live(ctx) {
   return out;
 }
 
-/** Everything that needs attention, most serious first — or a single "all good". */
 /** A driver error in plain words (the raw text stays in the tooltip). */
 function plainError(e) {
   if (!e) return '';
@@ -98,8 +98,28 @@ function plainError(e) {
   return e;
 }
 
-/** Everything that needs attention, grouped, most serious first — each with the action that fixes it. */
+/**
+ * Everything that needs attention, from every source, most serious first: [kind 'bad'|'warn', text, action button?, title?].
+ * The Health list (Status) and the Problems indicator of the top bar read the same list. A later source (missing media,
+ * audio devices that are not there, disconnected screens) is a function (ctx) → items pushed onto `problemSources`.
+ */
+export const problemSources = [healthItems];
+export function problems(ctx) {
+  const items = problemSources.flatMap((f) => f(ctx) || []);
+  return items.sort((a, b) => (a[0] === 'bad' ? -1 : 1) - (b[0] === 'bad' ? -1 : 1));
+}
+
+/** The Health list of Status: every problem with its fix, most serious first — or a single "all good". */
 function health(ctx) {
+  const items = problems(ctx);
+  if (!items.length) return h('div', { class: 'health' }, h('div', { class: 'ok' }, '✓ All sensors scanning, calibrated and outputs sending.'));
+  return h('div', { class: 'health' }, items.slice(0, 8).map(([k, t, action, title]) => h('div', { class: `${k} hrow`, title: title || '' },
+    h('span', { class: 'msg' }, `${k === 'bad' ? '✕' : '!'} ${t}`), action || null)),
+  items.length > 8 ? h('div', { class: 'muted' }, `+ ${items.length - 8} more`) : null);
+}
+
+/** The room's own health: sensors, background, calibration, outputs, engine rate — each with the action that fixes it. */
+function healthItems(ctx) {
   const prof = P();
   const st = store.status?.sensors || {};
   const outs = store.status?.outputs || {};
@@ -135,11 +155,7 @@ function health(ctx) {
     if (s?.lastError) items.push(['bad', `Output ${o.name}: ${s.lastError}`, act('Output', () => { ctx.go('outputs'); ctx.select('output', o.id); })]);
   }
   if (eng.fps && eng.fps < 50) items.push(['warn', `Engine running at ${eng.fps} fps (expected 60)`]);
-  if (!items.length) return h('div', { class: 'health' }, h('div', { class: 'ok' }, '✓ All sensors scanning, calibrated and outputs sending.'));
-  items.sort((a, b) => (a[0] === 'bad' ? -1 : 1) - (b[0] === 'bad' ? -1 : 1));
-  return h('div', { class: 'health' }, items.slice(0, 8).map(([k, t, action, title]) => h('div', { class: `${k} hrow`, title: title || '' },
-    h('span', { class: 'msg' }, `${k === 'bad' ? '✕' : '!'} ${t}`), action || null)),
-  items.length > 8 ? h('div', { class: 'muted' }, `+ ${items.length - 8} more`) : null);
+  return items;
 }
 
 export function feedLines() {
@@ -222,7 +238,7 @@ function wallEditor(w, ctx) {
   ];
 }
 
-// ======================================================================= MAPPING
+// ======================================================================= MAPPING (Output › Screens)
 
 export function mapping(ctx) {
   const prof = P();
@@ -343,7 +359,7 @@ export function newRoomWizard(ctx) {
         selectField('Wall regions', o.layout, [['strip', 'Continuous strip (one panorama)'], ['grid', 'Grid (e.g. 2×2 for a 4-output processor)'], ['row', 'Side by side in fixed slots']], (v) => { o.layout = v; draw(); }, { inline: true }),
         o.driver === 's2e' ? field('First sensor IP', o.ip, (v) => { o.ip = v.trim(); }, { inline: true }) : h('span')),
       strip ? h('p', { class: 'muted' }, `Strip: one panorama of ${o.cw} × ${o.ch} px — every wall gets ${Math.round((o.width * o.ch) / o.height)} px, the same pixels per metre everywhere.`) : null,
-      h('p', { class: 'muted' }, 'Everything can be changed afterwards: sizes in Room, pixel regions in Mapping, sensors in Sensors.'),
+      h('p', { class: 'muted' }, 'Everything can be changed afterwards: sizes in Room, pixel regions in Output › Screens, sensors in Sensors.'),
       h('div', { class: 'actions' }, h('button', { class: 'btn primary', onclick: create }, 'Create room'), h('button', { class: 'btn', onclick: () => close() }, 'Cancel')));
   };
   const close = modal('New room', body);
@@ -1013,7 +1029,7 @@ function zoneEditor(z, ctx) {
       h('button', { class: 'btn small danger', onclick: () => { editProfile((p) => { p.zones = p.zones.filter((x) => x.id !== z.id); }, 'delete zone'); ctx.select(null); } }, 'Delete zone')));
 }
 
-// ======================================================================= OUTPUTS
+// ======================================================================= OUTPUTS (Output › Protocols)
 
 export function outputs(ctx) {
   const prof = P();
@@ -1164,7 +1180,7 @@ function zoneOutputEditor(o, s, ctx) {
       h('button', { class: 'btn small danger', onclick: () => { editProfile((p) => { p.outputs = p.outputs.filter((x) => x.id !== o.id); }); ctx.select(null); } }, 'Delete')));
 }
 
-const SINKS = [['ndi', 'NDI'], ['window', 'Full screen']]; // (Spout goes through the single room output: Experiences › Output)
+const SINKS = [['ndi', 'NDI'], ['window', 'Full screen']]; // (Spout goes through the single room output: Output › Screens)
 function textureWhere(o) {
   if (o.sink === 'ndi') return `NDI “${o.senderName}”`;
   if (o.sink === 'window') return `full screen · ${store.state.displays?.find((d) => d.id === o.displayId)?.label || (o.displayId == null ? 'no display' : 'display not connected')}`;
@@ -1204,7 +1220,7 @@ function textureEditor(o, s, ctx) {
   return [
     sec(`Texture · ${o.id}`,
       h('p', { class: 'muted' }, 'A greyscale mask of the touches — white discs on black — in output-canvas pixels, following each wall’s Mapping. Use it as a texture: particles, fluids, reveal masks. The centre shows it live, exactly as it is sent.'),
-      h('p', { class: 'muted', 'data-note': 'spout' }, 'Spout goes through the single room output (Experiences › Output).'),
+      h('p', { class: 'muted', 'data-note': 'spout' }, 'Spout goes through the single room output (Output › Screens).'),
       field('Name', o.name, (v) => set((x) => { x.name = v; })),
       // only the chosen destination runs (the others are not even started)
       h('div', { class: 'row' }, h('span', { class: 'k' }, 'Send to'), h('div', { class: 'seg' }, SINKS.map(([m, t]) =>
@@ -1231,12 +1247,12 @@ function textureEditor(o, s, ctx) {
   ];
 }
 
-// ======================================================================= EXPERIENCES
+// ======================================================================= EXPERIENCES (split: Live · Output › Screens · Output › Audio)
 
 const XP_SCALES = [0.25, 0.5, 0.75, 1];
 const LAYER_NAMES = { experience: 'Experience', touches: 'Touches', grid: 'Grid' };
 const LAYER_HINTS = {
-  experience: 'The piece that is playing (Play and Stop are below)',
+  experience: 'The piece that is playing (Play and Stop are in Live)',
   touches: 'Black and white mask of the touches',
   grid: 'Pixel map: wall outlines, metre grid, wall ids and calibration targets',
 };
@@ -1278,7 +1294,18 @@ const xpLiveLayer = (id, key) => xpLive((v) => {
   cmd('output.layers', { layers }).catch(() => {});
 });
 
-export function experiences(ctx) {
+/** Live (until the preset shelf and the clip grid replace it): the experience picker, its parameters, the sound piece. */
+export function experiencePanel(ctx) {
+  const X = xpParts(ctx);
+  return [X.catalog(), X.sounds()];
+}
+/** Output › Screens, under the Mapping: the room output — on/off, live preview, layers, where it goes, scale, rate. */
+export function roomOutput(ctx) { return [sec(null, xpParts(ctx).outputCard())]; }
+/** Output › Audio: the room's sound — devices, channel map, sub and filters, limiter, Test per channel, master, mute. */
+export function audio(ctx) { return [sec(null, xpParts(ctx).audioCard())]; }
+
+/** The parts of what was the Experiences tab, built from one reading of the state; each view takes the ones it shows. */
+function xpParts(ctx) {
   const S = store.state, X = S.experience, cat = S.experiences || [], prof = P();
   const X0 = prof.experience; // the saved settings (parameters, start with the app)
   const O = prof.output, OS = S.output; // the room output: how it is set / what it is doing now
@@ -1288,7 +1315,6 @@ export function experiences(ctx) {
   const dims = (k) => `${Math.round(prof.canvas.width * k)} × ${Math.round(prof.canvas.height * k)} px`;
   const setOut = (args) => run(cmd('output.set', args));
   const pageUrl = OS.url ? `${location.origin}${OS.url}${S.local ? '' : `&k=${encodeURIComponent(S.token || '')}`}` : '';
-  if (OS.running) xpKeepFresh();
 
   const paramRow = (c, p, op = 'experience.param', values = saved(c)) => {
     const value = p.key in values ? values[p.key] : p.default;
@@ -1372,7 +1398,7 @@ export function experiences(ctx) {
       h('span', { class: 'muted' }, ` · ${where} · ${dims(O.scale)}`));
   };
 
-  const outputCard = () => h('div', { class: `xp-card xp-out${OS.running ? ' on' : ''}`, 'data-card': 'output' },
+  const outputCard = () => { if (OS.running) xpKeepFresh(); return h('div', { class: `xp-card xp-out${OS.running ? ' on' : ''}`, 'data-card': 'output' },
     h('div', { class: 'head' },
       h('div', { class: 't' }, 'Output — VEATION Touch', h('small', {}, 'The one image of the room: the experience, the touches and the grid, stacked as you choose')),
       OS.running ? badge(OS.calibrating ? 'calibration' : 'live', OS.calibrating ? 'warn' : 'live') : null),
@@ -1389,7 +1415,7 @@ export function experiences(ctx) {
     h('div', { class: `xp-layers${OS.calibrating ? ' suspended' : ''}` },
       h('h3', {}, 'Layers', h('small', {}, 'top of the list = on top')),
       [...O.layers].reverse().map((l, k, all) => layerRow(l, all.length - 1 - k, all.length))),
-    destination());
+    destination()); };
 
   const autostart = () => {
     const box = h('div', { class: 'xp-set' }, toggle('Start with the app', X0.autostart, (on) => run(cmd('experience.set', { autostart: on }))));
@@ -1534,16 +1560,16 @@ export function experiences(ctx) {
       ] : null);
   };
 
-  return [
-    sec(null, outputCard()),
-    sec(['Experiences', h('span', { class: 'grow' }), h('button', { class: 'btn small', title: 'Look for experiences again', onclick: () => run(cmd('experience.list')) }, 'Rescan')],
-      h('p', { class: 'muted' }, 'Interactive pieces that react to the touches. Play one and it becomes the Experience layer of the output above.'),
+  return {
+    outputCard,
+    catalog: () => sec(['Experiences', h('span', { class: 'grow' }), h('button', { class: 'btn small', title: 'Look for experiences again', onclick: () => run(cmd('experience.list')) }, 'Rescan')],
+      h('p', { class: 'muted' }, 'Interactive pieces that react to the touches. Play one and it becomes the Experience layer of the room output (Output › Screens).'),
       cat.length ? h('div', { class: 'xp-list' }, cat.map(card)) : h('p', { class: 'muted' }, 'No experiences found. They live in the experiences folder of the app: one folder each, with a manifest.json.')),
-    sec(null, audioCard()),
-    sec('Sound',
-      h('p', { class: 'muted' }, 'Pieces that only make sound. They play at the same time as the experience above, and react to the hands.'),
+    audioCard,
+    sounds: () => sec('Sound',
+      h('p', { class: 'muted' }, 'Pieces that only make sound, over the speakers of the room (Output › Audio). They play at the same time as the experience above, and react to the hands.'),
       sounds.length ? h('div', { class: 'xp-list' }, sounds.map(soundCard)) : h('p', { class: 'muted' }, 'No sound pieces found. They live in the experiences folder too: a manifest.json with "kind": "sound".')),
-  ];
+  };
 }
 
 // ======================================================================= SYSTEM

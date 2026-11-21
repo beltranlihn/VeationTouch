@@ -129,7 +129,8 @@ function createMainWindow() {
   mainWin = new BrowserWindow({
     width: 1440, height: 900, minWidth: 900, minHeight: 600,
     backgroundColor: '#111111', title: 'VEATION Touch', icon: ICON, autoHideMenuBar: true, show: false,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    // the preload only gives the page the disk paths of files dropped on it (window.vtDesktop.pathsFor)
+    webPreferences: { preload: path.join(ROOT, 'app', 'main-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   mainWin.once('ready-to-show', () => mainWin.show());
   mainWin.loadURL(uiUrl());
