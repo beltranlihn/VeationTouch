@@ -23,13 +23,14 @@ import { Transport, XLAYER } from './transport.js';
 import { Presets, migratePresets, presetForExperience } from './presets.js';
 import {
   rejectMessage, audioWarning, sizeWarning, ALREADY, INTERRUPTED, diskSpace, driveOf, insideLibrary, absoluteIn,
-  freeName, safeName, findByName, thumbName, THUMB_WIDTHS, formatBytes, WARN,
+  freeName, safeName, findByName, thumbName, THUMB_WIDTHS, formatBytes, WARN, convertible,
 } from './library.js';
 import { movIndexAsync } from './mov.js';
 import { pcmRanges } from './pcm.js';
 import { sniffKind } from './sniff.js';
 import { parseWav, cacheAudio } from './wav.js';
 import { HelperLink } from './helper.js';
+import { Converter } from './convert.js';
 import { kindIcon } from './icons.js';
 import { writeJsonAtomic } from '../store.js';
 
@@ -65,6 +66,7 @@ const NO_HOST = {
 export const MEDIA_LOCKED_OPS = new Set([
   'show.update', 'show.load', 'show.create', 'show.delete', 'show.export', 'show.import', 'show.restore',
   'media.import', 'media.importCancel', 'media.relink', 'media.remove', 'media.setDir',
+  'media.convert', 'media.ffmpeg.install', 'media.ffmpeg.remove',
 ]);
 
 const ACTIVE = new Set(['queued', 'copying']);
@@ -88,8 +90,9 @@ export class MediaEngine extends EventEmitter {
    * @param {number} [deps.cancelMs] how long a cancelled copy may take to stop before its worker is terminated (3 s)
    * @param {{now: () => number, wall: () => number}} [deps.clock] the engine clock (performance.now, the clock of live.t) and the wall clock
    * @param {() => number} [deps.random] for the 'random' autopilot
+   * @param {object} [deps.converter] test seams of Convert to HAP: {ffmpeg: {cmd, args}, fetchImpl, versionOf, platform, pin, toolDir}
    */
-  constructor({ store, log, settings, profile, setShowId, host = null, freeSpace = null, sourceOpener = null, sourceOptions = null, blockSize = null, checkMs = CHECK_MS, cancelMs = CANCEL_WAIT_MS, clock = null, random = Math.random }) {
+  constructor({ store, log, settings, profile, setShowId, host = null, freeSpace = null, sourceOpener = null, sourceOptions = null, blockSize = null, checkMs = CHECK_MS, cancelMs = CANCEL_WAIT_MS, clock = null, random = Math.random, converter = {} }) {
     super();
     this.store = store;
     this.log = log;
@@ -106,6 +109,7 @@ export class MediaEngine extends EventEmitter {
     this.movies = new Map();     // absolute path → { p: Promise<{fh, size, mtimeMs, index}>, mv, refs, at, dead } for the PCM route (LRU: the last key is the newest)
     this.thumbing = new Map();   // thumbnail being regenerated → Promise
     this.helper = new HelperLink({ log }); // the desktop app's hidden Chromium window: decodes what Node cannot (engine/media/helper.js)
+    this.convert = new Converter(this, converter); // Convert to HAP (engine/media/convert.js): the helper's road and the FFmpeg road
     this.preparing = new Map();  // fingerprint → Promise of a sound being decoded into the audio cache
     this._thumbQ = [];           // thumbnails waiting for one of the THUMB_JOBS workers
     this._thumbRun = 0;
@@ -140,6 +144,7 @@ export class MediaEngine extends EventEmitter {
 
   start() {
     this._started = true;
+    this.convert.sweep(); // what a conversion that was cut left
     this._restoreJobs();
     this._run(() => this._restoreTransport());
     this.check();
@@ -158,6 +163,7 @@ export class MediaEngine extends EventEmitter {
       clearTimeout(this._showSaveTimer); this._showSaveTimer = null;
       if (this.show) { try { this.store.saveShow(this.show, { backup: false }); } catch (e) { this.log.warn(`show ${this.show.id}: ${e.message}`); } }
     }
+    await this.convert.stop();
     this.helper.stop();
     await Promise.all([...this.workers].map((w) => w.terminate().catch(() => {})));
     for (const q of this._thumbQ.splice(0)) q.res([]);
@@ -202,7 +208,7 @@ export class MediaEngine extends EventEmitter {
       if (j.state === 'interrupted') copy.push({ kind: 'copy', importId: j.id, mediaId: j.mediaId, text: `Copy of "${j.name}" interrupted — plug the drive back in.`, fix: null });
       else if (j.state === 'failed') copy.push({ kind: 'copy', importId: j.id, mediaId: j.mediaId, text: `Copy of "${j.name}" failed: ${j.error}`, fix: null });
     }
-    return { ...this.transport.state(), preset: this.presets.state(), import: [...this.jobs.values()].map(publicJob), problems: [...this.problems, ...copy] };
+    return { ...this.transport.state(), preset: this.presets.state(), import: [...this.jobs.values()].map(publicJob).concat(this.convert.publicJobs()), converter: this.convert.summary(), problems: [...this.problems, ...copy, ...this.convert.problems()] };
   }
 
   libraryState() {
@@ -305,6 +311,17 @@ export class MediaEngine extends EventEmitter {
       case 'media.relink': return this.relink(args.dir, args);
       case 'media.remove': return this.remove(args.mediaId, args);
       case 'media.setDir': return this.setDir(args.dir, args);
+      // Convert to HAP (convert.js)
+      case 'media.convert': return this.convert.start(args);
+      case 'media.convertCancel': return this.convert.cancel(args.jobId);
+      case 'media.ffmpeg.status': return this.convert.tool.status();
+      case 'media.ffmpeg.install': {
+        if (!args.__local) throw new Error('the converter is installed at the server itself');
+        const p = this.convert.tool.install();
+        p.catch(() => {}); // (the reason stays in the status: System › Converter shows it)
+        return this.convert.tool.status();
+      }
+      case 'media.ffmpeg.remove': if (!args.__local) throw new Error('the converter is removed at the server itself'); return this.convert.tool.remove();
       // the transport (Show mode allows all of these: they are how a show is run)
       case 'clip.trigger': return this._run(() => this.transport.trigger(args));
       case 'clip.preload': return this._run(() => this.transport.preload(args.clipId));
@@ -613,6 +630,8 @@ export class MediaEngine extends EventEmitter {
     let free = space.free === null ? Infinity : space.free - this._pendingBytes(lib);
     const drive = driveOf(lib);
     const canvas = this.profile().canvas;
+    // a refused file that Convert to HAP can take carries `convert: true` and its path (media.convert {path})
+    const refused = (c, err) => ({ name: c.name, message: rejectMessage(err, c.name), ...(convertible(err) ? { convert: true, path: c.path } : {}) });
 
     const edit = structuredClone(this.show && this.show.id === showId ? this.show : this.store.loadShow(showId));
     const t = target && typeof target === 'object' ? target : null;
@@ -627,13 +646,13 @@ export class MediaEngine extends EventEmitter {
 
     for (let i = 0; i < cand.length; i++) {
       const c = cand[i], r = results[i];
-      if (!r || r.error) { rejected.push({ name: c.name, message: rejectMessage(r?.error || { code: 'worker' }, c.name) }); continue; }
+      if (!r || r.error) { rejected.push(refused(c, r?.error || { code: 'worker' })); continue; }
       let probe = r.probe, soundCache = null;
       const warnings = [];
       try {
         if (r.kind === 'audio' && r.needs === 'decode') { const d = await this._decodeSound(c, r); probe = d.probe; soundCache = d.cache; }
         else if (r.kind === 'video') probe = await this._checkVideo(c, r, warnings);
-      } catch (e) { rejected.push({ name: c.name, message: rejectMessage(e, c.name) }); continue; }
+      } catch (e) { rejected.push(refused(c, e)); continue; }
       const v = probe.video;
       for (const w of probe.warnings || []) if (w.code !== 'audio-unsupported') warnings.push(w.message);
       const a0 = probe.audio;
@@ -680,7 +699,7 @@ export class MediaEngine extends EventEmitter {
         deck.cells[`${layer.id}:${col++}`] = clip.id;
         clipId = clip.id;
       }
-      accepted.push({ name: c.name, mediaId: media.id, clipId, reused, copying: !!job, warnings });
+      accepted.push({ name: c.name, mediaId: media.id, clipId, reused, copying: !!job, warnings, ...(warnings.some((w) => /Convert to HAP/.test(w)) ? { convert: true } : {}) });
     }
     if (accepted.length) this._saveShow(edit);
     for (const x of accepted) { const m = edit.media.find((y) => y.id === x.mediaId); if (m?.audio?.cache && !x.copying) this.prepareAudio(m); } // (already in the library: decode now)
@@ -688,6 +707,33 @@ export class MediaEngine extends EventEmitter {
     if (accepted.length || rejected.length) this.log.info(`import into "${edit.name}": ${accepted.length} accepted (${queued.length} to copy), ${rejected.length} refused`);
     this._pump();
     return { showId, accepted, rejected };
+  }
+
+  /**
+   * A file Convert to HAP wrote inside the library becomes a medium of the show, and every clip of `sourceMediaId` switches to it,
+   * settings kept (name, in/out, loops, end, trigger, place, audio, its cell): ONE show edit, one revision. The original medium and
+   * its file stay in the library. → {mediaId, relinked}
+   */
+  async adoptConverted({ showId, sourceMediaId, file, notes = [] }) {
+    const lib = this.libraryDir, rel = insideLibrary(lib, file);
+    if (!rel) throw new Error('the converted file is not inside the library');
+    const [r] = await this._inspect([file]);
+    if (!r || r.error || r.kind !== 'hap') throw new Error(r?.error?.message || 'the converted file is not a HAP movie');
+    let media = null, relinked = 0;
+    const saved = this._editShow(showId, (edit) => {
+      const src = sourceMediaId ? edit.media.find((m) => m.id === sourceMediaId) : null;
+      const a = r.probe.audio;
+      media = {
+        id: nextId(edit.media, 'm'), file: rel, size: r.size, mtimeMs: 0, fingerprint: r.fingerprint, kind: 'hap', video: { ...r.probe.video },
+        audio: audioEntry(a), notes: [...(r.probe.warnings || []).filter((w) => w.code !== 'audio-unsupported').map((w) => w.message), ...notes], thumbFrame: src?.thumbFrame ?? null,
+      };
+      edit.media.push(media);
+      for (const c of edit.clips) if (src && c.mediaId === src.id) { c.mediaId = media.id; relinked++; }
+      return edit;
+    });
+    if (!saved) throw new Error('the show is gone');
+    this._emitMedia();
+    return { mediaId: media.id, relinked };
   }
 
   /** fingerprint → [media] of every show but `exceptShowId`. */

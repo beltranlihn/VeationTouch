@@ -59,6 +59,12 @@ export const isMovName = (name) => /\.mov$/i.test(name);
 export const MEDIA_EXTENSIONS = ['mov', 'mp4', 'm4v', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'wav', 'mp3', 'aac', 'm4a', 'flac', 'ogg', 'oga', 'opus'];
 export const isMediaName = (name) => new RegExp(`\\.(${MEDIA_EXTENSIONS.join('|')})$`, 'i').test(name);
 
+/** The sentence the messages of files that Convert to HAP can turn into something playable end with. */
+export const CONVERT = ' Or use Convert to HAP.';
+const CONVERTIBLE = new Set(['no-video-codec', 'codec-later', 'no-decoder', 'too-slow', 'too-big', 'bad-profile', 'fragmented']);
+/** Can Convert to HAP do something with a file refused with this coded error? (ProRes, DNxHD, HEVC, AVI, Matroska, WebM, H.264 this computer cannot decode...) */
+export const convertible = (err) => CONVERTIBLE.has(err?.code) || (err?.code === 'unsupported-format' && ['AVI', 'Matroska', 'WebM'].includes(err.formatName));
+
 /**
  * The message for a file the import refuses (§4d.3), from the coded error of engine/media/probe.js. `name` is the
  * file name as dropped.
@@ -67,15 +73,15 @@ export function rejectMessage(err, name) {
   const q = `"${name}"`;
   switch (err?.code) {
     // the formats Chromium reads or not (docs/research/media-formats.md §5.1)
-    case 'unsupported-format': return `${q} is ${err.formatName || 'a format'}, which cannot be read. ${err.hint || 'Export it as PNG, JPEG, H.264 (MP4) or HAP.'}`;
+    case 'unsupported-format': return `${q} is ${err.formatName || 'a format'}, which cannot be read. ${err.hint || 'Export it as PNG, JPEG, H.264 (MP4) or HAP.'}${convertible(err) ? CONVERT : ''}`;
     case 'unknown-format': return `${q} is not a file VEATION Touch can read. It takes HAP or H.264 video, PNG / JPEG / WebP images and WAV / MP3 / AAC audio.`;
-    case 'no-video-codec': return `${q} is ${err.codecName || 'a codec'}, which VEATION Touch cannot play. Export it as H.264 or HAP.`;
-    case 'codec-later': return `${q} is ${err.codecName}, which is not supported yet. Export it as H.264 or HAP.`;
-    case 'no-decoder': return `${q} is ${err.codecName} and this computer has no decoder for it. Export it as H.264 or HAP.`;
-    case 'too-slow': return `${q} is ${err.width}×${err.height} H.264 at ${err.fps} fps, and this computer decodes that at about ${err.maxFps} fps. Export it at ${err.maxFps >= 30 ? '30' : '24'} fps, as HEVC, or as HAP.`;
-    case 'too-big': return `${q} is ${err.width}×${err.height} ${err.codecName}, larger than this GPU decodes (${err.limit}). Export it smaller, as HEVC, or as HAP.`;
-    case 'bad-profile': return `${q} is ${err.codecName}, which cannot be decoded here. Export it as 8-bit 4:2:0 (High profile) or HAP.`;
-    case 'fragmented': return `${q} is a fragmented MP4. Export it with the index at the start (fast start) or as HAP.`;
+    case 'no-video-codec': return `${q} is ${err.codecName || 'a codec'}, which VEATION Touch cannot play. Export it as H.264 or HAP.${CONVERT}`;
+    case 'codec-later': return `${q} is ${err.codecName}, which is not supported yet. Export it as H.264 or HAP.${CONVERT}`;
+    case 'no-decoder': return `${q} is ${err.codecName} and this computer has no decoder for it. Export it as H.264 or HAP.${CONVERT}`;
+    case 'too-slow': return `${q} is ${err.width}×${err.height} H.264 at ${err.fps} fps, and this computer decodes that at about ${err.maxFps} fps. Export it at ${err.maxFps >= 30 ? '30' : '24'} fps, as HEVC, or as HAP.${CONVERT}`;
+    case 'too-big': return `${q} is ${err.width}×${err.height} ${err.codecName}, larger than this GPU decodes (${err.limit}). Export it smaller, as HEVC, or as HAP.${CONVERT}`;
+    case 'bad-profile': return `${q} is ${err.codecName}, which cannot be decoded here. Export it as 8-bit 4:2:0 (High profile) or HAP.${CONVERT}`;
+    case 'fragmented': return `${q} is a fragmented MP4. Export it with the index at the start (fast start) or as HAP.${CONVERT}`;
     case 'image-bad': return `${q} is a damaged ${err.formatName || 'image'}: its header does not read. Export it again as PNG or JPEG.`;
     case 'audio-long': return `${q} is longer than 20 min. Convert it to WAV.`;
     case 'audio-bad': return `${q} is not a sound that can be read (${err.detail || 'damaged'}). Export it as WAV.`;
@@ -177,7 +183,7 @@ export const WARN = {
   rotated: (deg) => `Rotated clip (${deg}°): shown upright.`,
   longGop: (n) => `Long GOP (${n} frames): jumps and loops from the middle are slow. Export with a keyframe every second.`,
   noCheck: (name) => `Cannot check that this computer can decode "${name}" (no desktop app).`,
-  software: (name, maxFps) => `"${name}" is decoded by the CPU on this computer${maxFps ? ` (${maxFps} fps at best)` : ''}, not the GPU: it may drop frames.`,
+  software: (name, maxFps) => `"${name}" is decoded by the CPU on this computer${maxFps ? ` (${maxFps} fps at best)` : ''}, not the GPU: it may drop frames. Use Convert to HAP.`,
   noAudioDecode: (name) => `The audio of "${name}" can only be decoded in the desktop app: it will be silent here.`,
   noAlpha: 'Video has no alpha channel: use HAP Alpha or an image for transparency.',
 };

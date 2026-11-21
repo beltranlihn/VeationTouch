@@ -271,8 +271,8 @@ test('import: images are accepted by their bytes (any extension), with their siz
       'logo.svg': '"logo.svg" is SVG, which cannot be read. Export it as PNG or JPEG.',
       'notes.txt': '"notes.txt" is not a file VEATION Touch can read. It takes HAP or H.264 video, PNG / JPEG / WebP images and WAV / MP3 / AAC audio.',
       'broken.png': '"broken.png" is a damaged PNG: its header does not read. Export it again as PNG or JPEG.',
-      'clip.webm': '"clip.webm" is WebM, which cannot be read. Export it as H.264 (MP4) or HAP.',
-      'old.avi': '"old.avi" is AVI, which cannot be read. Export it as H.264 (MP4) or HAP.',
+      'clip.webm': '"clip.webm" is WebM, which cannot be read. Export it as H.264 (MP4) or HAP. Or use Convert to HAP.',
+      'old.avi': '"old.avi" is AVI, which cannot be read. Export it as H.264 (MP4) or HAP. Or use Convert to HAP.',
       'song.mp3': '"song.mp3" can only be read by the desktop app, which has the decoders. Import it there.',
     });
     // the show: kind, the pixel size the mixer will have (a reduced image is the reduced size), the image block, a clip each in the grid
@@ -339,9 +339,9 @@ test('import: an H.264 MP4 is a video clip; the helper decides whether this comp
   // with a helper
   for (const [name, answer, expect] of [
     ['gpu', { ok: true, hardware: true }, { rejected: 0, notes: [] }],
-    ['cpu', { ok: true, hardware: false }, { rejected: 0, notes: ['"v.mp4" is decoded by the CPU on this computer, not the GPU: it may drop frames.'] }],
-    ['none', { ok: false, reason: 'no-decoder' }, { rejected: 1, message: '"v.mp4" is H.264 and this computer has no decoder for it. Export it as H.264 or HAP.' }],
-    ['big', { ok: false, reason: 'too-big', limit: '4096×4096' }, { rejected: 1, message: '"v.mp4" is 256×32 H.264, larger than this GPU decodes (4096×4096). Export it smaller, as HEVC, or as HAP.' }],
+    ['cpu', { ok: true, hardware: false }, { rejected: 0, notes: ['"v.mp4" is decoded by the CPU on this computer, not the GPU: it may drop frames. Use Convert to HAP.'] }],
+    ['none', { ok: false, reason: 'no-decoder' }, { rejected: 1, message: '"v.mp4" is H.264 and this computer has no decoder for it. Export it as H.264 or HAP. Or use Convert to HAP.' }],
+    ['big', { ok: false, reason: 'too-big', limit: '4096×4096' }, { rejected: 1, message: '"v.mp4" is 256×32 H.264, larger than this GPU decodes (4096×4096). Export it smaller, as HEVC, or as HAP. Or use Convert to HAP.' }],
   ]) {
     const q = rig();
     const h = fakeHelper(q.media, (job) => { assert.equal(job.kind, 'canDecode'); assert.equal(job.codec, 'avc1.64000a'); assert.ok(job.src.startsWith('/api/helper/file/')); return answer; });
@@ -356,7 +356,7 @@ test('import: an H.264 MP4 is a video clip; the helper decides whether this comp
   }
   // a clip wider than the GPU decodes plays by CPU while its pixels a second are within what the room's PC managed (measured: 7196×912 at 30 fps
   // clean, at 45 fps not): the same size at 60 fps is refused, with the rate that would work
-  for (const [fps, ticks, expect] of [[30, 1000, { ok: ['"w.mp4" is decoded by the CPU on this computer (38 fps at best), not the GPU: it may drop frames.', 'This clip is 7196×912; the room canvas is 256×32. It will be stretched (change Fit).'] }], [60, 500, { no: '"w.mp4" is 7196×912 H.264 at 60 fps, and this computer decodes that at about 38 fps. Export it at 30 fps, as HEVC, or as HAP.' }]]) {
+  for (const [fps, ticks, expect] of [[30, 1000, { ok: ['"w.mp4" is decoded by the CPU on this computer (38 fps at best), not the GPU: it may drop frames. Use Convert to HAP.', 'This clip is 7196×912; the room canvas is 256×32. It will be stretched (change Fit).'] }], [60, 500, { no: '"w.mp4" is 7196×912 H.264 at 60 fps, and this computer decodes that at about 38 fps. Export it at 30 fps, as HEVC, or as HAP. Or use Convert to HAP.' }]]) {
     const q = rig();
     const h = fakeHelper(q.media, () => ({ ok: true, hardware: false }));
     try {
@@ -370,9 +370,9 @@ test('import: an H.264 MP4 is a video clip; the helper decides whether this comp
   try {
     const bad = makeMp4({ avc: { profile: 122, level: 40, chroma: 2, depth: 10 }, sync: [0] }).bytes;
     const res = await q.import([q.file('hq.mp4', bad)]);
-    assert.equal(res.rejected[0]?.message, '"hq.mp4" is H.264 4:2:2 10-bit, which cannot be decoded here. Export it as 8-bit 4:2:0 (High profile) or HAP.');
+    assert.equal(res.rejected[0]?.message, '"hq.mp4" is H.264 4:2:2 10-bit, which cannot be decoded here. Export it as 8-bit 4:2:0 (High profile) or HAP. Or use Convert to HAP.');
     const frag = await q.import([q.file('frag.mp4', makeMp4({ fragmented: true }).bytes)]);
-    assert.equal(frag.rejected[0]?.message, '"frag.mp4" is a fragmented MP4. Export it with the index at the start (fast start) or as HAP.');
+    assert.equal(frag.rejected[0]?.message, '"frag.mp4" is a fragmented MP4. Export it with the index at the start (fast start) or as HAP. Or use Convert to HAP.');
   } finally { await q.close(); }
 });
 

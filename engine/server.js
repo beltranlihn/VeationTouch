@@ -146,6 +146,20 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       });
       return undefined;
     }
+    m = /^\/api\/helper\/part\/(h\d+)$/.exec(p);
+    if (m && req.method === 'POST') { // a piece of a long job (a HAP frame, a block of PCM): held whole, handed to the job, answered once written
+      let meta = {};
+      try { const h = req.headers['x-vt-meta']; if (h) meta = JSON.parse(decodeURIComponent(String(h))); } catch { /* none */ }
+      const chunks = []; let size = 0;
+      req.on('data', (c) => { size += c.length; if (size <= 256 * 1024 * 1024) chunks.push(c); });
+      req.on('end', () => {
+        link.part(m[1], meta, Buffer.concat(chunks)).then((r) => {
+          if (!r) { res.writeHead(404); return res.end(); }
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify(r));
+        }, (e) => { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: String(e.message || e) })); });
+      });
+      return undefined;
+    }
     m = /^\/api\/helper\/file\/([0-9a-f]{24})$/.exec(p);
     if (m && req.method === 'GET') {
       const file = link.files.get(m[1]);
@@ -249,6 +263,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (p === '/shared/transport.js') return serveFile(res, path.join(root, 'engine', 'media', 'transport.js'), OWN);
     // the HAP decoders of the output page's workers read the movies with the engine's own code (mov.js imports ./hap.js)
     if (p === '/shared/mov.js') return serveFile(res, path.join(root, 'engine', 'media', 'mov.js'), OWN);
+    if (p === '/shared/hapenc.js') return serveFile(res, path.join(root, 'engine', 'media', 'hapenc.js'), OWN);
     if (p === '/shared/hap.js') return serveFile(res, path.join(root, 'engine', 'media', 'hap.js'), OWN);
     // the media helper (a hidden window of the desktop app: decodes images, video frames and sounds — engine/media/helper.js)
     if (p === '/helper') { if (!peerOf(req).local) { res.writeHead(403); return res.end(); } return serveFile(res, path.join(uiDir, 'helper.html'), OWN); }

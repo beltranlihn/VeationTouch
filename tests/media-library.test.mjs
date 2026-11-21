@@ -186,15 +186,15 @@ test('import: every case of the validation table gives its exact message, all re
     const res = await r.import(paths);
     const why = Object.fromEntries(res.rejected.map((x) => [x.name, x.message]));
     assert.deepEqual(why, {
-      'clip.mp4': '"clip.mp4" is MPEG-4, which VEATION Touch cannot play. Export it as H.264 or HAP.',
-      'clip.mov': '"clip.mov" is XDCAM, which VEATION Touch cannot play. Export it as H.264 or HAP.',
-      'prores.mov': '"prores.mov" is ProRes 422, which VEATION Touch cannot play. Export it as H.264 or HAP.',
-      'hevc.mov': '"hevc.mov" is HEVC (H.265), which is not supported yet. Export it as H.264 or HAP.',
+      'clip.mp4': '"clip.mp4" is MPEG-4, which VEATION Touch cannot play. Export it as H.264 or HAP. Or use Convert to HAP.',
+      'clip.mov': '"clip.mov" is XDCAM, which VEATION Touch cannot play. Export it as H.264 or HAP. Or use Convert to HAP.',
+      'prores.mov': '"prores.mov" is ProRes 422, which VEATION Touch cannot play. Export it as H.264 or HAP. Or use Convert to HAP.',
+      'hevc.mov': '"hevc.mov" is HEVC (H.265), which is not supported yet. Export it as H.264 or HAP. Or use Convert to HAP.',
       'qalpha.mov': 'HAP Q Alpha is not supported yet. Use HAP, HAP Alpha or HAP Q.',
       'r.mov': 'HAP R is not supported yet. Use HAP, HAP Alpha or HAP Q.',
       'hdr.mov': 'HAP HDR is not supported yet. Use HAP, HAP Alpha or HAP Q.',
       'cut.mov': '"cut.mov" is incomplete (no index). Copy it again from the source.',
-      'renamed.mov': '"renamed.mov" is Matroska, which cannot be read. Export it as H.264 (MP4) or HAP.',
+      'renamed.mov': '"renamed.mov" is Matroska, which cannot be read. Export it as H.264 (MP4) or HAP. Or use Convert to HAP.',
       'gone.mov': '"gone.mov" was not found.',
     });
     const ok = Object.fromEntries(res.accepted.map((x) => [x.name, x.warnings]));

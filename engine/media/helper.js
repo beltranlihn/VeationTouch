@@ -5,6 +5,7 @@
 //
 //   GET  /api/helper/next            → 200 {id, kind, …} (a job) | 204 (nothing for 20 s: ask again)
 //   POST /api/helper/done/<id>       body: JSON {…result}, or the bytes of a file the job asked for (X-VT-Meta: JSON)
+//   POST /api/helper/part/<id>       a piece of a long job (convert: one HAP frame, a block of PCM): the answer says {cancel} when the engine gave up
 //   GET  /api/helper/file/<token>    a file the job names (the page reads it by ranges: a 2 GB video is never loaded whole)
 //
 // All three are for THIS computer only (server.js). The helper "is online" while its poll keeps arriving; a job asked
@@ -45,20 +46,48 @@ export class HelperLink {
    * `dest`: an absolute path the page's answer body is written to (the route does it; the result then carries `bytes`).
    * @returns {Promise<object>} the page's result (a rejected job: Error with .code)
    */
-  request(job, { files = {}, dest = null, timeoutMs = JOB_TIMEOUT_MS } = {}) {
+  request(job, { files = {}, dest = null, timeoutMs = JOB_TIMEOUT_MS, onPart = null } = {}) {
     if (!this.online) return Promise.reject(Object.assign(new Error('the media helper is not running (the desktop app has it)'), { code: 'no-helper' }));
     const id = `h${++this.seq}`, tokens = [];
     const send = { ...job, id };
     for (const [k, f] of Object.entries(files)) { const t = this.fileToken(f); tokens.push(t); send[k] = `/api/helper/file/${t}`; }
     this.stats.jobs++;
-    return new Promise((resolve, reject) => {
-      const rec = { job: send, resolve, reject, dest, tokens, timer: null };
-      rec.timer = setTimeout(() => { this._finish(id); this.stats.timeouts++; reject(Object.assign(new Error(`the media helper did not answer (${send.kind})`), { code: 'helper-timeout' })); }, timeoutMs);
-      rec.timer.unref?.();
+    const p = new Promise((resolve, reject) => {
+      const rec = { job: send, resolve, reject, dest, tokens, timer: null, onPart, timeoutMs, cancelled: false };
+      this._arm(id, rec);
       this.jobs.set(id, rec);
       this.queue.push(send);
       this._deliver();
     });
+    p.id = id; // (abort(id) needs it)
+    return p;
+  }
+
+  /** (Re)starts the silence timer of a job: it fails when the page says nothing for timeoutMs (a part counts as something). */
+  _arm(id, rec) {
+    clearTimeout(rec.timer);
+    rec.timer = setTimeout(() => { this._finish(id); this.stats.timeouts++; rec.reject(Object.assign(new Error(`the media helper did not answer (${rec.job.kind})`), { code: 'helper-timeout' })); }, rec.timeoutMs);
+    rec.timer.unref?.();
+  }
+
+  /** A piece of a long job arrives: handed to the job's onPart (a promise: the page waits for it). {cancel:true} when the engine gave up. */
+  async part(id, meta, body) {
+    const rec = this.jobs.get(id);
+    if (!rec || !rec.onPart) return null;
+    if (rec.cancelled) return { cancel: true };
+    this._arm(id, rec);
+    await rec.onPart(meta, body);
+    return rec.cancelled ? { cancel: true } : { ok: true };
+  }
+
+  /** The engine gives up a job (a cancelled conversion): it rejects at once, the page is told on its next part. */
+  abort(id) {
+    const rec = this.jobs.get(id);
+    if (!rec) return false;
+    rec.cancelled = true;
+    this._finish(id);
+    rec.reject(Object.assign(new Error('cancelled'), { code: 'cancelled' }));
+    return true;
   }
 
   /** The long poll of the page: resolves with the next job, or null after POLL_MS (or when `abort` fires). */
