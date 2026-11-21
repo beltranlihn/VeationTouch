@@ -24,6 +24,8 @@ import { writeHap, layout, picture, MARKERS } from './fixtures/media/make-hap.mj
 import { HapPool, hapWorkers, workersFor, HUNG_MS } from '../ui/js/mixer/hap-pool.js';
 import { HapPlayer, FrameLock, requestWindow, centre } from '../ui/js/mixer/hap-player.js';
 import { placeRect, fadeOf, wrapTargets, segmentOf, libraryFile } from '../ui/js/mixer/media-layers.js';
+import { withHelperPage, convertAndOpen } from './fixtures/media/convert-rig.mjs';
+import { movIndex } from '../engine/media/mov.js';
 
 const quiet = { info() {}, warn() {}, error() {}, recent: () => [] };
 const root = path.resolve(import.meta.dirname, '..');
@@ -336,9 +338,13 @@ function writeShow(engine, store, { files, layers, decks }) {
   for (const f of files) {
     const abs = path.join(lib, 'f6', f.file);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
-    truth[f.id] = writeHap(abs, { width: 256, height: 32, fps: 30, ...f.opts });
+    if (f.from) { // a movie made elsewhere (Convert to HAP): copied in, its truth read from its own index
+      fs.copyFileSync(f.from, abs);
+      const b = fs.readFileSync(abs), v = movIndex((o, l) => b.subarray(o, o + l), b.length).video;
+      truth[f.id] = { fourcc: v.fourcc, frames: v.count, width: v.width, height: v.height };
+    } else truth[f.id] = writeHap(abs, { width: 256, height: 32, fps: 30, ...f.opts });
     const t = truth[f.id];
-    media.push({ id: `m-${f.id}`, file: `f6/${f.file}`, size: fs.statSync(abs).size, video: vid(t.fourcc, t.frames, f.opts.fps || 30, t.width, t.height), audio: null });
+    media.push({ id: `m-${f.id}`, file: `f6/${f.file}`, size: fs.statSync(abs).size, video: vid(t.fourcc, t.frames, f.opts?.fps || 30, t.width, t.height), audio: null });
     clips.push({ id: f.id, mediaId: `m-${f.id}`, end: 'loop', ...f.clip });
   }
   store.saveShow(normalizeShow({ id: 'f6', name: 'F6', media, clips, layers, decks: decks || [{ id: 'D1', columns: 8, cells: Object.fromEntries(files.map((f, i) => [`${f.clip?.layer || 'L1'}:${i}`, f.id])) }] }));
@@ -779,4 +785,49 @@ test('output window: only its workers have Node, and it cannot be taken off our 
   const rest = main.replace(fn, ''), pv = rest.slice(rest.indexOf('setWindowOpenHandler'), rest.indexOf('function isScreensPreview'));
   assert.equal((rest.match(/outputWebPreferences\(/g) || []).length, 1, 'outside applyOutputWindow, only the screens preview');
   assert.match(pv, /isScreensPreview\(url\)[\s\S]*outputWebPreferences\(\{ spout: false \}\)[\s\S]*did-create-window[\s\S]*guardOutputWindow\(w\.webContents,/, 'the preview window is our output page only, and guarded');
+});
+
+// ------------------------------------------------------------------------------------------------ Convert to HAP → the player
+
+// Fails if a movie that Convert to HAP wrote (the helper page's GPU encoder + the engine's writer) does not play in the output
+// page like any other HAP: the right frame (the stripe), the right way up, in HAP, HAP Q and HAP Alpha.
+test('output page: the HAP movies Convert to HAP makes from an H.264 (HAP, HAP Q, HAP Alpha) play — the last frame held, upright', opt, async () => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-cvo-'));
+  let made;
+  try {
+    const { result, errors } = await withHelperPage(async (rig) => {
+      const m = rig.engine.media;
+      for (let i = 0; i < 200 && !m.helper.online; i++) await new Promise((r) => setTimeout(r, 50));
+      const mp4 = path.join(rig.dir, 'markers.mp4'); fs.copyFileSync(path.join(import.meta.dirname, 'fixtures', 'media', 'h264-markers.mp4'), mp4);
+      const files = {};
+      for (const codec of ['hap', 'hapq', 'hapa']) {
+        const r = await convertAndOpen(rig, mp4, { codec });
+        files[codec] = path.join(out, `${codec}.mov`); fs.writeFileSync(files[codec], r.bytes);
+      }
+      return files;
+    });
+    assert.deepEqual(errors, []);
+    made = result;
+    const { result: r, errors: pe } = await inOutput(`
+      for (const [clipId, layerId] of [['cH', 'L1'], ['cQ', 'L2'], ['cAl', 'L3']]) await cmd('clip.trigger', { clipId, layerId, transitionMs: 0 });
+      await until(() => ['L1', 'L2', 'L3'].every((l) => P(l)?.ready && P(l).shown === 59), 12000);
+      await wait(200);
+      const prof = store.state.profile, k = W / prof.canvas.width;
+      const wall = (id) => { const r = prof.walls.find((w) => w.id === id).pixelRect; return { x: r.x * k, y: r.y * k, w: r.w * k, h: r.h * k }; };
+      return { fourcc: Object.fromEntries(['L1', 'L2', 'L3'].map((l) => [l, P(l).fourcc])), shown: Object.fromEntries(['L1', 'L2', 'L3'].map((l) => [l, P(l).shown])),
+        h: { frame: stripeAt(wall('P1')), corners: corners(wall('P1')) }, q: { frame: stripeAt(wall('P2')), corners: corners(wall('P2')) }, al: { frame: stripeAt(wall('P3')), corners: corners(wall('P3')) } };`, {
+      files: [
+        { id: 'cH', file: 'h.mov', from: made.hap, clip: { end: 'hold', layer: 'L1', place: { target: 'wall', wallId: 'P1' } } },
+        { id: 'cQ', file: 'q.mov', from: made.hapq, clip: { end: 'hold', layer: 'L2', place: { target: 'wall', wallId: 'P2' } } },
+        { id: 'cAl', file: 'al.mov', from: made.hapa, clip: { end: 'hold', layer: 'L3', place: { target: 'wall', wallId: 'P3' } } },
+      ],
+      layers: [{ id: 'L1', transitionMs: 0 }, { id: 'L2', transitionMs: 0 }, { id: 'L3', transitionMs: 0 }],
+    });
+    assert.deepEqual(pe, [], `page errors: ${pe.join(' | ')}`);
+    assert.deepEqual(r.fourcc, { L1: 'Hap1', L2: 'HapY', L3: 'Hap5' });
+    for (const [k, v] of Object.entries({ h: r.h, q: r.q, al: r.al })) {
+      assert.equal(v.frame, 59, `${k}: the stripe says the last frame (59)`);
+      assert.ok(near(v.corners.tl, MARKERS.topLeft, 64) && near(v.corners.tr, MARKERS.topRight, 64) && near(v.corners.bl, MARKERS.bottomLeft, 64) && near(v.corners.br, MARKERS.bottomRight, 64), `${k} corners ${JSON.stringify(v.corners)}`);
+    }
+  } finally { fs.rmSync(out, { recursive: true, force: true }); }
 });

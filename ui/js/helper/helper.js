@@ -3,12 +3,16 @@
 //   thumb       one picture of a file: an image, a video frame (H.264), a sound's waveform → two PNGs (160×90 and 480 wide)
 //   canDecode   can this computer decode that video? (isConfigSupported AND a real sample decoded: it can say yes and fail)
 //   audioDecode a sound (an MP4's AAC, or MP3 / AAC / FLAC / Ogg) → s16le PCM that starts at the clip's time 0
+//   convert     a video or a picture → HAP frames, one by one, to the engine (Convert to HAP, path A): decoded by WebCodecs, DXT-compressed
+//               on the (low-power) GPU, wrapped by hapFrame; the engine writes the .mov (engine/media/convert.js)
 //
 // Files are read through the engine (GET /api/helper/file/<token>, by byte ranges: a 2 GB video is never loaded whole).
 // `window.__helper` exposes the handlers to the tests (tests/media-helper.test.mjs).
 
 import { movIndexAsync } from '/shared/mov.js';
 import { sniffKind, imageInfo, reducedSize } from '/shared/sniff.js';
+import { hapFrame, HAP_FMT } from '/shared/hapenc.js';
+import { createDxtEncoder } from './dxt-gpu.js';
 
 const THUMB_W = [160, 480];
 const SOUND_MAX_S = 20 * 60;
@@ -264,6 +268,123 @@ async function postPcm(job, { planes, rate, startSample = 0, total = null }) {
   return { rate, channels: ch, frames };
 }
 
+// ---------------------------------------------------------------------------------------------- Convert to HAP (path A)
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** One piece of the conversion to the engine; it answers {cancel} (or 404: the job is over) when the operator gave up. */
+async function postPart(job, meta, body) {
+  const r = await fetch(`/api/helper/part/${job.id}`, { method: 'POST', headers: { 'X-VT-Meta': encodeURIComponent(JSON.stringify(meta)), 'Content-Type': 'application/octet-stream' }, body });
+  if (r.status === 404) throw Object.assign(new Error('cancelled'), { code: 'cancelled' });
+  if (!r.ok) throw new Error(`part ${r.status}`);
+  const j = await r.json();
+  if (j.cancel) throw Object.assign(new Error('cancelled'), { code: 'cancelled' });
+}
+
+/**
+ * The frames of a movie as the page sees them, in presentation order, resampled to `fps` when another rate is asked for.
+ * `frames()` is an async generator of drawables (a VideoFrame, or a canvas when the movie is rotated or sized otherwise): the
+ * caller must NOT close them, the generator does when it moves on.
+ */
+function movieSource(ix, read, fps) {
+  const v = prepare(ix.video), n = v.native, order = n.order;
+  const t0 = v.present[order[0]], t1 = v.present[order[v.count - 1]];
+  const srcFps = v.count > 1 && t1 > t0 ? (v.count - 1) / (t1 - t0) : v.fps;
+  const rot = n.rotation || 0, W = rot === 90 || rot === 270 ? v.height : v.width, H = rot === 90 || rot === 270 ? v.width : v.height;
+  const outFps = fps && Math.abs(fps - srcFps) > 0.01 ? fps : srcFps;
+  const total = outFps === srcFps ? v.count : Math.max(1, Math.round((v.count / srcFps) * outFps));
+  const upright = (f) => {
+    if (!rot && f.displayWidth === W && f.displayHeight === H) return f;
+    const cv = new OffscreenCanvas(W, H), g = cv.getContext('2d');
+    if (!rot) { g.drawImage(f, 0, 0, W, H); return cv; }
+    const w = f.displayWidth, h = f.displayHeight;
+    g.translate(W / 2, H / 2); g.rotate((rot * Math.PI) / 180); g.drawImage(f, -w / 2, -h / 2);
+    return cv;
+  };
+  async function* frames() {
+    const q = [];
+    let err = null, finished = false, stopped = false;
+    const dec = new VideoDecoder({ output: (f) => { q.push(f); }, error: (e) => { err = e; } });
+    dec.configure({ codec: n.codecString, codedWidth: v.width, codedHeight: v.height, description: n.config, hardwareAcceleration: 'no-preference' });
+    const BATCH = 16;
+    (async () => {
+      for (let a = 0; a < v.count && !err && !stopped; a += BATCH) {
+        while (q.length + dec.decodeQueueSize > 6 && !err && !stopped) await sleep(2);
+        const b = Math.min(v.count - 1, a + BATCH - 1), bytes = await samples(read, v, a, b);
+        for (let k = 0; k < bytes.length && !stopped; k++) dec.decode(chunkOf(v, a + k, bytes[k]));
+      }
+      if (!stopped && !err) await dec.flush();
+      finished = true;
+    })().catch((e) => { err = err || e; finished = true; });
+    let prev = null, k = 0;
+    const tk = (i) => t0 + i / outFps;
+    try {
+      for (;;) {
+        if (!q.length) { if (err) throw err; if (finished) break; await sleep(1); continue; }
+        const cur = q.shift();
+        if (outFps === srcFps) { yield upright(cur); cur.close(); continue; }
+        // another rate: every output instant takes the last decoded frame at or before it
+        const ct = cur.timestamp / 1e6;
+        if (prev) { while (k < total && tk(k) < ct - 1e-6) { yield upright(prev); k++; } prev.close(); }
+        prev = cur;
+      }
+      if (prev) { while (k < total) { yield upright(prev); k++; } prev.close(); prev = null; }
+    } finally { stopped = true; for (const f of q) f.close(); try { prev?.close(); } catch { /* closed */ } try { dec.close(); } catch { /* closed */ } }
+  }
+  return { width: W, height: H, fps: outFps, total, frames };
+}
+
+async function convertJob(job) {
+  const fmt = HAP_FMT[job.codec];
+  if (!fmt) throw Object.assign(new Error(`unknown HAP codec ${job.codec}`), { code: 'bad-job' });
+  const { size, read } = await openRemote(job.src);
+  const head = await read(0, Math.min(size, 1 << 20)), sn = sniffKind(head);
+  let src, bm = null, ix = null;
+  if (sn.kind === 'image') {
+    const info = imageInfo(head, sn.format, sn.brand);
+    if (!info) throw Object.assign(new Error('the image header does not read'), { code: 'image-bad' });
+    const red = reducedSize(info.width, info.height);
+    const blob = new Blob([await (await fetch(job.src)).arrayBuffer()]);
+    bm = await createImageBitmap(blob, { imageOrientation: 'from-image', premultiplyAlpha: 'premultiply', ...(red ? { resizeWidth: red.width, resizeHeight: red.height, resizeQuality: 'high' } : {}) });
+    const fps = job.fps || 30;
+    src = { width: bm.width, height: bm.height, fps, total: Math.round(fps), still: true, frames: async function* () { yield bm; } };
+  } else if (sn.kind === 'mov') {
+    ix = await movIndexAsync(read, size);
+    if (!ix.video?.native?.codecString) throw Object.assign(new Error('not a video this helper decodes'), { code: 'no-decoder' });
+    src = movieSource(ix, read, job.fps || null);
+  } else throw Object.assign(new Error('not a picture or a video'), { code: 'no-convert' });
+
+  const audio = ix?.audio?.aac ? await aacPlanes(job.src) : null; // (PCM tracks and others: the engine says the sound was dropped)
+  const enc = createDxtEncoder(fmt.tex);
+  let sent = 0;
+  try {
+    await postPart(job, { t: 'begin', width: src.width, height: src.height, fps: src.fps, frames: src.total, audio: audio ? { rate: audio.rate, channels: audio.planes.length } : null, renderer: enc.info.renderer });
+    if (audio) { // s16le from the clip's time 0, in blocks the engine appends
+      const ch = audio.planes.length, avail = audio.planes[0].length, frames = Math.max(0, (audio.total ?? avail) - audio.startSample), BLOCK = 1 << 17;
+      for (let done = 0; done < frames; done += BLOCK) {
+        const m = Math.min(BLOCK, frames - done), out = new Int16Array(m * ch);
+        for (let i = 0; i < m; i++) {
+          const at = audio.startSample + done + i;
+          for (let c = 0; c < ch; c++) { const x = at >= 0 && at < avail ? Math.max(-1, Math.min(1, audio.planes[c][at])) : 0; out[i * ch + c] = x < 0 ? Math.round(x * 32768) : Math.round(x * 32767); }
+        }
+        await postPart(job, { t: 'a', frames: m }, out);
+      }
+    }
+    const blocks = Math.ceil(src.width / 4) * Math.ceil(src.height / 4);
+    let chunks = blocks > 65536 ? Math.min(8, Math.max(1, (navigator.hardwareConcurrency || 4) >> 1)) : 1;
+    chunks = 2 ** Math.floor(Math.log2(chunks)); // (a power of two, as VEATION writes them)
+    for await (const fr of src.frames()) {
+      const payload = hapFrame(enc.encode(fr, src.width, src.height), job.codec, chunks);
+      if (src.still) { await postPart(job, { t: 'v', i: 0, repeat: src.total }, payload); sent = src.total; break; }
+      await postPart(job, { t: 'v', i: sent }, payload);
+      sent++;
+      await sleep(0); // one frame at a time, and the page breathes: the room's PC has Unreal on it
+      if (sent >= src.total) break;
+    }
+  } finally { enc.close(); bm?.close(); }
+  return { frames: sent, width: src.width, height: src.height, fps: src.fps, audio: !!audio };
+}
+
 // ---------------------------------------------------------------------------------------------- the jobs
 
 async function thumbJob(job) {
@@ -290,6 +411,7 @@ const HANDLERS = {
   thumb: thumbJob,
   canDecode,
   audioDecode: audioJob,
+  convert: convertJob,
 };
 
 /** Answers a job: JSON, or (with a blob) the bytes of the file the job asked for plus the figures in a header. */
