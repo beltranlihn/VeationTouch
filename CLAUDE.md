@@ -39,7 +39,9 @@ Producto reutilizable: **nada de una sala concreta va en el código** — todo v
 - **Diseño:** tokens y estética de VEATION (`Immersive Studio Pro/index.html` + `docs/MARCA.md` de ese repo): 3 superficies
   neutras `#111/#1B1B1B/#262626`, tinta `#E0E0E0/#B8B8B8`, presupuesto de **dos acentos** — cian `#4FC3E8` = vivo
   (toques), ámbar `#E5B567` = atención (zonas, objetivos de calibración). El ámbar de lámpara `#F4B23A` sólo en el logo.
-  Geist autoalojada (funciona offline). Añadir un tercer acento exige cambiar este párrafo.
+  Geist autoalojada (funciona offline). Añadir un tercer acento exige cambiar este párrafo. Las **etiquetas de color
+  de clip** de Live (Slate, Sand, Moss, Heather, Clay, Mist en `ui/js/live/media-info.js`) son tintes neutros muy
+  desaturados para organizar la rejilla, no acentos: nunca deben leerse como cian ni ámbar ni marcar estado.
   **Nunca deslizadores nativos con tirador/puntito** (`input[type=range]`): los valores usan el fader de VEATION
   (`fader()` en `ui/js/dom.js`: surco de 3 px con relleno, sin tirador, valor en recuadro `s0` editable). Ante la duda,
   mirar cómo lo resuelve `Immersive Studio Pro` y copiar su criterio, no inventar.
