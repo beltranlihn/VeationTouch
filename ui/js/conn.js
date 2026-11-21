@@ -100,6 +100,15 @@ export function connect() {
         if (m.events) { store.events.unshift(...m.events.map((e) => ({ ...e, at: Date.now() }))); store.events.length = Math.min(store.events.length, 40); emit('events', m.events); }
         emit('live', m);
         break;
+      case 'media': {
+        // the media server's transport, copies and problems (engine/media/index.js › mediaState): small and frequent
+        // (4 a second while copying), so it is its own event — the panels are not rebuilt for it, only what shows it
+        const { type, ...media } = m;
+        if (store.state) store.state = { ...store.state, media };
+        emit('media', media);
+        break;
+      }
+      case 'mediaEvent': emit('mediaEvent', m); break; // started / ended / error of a play
       case 'log': store.logs.push(m.entry); if (store.logs.length > 400) store.logs.shift(); emit('log', m.entry); break;
       case 'ack': {
         const p = pending.get(m.id);
