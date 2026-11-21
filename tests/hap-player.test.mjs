@@ -724,6 +724,11 @@ test('output window: only its workers have Node, and it cannot be taken off our 
   const main = fs.readFileSync(path.join(root, 'app', 'main.js'), 'utf8');
   const fn = main.slice(main.indexOf('function applyOutputWindow'), main.indexOf('function closeAudioWindow'));
   assert.match(fn, /guardOutputWindow\(w\.webContents,/, 'applyOutputWindow guards its window');
-  assert.equal((fn.match(/outputWebPreferences\(/g) || []).length, 2, 'both kinds of output window get the output preferences');
+  // the three kinds: over several screens' displays (F9), full screen on one display, the off-screen Spout window
+  assert.equal((fn.match(/outputWebPreferences\(/g) || []).length, 3, 'every kind of output window gets the output preferences');
   assert.ok(!/nodeIntegrationInWorker/.test(main.replace(fn, '')), 'no other window of the app has Node in its workers');
+  // the one other window with them: Output › Screens › Preview window (the output page), guarded the same way
+  const rest = main.replace(fn, ''), pv = rest.slice(rest.indexOf('setWindowOpenHandler'), rest.indexOf('function isScreensPreview'));
+  assert.equal((rest.match(/outputWebPreferences\(/g) || []).length, 1, 'outside applyOutputWindow, only the screens preview');
+  assert.match(pv, /isScreensPreview\(url\)[\s\S]*outputWebPreferences\(\{ spout: false \}\)[\s\S]*did-create-window[\s\S]*guardOutputWindow\(w\.webContents,/, 'the preview window is our output page only, and guarded');
 });

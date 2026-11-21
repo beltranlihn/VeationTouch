@@ -123,6 +123,16 @@ everything but `on`), `output.layers {layers}` (all three layers, bottom to top,
 also `radius, sizeMode, softness, trailMs, walls, scale`), `experience.play` / `experience.stop` (select the experience
 and switch its layer on or off). State: `state.output = {running, calibrating, layersEffective, …}`.
 
+**Screens (Advanced Output, `sink: 'screens'`).** Instead of the whole canvas, the room output is cut into **slices**
+drawn onto the room's displays (`profile.output.screens[]`: each screen `{id, name, enabled, display, width, height,
+slices}`, each slice `{id, name, wallId, enabled, input, output, flipH, flipV}` — `input` a canvas rectangle or `null`
+= its wall's region; `output` `{mode: 'rect', rect}`, `{mode: 'corners', corners}` or a grid `{mode: 'grid', us, vs,
+points}` in screen pixels). One window covers the screens' displays; a screen whose display is not connected opens
+nothing and is listed in `state.output.screens.problems`. Commands: `output.set {sink: 'screens'}`, `output.screens
+{screens}` or `{template: 'fx4' | 'walls' | 'per-wall', fit?, screenId?}` (locked in Show mode), `output.testCard {on}`
+(a test card on every screen; never saved). State: `state.output.screens = {list, window, problems}`,
+`state.output.testCard`. Spout and the single window are unchanged.
+
 ## Texture (NDI or full screen)
 
 A greyscale mask of the touches — white discs on black — rendered in output-canvas pixels through each wall's

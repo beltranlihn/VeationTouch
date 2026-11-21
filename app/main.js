@@ -109,6 +109,9 @@ function sendDisplays() {
     width: Math.round(d.size.width * d.scaleFactor),
     height: Math.round(d.size.height * d.scaleFactor),
     primary: d.id === screen.getPrimaryDisplay().id,
+    // where it is (DIP) and how it runs: the Advanced Output finds its screens by id, then by geometry, and covers them
+    bounds: { x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height },
+    scaleFactor: d.scaleFactor, hz: Math.round(d.displayFrequency || 0) || null,
   }));
   engine.postMessage({ type: 'displays', list });
 }
@@ -139,8 +142,24 @@ function createMainWindow() {
   // An installation runs unattended: closing the window keeps the engine running in the tray.
   mainWin.on('close', (e) => { if (!quitting) { e.preventDefault(); mainWin.hide(); } });
   mainWin.on('closed', () => { mainWin = null; });
-  mainWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  mainWin.webContents.setWindowOpenHandler(({ url }) => {
+    // Output › Screens › Preview window: the room output page with the screens' composition at scale, in a normal window
+    // of this app (the same preferences and the same navigation guard as the output window: its HAP workers read files)
+    if (isScreensPreview(url)) {
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, autoHideMenuBar: true, backgroundColor: '#111111', title: 'VEATION Touch — Screens preview', icon: ICON, webPreferences: outputWebPreferences({ spout: false }) } };
+    }
+    shell.openExternal(url); return { action: 'deny' };
+  });
+  mainWin.webContents.on('did-create-window', (w, { url }) => {
+    if (!isScreensPreview(url)) { w.destroy(); return; }
+    guardOutputWindow(w.webContents, uiUrl('/').replace(/\/$/, ''), (u) => log(`screens preview: navigation to ${String(u).slice(0, 120)} refused`));
+  });
   mainWin.webContents.on('render-process-gone', (_e, d) => { log(`UI renderer gone (${d.reason}); reloading`); setTimeout(() => mainWin?.loadURL(uiUrl()), 1000); });
+}
+
+/** Only our own output page in preview mode opens in a window of the app (anything else goes to the browser). */
+function isScreensPreview(url) {
+  try { const u = new URL(url); return u.origin === new URL(uiUrl('/')).origin && u.pathname === '/output' && u.searchParams.get('screens') === 'preview'; } catch { return false; }
 }
 
 function showMain() {
@@ -286,7 +305,7 @@ function onCpuPaint(w, want, image) {
 }
 
 /** Once a second: the whole output as a small JPEG (what Chromium composes, so it is the room's image) for the Experiences tab. */
-function startPreview(w) {
+function startPreview(w, want = null) {
   clearInterval(previewTimer);
   let busy = false;
   previewTimer = setInterval(async () => {
@@ -297,10 +316,16 @@ function startPreview(w) {
       // this process, the one that forwards every paint to Spout. How it is doing goes every second regardless.
       let jpeg = null;
       if (previewWanted) {
-        let img = await w.webContents.capturePage();
-        const { width } = img.getSize();
-        if (width > 640) img = img.resize({ width: 640 });
-        jpeg = img.toJPEG(60);
+        if (want?.sink === 'screens') {
+          // the window shows the screens' slices (the Fx4's layout): the monitor wants the canvas, which the page gives
+          const url = await w.webContents.executeJavaScript('window.__out?.previewJpeg?.() || null');
+          jpeg = typeof url === 'string' && url.startsWith('data:image/jpeg;base64,') ? Buffer.from(url.slice(23), 'base64') : null;
+        } else {
+          let img = await w.webContents.capturePage();
+          const { width } = img.getSize();
+          if (width > 640) img = img.resize({ width: 640 });
+          jpeg = img.toJPEG(60);
+        }
       }
       engine?.postMessage({ type: 'outputPreview', jpeg: jpeg?.length ? jpeg : null, fps: spoutOut.fps, error: spoutOut.error || spoutOut.err || null });
     } catch { /* the window is going away */ } finally { busy = false; }
@@ -313,26 +338,44 @@ function startPreview(w) {
  * layers. Any change that matters (destination, display, size, rate, sender name) makes a fresh window; `fit` and the
  * layers are applied live by the page.
  */
+/** The rectangle (DIP) that covers several displays' bounds. */
+function unionBounds(list) {
+  const x = Math.min(...list.map((b) => b.x)), y = Math.min(...list.map((b) => b.y));
+  return { x, y, width: Math.max(...list.map((b) => b.x + b.width)) - x, height: Math.max(...list.map((b) => b.y + b.height)) - y };
+}
+
 function applyOutputWindow() {
   if (!engineReady && !quitting) return; // the engine is restarting: the output window keeps playing as it is
   const want = engineReady ? outWanted : null;
-  const display = want?.sink === 'window' ? screen.getAllDisplays().find((d) => d.id === want.displayId) : null;
+  const all = screen.getAllDisplays();
+  // screens (Advanced Output): the displays the engine found for them must still be here; one of them = full screen on
+  // it, several = one frameless window over their bounding rectangle (one GPU context: they share the mixer's image)
+  const scr = want?.sink === 'screens' ? (want.screens?.displays || []).map((id) => all.find((d) => d.id === id)) : null;
+  if (scr && (!scr.length || scr.some((d) => !d))) { closeOutputWindow(); return; }
+  const span = scr && scr.length > 1 ? unionBounds(scr.map((d) => d.bounds)) : null;
+  const display = want?.sink === 'window' ? all.find((d) => d.id === want.displayId) : scr?.length === 1 ? scr[0] : null;
   if (!want || (want.sink === 'window' && !display)) { closeOutputWindow(); return; }
   const { fit, ...rest } = want;
-  const key = JSON.stringify({ ...rest, bounds: display?.bounds || null, port: enginePort });
+  const key = JSON.stringify({ ...rest, bounds: span || display?.bounds || null, port: enginePort });
   if (outWin && !outWin.isDestroyed() && key === outKey) return;
   closeOutputWindow();
   const common = { frame: false, backgroundColor: '#000000', skipTaskbar: true, autoHideMenuBar: true, title: 'VEATION Touch — Output' };
   // Spout on the GPU when the addon supports it and it has not failed in this run (see spoutOut)
-  const gpu = !display && !spoutOut.failed && want.width > 0 && want.height > 0 && !!spoutSender(true);
-  if (!display && !gpu) spoutSender(false);
+  const visible = !!(display || span); // a display (full screen) or the span of several: not the off-screen Spout window
+  const gpu = !visible && !spoutOut.failed && want.width > 0 && want.height > 0 && !!spoutSender(true);
+  if (!visible && !gpu) spoutSender(false);
   // The preload only tells the page that this window IS a Spout output (it is pinned 1:1 to the render size, not fitted).
   // Both kinds have Node in their WORKERS (the HAP decoders read the clips with fs: app/output-window.cjs), so both are
   // guarded below: they never leave this app's server.
   // Spout: OFF-SCREEN rendering. A merely hidden window gets no requestAnimationFrame and its timers tick at Windows'
   // 15.6 ms granularity — measured about 26 fps for a 60 fps piece. Off-screen, Chromium drives frames at setFrameRate().
   // The window is the render size either way and paints, 1:1, what the page composes.
-  const w = display
+  const w = span
+    ? new BrowserWindow({ // several displays: frameless over all of them, above the taskbar (vsync'd requestAnimationFrame)
+      ...common, x: span.x, y: span.y, width: span.width, height: span.height, show: false, enableLargerThanScreen: true, resizable: false, movable: false,
+      webPreferences: outputWebPreferences({ spout: false }),
+    })
+    : display
     ? new BrowserWindow({
       ...common, x: display.bounds.x, y: display.bounds.y, width: display.bounds.width, height: display.bounds.height, fullscreen: true, show: false,
       webPreferences: outputWebPreferences({ spout: false }),
@@ -341,14 +384,15 @@ function applyOutputWindow() {
       ...common, width: Math.max(16, want.width), height: Math.max(16, want.height), useContentSize: true, show: false, enableLargerThanScreen: true,
       webPreferences: outputWebPreferences({ spout: true, preload: path.join(ROOT, 'app', 'experience-preload.cjs'), gpu }),
     });
-  if (!display) {
+  if (span) { w.setAlwaysOnTop(true, 'screen-saver'); w.setBounds(span); }
+  if (!visible) {
     w.webContents.setFrameRate(Math.max(1, Math.min(240, Number(want.fps) || 60)));
     w.setContentSize(Math.max(16, want.width), Math.max(16, want.height)); // larger than the screen is fine off screen
     if (spoutOut.native) w.webContents.on('paint', (e, _dirty, image) => (gpu ? onGpuPaint(w, want, e) : onCpuPaint(w, want, image)));
     else spoutOut.err = `Spout is not available (${spoutOut.error || 'unknown'})`;
   }
   outWin = w; outKey = key;
-  if (display) w.once('ready-to-show', () => w.showInactive());
+  if (visible) w.once('ready-to-show', () => { w.showInactive(); if (span) w.setBounds(span); });
   w.on('closed', () => { if (outWin === w) { outWin = null; outKey = ''; } });
   // the preload can load native code and the workers have Node: this window never leaves the app's own server
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -359,8 +403,8 @@ function applyOutputWindow() {
     setTimeout(() => { if (outWin === w) { closeOutputWindow(); applyOutputWindow(); } }, 1000);
   });
   w.loadURL(uiUrl(want.url));
-  startPreview(w);
-  log(`room output opened (${display ? 'full screen' : `Spout "${want.senderName}", ${gpu ? 'GPU' : 'CPU'} path`}, ${want.width}x${want.height})`);
+  startPreview(w, want);
+  log(`room output opened (${span ? `screens over ${scr.length} displays` : scr ? 'screens, full screen' : display ? 'full screen' : `Spout "${want.senderName}", ${gpu ? 'GPU' : 'CPU'} path`}, ${want.width}x${want.height})`);
 }
 
 function closeAudioWindow() {

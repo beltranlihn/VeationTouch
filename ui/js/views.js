@@ -1300,6 +1300,12 @@ export function experiencePanel(ctx) {
   const X = xpParts(ctx);
   return [X.catalog(), X.sounds()];
 }
+/** Where the room output goes (output.set { sink }): the Advanced Output's screens, the Spout sender, one display. */
+export const OUTPUT_DESTINATIONS = [
+  ['screens', 'Screens', 'The Advanced Output: the slices of the canvas on the screens you set up (the Datapath Fx4…)'],
+  ['spout', 'Spout', 'One Spout sender with the whole canvas (Resolume, TouchDesigner, MadMapper…)'],
+  ['window', 'Single window', 'The whole canvas full screen on one display, fitted or stretched'],
+];
 /** Output › Screens, under the Mapping: the room output — on/off, live preview, layers, where it goes, scale, rate. */
 export function roomOutput(ctx) { return [sec(null, xpParts(ctx).outputCard())]; }
 /** Output › Audio: the room's sound — devices, channel map, sub and filters, limiter, Test per channel, master, mute. */
@@ -1367,9 +1373,11 @@ function xpParts(ctx) {
 
   const destination = () => {
     const box = h('div', { class: 'xp-set' },
-      h('div', { class: 'row' }, h('span', { class: 'k' }, 'Send to'), h('div', { class: 'seg' }, [['spout', 'Spout'], ['window', 'Full screen']].map(([m, t]) =>
-        h('button', { class: O.sink === m ? 'on' : '', onclick: () => setOut({ sink: m }) }, t)))),
-      O.sink === 'spout'
+      h('div', { class: 'row' }, h('span', { class: 'k' }, 'Send to'), h('div', { class: 'seg', 'data-dest': '' }, OUTPUT_DESTINATIONS.map(([m, t, tip]) =>
+        h('button', { class: O.sink === m ? 'on' : '', title: tip, onclick: () => setOut({ sink: m }) }, t)))),
+      O.sink === 'screens'
+        ? h('p', { class: 'muted' }, `The screens of the Advanced Output above (${O.screens.length ? O.screens.map((s) => `${s.name} ${s.width}×${s.height}`).join(', ') : 'none yet'}): one window over their displays, each slice where it goes.`)
+        : O.sink === 'spout'
         ? [field('Sender name', O.senderName, (v) => setOut({ senderName: v })),
           h('p', { class: 'muted' }, `Spout "${O.senderName}" on this computer: Resolume, TouchDesigner, MadMapper… read it as one source. It is the only Spout sender of the app.`)]
         : [S.displays?.length
@@ -1391,7 +1399,7 @@ function xpParts(ctx) {
   const status = () => {
     if (OS.error) return h('div', { class: 'callout bad' }, OS.error);
     if (X.error) return h('div', { class: 'callout bad' }, X.error);
-    const where = O.sink === 'spout' ? `Spout "${O.senderName}"` : 'full screen';
+    const where = O.sink === 'spout' ? `Spout "${O.senderName}"` : O.sink === 'screens' ? 'screens' : 'full screen';
     // an off-screen window paints when the image changes: with no piece playing a still image is normal, not a fault
     const fps = X.running ? X.fps : OS.fps;
     return h('p', { class: 'xp-status' },

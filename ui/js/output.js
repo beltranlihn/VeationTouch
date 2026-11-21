@@ -22,6 +22,11 @@
 // over [touches, grid] only (state.output.calibrating); the experience is then neither copied nor drawn, but keeps running.
 // Without an experience (or when it stops calling) this page's own frame loop composes, only when something changed.
 // Blackout (state.media.blackout): the image fades to black in 0.5 s, and back.
+// Screens (the Advanced Output, MEDIA-SERVER.md §5; sink "screens", or ?screens=preview): the image is not presented as
+// it is but cut into SLICES drawn onto the screens (ui/js/mixer/screens.js), each screen with its test card on top when
+// state.output.testCard. ?screens=window is the desktop app's window over the screens' displays (each screen where its
+// display is: state.output.screens); anywhere else (the Preview window, a browser) the screens are laid side by side, at
+// scale, on grey.
 
 import { store, on, connect, cmd } from './conn.js';
 import { TouchMask, wallPattern, overlayOf } from '/shared/mask.js';
@@ -32,13 +37,15 @@ import { createMixer } from './mixer/gl.js';
 import { createRegistry, buildDraws, LAYER_IDS } from './mixer/layers.js';
 import { createMediaLayers } from './mixer/media-layers.js';
 import { makeClock } from './clock.js';
+import { createScreensPresenter, drawTestCard, snapshot } from './mixer/screens.js';
+import { sliceInput, sliceMesh, outputCorners } from '/shared/media/screens.js';
 
 const AMBER = '#E5B567', CYAN = '#4FC3E8';
 const BLACKOUT_MS = 500;
 const stage = document.getElementById('stage'); // the layers' sources
 const view = document.getElementById('mix');    // the mixer's canvas: what this page shows
 // counters (UI and mixer tests): grid / touches / feedbackUploads = texture uploads; gridDraws / feedback = canvas redraws
-const stats = { grid: 0, gridDraws: 0, touches: 0, feedback: 0, feedbackSkipped: 0, feedbackUploads: 0, composed: 0, expCalls: 0, expFrames: 0, expLoads: 0, lost: 0, error: null, timing: null };
+const stats = { cards: 0, grid: 0, gridDraws: 0, touches: 0, feedback: 0, feedbackSkipped: 0, feedbackUploads: 0, composed: 0, expCalls: 0, expFrames: 0, expLoads: 0, lost: 0, error: null, timing: null };
 const layers = new Map();          // id → { id, el, ... } the sources of the layers in use
 const registry = createRegistry(); // groups of layers registered from outside (media)
 const clock = makeClock();         // the engine's clock (live messages carry its time)
@@ -53,8 +60,13 @@ let lastCompose = 0, lastExp = -Infinity, frameNo = 0, timingAt = 0;
 const rec = { t: [], cpu: [] };    // the last compositions: instants and CPU ms (stats.timing)
 
 const P = () => store.state?.profile;
+const SCREENS_Q = new URLSearchParams(location.search).get('screens'); // 'window' | 'preview' | null
+/** The image goes through the screens' slices (and not to the window as it is). */
+const screensMode = () => SCREENS_Q === 'preview' || P()?.output?.sink === 'screens';
+let presenter = null;
+const scr = { key: '', plan: null, cards: new Map() }; // the slices' meshes per screen, and the test cards (2D canvas + texture)
 /** The desktop app's Spout window: pinned 1:1 to its own pixels. Anywhere else the image is fitted to the window. */
-const pinned = () => P()?.output?.sink === 'spout' && !!window.vtOut;
+const pinned = () => P()?.output?.sink === 'spout' && !!window.vtOut && !SCREENS_Q;
 const viewFit = () => (pinned() ? 'pinned' : P()?.output?.fit === 'stretch' ? 'stretch' : 'fit');
 const drawn = (id) => want.some((l) => l.id === id);
 
@@ -228,11 +240,66 @@ function compose(t, expCanvas = null) {
     if (drawn('media')) registry.group('media').frame({ t, now: a, dt, gl: mixer.gl, mixer });
     draws = buildDraws(want, sources(), registry);
   }
-  mixer.time('compose', timed, () => { mixer.compose(draws, { fade }); mixer.present(viewFit()); });
+  mixer.time('compose', timed, () => { mixer.compose(draws, { fade }); if (screensMode()) presenter.present(screensPlan()); else mixer.present(viewFit()); });
   stats.composed++;
   dirty = fade !== goal; // keep composing until the fade has arrived
   rec.t.push(a); rec.cpu.push(performance.now() - a);
   if (rec.t.length > 240) { rec.t.splice(0, 120); rec.cpu.splice(0, 120); }
+}
+
+// ---------------------------------------------------------------------------------------------- screens
+
+/**
+ * Where each screen goes on this page's canvas and the meshes of its slices — made again only when the screens, the walls,
+ * the canvas or the window change. In the app's screens window every screen sits where its display is (state.output.
+ * screens: `rel`, DIP from the window's corner); elsewhere they are laid side by side at their resolution and fitted.
+ */
+function screensPlan() {
+  const prof = P(), S = store.state, O = prof.output;
+  const real = SCREENS_Q === 'window', live = S.output?.screens?.list || [];
+  const relOf = (s) => live.find((l) => l.id === s.id)?.rel;
+  const list = (O.screens || []).filter((s) => s.enabled && (!real || relOf(s)));
+  const cw = view.width, ch = view.height, dpr = devicePixelRatio || 1;
+  let boxes;
+  if (real) boxes = list.map((s) => { const r = relOf(s); return [r.x * dpr, r.y * dpr, r.width * dpr, r.height * dpr]; });
+  else {
+    const gap = list.length > 1 ? Math.max(...list.map((s) => s.width)) * 0.04 : 0;
+    const W = list.reduce((n, s) => n + s.width, 0) + gap * Math.max(0, list.length - 1), H = Math.max(1, ...list.map((s) => s.height));
+    const k = W ? Math.min(cw / W, ch / H) : 1;
+    let x = (cw - W * k) / 2;
+    boxes = list.map((s) => { const b = [x, (ch - s.height * k) / 2, s.width * k, s.height * k]; x += (s.width + gap) * k; return b; });
+  }
+  const key = JSON.stringify([cw, ch, boxes, list, prof.canvas, prof.walls.map((w) => [w.id, w.pixelRect])]);
+  if (key !== scr.key) {
+    scr.key = key;
+    scr.plan = {
+      bg: real ? 0 : 0x11 / 255,
+      screens: list.map((s, i) => ({
+        id: s.id, screen: s, view: boxes[i], sx: boxes[i][2] / s.width, sy: boxes[i][3] / s.height, card: null,
+        slices: s.slices.filter((x) => x.enabled).map((x) => ({ id: x.id, mesh: sliceMesh(x, sliceInput(x, prof), prof.canvas) })),
+      })),
+    };
+  }
+  // the test cards: drawn once per screen and what it shows (its size, name, slices), uploaded, kept while it is on
+  const on = !!S.output?.testCard;
+  for (const s of scr.plan.screens) s.card = on ? cardOf(s.screen) : null;
+  if (!on && scr.cards.size) { for (const c of scr.cards.values()) freeTex(c); scr.cards.clear(); }
+  return scr.plan;
+}
+
+function cardOf(screen) {
+  let c = scr.cards.get(screen.id);
+  const key = JSON.stringify([screen.name, screen.width, screen.height, screen.slices.filter((x) => x.enabled).map((x) => [x.name, x.output])]);
+  if (!c) { c = { el: document.createElement('canvas'), key: '', tex: null }; scr.cards.set(screen.id, c); }
+  const fresh = c.gen !== mixer.generation;
+  if (c.key !== key || fresh) {
+    c.key = key;
+    if (c.el.width !== screen.width || c.el.height !== screen.height) { c.el.width = screen.width; c.el.height = screen.height; }
+    drawTestCard(c.el.getContext('2d'), screen, screen.slices.filter((x) => x.enabled).map((x) => ({ name: x.name, corners: outputCorners(x.output) })));
+    mixer.upload(texOf(c, screen.width, screen.height), c.el);
+    stats.cards++;
+  }
+  return c.tex;
 }
 
 function sources() {
@@ -308,9 +375,11 @@ function start() {
     view.hidden = true;
     return;
   }
+  presenter = createScreensPresenter(mixer);
   mixer.gl.canvas.addEventListener('webglcontextlost', () => { stats.lost++; });
   mixer.onRestored(() => {
     for (const L of layers.values()) { L.dirty = true; L.ready = false; if (L.fb) L.fb.dirty = true; }
+    scr.key = ''; for (const c of scr.cards.values()) c.key = ''; // (meshes and cards again on the new context)
     dirty = true;
   });
   runLoop();
@@ -493,6 +562,20 @@ window.__out = {
   mixer: () => mixer,
   fade: () => fade,
   view: () => ({ fit: viewFit(), canvas: [view.width, view.height], css: [view.style.width, view.style.height], rect: mixer?.view?.rect || null, size }),
+  // the Advanced Output: whether the image goes through the slices, where each screen went (canvas px) and its slices;
+  // read(): RGBA of the presented canvas (TESTS ONLY)
+  screens: () => ({ on: screensMode(), q: SCREENS_Q, ...(presenter?.view || {}) }),
+  read: (x, y, w, h) => presenter.read(x, y, w, h),
+  present: () => presenter.present(screensPlan()), // (after a mixer.compose of the test's own draws)
+  // the room's monitor while this page shows the screens: the canvas itself, 640 px wide, as a JPEG data URL (app/main.js)
+  previewJpeg: (w = 640) => {
+    if (!mixer || mixer.lost) return null;
+    const h = Math.max(1, Math.round((w * mixer.height) / mixer.width)), px = snapshot(mixer, w, h);
+    const c = (scr.snapCanvas ||= document.createElement('canvas'));
+    c.width = w; c.height = h;
+    c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer), w, h), 0, 0);
+    return c.toDataURL('image/jpeg', 0.6);
+  },
 };
 connect();
 if (store.state) sync();

@@ -171,7 +171,10 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (p === '/audio') return serveFile(res, path.join(uiDir, 'audio.html'), ISOLATED);        // the room's sound: a hidden window of the desktop app (or a browser tab)
     if (p === '/output') return serveFile(res, path.join(uiDir, 'output.html'));   // the room output: the layers composed (the desktop app's window sends it to Spout)
     // the browser uses the very same geometry code as the engine (one implementation of the mapping)
-    if (p === '/shared/geometry.js') return serveFile(res, path.join(root, 'engine', 'core', 'geometry.js'), OWN);
+    if (p === '/shared/geometry.js' || p === '/shared/core/geometry.js') return serveFile(res, path.join(root, 'engine', 'core', 'geometry.js'), OWN);
+    // the Advanced Output's geometry and templates (screens ▸ slices): the engine, the output page and the UI share it
+    // (it imports ../core/geometry.js, hence the alias above)
+    if (p === '/shared/media/screens.js') return serveFile(res, path.join(root, 'engine', 'media', 'screens.js'), OWN);
     if (p === '/shared/mask.js') return serveFile(res, path.join(root, 'engine', 'core', 'mask.js')); // the Texture output's rasteriser (live preview)
     // the transport's playhead() — THE formula of a clip's position — for the mixer, the HAP player and the audio page
     if (p === '/shared/transport.js') return serveFile(res, path.join(root, 'engine', 'media', 'transport.js'), OWN);

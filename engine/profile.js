@@ -390,7 +390,7 @@ export function normRoomOutput(o) {
   }
   return {
     on: bool(o?.on, false),
-    sink: o?.sink === 'window' ? 'window' : 'spout',
+    sink: ['window', 'screens'].includes(o?.sink) ? o.sink : 'spout', // screens: the Advanced Output (output.screens)
     senderName: str(o?.senderName, 'VEATION Touch').replace(/[^\w .-]/g, '').trim().slice(0, 60) || 'VEATION Touch',
     displayId: Number.isFinite(o?.displayId) ? o.displayId : null,
     fit: o?.fit === 'stretch' ? 'stretch' : 'fit',
@@ -398,6 +398,71 @@ export function normRoomOutput(o) {
     fps: o?.fps === 30 ? 30 : 60,
     layers,
   };
+}
+
+// ---- the Advanced Output (MEDIA-SERVER.md §5.3; engine/media/screens.js): screens ▸ slices. No `screens` = [] and nothing
+// changes (the sink stays what it was): the migration is decided by the field's presence, like migrateRoomOutput.
+const SCREEN_MAX = 16384;
+
+function normDisplayRef(d) {
+  if (!d || typeof d !== 'object') return null;
+  const n = (v) => (Number.isFinite(v) ? Math.round(v) : null);
+  const out = { id: Number.isFinite(d.id) ? d.id : null, x: n(d.x), y: n(d.y), width: n(d.width), height: n(d.height), label: str(d.label).slice(0, 60) };
+  return out.id === null && out.x === null ? null : out;
+}
+
+/** A slice's output region in its screen (px): rect, corner pin (4 corners) or grid (normGrid), points kept near the screen. */
+function normSliceOutput(o, sc) {
+  const size = { width: sc.width, height: sc.height };
+  if (o?.mode === 'grid') { const g = normGrid(o, size); if (g) return g; }
+  const okCorners = o?.mode === 'corners' && Array.isArray(o.corners) && o.corners.length === 4 &&
+    o.corners.every((c) => Array.isArray(c) && c.length === 2 && c.every(Number.isFinite));
+  if (okCorners) {
+    const cl = (v, max) => Math.round(Math.min(max * 2, Math.max(-max, v)) * 10) / 10;
+    return { mode: 'corners', corners: o.corners.map(([x, y]) => [cl(x, sc.width), cl(y, sc.height)]) };
+  }
+  const r = o?.rect || {};
+  return { mode: 'rect', rect: { x: int(r.x, 0, -sc.width, sc.width * 2), y: int(r.y, 0, -sc.height, sc.height * 2), w: int(r.w, sc.width, 1, sc.width * 2), h: int(r.h, sc.height, 1, sc.height * 2) } };
+}
+
+/** The canvas rectangle a slice shows (px), inside the canvas — or null: its wall's pixelRect (or the whole canvas). */
+function normSliceInput(r, canvas) {
+  if (!r || typeof r !== 'object') return null;
+  const x = int(r.x, 0, 0, canvas.width - 1), y = int(r.y, 0, 0, canvas.height - 1);
+  return { x, y, w: int(r.w, canvas.width - x, 1, canvas.width - x), h: int(r.h, canvas.height - y, 1, canvas.height - y) };
+}
+
+export function normSlice(s, i, sc, canvas, wallIds) {
+  const wallId = typeof s?.wallId === 'string' && wallIds.includes(s.wallId) ? s.wallId : null;
+  return {
+    id: id(s?.id, `SL${i + 1}`),
+    name: str(s?.name, wallId || `Slice ${i + 1}`).slice(0, 60) || `Slice ${i + 1}`,
+    wallId,
+    enabled: bool(s?.enabled, true),
+    input: normSliceInput(s?.input, canvas),
+    output: normSliceOutput(s?.output, sc),
+    flipH: bool(s?.flipH, false),
+    flipV: bool(s?.flipV, false),
+  };
+}
+
+/** profile.output.screens: up to 8 screens (one per physical output), up to 64 slices each; ids unique (SC…, SL…). */
+export function normScreens(list, canvas, walls = []) {
+  const wallIds = walls.map((w) => w.id);
+  const screens = (Array.isArray(list) ? list : []).slice(0, 8).filter((s) => s && typeof s === 'object').map((s, i) => {
+    const sc = { width: int(s.width, 1920, 16, SCREEN_MAX), height: int(s.height, 1080, 16, SCREEN_MAX) };
+    return {
+      id: id(s.id, `SC${i + 1}`),
+      name: str(s.name, `Screen ${i + 1}`).slice(0, 60) || `Screen ${i + 1}`,
+      enabled: bool(s.enabled, true),
+      display: normDisplayRef(s.display),
+      ...sc,
+      slices: (Array.isArray(s.slices) ? s.slices : []).slice(0, 64).map((x, k) => normSlice(x, k, sc, canvas, wallIds)),
+    };
+  });
+  uniqueIds(screens, 'SC');
+  uniqueIds(screens.flatMap((s) => s.slices), 'SL');
+  return screens;
 }
 
 /**
@@ -464,7 +529,7 @@ export function normalizeProfile(input) {
     canvas,
     walls, sensors, zones, outputs,
     experience: normExperience(p.experience),
-    output: normRoomOutput(p.output),
+    output: { ...normRoomOutput(p.output), screens: normScreens(p.output?.screens, canvas, walls) },
     audio: normAudio(p.audio, walls),
     media: normMediaRef(p.media), // the show this room plays (MEDIA-SERVER.md §5.3); the show itself is shows/<id>.json
     processing: {

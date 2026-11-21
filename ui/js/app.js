@@ -415,6 +415,7 @@ addEventListener('keydown', (e) => {
   }
   if (e.key === '?') { shortcuts(); return; }
   const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+  if (arrows && ctx.view === 'mapping' && OutputView.nudge(arrows[0], arrows[1], e.shiftKey)) { e.preventDefault(); return; } // a slice (Advanced Output)
   if (arrows && ws.nudge(arrows[0], arrows[1], e.shiftKey)) e.preventDefault();
   // 1 · 2 · 3: the sections (each opens on its last sub-tab); the sub-tabs are clicked
   if (!mod && !e.altKey && /^[1-9]$/.test(e.key) && SECTIONS[Number(e.key) - 1]) goSection(SECTIONS[Number(e.key) - 1]);

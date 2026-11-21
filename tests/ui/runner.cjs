@@ -36,6 +36,7 @@ app.whenReady().then(async () => {
     ? { ...outputWebPreferences({ spout: false }), partition: `vt-ui-test-${process.pid}`, offscreen: true }
     : { backgroundThrottling: false, partition: `vt-ui-test-${process.pid}`,
       ...(PRELOAD ? { preload: PRELOAD, contextIsolation: true, nodeIntegration: false, sandbox: true } : {}), ...(SHOT ? { offscreen: true } : {}) } });
+  if (OUTPUT_WINDOW) win.setContentSize(W, H); // off screen it may be larger than the screen (as the app's output window)
   if (OUTPUT_WINDOW) guardOutputWindow(win.webContents, new URL(URL_).origin, (url) => refused.push(url));
   win.webContents.on('console-message', (e, level, message) => {
     const lv = e?.level ?? level, msg = e?.message ?? message;

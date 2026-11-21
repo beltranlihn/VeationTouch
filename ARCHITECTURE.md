@@ -485,6 +485,19 @@ refused. Switches are saved at once; faders are saved 700 ms after they settle.
 
 **Measured** on an RTX 4060 laptop: 7196 × 912 at 59–60 fps, with frame gaps ≤ 15 ms over 5 s.
 
+**Screens (Advanced Output, `sink: 'screens'`; `engine/media/screens.js`, `ui/js/mixer/screens.js`, Output › Screens).**
+A second stage after the mixer: canvas → screens. Each screen is a physical output (the Datapath Fx4's 3840 × 2400
+input in XR Lab) and holds slices: a canvas rectangle (by default its wall's `pixelRect`, which it follows) drawn to a
+rect, a corner pin (a homography, as a 16 × 16 mesh) or a grid mesh of the screen, with flips. `wall.mapping` keeps its
+meaning (wall → canvas: touches, zones, calibration); the calibration grid is a layer of the FBO, so it goes through the
+slices. The display of a screen is found by id, then by position and resolution, or — none chosen — the only display of
+its resolution; never another one. One visible, frameless window covers the connected screens' displays (full screen
+for one), vsync'd; the page draws each screen where its display is (`state.output.screens.list[].rel`) and the test card
+on top. Elsewhere (`/output?screens=preview`, Output › Screens › Preview window) the screens are laid side by side at
+scale. In that window the monitor's preview is the canvas itself (a 640 px blit of the FBO), not a capture of the
+screens. Templates: Datapath Fx4 (2 × 2: walls in canvas order → TL, TR, BL, BR, 1:1 centred, or Fit), Slices from
+walls, One display per wall.
+
 ## Room audio — sound pieces over the room's speakers (`profile.audio`, `ui/audio.html`, `ui/js/audio-*.js`)
 
 A sound piece (`experiences/<id>/`, manifest `kind: "sound"`, entry `sound.js`) only makes sound; it plays together with

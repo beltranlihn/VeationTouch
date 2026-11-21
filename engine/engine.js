@@ -13,7 +13,8 @@ import { CalibrationSession, defaultTargets, VerifySession, verifyTargets } from
 import { verifyPassMm, poseMatrix, apply } from './core/geometry.js';
 import { OutputManager } from './outputs/outputs.js';
 import { overlayOf } from './core/mask.js';
-import { normalizeProfile, blankProfile, wallToUv, OUTPUT_SCALES, OUTPUT_FPS, OUTPUT_BLENDS, OUTPUT_LAYERS, TOUCH_LAYER_SCALES, normRoomOutput, normAudio, AUDIO_MAX_CHANNELS, AUDIO_ROUTES, withMediaLayer } from './profile.js';
+import { normalizeProfile, blankProfile, wallToUv, OUTPUT_SCALES, OUTPUT_FPS, OUTPUT_BLENDS, OUTPUT_LAYERS, TOUCH_LAYER_SCALES, normRoomOutput, normAudio, AUDIO_MAX_CHANNELS, AUDIO_ROUTES, withMediaLayer, normScreens } from './profile.js';
+import { screensLayout, applyTemplate, TEMPLATES } from './media/screens.js';
 import { firewallStatus, fixFirewall, setInterfaceAddress, openHotspotSettings } from './net.js';
 import { autoAlign, backgroundPoints } from './core/autoalign.js';
 import { levelCheck } from './core/levelcheck.js';
@@ -57,6 +58,7 @@ export class Engine extends EventEmitter {
     this.seq = 0;
     this.startedAt = Date.now();
     this.displays = [];
+    this.testCard = false; // the Advanced Output's test card on every screen (output.testCard): never saved in the profile
     // internet access: outbound link to the relay (off unless settings.cloud.enabled)
     this.cloud = new CloudLink({ cfg: this.settings.cloud, log, version, port: () => this.port || this.settings.httpPort, token: () => this.settings.token, name: () => this.profile?.name || '' });
     this.cloud.on('change', () => this.emit('state'));
@@ -348,7 +350,7 @@ export class Engine extends EventEmitter {
     };
   }
 
-  setDisplays(list) { this.displays = list || []; this.emit('state'); }
+  setDisplays(list) { this.displays = list || []; if (this.profile) this._syncOutputWindow(); this.emit('state'); } // (the screens are found among them)
 
   // ------------------------------------------------------------------ commands
 
@@ -778,7 +780,7 @@ export class Engine extends EventEmitter {
         if (this.settings.locked && Object.keys(args).some((k) => k !== 'on' && !k.startsWith('__'))) throw new Error('the room is locked (Show mode) — unlock it first');
         const o = P.output, next = {};
         if ('on' in args) next.on = !!args.on;
-        if ('sink' in args) { if (!['spout', 'window'].includes(args.sink)) throw new Error('sink: spout or window'); next.sink = args.sink; }
+        if ('sink' in args) { if (!['spout', 'window', 'screens'].includes(args.sink)) throw new Error('sink: spout, window or screens'); next.sink = args.sink; }
         if ('senderName' in args) {
           next.senderName = String(args.senderName ?? '').replace(/[^\w .-]/g, '').trim().slice(0, 60);
           if (!next.senderName) throw new Error('the sender name cannot be empty (letters, digits, spaces, . - _)');
@@ -793,11 +795,32 @@ export class Engine extends EventEmitter {
         const was = o.on;
         Object.assign(o, next);
         if (was && !o.on) { this.exp = { fps: 0, error: null }; this.out = { fps: 0, error: null, previewAt: null }; this.outPreview = null; }
-        if (next.on !== undefined && next.on !== was) this.log.info(`room output ${o.on ? `on (${o.sink === 'spout' ? `Spout "${o.senderName}"` : 'full screen'})` : 'off'}`);
+        if (next.on !== undefined && next.on !== was) this.log.info(`room output ${o.on ? `on (${o.sink === 'spout' ? `Spout "${o.senderName}"` : o.sink === 'screens' ? 'screens' : 'full screen'})` : 'off'}`);
         this._saveExperience(true);
         this._syncOutputWindow();
         this.emit('state');
         return {};
+      }
+      case 'output.screens': {
+        // the Advanced Output (MEDIA-SERVER.md §5): the whole list of screens ▸ slices, or one of the templates
+        // ('fx4' with `fit`, 'walls' into `screenId`, 'per-wall'). The UI edits slices through profile.update (undo).
+        let list;
+        if (args.template !== undefined) {
+          if (!TEMPLATES.includes(args.template)) throw new Error(`template: one of ${TEMPLATES.join(', ')}`);
+          list = applyTemplate(args.template, P, { fit: args.fit === true, displays: this.displays, screenId: args.screenId ?? null });
+        } else if (Array.isArray(args.screens)) list = args.screens;
+        else throw new Error('screens: a list of screens, or template: one of ' + TEMPLATES.join(', '));
+        P.output.screens = normScreens(list, P.canvas, P.walls);
+        this._saveExperience(true);
+        this._syncOutputWindow();
+        this.emit('state');
+        return { screens: P.output.screens.map((s) => ({ id: s.id, slices: s.slices.length })) };
+      }
+      case 'output.testCard': {
+        // the test card on every screen, above the slices: it checks the cable and the Fx4, not the content. Not saved.
+        this.testCard = args.on === true;
+        this.emit('state');
+        return { on: this.testCard };
       }
       case 'output.layers': {
         // the layers, bottom to top: each one its switch, opacity, blend; the touches layer also its mask settings.
@@ -1169,6 +1192,8 @@ export class Engine extends EventEmitter {
     return {
       running: O.on, calibrating, layersEffective, url: O.on ? '/output?run=1' : null,
       fps: O.on ? this.out.fps : 0, error: O.on ? this.out.error : null, previewAt: O.on ? this.out.previewAt : null,
+      // the Advanced Output: which screens are connected, where each one is in the output window, the problems
+      screens: this.screensLayout(), testCard: this.testCard,
     };
   }
 
@@ -1176,11 +1201,22 @@ export class Engine extends EventEmitter {
   calibrating() { return !!(this.calib || this.verify || this.fit || this.walk || this.grid); }
 
   /** The window the desktop app opens for the room output (null = none): relative URL, the app adds the origin. */
+  /** The screens of the Advanced Output against the displays the desktop app reports (engine/media/screens.js). */
+  screensLayout() { return screensLayout(this.profile.output, this.displays); }
+
   outputWindow() {
     const O = this.profile.output;
     if (!O.on) return null;
     // width x height: the render size, which the Spout window paints at 1:1 (its frames go to Spout on the GPU)
     const c = this.profile.canvas;
+    if (O.sink === 'screens') {
+      // one visible window over the connected screens' displays (their bounding rectangle); none connected = no window,
+      // never one opened blindly on another display (Problems says which screen is missing)
+      const L = this.screensLayout();
+      if (!L.window) return null;
+      return { url: '/output?run=1&screens=window', sink: 'screens', displayId: null, fit: O.fit, scale: O.scale, fps: O.fps, senderName: O.senderName,
+        width: Math.round(c.width * O.scale), height: Math.round(c.height * O.scale), screens: L.window };
+    }
     return { url: '/output?run=1', sink: O.sink, displayId: O.displayId, fit: O.fit, scale: O.scale, fps: O.fps, senderName: O.senderName,
       width: Math.round(c.width * O.scale), height: Math.round(c.height * O.scale) };
   }
@@ -1443,7 +1479,7 @@ const LOCKED_OPS = new Set([
   'profile.update', 'profile.load', 'profile.create', 'profile.import', 'profile.delete', 'profile.restore',
   'bg.capture', 'bg.clear', 'calib.start', 'calib.apply', 'calib.clear', 'verify.start', 'sensor.autoAlign',
   'replay.start', 'rec.delete', 'sensor.discover', 'sensor.readdress', 'net.setSensorNic',
-  'experience.set', // play / stop / param stay available in Show mode: they are how a show is run
+  'experience.set', 'output.screens', // play / stop / param stay available in Show mode: they are how a show is run
   // the room's sound: where it goes (devices, map, test) is locked; play / stop / parameters / master / mute / the switch are how a show
   // is run (audio.set checks its own keys)
   'audio.map', 'audio.test', 'sound.set',

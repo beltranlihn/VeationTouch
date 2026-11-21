@@ -1,16 +1,20 @@
 // Output — where the room's image, sound and data go. Three sub-tabs (index.html › #subnav), each one a view id:
-//   Screens   (id 'mapping')  the Mapping (output canvas, wall → pixel regions, content underlay) and, under it, the room
-//                             output: on/off, live preview, layers, Spout / full screen, display, scale, fps.
-//                             The Advanced Output (screens ▸ slices, Input / Output stages) grows here (plan F9).
+//   Screens   (id 'mapping')  the Mapping (output canvas, wall → pixel regions, content underlay), under it on the stage
+//                             the Advanced Output (screens.js: screens ▸ slices, Input / Output stages, inspector, test
+//                             card, Preview window), and in the panel the room output: on/off, live preview, layers,
+//                             Screens / Spout / single window, display, scale, fps.
 //   Audio     (id 'audio')    the room's sound: devices, channel map, sub and filters, limiter, Test, master, mute.
 //   Protocols (id 'outputs')  OSC, TUIO, Triggers, Webhook, Art-Net, sACN, Texture; WebSocket and the OSC address space.
 // The ids are the ones the views always had: ctx.go('mapping') / ctx.go('outputs') still open them.
 
 import * as V from '../views.js';
+import { deck, nudge } from './screens.js';
+
+export { nudge }; // the arrows of app.js: the selected slice, 1 px / 10 px
 
 /** Output › Screens. */
 export function screens(ctx) {
-  return [...V.mapping(ctx), ...V.roomOutput(ctx)];
+  return [...deck(ctx), ...V.mapping(ctx), ...V.roomOutput(ctx)];
 }
 
 /** Output › Audio. */
