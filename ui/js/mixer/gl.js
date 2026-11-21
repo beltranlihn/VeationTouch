@@ -130,12 +130,16 @@ export function createMixer(canvas, { width, height }) {
     m.fbo = fbo;
   }
 
-  /** A texture of w × h (RGBA8, linear, clamped) on this context. */
-  m.texture = (w, h) => {
+  /**
+   * A texture of w × h (RGBA8, linear, clamped) on this context. `mips`: with all its levels and trilinear filtering — for a still
+   * image, uploaded once (`upload(…, {mips: true})` makes the levels): a 12 000 px photo shown at 7196 px would alias without them.
+   */
+  m.texture = (w, h, { mips = false } = {}) => {
     const t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, Math.max(1, w | 0), Math.max(1, h | 0));
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    const W = Math.max(1, w | 0), H = Math.max(1, h | 0);
+    gl.texStorage2D(gl.TEXTURE_2D, mips ? Math.floor(Math.log2(Math.max(W, H))) + 1 : 1, gl.RGBA8, W, H);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return t;
   };
@@ -146,7 +150,7 @@ export function createMixer(canvas, { width, height }) {
    * A WebGL/WebGPU canvas must be copied in the task that drew it: once presented its drawing buffer is empty.
    * `pixels` with w, h: raw RGBA bytes instead.
    */
-  m.upload = (tex, source, w, h) => {
+  m.upload = (tex, source, w, h, { mips = false } = {}) => {
     if (m.lost) return;
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
@@ -154,6 +158,7 @@ export function createMixer(canvas, { width, height }) {
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
     if (ArrayBuffer.isView(source)) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, source);
     else gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    if (mips) gl.generateMipmap(gl.TEXTURE_2D);
   };
 
   /** GPU timing around a step (tag) — measured only when asked (`on`): the stats sample one frame in a few. */

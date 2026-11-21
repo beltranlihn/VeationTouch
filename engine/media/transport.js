@@ -49,6 +49,8 @@ export const passLength = (p) => Math.max(p.out - p.in, 1 / p.fps);
  *   bounce                            q = elapsed mod 2·len      forward while q < len (t = q), then back (t = 2·len − q)
  *   time  = in + t                    seconds into the media file (the audio's position too: time × rate)
  *   frame = floor(time · fps), kept inside the segment's frames [floor(in·fps), ceil(out·fps) − 1] and [0, frames − 1]
+ *   still + endless (a still image whose clip has no `out`, ending in loop / hold / clear / bounce): it is always there —
+ *   time = in, frame 0, never done. A still with an `out`, or on an autopilot end, runs its segment like any clip.
  * Before startAt (the preroll) it is the segment's first frame, with started = false.
  * @param {{startAt:number, offset:number, in:number, out:number, fps:number, frames:number, end:string, loops:number}} p
  * @returns {{time:number, frame:number, pass:number, dir:1|-1, started:boolean, done:boolean}}
@@ -56,6 +58,7 @@ export const passLength = (p) => Math.max(p.out - p.in, 1 / p.fps);
 export function playhead(p, now) {
   const len = passLength(p);
   const el = Math.max(0, (now - p.startAt) / 1000 + (p.offset || 0));
+  if (p.still && p.endless) return { time: p.in, frame: 0, pass: 0, dir: 1, started: now >= p.startAt, done: false };
   let t, pass = 0, dir = 1, done = false;
   if (p.end === 'hold' || p.end === 'clear') {
     if (el >= len) { t = len; done = true; } else t = el;
@@ -78,6 +81,7 @@ export function playhead(p, now) {
 
 /** When a play reaches its natural end (engine ms): hold / clear after one pass, autopilot after `loops`; loop and bounce never. */
 export function endsAt(p) {
+  if (p.still && p.endless) return null;
   const lenMs = passLength(p) * 1000, off = (p.offset || 0) * 1000;
   if (p.end === 'hold' || p.end === 'clear') return r1(p.startAt + lenMs - off);
   if (AUTOPILOT.includes(p.end)) return r1(p.startAt + (p.loops || 1) * lenMs - off);
@@ -90,8 +94,8 @@ const blankEntry = (id, layer) => ({ id, play: null, from: null, fadeAt: null, t
 /** A play as clients see it (no bookkeeping). */
 function pubPlay(p) {
   if (!p) return null;
-  const { playId, clipId, mediaId, startAt, offset, in: inS, out, fps, frames, end, loops, endsAt: e, audio, gainDb, route, deckId, column } = p;
-  return { playId, clipId, mediaId, startAt, offset, in: inS, out, fps, frames, end, loops, endsAt: e, audio, gainDb, route, deckId, column };
+  const { playId, clipId, mediaId, startAt, offset, in: inS, out, fps, frames, end, loops, endsAt: e, audio, gainDb, route, deckId, column, kind, still, endless } = p;
+  return { playId, clipId, mediaId, startAt, offset, in: inS, out, fps, frames, end, loops, endsAt: e, audio, gainDb, route, deckId, column, kind, ...(still ? { still, endless } : {}) };
 }
 const pubEntry = (e) => ({
   state: e.play ? (e.held ? 'held' : 'playing') : 'empty',
@@ -566,11 +570,15 @@ export class Transport {
     const dur = v.duration > 0 ? v.duration : frames / fps;
     const inS = Math.min(Math.max(0, clip.in || 0), dur);
     const out = clip.out !== null && clip.out !== undefined && clip.out > inS ? Math.min(clip.out, dur) : dur;
+    const kind = m?.kind || 'hap';
+    // a still image has no end of its own: with no `out` it stays until something replaces it, unless the autopilot has
+    // to move on (the default length of a still, show.js › STILL_SECONDS, is the medium's duration)
+    const still = kind === 'image', endless = still && !(clip.out !== null && clip.out !== undefined && clip.out > inS) && !AUTOPILOT.includes(s.end);
     const p = {
       playId: `${this.sid}-${++this.seq}`, clipId: clip.id, mediaId: m?.id ?? null, layerId, startAt, offset: 0,
       in: inS, out, fps, frames, end: s.end, loops: s.loops || 1, endsAt: null,
       audio: !!m?.audio?.supported, gainDb: clip.audio?.gainDb ?? 0, route: s.route ?? null,
-      deckId: deckId ?? null, column: column ?? null,
+      deckId: deckId ?? null, column: column ?? null, kind, ...(still ? { still, endless } : {}),
     };
     p.endsAt = endsAt(p);
     return p;

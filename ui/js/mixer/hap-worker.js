@@ -13,6 +13,7 @@
 //   {t:'init', req}               → {t:'init', req, ok, s3tc, err}
 //   {t:'info', req, path}         → {t:'info', req, ix:{fourcc, width, height, count, fps, dur, pts}} | {t:'err', req, msg}
 //   {t:'frame', req, path, idx}   → {t:'frame', req, idx, bm, w, h, alpha, tR, tD, tU}         | {t:'err', req, idx, msg}
+//   {t:'still', req, path}        → {t:'still', req, bm, w, h, reduced} | {t:'err', req, msg}  (a still image, decoded whole: png, jpeg, webp, gif, bmp, avif)
 //   {t:'close', req, path}        → {t:'close', req}  (Windows cannot rename over an open file)
 //   {t:'closeall', req}           → {t:'closeall', req}  (every descriptor; sent before the pool terminates a worker)
 // Errors start with a code (`read:` the disk failed — a drive pulled out, a file cut short; the format's own codes from
@@ -28,6 +29,7 @@
 
 import { movIndex } from '/shared/mov.js';
 import { hapDecode, hapFormat, textureBytes } from '/shared/hap.js';
+import { sniffKind, imageInfo, reducedSize } from '/shared/sniff.js';
 
 let fs = null, nodeErr = '';
 try { fs = require('fs'); } catch (e) { nodeErr = `no-node: the output window's workers have no Node (${e?.message || e})`; }
@@ -140,7 +142,26 @@ function frame(m) {
   return { bm, w: W, h: H, alpha: r.fmt === 'dxt5', tR: t1 - t0, tD: t2 - t1, tU: t3 - t2 };
 }
 
-self.onmessage = (e) => {
+// ---------------------------------------------------------------------------------------------- a still image
+
+/**
+ * The picture of an image file as an ImageBitmap, upright (EXIF orientation applied), premultiplied (the mixer's
+ * convention) and no larger than the GPU's texture (16384 px) or 64 Mpx: a larger one is reduced here, once. An animated
+ * GIF / WebP / APNG gives its first frame (createImageBitmap's rule).
+ */
+async function still(m) {
+  if (!fs) throw new Error(nodeErr);
+  let data;
+  try { data = fs.readFileSync(m.path); } catch (e) { throw new Error(`read: ${e.code === 'ENOENT' ? 'the file is not there' : e.message}`); }
+  const sn = sniffKind(data.subarray(0, 64));
+  if (sn.kind !== 'image') throw new Error('not-image: the file is not a picture Chromium reads');
+  const info = imageInfo(data.subarray(0, Math.min(data.length, 1 << 20)), sn.format, sn.brand);
+  const red = info ? reducedSize(info.width, info.height) : null;
+  const bm = await createImageBitmap(new Blob([data]), { imageOrientation: 'from-image', premultiplyAlpha: 'premultiply', colorSpaceConversion: 'default', ...(red ? { resizeWidth: red.width, resizeHeight: red.height, resizeQuality: 'high' } : {}) });
+  return { bm, w: bm.width, h: bm.height, reduced: !!red };
+}
+
+self.onmessage = async (e) => {
   const m = e.data || {};
   try {
     if (m.t === 'init') { const ok = !!fs && startGL(); postMessage({ t: 'init', req: m.req, ok, s3tc: !!S3, err: ok ? '' : (fs ? glErr : nodeErr) }); return; }
@@ -150,6 +171,7 @@ self.onmessage = (e) => {
       return;
     }
     if (m.t === 'frame') { const r = frame(m); postMessage({ t: 'frame', req: m.req, idx: m.idx, ...r }, [r.bm]); return; }
+    if (m.t === 'still') { const r = await still(m); postMessage({ t: 'still', req: m.req, ...r }, [r.bm]); return; }
     if (m.t === 'closeall') { for (const k of [...files.keys()]) forget(k); postMessage({ t: 'closeall', req: m.req }); return; }
     if (m.t === 'close') { forget(m.path); postMessage({ t: 'close', req: m.req }); return; }
   } catch (err) { postMessage({ t: 'err', req: m.req, idx: m.idx, msg: codeOf(err) }); }

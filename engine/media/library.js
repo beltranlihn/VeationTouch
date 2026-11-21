@@ -53,8 +53,11 @@ export function driveOf(dir) {
   return root.replace(/[\\/]+$/, '') || root;
 }
 
-/** The movie extension the library takes (HAP lives in QuickTime). */
+/** The movie extension the library took before the other formats (HAP lives in QuickTime). */
 export const isMovName = (name) => /\.mov$/i.test(name);
+/** The extensions a file picker may suggest. The import never filters by them: the file's own bytes say what it is (sniff.js). */
+export const MEDIA_EXTENSIONS = ['mov', 'mp4', 'm4v', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'wav', 'mp3', 'aac', 'm4a', 'flac', 'ogg', 'oga', 'opus'];
+export const isMediaName = (name) => new RegExp(`\\.(${MEDIA_EXTENSIONS.join('|')})$`, 'i').test(name);
 
 /**
  * The message for a file the import refuses (§4d.3), from the coded error of engine/media/probe.js. `name` is the
@@ -63,6 +66,20 @@ export const isMovName = (name) => /\.mov$/i.test(name);
 export function rejectMessage(err, name) {
   const q = `"${name}"`;
   switch (err?.code) {
+    // the formats Chromium reads or not (docs/research/media-formats.md §5.1)
+    case 'unsupported-format': return `${q} is ${err.formatName || 'a format'}, which cannot be read. ${err.hint || 'Export it as PNG, JPEG, H.264 (MP4) or HAP.'}`;
+    case 'unknown-format': return `${q} is not a file VEATION Touch can read. It takes HAP or H.264 video, PNG / JPEG / WebP images and WAV / MP3 / AAC audio.`;
+    case 'no-video-codec': return `${q} is ${err.codecName || 'a codec'}, which VEATION Touch cannot play. Export it as H.264 or HAP.`;
+    case 'codec-later': return `${q} is ${err.codecName}, which is not supported yet. Export it as H.264 or HAP.`;
+    case 'no-decoder': return `${q} is ${err.codecName} and this computer has no decoder for it. Export it as H.264 or HAP.`;
+    case 'too-slow': return `${q} is ${err.width}×${err.height} H.264 at ${err.fps} fps, and this computer decodes that at about ${err.maxFps} fps. Export it at ${err.maxFps >= 30 ? '30' : '24'} fps, as HEVC, or as HAP.`;
+    case 'too-big': return `${q} is ${err.width}×${err.height} ${err.codecName}, larger than this GPU decodes (${err.limit}). Export it smaller, as HEVC, or as HAP.`;
+    case 'bad-profile': return `${q} is ${err.codecName}, which cannot be decoded here. Export it as 8-bit 4:2:0 (High profile) or HAP.`;
+    case 'fragmented': return `${q} is a fragmented MP4. Export it with the index at the start (fast start) or as HAP.`;
+    case 'image-bad': return `${q} is a damaged ${err.formatName || 'image'}: its header does not read. Export it again as PNG or JPEG.`;
+    case 'audio-long': return `${q} is longer than 20 min. Convert it to WAV.`;
+    case 'audio-bad': return `${q} is not a sound that can be read (${err.detail || 'damaged'}). Export it as WAV.`;
+    case 'no-helper': return `${q} can only be read by the desktop app, which has the decoders. Import it there.`;
     case 'not-mov': return `${q} is not a HAP movie. VEATION Touch plays HAP (.mov) — export it as HAP or HAP Q.`;
     case 'not-hap':
       // codec null: not a QuickTime movie at all (Matroska renamed .mov…) or no video track
@@ -150,3 +167,17 @@ export async function findByName(dir, names, { depth = 8, limit = 200000 } = {})
 /** Thumbnail file names in <data>/thumbs (§4d.4): by fingerprint, so a file in two shows has one. */
 export const thumbName = (fp, width, frame = null) => `${fp}${frame === null || frame === undefined ? '' : `-f${frame}`}-${width}.png`;
 export const THUMB_WIDTHS = [160, 480];
+
+/** Warnings of the formats (§5.1 of docs/research/media-formats.md): accepted, with a note. */
+export const WARN = {
+  animated: 'Animated image: only the first frame plays. Export it as a video.',
+  reduced: (from, to) => `Image larger than 16384 px or 64 Mpx: reduced from ${from.width}×${from.height} to ${to.width}×${to.height}.`,
+  sixteenBit: '16-bit image: shown as 8-bit.',
+  vfr: (fps) => `Variable frame rate: plays at ${Math.round(fps * 100) / 100} fps average.`,
+  rotated: (deg) => `Rotated clip (${deg}°): shown upright.`,
+  longGop: (n) => `Long GOP (${n} frames): jumps and loops from the middle are slow. Export with a keyframe every second.`,
+  noCheck: (name) => `Cannot check that this computer can decode "${name}" (no desktop app).`,
+  software: (name, maxFps) => `"${name}" is decoded by the CPU on this computer${maxFps ? ` (${maxFps} fps at best)` : ''}, not the GPU: it may drop frames.`,
+  noAudioDecode: (name) => `The audio of "${name}" can only be decoded in the desktop app: it will be silent here.`,
+  noAlpha: 'Video has no alpha channel: use HAP Alpha or an image for transparency.',
+};

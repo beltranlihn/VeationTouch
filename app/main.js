@@ -29,6 +29,7 @@ let outWanted = null;          // the room output to run, from the engine: {url,
 let outWin = null, outKey = '';// its window (off screen for Spout, full screen for a display) and what it was made for
 let audioWanted = null;        // the room's sound window, from the engine: {url} | null
 let audioWin = null, audioKey = ''; // its (hidden) window and what it was opened for
+let helperWin = null, helperKey = ''; // the media helper's (hidden) window: decodes images, video frames and sounds for the engine
 let previewTimer = null;       // once a second: a JPEG of the output for the Experiences tab
 let previewWanted = true;      // the engine says whether anyone looks at that preview (no capture otherwise)
 
@@ -56,6 +57,7 @@ function startEngine() {
     // the room output stays: its clips keep playing on its own clock and files (its workers read the disk), and its page
     // reconnects when the engine is back (on the same port the window is kept; on another one, ready makes a fresh one)
     closeAudioWindow();
+    closeHelperWindow();
     if (quitting) return;
     if (Date.now() - startedAt > 60000) restarts = 0; // it ran fine for a minute: reset the backoff
     const delay = Math.min(30000, 1000 * 2 ** restarts++);
@@ -79,6 +81,7 @@ function onEngineMessage(m) {
     applyOutputWindow();
     audioWanted = m.audioWindow || null;
     applyAudioWindow();
+    applyHelperWindow();
     applyAutostart(m.autostart);
   } else if (m?.type === 'previewWanted') {
     previewWanted = !!m.on;
@@ -441,6 +444,38 @@ function applyOutputWindow() {
   w.loadURL(uiUrl(want.url));
   startPreview(w, want);
   log(`room output opened (${span ? `screens over ${scr.length} displays` : scr ? 'screens, full screen' : display ? 'full screen' : `Spout "${want.senderName}", ${gpu ? 'GPU' : 'CPU'} path`}, ${want.width}x${want.height})`);
+}
+
+function closeHelperWindow() {
+  const w = helperWin;
+  helperWin = null; helperKey = '';
+  if (w && !w.isDestroyed()) w.destroy();
+}
+
+/**
+ * The media helper (docs/research/media-formats.md §6): a hidden window running /helper that the engine asks for what only
+ * Chromium can do — decode an image, a video frame or a sound, and say whether this computer can decode a video. It shows
+ * nothing, is never throttled and cannot leave our server. Open as long as the engine is.
+ */
+function applyHelperWindow() {
+  if (!engineReady) { closeHelperWindow(); return; }
+  const key = String(enginePort);
+  if (helperWin && !helperWin.isDestroyed() && key === helperKey) return;
+  closeHelperWindow();
+  const w = new BrowserWindow({
+    show: false, width: 320, height: 200, skipTaskbar: true, autoHideMenuBar: true, title: 'VEATION Touch — Media helper',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
+  });
+  helperWin = w; helperKey = key;
+  w.on('closed', () => { if (helperWin === w) { helperWin = null; helperKey = ''; } });
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(uiUrl('/'))) e.preventDefault(); });
+  w.webContents.on('render-process-gone', (_e, d) => {
+    log(`media helper renderer gone (${d.reason}); restarting it`);
+    setTimeout(() => { if (helperWin === w) { closeHelperWindow(); applyHelperWindow(); } }, 1000);
+  });
+  w.loadURL(uiUrl('/helper'));
+  log('media helper window opened (hidden)');
 }
 
 function closeAudioWindow() {

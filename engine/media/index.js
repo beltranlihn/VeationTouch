@@ -22,11 +22,15 @@ import { normalizeShow, blankShow, newClip, withoutMedia, fileName, nextId, clip
 import { Transport, XLAYER } from './transport.js';
 import { Presets, migratePresets, presetForExperience } from './presets.js';
 import {
-  rejectMessage, audioWarning, sizeWarning, ALREADY, INTERRUPTED, isMovName, diskSpace, driveOf, insideLibrary, absoluteIn,
-  freeName, safeName, findByName, thumbName, THUMB_WIDTHS, formatBytes,
+  rejectMessage, audioWarning, sizeWarning, ALREADY, INTERRUPTED, diskSpace, driveOf, insideLibrary, absoluteIn,
+  freeName, safeName, findByName, thumbName, THUMB_WIDTHS, formatBytes, WARN,
 } from './library.js';
 import { movIndexAsync } from './mov.js';
 import { pcmRanges } from './pcm.js';
+import { sniffKind } from './sniff.js';
+import { parseWav, cacheAudio } from './wav.js';
+import { HelperLink } from './helper.js';
+import { kindIcon } from './icons.js';
 import { writeJsonAtomic } from '../store.js';
 
 const CHECK_MS = 10000;      // missing files, drives that came back, free space (§4d.5)
@@ -41,6 +45,9 @@ const SNAP_LAZY_MS = 250;    // a mix moved live (a fader) rewrites the transpor
 const RESTORE_MAX_MS = 10 * 60000; // a transport snapshot older than this is not taken back (the room starts as show.start says)
 const LAG_FRESH_MS = 12000;  // the output page reports late clip frames every 5 s while there are any: older figures are over
 const LAG_WARN_PER_S = 1;    // late clip frames a second that make a health item (one now and then is not worth one)
+const SOUND_MAX_BYTES = 400 * 1048576; // a compressed sound larger than this is longer than the 20 minutes the helper decodes
+const SOUND_MAX_S = 20 * 60;
+const SOFT_MAX_MPXS = 250;   // megapixels a second a CPU-decoded video may ask of this computer (see _checkVideo)
 const LIB_LOW_BYTES = 5e9;   // free space on the library's drive under which Problems warns (a reel is 19–93 GB)
 
 // The copy / inspect worker. Once packaged it is read from inside app.asar, like the rest of the engine: Electron's
@@ -98,6 +105,8 @@ export class MediaEngine extends EventEmitter {
     this.workers = new Set();
     this.movies = new Map();     // absolute path → { p: Promise<{fh, size, mtimeMs, index}>, mv, refs, at, dead } for the PCM route (LRU: the last key is the newest)
     this.thumbing = new Map();   // thumbnail being regenerated → Promise
+    this.helper = new HelperLink({ log }); // the desktop app's hidden Chromium window: decodes what Node cannot (engine/media/helper.js)
+    this.preparing = new Map();  // fingerprint → Promise of a sound being decoded into the audio cache
     this._thumbQ = [];           // thumbnails waiting for one of the THUMB_JOBS workers
     this._thumbRun = 0;
     this.layerRev = 0;           // live mixes written into show.layers (layer.set): they do not bump showRev
@@ -123,6 +132,9 @@ export class MediaEngine extends EventEmitter {
 
   get libraryDir() { return this.store.mediaDir(this.settings); }
   get thumbsDir() { return this.store.thumbsDir; }
+  /** The PCM a sound that Chromium decodes (AAC, MP3…) is turned into, once: <data>/audio-cache/<fingerprint>.pcm + .json. */
+  get audioCacheDir() { return path.join(this.store.dir, 'audio-cache'); }
+  _cacheFile(fp) { return path.join(this.audioCacheDir, `${fp}.pcm`); }
 
   // ------------------------------------------------------------------ life cycle
 
@@ -146,6 +158,7 @@ export class MediaEngine extends EventEmitter {
       clearTimeout(this._showSaveTimer); this._showSaveTimer = null;
       if (this.show) { try { this.store.saveShow(this.show, { backup: false }); } catch (e) { this.log.warn(`show ${this.show.id}: ${e.message}`); } }
     }
+    this.helper.stop();
     await Promise.all([...this.workers].map((w) => w.terminate().catch(() => {})));
     for (const q of this._thumbQ.splice(0)) q.res([]);
     await Promise.all([...this.movies.values()].map((e) => this._evictMovie(e)));
@@ -590,7 +603,6 @@ export class MediaEngine extends EventEmitter {
     for (const p of list) {
       const name = path.basename(p);
       if (!path.isAbsolute(p)) { rejected.push({ name, message: rejectMessage({ code: 'ENOENT' }, name) }); continue; }
-      if (!isMovName(name)) { rejected.push({ name, message: rejectMessage({ code: 'not-mov' }, name) }); continue; }
       const st = await fs.promises.stat(p).catch((e) => e);
       if (st instanceof Error) { rejected.push({ name, message: rejectMessage(st, name) }); continue; }
       if (st.isDirectory()) { rejected.push({ name, message: rejectMessage({ code: 'EISDIR' }, name) }); continue; }
@@ -616,9 +628,21 @@ export class MediaEngine extends EventEmitter {
     for (let i = 0; i < cand.length; i++) {
       const c = cand[i], r = results[i];
       if (!r || r.error) { rejected.push({ name: c.name, message: rejectMessage(r?.error || { code: 'worker' }, c.name) }); continue; }
-      const v = r.probe.video, warnings = [];
-      if (r.probe.audio && !r.probe.audio.supported) warnings.push(audioWarning(c.name, r.probe.audio.codecName));
-      if (v.width !== canvas.width || v.height !== canvas.height) warnings.push(sizeWarning(v, canvas));
+      let probe = r.probe, soundCache = null;
+      const warnings = [];
+      try {
+        if (r.kind === 'audio' && r.needs === 'decode') { const d = await this._decodeSound(c, r); probe = d.probe; soundCache = d.cache; }
+        else if (r.kind === 'video') probe = await this._checkVideo(c, r, warnings);
+      } catch (e) { rejected.push({ name: c.name, message: rejectMessage(e, c.name) }); continue; }
+      const v = probe.video;
+      for (const w of probe.warnings || []) if (w.code !== 'audio-unsupported') warnings.push(w.message);
+      const a0 = probe.audio;
+      if (a0 && !a0.supported && !(r.kind === 'video' && a0.decodable)) warnings.push(audioWarning(c.name, a0.codecName));
+      if (r.kind === 'video' && a0?.decodable && !this.helper.online) warnings.push(WARN.noAudioDecode(c.name));
+      if (r.kind !== 'audio') {
+        const w = v.rotation === 90 || v.rotation === 270 ? { ...v, width: v.height, height: v.width } : v;
+        if (w.width !== canvas.width || w.height !== canvas.height) warnings.push(sizeWarning(w, canvas));
+      }
       let media = edit.media.find((m) => m.fingerprint === r.fingerprint && m.size === r.size);
       let reused = !!media, job = null;
       if (!media) {
@@ -640,7 +664,8 @@ export class MediaEngine extends EventEmitter {
         }
         media = {
           id: nextId(edit.media, 'm'), file, size: r.size, mtimeMs: inLib ? c.mtimeMs : 0, fingerprint: r.fingerprint,
-          video: { ...v }, audio: audioEntry(r.probe.audio), thumbFrame: null,
+          kind: r.kind, video: { ...v }, audio: audioEntry(probe.audio, r.kind === 'video' && probe.audio?.decodable && this.helper.online ? 'cache' : soundCache),
+          ...(r.image ? { image: r.image } : {}), notes: warnings.filter((w) => w !== ALREADY), thumbFrame: null,
         };
         edit.media.push(media);
         if (!inLib) {
@@ -658,6 +683,7 @@ export class MediaEngine extends EventEmitter {
       accepted.push({ name: c.name, mediaId: media.id, clipId, reused, copying: !!job, warnings });
     }
     if (accepted.length) this._saveShow(edit);
+    for (const x of accepted) { const m = edit.media.find((y) => y.id === x.mediaId); if (m?.audio?.cache && !x.copying) this.prepareAudio(m); } // (already in the library: decode now)
     for (const j of queued) { this.jobs.set(j.id, j); this._jobEvent(j); }
     if (accepted.length || rejected.length) this.log.info(`import into "${edit.name}": ${accepted.length} accepted (${queued.length} to copy), ${rejected.length} refused`);
     this._pump();
@@ -744,6 +770,7 @@ export class MediaEngine extends EventEmitter {
         if (job.kind !== 'export') {
           this._editShow(job.showId, (s) => { const x = s.media.find((y) => y.id === job.mediaId); if (x) { x.mtimeMs = m.mtimeMs; x.size = m.size; } return s; }, { backup: false });
           this.problems = this.problems.filter((p) => p.mediaId !== job.mediaId);
+          this.prepareAudio(this._mediaOf(job.showId, job.mediaId)); // an AAC track: its PCM is decoded once the copy is in the library
         }
         this.log.info(`copied "${job.name}" to the ${job.kind === 'export' ? 'export folder' : 'library'}${job.resumedFrom ? ` (resumed at ${formatBytes(job.resumedFrom)})` : ''}`);
         this._jobEvent(job);
@@ -1171,10 +1198,41 @@ export class MediaEngine extends EventEmitter {
     if (!src) return null;
     const key = `${m.fingerprint}|${m.thumbFrame}`;
     if (!this.thumbing.has(key)) {
-      this.thumbing.set(key, this._thumbTask({ kind: 'thumb', file: src, fingerprint: m.fingerprint, frame: m.thumbFrame, thumbsDir: this.thumbsDir }).finally(() => this.thumbing.delete(key)));
+      this.thumbing.set(key, this._makeThumb({ src, fp: m.fingerprint, frame: m.thumbFrame, kind: m.kind || 'hap', name: fileName(m.file) }).finally(() => this.thumbing.delete(key)));
     }
-    await this.thumbing.get(key);
-    return fs.existsSync(file) ? { file, fingerprint: m.fingerprint } : null;
+    const made = await this.thumbing.get(key);
+    if (fs.existsSync(file)) return { file, fingerprint: m.fingerprint };
+    return made?.icon ? { file: made.icon(w), fingerprint: null } : null; // a generic card is not cached for good: the helper may come
+  }
+
+  /**
+   * The thumbnails of a file (both widths) into <data>/thumbs/<fingerprint>[-f<frame>]-<w>.png. A HAP movie is read by a
+   * worker thread; anything else (an image, an H.264 video, a sound) by the media helper, the desktop app's Chromium;
+   * with no helper a generic card of the file's kind (engine/media/icons.js) stands in. 'auto': a file whose kind is not
+   * known (the Disk view of the file browser): HAP first, then the helper.
+   * @returns {Promise<{icon?:(w:number) => string}>}
+   */
+  async _makeThumb({ src, fp, frame, kind, name }) {
+    const out = (w) => path.join(this.thumbsDir, thumbName(fp, w, frame));
+    if (kind === 'hap' || kind === 'auto') {
+      await this._thumbTask({ kind: 'thumb', file: src, fingerprint: fp, frame, thumbsDir: this.thumbsDir });
+      if (fs.existsSync(out(160))) return {};
+    }
+    if (this.helper.online) {
+      try {
+        const r = await this.helper.request({ kind: 'thumb', frame, name }, { files: { src } });
+        fs.mkdirSync(this.thumbsDir, { recursive: true });
+        for (const [w, b64] of [[160, r.png160], [480, r.png480]]) {
+          if (!b64) continue;
+          const f = out(w), tmp = `${f}.${process.pid}.tmp`;
+          fs.writeFileSync(tmp, Buffer.from(b64, 'base64')); fs.renameSync(tmp, f);
+        }
+        if (fs.existsSync(out(160))) return {};
+      } catch (e) { this.log.warn(`thumbnail of "${name}": ${e.message}`); }
+    }
+    const guess = kind !== 'auto' ? kind : /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(name) ? 'image' : /\.(wav|mp3|aac|m4a|flac|ogg|oga|opus)$/i.test(name) ? 'audio' : 'video';
+    const dir = this.thumbsDir;
+    return { icon: (w) => { const f = path.join(dir, `icon-${guess}-${w}.png`); if (!fs.existsSync(f)) { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(f, kindIcon(guess, w)); } return f; } };
   }
 
   /**
@@ -1191,7 +1249,88 @@ export class MediaEngine extends EventEmitter {
     if (this._jobFor(show.id, m.id)) throw httpError(409, 'the file is still being copied into the library');
     const start = Math.trunc(Number(from)), count = Math.trunc(Number(n));
     if (!Number.isFinite(start) || !(count >= 1 && count <= PCM_MAX_FRAMES)) throw httpError(400, `from and n (1–${PCM_MAX_FRAMES}) are sample frames`);
-    return this._withMovie(absoluteIn(this.libraryDir, m.file), (mv) => this._pcm(mv, start, count));
+    let file = absoluteIn(this.libraryDir, m.file);
+    if (m.audio?.cache) { // AAC, MP3…: the PCM the helper made once (engine/media/audio-cache); until it is there the clip is quietly silent
+      file = this._cacheFile(m.fingerprint);
+      if (!fs.existsSync(`${file}.json`)) { this.prepareAudio(m); throw httpError(409, 'the sound is being prepared (decoded once into the audio cache)'); }
+    }
+    return this._withMovie(file, (mv) => this._pcm(mv, start, count));
+  }
+
+  /**
+   * The audio cache of a medium (an MP4's AAC, or a sound file): decoded once by the helper into s16le PCM that starts at
+   * the clip's time 0 — the encoder's priming and the edit lists already taken off (a click at 2.000 s is at frame
+   * 2.000 × rate). Asked again while it runs, it is the same job. → Promise<boolean> (made, or already there)
+   */
+  prepareAudio(m) {
+    if (!m?.audio?.cache || !m.fingerprint) return Promise.resolve(false);
+    const fp = m.fingerprint, file = this._cacheFile(fp);
+    if (fs.existsSync(`${file}.json`)) return Promise.resolve(true);
+    if (this.preparing.has(fp)) return this.preparing.get(fp);
+    const src = absoluteIn(this.libraryDir, m.file);
+    const pr = (async () => {
+      if (!this.helper.online || !fs.existsSync(src)) return false;
+      const r = await this.helper.request({ kind: 'audioDecode', format: m.kind === 'video' ? 'mp4' : 'sound', name: fileName(m.file) }, { files: { src }, dest: file });
+      this._writeCacheMeta(file, r);
+      this.log.info(`audio of "${fileName(m.file)}" decoded into the audio cache (${Math.round(r.frames / r.rate)} s)`);
+      return true;
+    })().catch((e) => { this.log.warn(`audio cache of "${fileName(m.file)}": ${e.message}`); return false; }).finally(() => this.preparing.delete(fp));
+    this.preparing.set(fp, pr);
+    return pr;
+  }
+
+  _writeCacheMeta(file, r) {
+    const meta = { rate: r.rate, channels: r.channels, frames: r.frames, startSample: r.startSample ?? 0 };
+    const tmp = `${file}.json.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(meta)); fs.renameSync(tmp, `${file}.json`);
+  }
+
+  /** A sound file Chromium decodes (MP3, AAC, FLAC, Ogg, M4A): the helper makes its cache now; the answer is its probe. */
+  async _decodeSound(c, r) {
+    if (!this.helper.online) throw Object.assign(new Error('no helper'), { code: 'no-helper' });
+    if (r.size > SOUND_MAX_BYTES) throw Object.assign(new Error('long'), { code: 'audio-long' });
+    const dest = this._cacheFile(r.fingerprint);
+    let res;
+    try { res = await this.helper.request({ kind: 'audioDecode', format: r.sound.format, name: c.name }, { files: { src: c.path }, dest }); } catch (e) {
+      if (e.code === 'no-helper') throw e;
+      throw Object.assign(new Error(e.message), { code: 'audio-bad', detail: e.message.replace(/^[a-z-]+: /, '') });
+    }
+    const duration = res.frames / res.rate;
+    if (duration > SOUND_MAX_S) { fs.rmSync(dest, { force: true }); throw Object.assign(new Error('long'), { code: 'audio-long' }); }
+    this._writeCacheMeta(dest, res);
+    return {
+      cache: true,
+      probe: { video: { fourcc: 'AUD ', codecName: 'audio', width: 1, height: 1, fps: 30, frames: Math.max(1, Math.round(duration * 30)), duration },
+        audio: { format: r.sound.format, codecName: r.sound.format.toUpperCase(), encoding: 's16le', supported: true, channels: res.channels, rate: res.rate, frames: res.frames, duration }, warnings: [] },
+    };
+  }
+
+  /**
+   * A native video (H.264): the limits that need no decoder (a 4:2:2 or 10-bit profile has no decoder here), then the helper
+   * decodes a real sample (isConfigSupported can say yes and the decode fail). Fills `warnings`; returns the probe or throws a coded error.
+   */
+  async _checkVideo(c, r, warnings) {
+    const v = r.probe.video, name = c.name;
+    if (v.bitDepth > 8 || v.chroma !== '4:2:0') throw Object.assign(new Error('profile'), { code: 'bad-profile', codecName: `${v.codecName} ${v.chroma} ${v.bitDepth}-bit` });
+    if (v.vfr) warnings.push(WARN.vfr(v.fps));
+    if (v.rotation) warnings.push(WARN.rotated(v.rotation));
+    if (v.gop > 60) warnings.push(WARN.longGop(v.gop));
+    if (!this.helper.online) { warnings.push(WARN.noCheck(name)); return r.probe; }
+    let res;
+    try { res = await this.helper.request({ kind: 'canDecode', codec: v.codec, width: v.width, height: v.height, name }, { files: { src: c.path } }); } catch (e) {
+      if (e.code === 'no-helper') { warnings.push(WARN.noCheck(name)); return r.probe; }
+      throw Object.assign(new Error(e.message), { code: 'no-decoder', codecName: v.codecName });
+    }
+    if (!res.ok) throw Object.assign(new Error(res.reason || 'no decoder'), { code: res.reason === 'too-big' ? 'too-big' : 'no-decoder', codecName: v.codecName, width: v.width, height: v.height, limit: res.limit });
+    if (!res.hardware) {
+      // decoded by the CPU (H.264 wider than the GPU decodes, 7196×912 here): it plays while the pixels per second the CPU can decode,
+      // convert and upload keep up — measured on the room's PC (docs/research/media-formats-medidas.md): 7196×912 at 30 fps (197 Mpx/s)
+      // plays with no late frame, at 45 fps (295 Mpx/s) it falls apart. Above SOFT_MAX_MPXS it is refused with the rate that would work.
+      const maxFps = Math.floor((SOFT_MAX_MPXS * 1e6) / (v.width * v.height));
+      if (v.fps > maxFps) throw Object.assign(new Error('too slow'), { code: 'too-slow', width: v.width, height: v.height, fps: Math.round(v.fps * 100) / 100, maxFps });
+      warnings.push(WARN.software(name, maxFps < 240 ? maxFps : null));
+    }
+    return r.probe;
   }
 
   async _pcm(mv, start, count) {
@@ -1237,6 +1376,15 @@ export class MediaEngine extends EventEmitter {
     const fh = await fs.promises.open(file, 'r');
     try {
       const read = async (off, len) => { const b = Buffer.allocUnsafe(Math.max(0, Math.min(len, st.size - off))); const { bytesRead } = await fh.read(b, 0, b.length, off); return b.subarray(0, bytesRead); };
+      if (file.endsWith('.pcm')) { // the audio cache: s16le, described by its sidecar
+        const meta = JSON.parse(await fs.promises.readFile(`${file}.json`, 'utf8'));
+        return { fh, size: st.size, mtimeMs: st.mtimeMs, index: { audio: cacheAudio(meta) } };
+      }
+      const head = await read(0, 12);
+      if (sniffKind(head).kind === 'wav') { // a WAV: a single chunk of PCM (wav.js reads its header synchronously: the first 64 KB hold it)
+        const buf = await read(0, Math.min(st.size, 1 << 20));
+        return { fh, size: st.size, mtimeMs: st.mtimeMs, index: { audio: parseWav((o, l) => buf.subarray(o, o + l), buf.length < st.size ? st.size : buf.length) } };
+      }
       return { fh, size: st.size, mtimeMs: st.mtimeMs, index: await movIndexAsync(read, st.size) };
     } catch (err) { await fh.close().catch(() => {}); throw httpError(422, err.message); }
   }
@@ -1255,10 +1403,15 @@ export class MediaEngine extends EventEmitter {
 }
 
 const publicJob = (j) => ({ id: j.id, kind: j.kind, showId: j.showId, mediaId: j.mediaId, name: j.name, state: j.state, done: j.done, total: j.total, mbps: j.mbps, etaS: j.etaS, error: j.error });
-const strip = (m) => ({ file: m.file, size: m.size, mtimeMs: m.mtimeMs, fingerprint: m.fingerprint, video: m.video, audio: m.audio });
+const strip = (m) => ({ file: m.file, kind: m.kind, size: m.size, mtimeMs: m.mtimeMs, fingerprint: m.fingerprint, video: m.video, audio: m.audio, image: m.image, notes: m.notes });
 
 /** The show's audio entry from probe's: format = the PCM encoding (null when it will not play). */
-const audioEntry = (a) => (a ? { format: a.supported ? a.encoding : null, codec: a.format, codecName: a.codecName, supported: a.supported, channels: a.channels, rate: a.rate, frames: a.frames, duration: a.duration } : null);
+const audioEntry = (a, cache = false) => {
+  if (!a) return null;
+  // a sound the helper decodes (AAC of an MP4, MP3…) plays from the audio cache: s16le PCM, whatever its own codec
+  if (cache) return { format: 's16le', codec: a.format, codecName: a.codecName, supported: true, cache: true, channels: a.channels, rate: a.rate, frames: a.frames, duration: a.duration };
+  return { format: a.supported ? a.encoding : null, codec: a.format, codecName: a.codecName, supported: a.supported, channels: a.channels, rate: a.rate, frames: a.frames, duration: a.duration };
+};
 
 /** The first column of `layerId` with no clip in `deck`. */
 function firstFreeColumn(deck, layerId) {

@@ -18,11 +18,14 @@
 import { parentPort, workerData, isMainThread } from 'node:worker_threads';
 import fs from 'node:fs';
 import path from 'node:path';
-import { movIndex, describeMovie } from './mov.js';
+import { movIndex, describeMovie, describeVideo } from './mov.js';
 import { decodeFrame, codedError } from './hap.js';
+import { sniffKind, imageInfo, reducedSize, UNSUPPORTED_NAMES } from './sniff.js';
+import { parseWav } from './wav.js';
+import { STILL_SECONDS, SYNTH_FPS } from './show.js';
 import { blockImage, thumbnailImages, defaultThumbFrame } from './thumb.js';
 import { encodePng } from './png.js';
-import { fingerprintOf, FP_SPAN, thumbName } from './library.js';
+import { fingerprintOf, FP_SPAN, thumbName, WARN } from './library.js';
 
 export const BLOCK = 8 * 1024 * 1024;
 const PROGRESS_MS = 200;
@@ -54,7 +57,7 @@ function fingerprintSrc(src) {
   return fingerprintOf(read(0, span), read(src.size - span, span), src.size);
 }
 
-const errInfo = (e) => ({ code: e?.code || 'error', message: String(e?.message || e), codec: e?.codec ?? null, codecName: e?.codecName ?? null });
+const errInfo = (e) => ({ code: e?.code || 'error', message: String(e?.message || e), codec: e?.codec ?? null, codecName: e?.codecName ?? null, formatName: e?.formatName ?? null, hint: e?.hint ?? null, detail: e?.detail ?? null });
 
 /** Both thumbnails of an indexed movie into <thumbs>/<fingerprint>-160.png and -480.png (written whole, then renamed). */
 function writeThumbs(ix, read, fp, dir, frame = null) {
@@ -71,18 +74,78 @@ function writeThumbs(ix, read, fp, dir, frame = null) {
   }
 }
 
-/** What the import needs to know about one file: size, probe, fingerprint (+ thumbnails written when `thumbsDir`). */
+const FORMAT_HINT = {
+  tiff: ['TIFF', 'Export it as PNG or JPEG.'], heic: ['HEIC', 'Export it as PNG or JPEG.'], psd: ['a Photoshop file', 'Export it as PNG or JPEG.'],
+  exr: ['OpenEXR', 'Export it as PNG or JPEG.'], svg: ['SVG', 'Export it as PNG or JPEG.'], ico: ['an icon file', 'Export it as PNG.'],
+  avi: ['AVI', 'Export it as H.264 (MP4) or HAP.'], aiff: ['AIFF', 'Export it as WAV.'], mkv: ['Matroska', 'Export it as H.264 (MP4) or HAP.'],
+  webm: ['WebM', 'Export it as H.264 (MP4) or HAP.'],
+};
+const unsupported = (format) => { const [formatName, hint] = FORMAT_HINT[format] || [UNSUPPORTED_NAMES[format] || format, 'Export it as PNG, JPEG, H.264 (MP4) or HAP.']; return codedError('unsupported-format', formatName, { formatName, hint }); };
+
+/** An image the mixer will show: its size from the header, the limits and what is lost (animation, 16 bits). */
+function inspectImage(head, sn) {
+  const info = imageInfo(head, sn.format, sn.brand);
+  if (!info) throw codedError('image-bad', `the ${sn.format} header does not read`, { formatName: sn.format.toUpperCase() });
+  const warnings = [];
+  if (info.animated) warnings.push({ code: 'animated', message: WARN.animated });
+  if (info.bitDepth === 16) warnings.push({ code: 'sixteen-bit', message: WARN.sixteenBit });
+  const red = reducedSize(info.width, info.height);
+  if (red) warnings.push({ code: 'reduced', message: WARN.reduced(info, red) });
+  return {
+    kind: 'image',
+    probe: { video: { fourcc: 'IMG ', codecName: sn.format.toUpperCase(), width: red ? red.width : info.width, height: red ? red.height : info.height, fps: SYNTH_FPS, frames: 1, duration: STILL_SECONDS }, audio: null, warnings },
+    image: { format: sn.format, width: info.width, height: info.height, animated: info.animated, reduced: red },
+  };
+}
+
+/** The probe of a sound-only file: a WAV is read here; the other formats need the helper to decode them. */
+function soundProbe(a, format, duration) {
+  return {
+    video: { fourcc: 'AUD ', codecName: 'audio', width: 1, height: 1, fps: SYNTH_FPS, frames: Math.max(1, Math.round(duration * SYNTH_FPS)), duration },
+    audio: a, warnings: [], format,
+  };
+}
+
+/** What a file is and what it holds, from its bytes (sniff.js) and its index: the result of inspect() minus size, fingerprint and thumbnail. */
+export function probeFile(src) {
+  const read = readAt(src);
+  const head = read(0, Math.min(src.size, FP_SPAN)), sn = sniffKind(head);
+  switch (sn.kind) {
+    case 'image': return inspectImage(head, sn);
+    case 'wav': {
+      let a;
+      try { a = parseWav(read, src.size); } catch (e) { throw codedError('audio-bad', e.message, { detail: e.reason || e.message.replace(/^[a-z-]+: /, '') }); }
+      return { kind: 'audio', needs: null, probe: soundProbe({ format: 'wav ', codecName: `PCM ${a.encoding}`, encoding: a.encoding, supported: true, channels: a.channels, rate: a.rate, frames: a.frames, duration: a.duration }, 'wav', a.duration), sound: { format: 'wav' } };
+    }
+    case 'audio': return { kind: 'audio', needs: 'decode', probe: null, sound: { format: sn.format } }; // the helper decodes it
+    case 'webm': case 'unsupported': throw unsupported(sn.format);
+    case 'mov': {
+      const ix = movIndex(read, src.size);
+      const fourcc = ix.video?.fourcc;
+      if (fourcc && !/^Hap/.test(fourcc)) {
+        const d = describeVideo(ix, src.size);
+        return { kind: 'video', probe: d, ix };
+      }
+      if (!ix.video && ix.audio?.aac) { // an M4A: a sound the helper decodes
+        return { kind: 'audio', needs: 'decode', probe: null, sound: { format: 'm4a' }, ix };
+      }
+      return { kind: 'hap', probe: describeMovie(ix, src.size), ix };
+    }
+    default: throw codedError('unknown-format', 'not a media file');
+  }
+}
+
+/** What the import needs to know about one file: size, kind, probe, fingerprint (+ HAP thumbnails written when `thumbsDir`). */
 export function inspect(file, open, thumbsDir) {
   let src;
   try { src = open(file); } catch (e) { return { error: errInfo(e) }; }
   try {
-    const read = readAt(src);
-    const ix = movIndex(read, src.size);
-    const probe = describeMovie(ix, src.size);
+    const r = probeFile(src);
     const fingerprint = fingerprintSrc(src);
     let thumb = false;
-    if (thumbsDir) { try { writeThumbs(ix, read, fingerprint, thumbsDir); thumb = true; } catch { /* a frame that does not decode: no thumbnail, still a clip */ } }
-    return { size: src.size, probe, fingerprint, thumb };
+    if (thumbsDir && r.kind === 'hap') { try { writeThumbs(r.ix, readAt(src), fingerprint, thumbsDir); thumb = true; } catch { /* a frame that does not decode: no thumbnail, still a clip */ } }
+    const { ix, ...rest } = r;
+    return { size: src.size, fingerprint, thumb, ...rest };
   } catch (e) { return { error: errInfo(e) }; } finally { try { src.close(); } catch { /* gone */ } }
 }
 

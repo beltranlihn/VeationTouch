@@ -12,6 +12,12 @@
 //          (versions 0, 1 and 2; `enda` gives the byte order of in24/in32/fl32/fl64), and its chunks (offset, first
 //          frame, frame count) so engine/media/pcm.js can read any range of sample frames.
 //
+//   native video (docs/research/media-formats.md §2.4): a track that is not HAP (H.264 in an MP4 or a MOV) also gets
+//          `native`: the codec string for WebCodecs and its configuration record (avcC), the composition offsets
+//          (ctts: without them the B-frames come out in the wrong order), the sync samples (stss), the rotation of the
+//          track (tkhd) and the presentation order. The same file indexes in Node and in the workers of the output page.
+//   audio:  besides PCM, the packets of an AAC track (offsets, sizes, AudioSpecificConfig from esds) for the decoder.
+//
 // Errors (code before the colon, also in err.code):
 //   no-moov:   there is no `moov` atom (FFmpeg writes it LAST: a copy cut short has none) or it is cut short
 //   mov-bad:   the index is there but does not parse (a table shorter than its count, no offset table…)
@@ -172,7 +178,7 @@ export function parseMoov(m) {
       try { video = parseVideo(trak, stbl, ts, ent, entEnd, codec); } catch (e) {
         if (HAP_FORMATS[codec]) throw e;
         const z = new Float64Array(0);
-        video = { fourcc: codec, width: 0, height: 0, count: 0, pts: z, dur: 0, fps: 0, offsets: z, sizes: z, timescale: ts, shift: 0 };
+        video = { fourcc: codec, width: 0, height: 0, count: 0, pts: z, dur: 0, fps: 0, offsets: z, sizes: z, timescale: ts, shift: 0, error: String(e?.message || e) };
       }
     } else if (handler === 'soun') sounds.push({ trak, stbl, ts, ent, entEnd, codec });
   }
@@ -201,9 +207,85 @@ export function parseMoov(m) {
     // fps from the integer ticks (before the division), so 25 fps is 25 and not 24.999999999999996
     const fps = count > 1 && pts[count - 1] > pts[0] ? ((count - 1) * ts) / (pts[count - 1] - pts[0]) : ts / Math.max(1, lastD);
     const shift = editShift(trak, ts);
+    const native = HAP_FORMATS[codec] ? null : nativeTables(stbl, count);
     for (let i = 0; i < count; i++) pts[i] = pts[i] / ts + shift;
     const dur = acc / ts + shift;
-    return { fourcc: codec, width, height, count, pts, dur, fps, offsets, sizes, timescale: ts, shift };
+    const v = { fourcc: codec, width, height, count, pts, dur, fps, offsets, sizes, timescale: ts, shift };
+    if (native) {
+      for (let i = 0; i < count; i++) native.cts[i] /= ts; // composition offset in seconds
+      const present = new Float64Array(count); for (let i = 0; i < count; i++) present[i] = pts[i] + native.cts[i];
+      const order = Uint32Array.from({ length: count }, (_, i) => i).sort((a, b) => present[a] - present[b] || a - b);
+      v.present = present; // presentation time of each sample (decode order), s: pts + composition offset
+      v.native = { ...nativeConfig(ent, entEnd), sync: native.sync, cts: native.cts, order, rotation: rotationOf(trak) };
+    }
+    return v;
+  }
+
+  /** ctts (composition offsets, in ticks, per sample in decode order) and stss (sync samples, 0-based; null = all). */
+  function nativeTables(stbl, count) {
+    const cts = new Float64Array(count);
+    const ctts = find(stbl, 'ctts');
+    if (ctts) {
+      need(ctts, 8, 'ctts'); const n = u32(m, ctts.s + 4); need(ctts, 8 + n * 8, 'ctts');
+      let k = 0;
+      for (let e = 0; e < n && k < count; e++) {
+        const c = u32(m, ctts.s + 8 + e * 8), off = u32(m, ctts.s + 12 + e * 8) | 0; // version 0 is unsigned in the spec but writers use it signed
+        for (let j = 0; j < c && k < count; j++) cts[k++] = off;
+      }
+    }
+    let sync = null;
+    const stss = find(stbl, 'stss');
+    if (stss) {
+      need(stss, 8, 'stss'); const n = u32(m, stss.s + 4); need(stss, 8 + n * 4, 'stss');
+      sync = new Uint32Array(n); for (let i = 0; i < n; i++) sync[i] = Math.max(0, u32(m, stss.s + 8 + i * 4) - 1);
+    }
+    return { cts, sync };
+  }
+
+  /** The configuration box of a video sample entry (avcC / hvcC) and what it says. */
+  function nativeConfig(ent, entEnd) {
+    const info = { codecString: null, config: null, profile: null, level: null, bitDepth: 8, chroma: '4:2:0', lengthSize: 4 };
+    for (const k of kids2(ent + 86, entEnd)) {
+      if (k.ty === 'avcC' && k.e - k.s >= 7) {
+        info.config = m.slice(k.s, k.e);
+        const prof = m[k.s + 1], compat = m[k.s + 2], level = m[k.s + 3], hex = (n) => n.toString(16).padStart(2, '0');
+        info.codecString = `avc1.${hex(prof)}${hex(compat)}${hex(level)}`;
+        info.profile = prof; info.level = level;
+        info.lengthSize = (m[k.s + 4] & 3) + 1;
+        if ([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135].includes(prof)) { // the SPS extension after the PPS list: chroma and depth
+          let q = k.s + 6; const nSps = m[k.s + 5] & 0x1f;
+          for (let i = 0; i < nSps && q + 2 <= k.e; i++) q += 2 + u16(m, q);
+          const nPps = m[q]; q++;
+          for (let i = 0; i < nPps && q + 2 <= k.e; i++) q += 2 + u16(m, q);
+          if (q + 3 <= k.e) { info.chroma = ['4:0:0', '4:2:0', '4:2:2', '4:4:4'][m[q] & 3] || '4:2:0'; info.bitDepth = 8 + (m[q + 1] & 7); }
+        }
+      } else if (k.ty === 'hvcC') info.config = m.slice(k.s, k.e);
+    }
+    return info;
+  }
+
+  /** The child boxes in [s, e) of the raw moov bytes. */
+  function kids2(s, e) {
+    const r = []; let p = s;
+    while (p + 8 <= e) {
+      let sz = u32(m, p); const ty = fcc(m, p + 4);
+      if (sz === 0) sz = e - p;
+      if (sz < 8 || p + sz > e) break;
+      r.push({ ty, s: p + 8, e: p + sz }); p += sz;
+    }
+    return r;
+  }
+
+  /** The rotation of a track in degrees (0, 90, 180, 270) from the matrix of its tkhd: phones record upright but store sideways. */
+  function rotationOf(trak) {
+    const tkhd = find(trak, 'tkhd'); if (!tkhd) return 0;
+    const o = tkhd.s + (m[tkhd.s] === 1 ? 52 : 40);
+    if (o + 36 > tkhd.e) return 0;
+    const a = u32(m, o) | 0, b = u32(m, o + 4) | 0, c = u32(m, o + 12) | 0;
+    if (a === 0 && b > 0 && c < 0) return 90;
+    if (a < 0 && b === 0) return 180;
+    if (a === 0 && b < 0 && c > 0) return 270;
+    return 0;
   }
 
   const audios = sounds.map((s) => { // an unreadable audio track does not sink the clip: it plays silent, with a warning
@@ -263,8 +345,10 @@ export function parseMoov(m) {
       if (stts && stts.e - stts.s >= 8) { const ne = u32(m, stts.s + 4); need(stts, 8 + ne * 8, 'stts'); for (let e = 0; e < ne; e++) ticks += u32(m, stts.s + 8 + e * 8) * u32(m, stts.s + 12 + e * 8); }
       frames = Math.round((ticks / ts) * rate);
     }
+    let aac = null;
+    if (!pcm && codec === 'mp4a') { try { aac = aacTrack(stbl, ent, entEnd, version); } catch { aac = null; } }
     return {
-      codec, version, supported: !!pcm, reason,
+      codec, version, supported: !!pcm, reason, ...(aac ? { aac } : {}),
       encoding: pcm ? (pcm.float ? 'f' : pcm.signed ? 's' : 'u') + pcm.bits + (pcm.bits === 8 ? '' : pcm.le ? 'le' : 'be') : null,
       channels, rate, bits: pcm ? pcm.bits : bits, float: !!pcm?.float, signed: pcm ? pcm.signed : true,
       littleEndian: !!pcm?.le, bytesPerSample, bytesPerFrame: pcm ? channels * bytesPerSample : bytesPerFrame,
@@ -273,7 +357,36 @@ export function parseMoov(m) {
     };
   }
 
-  return { duration: movieDur, timescale: movieTs, video, audio, tracks };
+  /** The packets of an AAC track and its AudioSpecificConfig (from esds), for AudioDecoder. */
+  function aacTrack(stbl, ent, entEnd, version) {
+    const childStart = ent + (version === 0 ? 36 : version === 1 ? 52 : 72);
+    let esds = null;
+    for (const k of kids2(childStart, entEnd)) { if (k.ty === 'esds') esds = k; else if (k.ty === 'wave') for (const w of kids2(k.s, k.e)) if (w.ty === 'esds') esds = w; }
+    if (!esds) return null;
+    // ES_Descriptor (0x03) → DecoderConfigDescriptor (0x04: object type) → DecoderSpecificInfo (0x05: the config)
+    let p = esds.s + 4, config = null, objectType = 0x40;
+    const desc = () => { const tag = m[p++]; let len = 0; for (let i = 0; i < 4; i++) { const b = m[p++]; len = (len << 7) | (b & 0x7f); if (!(b & 0x80)) break; } return { tag, len }; };
+    while (p < esds.e) {
+      const d = desc();
+      if (d.tag === 0x03) { p += 2; const fl = m[p++]; if (fl & 0x80) p += 2; if (fl & 0x40) p += 1 + m[p]; if (fl & 0x20) p += 2; }
+      else if (d.tag === 0x04) { objectType = m[p]; p += 13; }
+      else if (d.tag === 0x05) { config = m.slice(p, p + d.len); break; }
+      else p += d.len;
+    }
+    if (!config || !config.length) return null;
+    const audioObject = config[0] >> 3; // 2 = AAC-LC, 5 = HE-AAC (SBR), 29 = HE-AACv2
+    const stsz = find(stbl, 'stsz'); need(stsz, 12, 'stsz');
+    const fixed = u32(m, stsz.s + 4), n = u32(m, stsz.s + 8);
+    if (!fixed) need(stsz, 12 + n * 4, 'stsz');
+    const sizes = new Float64Array(n); for (let i = 0; i < n; i++) sizes[i] = fixed || u32(m, stsz.s + 12 + i * 4);
+    const cOff = chunkOffsets(stbl), spc = samplesPerChunk(stbl, cOff.length);
+    const offsets = new Float64Array(n); let si = 0;
+    for (let c = 0; c < cOff.length && si < n; c++) { let q = cOff[c]; for (let j = 0; j < spc[c] && si < n; j++) { offsets[si] = q; q += sizes[si]; si++; } }
+    if (si < n) throw codedError('mov-bad', 'audio sample-offset table too short');
+    return { objectType, audioObject, config, codecString: `mp4a.40.${audioObject}`, count: n, offsets, sizes };
+  }
+
+  return { duration: movieDur, timescale: movieTs, video, audio, tracks, fragmented: !!find(root, 'mvex') };
 }
 
 function unreadableSound(codec) {
@@ -327,6 +440,66 @@ export function describeMovie(ix, fileSize) {
   if (ix.tracks.filter((t) => t.handler === 'vide').length > 1) warnings.push({ code: 'extra-video', message: 'the movie has several video tracks; the first one plays' });
   return {
     video: { fourcc: v.fourcc, codecName: codecName(v.fourcc), width: v.width, height: v.height, fps: v.fps, frames: v.count, duration: v.dur },
+    audio, warnings,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------- native video (H.264)
+
+/** The video codecs the player decodes natively (WebCodecs) and the largest side each is allowed (docs/research/media-formats.md §2.3). */
+export const NATIVE_VIDEO = { avc1: 'H.264', avc3: 'H.264' };
+/** Codecs that Chromium could decode but this version does not play yet (P4). */
+export const LATER_VIDEO = { hvc1: 'HEVC (H.265)', hev1: 'HEVC (H.265)', vp09: 'VP9', av01: 'AV1', vp08: 'VP8' };
+
+/**
+ * What the import needs to know about an indexed H.264 movie (an MP4 or a MOV), or a coded error: not-hap (another
+ * codec: err.codecName), codec-later (HEVC/VP9/AV1: not yet), fragmented, mov-bad, truncated.
+ * Frames are counted in PRESENTATION order and the rate is the average, so a variable-rate phone video plays at its
+ * mean rate and `playhead()` (which only knows a constant rate) keeps its formula (`warnings` says so).
+ * @param {MovIndex} ix @param {number} fileSize
+ */
+export function describeVideo(ix, fileSize) {
+  const v = ix.video;
+  if (ix.fragmented) throw codedError('fragmented', 'a fragmented MP4 (moof)');
+  if (!v) throw codedError('not-hap', 'the movie has no video track', { codec: null, codecName: 'no video' });
+  if (!NATIVE_VIDEO[v.fourcc]) {
+    if (LATER_VIDEO[v.fourcc]) throw codedError('codec-later', LATER_VIDEO[v.fourcc], { codec: v.fourcc, codecName: LATER_VIDEO[v.fourcc] });
+    throw codedError('no-video-codec', `${codecName(v.fourcc)} (${v.fourcc})`, { codec: v.fourcc, codecName: codecName(v.fourcc) });
+  }
+  if (!v.count || !v.native) throw codedError('mov-bad', v.error ? `the video track does not read (${v.error})` : 'the video track has no frames');
+  if (!v.width || !v.height) throw codedError('mov-bad', 'the video track has no size');
+  if (!v.native.codecString) throw codedError('mov-bad', 'the video track has no avcC');
+  for (let i = 0; i < v.count; i++) {
+    if (v.offsets[i] + v.sizes[i] > fileSize) throw codedError('truncated', `the file ends inside frame ${i} of ${v.count}`, { completeFrames: i });
+  }
+  const n = v.native, warnings = [];
+  const first = v.present[n.order[0]], last = v.present[n.order[v.count - 1]];
+  const fps = v.count > 1 && last > first ? Math.round(((v.count - 1) / (last - first)) * 1e6) / 1e6 : v.fps;
+  // the longest and the shortest interval between presented frames: a variable rate is one that is not constant
+  let lo = Infinity, hi = 0;
+  for (let k = 1; k < v.count; k++) { const d = v.present[n.order[k]] - v.present[n.order[k - 1]]; if (d > 0) { lo = Math.min(lo, d); hi = Math.max(hi, d); } }
+  const vfr = v.count > 2 && hi > lo * 1.2 + 1e-6;
+  // GOP: frames between sync samples
+  let gop = 0;
+  if (n.sync && n.sync.length) { gop = n.sync[0] === 0 ? 0 : n.sync[0]; for (let i = 1; i < n.sync.length; i++) gop = Math.max(gop, n.sync[i] - n.sync[i - 1]); gop = Math.max(gop, v.count - n.sync[n.sync.length - 1]); } else gop = 1;
+  const dur = v.count / fps;
+  const rotation = n.rotation || 0;
+  let audio = null;
+  const a = ix.audio;
+  if (a) {
+    const aac = !a.supported && a.codec === 'mp4a' && a.aac;
+    audio = { format: a.codec, codecName: a.supported ? `PCM ${a.encoding}` : (aac ? 'AAC' : a.reason), encoding: a.encoding, supported: a.supported, channels: a.channels, rate: a.rate, frames: a.frames, duration: a.duration,
+      decodable: !!aac, cache: !!aac };
+    if (!a.supported && !aac) warnings.push({ code: 'audio-unsupported', codecName: a.reason, message: `the audio is ${a.reason} and will not play` });
+    if (a.supported) {
+      const nc = a.chunkOffsets.length;
+      for (let c = 0; c < nc; c++) if (a.chunkOffsets[c] + a.chunkFrames[c] * a.bytesPerFrame > fileSize) throw codedError('truncated', `the file ends inside audio chunk ${c} of ${nc}`);
+    }
+  }
+  return {
+    kind: 'video',
+    video: { fourcc: v.fourcc, codec: n.codecString, codecName: NATIVE_VIDEO[v.fourcc], width: v.width, height: v.height, fps, frames: v.count, duration: dur,
+      rotation, gop, vfr, profile: n.profile, level: n.level, bitDepth: n.bitDepth, chroma: n.chroma },
     audio, warnings,
   };
 }

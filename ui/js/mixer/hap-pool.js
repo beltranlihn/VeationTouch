@@ -139,6 +139,14 @@ export class HapPool {
     return p;
   }
 
+  /** A still image decoded by a worker (the one with the least in flight): {bm, w, h, reduced}. Not a frame: it never counts as in flight. */
+  async still(path) {
+    await this.init();
+    const W = this._live().sort((a, b) => a.busy - b.busy)[0];
+    if (!W) throw new Error(this.err || 'no-webgl2: no HAP worker');
+    return this._call(W, { t: 'still', path }, 30000);
+  }
+
   /** Every worker closes its descriptor of `path` (Windows cannot rename over an open file). */
   closeFile(path) {
     this.infos.delete(path);

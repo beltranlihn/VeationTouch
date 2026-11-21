@@ -102,6 +102,72 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       res.end(data);
     });
   };
+  /**
+   * The media helper's three routes (engine/media/helper.js). THIS computer only: the page is the desktop app's own hidden
+   * window. next = the long poll for a job · done/<id> = the answer (JSON, or the bytes of the file the job asked for) ·
+   * file/<token> = a file the job names, with ranges (a video is read by pieces).
+   */
+  const helperRoute = (req, res, p) => {
+    if (!peerOf(req).local) { res.writeHead(403); return res.end(); }
+    const link = engine.media.helper;
+    if (p === '/api/helper/next' && req.method === 'GET') {
+      const ac = new AbortController();
+      res.on('close', () => ac.abort());
+      link.next(ac.signal).then((job) => {
+        if (res.writableEnded || res.destroyed) { if (job) link.queue.unshift(job); return; }
+        if (!job) { res.writeHead(204); return res.end(); }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(job));
+      });
+      return undefined;
+    }
+    let m = /^\/api\/helper\/done\/(h\d+)$/.exec(p);
+    if (m && req.method === 'POST') {
+      const rec = link.open(m[1]);
+      if (!rec) { res.writeHead(404); return res.end(); }
+      let meta = {};
+      try { const h = req.headers['x-vt-meta']; if (h) meta = JSON.parse(decodeURIComponent(String(h))); } catch { /* none */ }
+      const finish = (result) => { link.done(m[1], result); res.writeHead(204); res.end(); };
+      if (rec.dest) { // the answer is a file (the decoded PCM of a sound): streamed to disk, never held whole
+        fs.mkdirSync(path.dirname(rec.dest), { recursive: true });
+        const tmp = `${rec.dest}.${process.pid}.tmp`, out = fs.createWriteStream(tmp);
+        let bytes = 0;
+        req.on('data', (c) => { bytes += c.length; });
+        out.on('error', (e) => { fs.rmSync(tmp, { force: true }); finish({ error: e.message, code: 'write' }); });
+        out.on('finish', () => { try { fs.renameSync(tmp, rec.dest); } catch (e) { fs.rmSync(tmp, { force: true }); return finish({ error: e.message, code: 'write' }); } return finish({ ...meta, bytes }); });
+        req.pipe(out);
+        return undefined;
+      }
+      const chunks = []; let size = 0;
+      req.on('data', (c) => { size += c.length; if (size <= 16 * 1024 * 1024) chunks.push(c); });
+      req.on('end', () => {
+        let body = {};
+        try { if (chunks.length) body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { body = { error: 'the helper sent an answer that is not JSON', code: 'helper-bad' }; }
+        finish({ ...meta, ...body });
+      });
+      return undefined;
+    }
+    m = /^\/api\/helper\/file\/([0-9a-f]{24})$/.exec(p);
+    if (m && req.method === 'GET') {
+      const file = link.files.get(m[1]);
+      if (!file) { res.writeHead(404); return res.end(); }
+      fs.promises.stat(file).then((st) => {
+        let start = 0, end = st.size - 1, code = 200;
+        const r = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
+        if (r && (r[1] !== '' || r[2] !== '')) {
+          if (r[1] === '') { start = Math.max(0, st.size - Number(r[2])); } else { start = Number(r[1]); if (r[2] !== '') end = Math.min(end, Number(r[2])); }
+          if (!(start <= end) || start >= st.size) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }); return res.end(); }
+          code = 206;
+        }
+        const head = { 'Content-Type': 'application/octet-stream', 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', ...OWN };
+        if (code === 206) head['Content-Range'] = `bytes ${start}-${end}/${st.size}`;
+        res.writeHead(code, head);
+        if (st.size === 0) return res.end();
+        fs.createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res);
+      }, () => { res.writeHead(404); res.end(); });
+      return undefined;
+    }
+    res.writeHead(404); return res.end();
+  };
   // The audio window shares memory between its audio contexts (SharedArrayBuffer), which the browser only allows on a
   // cross-origin-isolated page. The page asks for isolation (COOP + COEP); everything it loads is ours and says so (CORP).
   // /sdk/ is left out: other apps load it from their own origin.
@@ -184,6 +250,9 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     // the HAP decoders of the output page's workers read the movies with the engine's own code (mov.js imports ./hap.js)
     if (p === '/shared/mov.js') return serveFile(res, path.join(root, 'engine', 'media', 'mov.js'), OWN);
     if (p === '/shared/hap.js') return serveFile(res, path.join(root, 'engine', 'media', 'hap.js'), OWN);
+    // the media helper (a hidden window of the desktop app: decodes images, video frames and sounds — engine/media/helper.js)
+    if (p === '/helper') { if (!peerOf(req).local) { res.writeHead(403); return res.end(); } return serveFile(res, path.join(uiDir, 'helper.html'), OWN); }
+    if (p === '/shared/sniff.js') return serveFile(res, path.join(root, 'engine', 'media', 'sniff.js'), OWN);
     if (p === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       const mem = process.memoryUsage(), mb = (b) => Math.round(b / 1048576);

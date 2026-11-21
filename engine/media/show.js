@@ -10,12 +10,18 @@
 import { OUTPUT_BLENDS, AUDIO_ROUTES, slug } from '../profile.js';
 import { HAP_FORMATS } from './hap.js';
 
-export const SHOW_SCHEMA = 1;
+export const SHOW_SCHEMA = 2; // 2: media.kind (hap | video | image | audio); a schema-1 show is all HAP, which is the default kind
 export const MAX_LAYERS = 8;
 export const DEFAULT_LAYERS = 3;
 export const DEFAULT_COLUMNS = 8;
 export const MAX_COLUMNS = 256;
 export const MAX_TRANSITION_MS = 10000;
+/** What a library file is: a HAP movie, a native video (H.264 in MP4/MOV), a still image or a sound. */
+export const MEDIA_KINDS = ['hap', 'video', 'image', 'audio'];
+/** The length a still image is given for the autopilot and for the clip's `out` (docs/research/media-formats.md §4.1). */
+export const STILL_SECONDS = 10;
+/** A sound or an image has no frames of its own: the transport still counts them at this rate. */
+export const SYNTH_FPS = 30;
 
 /** How a clip ends (§2.2). A clip may also say 'layer': whatever its layer says. */
 export const LAYER_ENDS = ['loop', 'hold', 'clear', 'bounce', 'next', 'prev', 'random', 'first'];
@@ -78,27 +84,46 @@ export const clipName = (file) => fileName(file).replace(/\.[^.]+$/, '') || 'Cli
 
 function normMedia(m) {
   if (!m || typeof m !== 'object') return null;
+  const kind = pick(m.kind, MEDIA_KINDS, 'hap');
   const file = libraryPath(m.file), v = m.video && typeof m.video === 'object' ? m.video : null;
-  if (!file || !v || !HAP_FORMATS[v.fourcc]) return null; // only a HAP movie inside the library can be in a show
   const a = m.audio && typeof m.audio === 'object' ? m.audio : null;
-  const fps = num(v.fps, 30, 0.1, 1000);
+  if (!file) return null;
+  if (kind === 'hap' && (!v || !HAP_FORMATS[v.fourcc])) return null; // a HAP movie inside the library
+  if (kind !== 'hap' && !v && !(kind === 'audio' && a)) return null;
+  const dur0 = num(a?.duration, 1, 0, 1e7);
+  const vv = v || { fourcc: 'AUD ', width: 1, height: 1, fps: SYNTH_FPS, frames: Math.max(1, Math.round(dur0 * SYNTH_FPS)), duration: dur0 };
+  const fps = num(vv.fps, 30, 0.1, 1000);
+  const video = {
+    fourcc: str(vv.fourcc, '', 16), width: int(vv.width, 16, 1, 65535), height: int(vv.height, 16, 1, 65535), fps: r3(fps),
+    frames: int(vv.frames, 1, 1, 1e9), duration: r3(num(vv.duration, 0, 0, 1e7)),
+  };
+  if (kind === 'video') { // what the player and the import need to know about a native video
+    video.codec = str(vv.codec, '', 40);
+    video.rotation = pick(int(vv.rotation, 0, 0, 270), [0, 90, 180, 270], 0);
+    video.gop = int(vv.gop, 0, 0, 1e6);
+    video.vfr = bool(vv.vfr, false);
+  }
+  const im = m.image && typeof m.image === 'object' ? m.image : null;
   return {
     id: idOf(m.id),
     file,
+    kind,
     size: int(m.size, 0, 0, Number.MAX_SAFE_INTEGER),
     mtimeMs: Math.round(num(m.mtimeMs, 0, 0)),
     fingerprint: typeof m.fingerprint === 'string' && /^[0-9a-f]{40}$/.test(m.fingerprint) ? m.fingerprint : null,
-    video: {
-      fourcc: v.fourcc, width: int(v.width, 16, 1, 65535), height: int(v.height, 16, 1, 65535), fps: r3(fps),
-      frames: int(v.frames, 1, 1, 1e9), duration: r3(num(v.duration, 0, 0, 1e7)),
-    },
+    video,
     audio: a ? {
       format: typeof a.format === 'string' && /^[fsu](8|16|24|32|64)(le|be)?$/.test(a.format) ? a.format : null, // the PCM encoding, null = will not play
       codec: str(a.codec, '', 8), codecName: str(a.codecName, '', 80),
       supported: bool(a.supported, false) && typeof a.format === 'string',
       channels: int(a.channels, 0, 0, 64), rate: int(a.rate, 0, 0, 768000), frames: int(a.frames, 0, 0, Number.MAX_SAFE_INTEGER),
       duration: r3(num(a.duration, 0, 0, 1e7)),
+      // a sound that Chromium decodes (AAC, MP3…): its PCM is made once into the audio cache (engine/media/audio-cache.js)
+      cache: bool(a.cache, false),
     } : null,
+    ...(kind === 'image' && im ? { image: { format: str(im.format, '', 8), width: int(im.width, 1, 1, 1e6), height: int(im.height, 1, 1, 1e6), animated: bool(im.animated, false),
+      reduced: im.reduced && typeof im.reduced === 'object' ? { width: int(im.reduced.width, 1, 1, 65535), height: int(im.reduced.height, 1, 1, 65535) } : null } } : {}),
+    notes: arr(m.notes, 8).map((x) => str(x, '', 200)).filter(Boolean), // what the import said about the file (warnings): the inspector shows them
     thumbFrame: m.thumbFrame === null || m.thumbFrame === undefined ? null : int(m.thumbFrame, 0, 0, 1e9), // null = at 10 %
   };
 }
