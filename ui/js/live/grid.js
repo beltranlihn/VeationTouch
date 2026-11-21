@@ -1,28 +1,34 @@
-// Live › the clip grid (MEDIA-SERVER.md §4b.3, §2b): rows = layers that cover each other (the top row is on top),
-// columns = moments of the show; decks keep the grid small however big the library is.
+// Live › the clip grid (MEDIA-SERVER.md §4b.3, §2b; docs/research/resolume-ux.md §C.4): rows = layers that cover each
+// other (the top row is on top), columns = moments of the show; decks keep the grid small however big the library is.
 //   cell          picture = launch (clip.trigger), name = select (the inspector); a status dot — grey copying, cyan
-//                 ready, amber problem (the reason on hover); the live cell has a cyan border and its play indicator:
-//                 a ring for loops (Ableton), a bar + the time left for clips that end. Computed here from the engine's
-//                 clock and the play the engine sent; the engine is never asked where a clip is.
+//                 ready, amber problem (the reason on hover); the live cell has a cyan border and a PLAYHEAD: a 2 px
+//                 line that crosses the picture (a loop's goes back to the start) and, for clips that end, the time
+//                 left. Computed here from the engine's clock and the play the engine sent; the engine is never asked
+//                 where a clip is. Three sizes (S · M · L, remembered on this device). Hover: the clip, large.
+//   selection     click the name: that clip · Ctrl-click adds or takes away · Shift-click the rectangle between —
+//                 several clips are edited at once (inspector) and copied, pasted, duplicated, removed together
 //   column head   launches the column (column.trigger); the last column launched is cyan; right-click makes it the
 //                 room's start column (show.start, marked START: it launches by itself when the engine starts)
-//   layer head    layers.js: X, name, M, B, opacity and volume
-//   bar           deck tabs (+ to add one), Eject all, the show's name with its menu (New, Open, Rename, Duplicate,
-//                 Export, Import; Rename / Delete deck)
+//   layer head    layers.js: X, name, S · M · B, what plays, opacity, blend
+//   bar           deck tabs (+ to add one), Keys, the size of the cells, the browser, Eject all, the show's name
+//                 with its menu (New, Open, Rename, Duplicate, Export, Import; Rename / Delete deck)
 // Show mode: cells still launch; editing and dragging are off, and the bar says so quietly.
 
 import { store, cmd } from '../conn.js';
 import { h, toast, confirmBox, promptBox, modal } from '../dom.js';
 import { playhead, passLength } from '/shared/transport.js';
 import { layerHead, xlayerHead, headKey } from './layers.js';
+import { locate } from './library.js';
+import * as A from './actions.js';
 
-const LH_W = 168;               // the layer head column (px)
+const LH_W = 184;               // the layer head column (px)
 const ADD_W = 28;               // the "+" column at the end of the header row
-const GAP = 4;
-const CW_MIN = 92, CW_MAX = 176;
+const SIZES = { S: 104, M: 144, L: 208 };
 const MAX_LAYERS = 8, MAX_COLUMNS = 256;
 const LOOPING = new Set(['loop', 'bounce']);
 const AUTOPILOT = new Set(['next', 'prev', 'random', 'first']);
+/** The keys of Keys mode (C.7): a row of the keyboard per layer, from the top layer down; the column is the key's place. */
+export const KEY_ROWS = ['qwertyui', 'asdfghjk', 'zxcvbnm,'];
 
 /** m:ss (h:mm:ss past an hour), never negative. */
 export function clockText(s) {
@@ -55,30 +61,83 @@ export function progressOf(p, now, held = false) {
   return { kind: 'bar', frac: held ? 1 : el / total, left: held ? 0 : total - el };
 }
 
+/** A menu at a point, in the style of Immersive Studio Pro's: [[label, fn, {off, title, danger, key}] | 'sep' | note]. */
+export function popMenu(x, y, items) {
+  const menu = h('div', { class: 'lv-menu', role: 'menu' }, items.map((it) => {
+    if (it === 'sep') return h('div', { class: 'sep' });
+    if (typeof it === 'string') return h('div', { class: 'lv-menu-note' }, it);
+    const [label, fn, o = {}] = it;
+    return h('button', { class: o.danger ? 'danger' : '', disabled: o.off || undefined, title: o.title || '', onclick: () => { close(); fn(); } },
+      h('span', { class: 'grow' }, label), o.key ? h('span', { class: 'lv-mkey' }, o.key) : null);
+  }));
+  document.body.append(menu);
+  Object.assign(menu.style, { left: `${Math.max(8, Math.min(innerWidth - menu.offsetWidth - 8, x))}px`, top: `${Math.max(8, Math.min(innerHeight - menu.offsetHeight - 8, y))}px` });
+  const away = (e) => { if (!menu.contains(e.target)) close(); };
+  const esc = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
+  function close() { menu.remove(); removeEventListener('pointerdown', away, true); removeEventListener('keydown', esc, true); }
+  setTimeout(() => { addEventListener('pointerdown', away, true); addEventListener('keydown', esc, true); }, 0);
+  menu.querySelector('button:not([disabled])')?.focus();
+  return close;
+}
+
 export function createGrid(L) {
   const el = h('div', { class: 'lv-grid' });
   let key = '', rows = null;
+  // the size of the cells: remembered here; a touch screen of the room reads from further away, so it starts at L
+  let size = 'M';
+  try { size = localStorage.getItem('vt-live-size') || (matchMedia('(pointer: coarse)').matches && innerWidth >= 1280 ? 'L' : 'M'); } catch { /* storage blocked */ }
+  if (!SIZES[size]) size = 'M';
+  L.keys = false; // Keys mode (the QWERTY rows and the number keys launch); armed on purpose, it disarms itself
+  let keysTimer = null;
 
   // ---------------------------------------------------------------- building
 
   function cell(deck, layer, col) {
     const clip = L.clipAt(deck, layer.id, col);
     const base = { 'data-layer': layer.id, 'data-col': String(col) };
+    const select = (e) => selectCell(e, layer.id, col);
     if (!clip) {
-      return h('div', { class: 'lv-cell empty', ...base, title: L.locked() ? '' : 'Drop HAP files here', onclick: () => L.select({ kind: 'cell', layerId: layer.id, column: col }) });
+      return h('div', { class: 'lv-cell empty', ...base, title: L.locked() ? '' : 'Drop files here', onclick: select,
+        oncontextmenu: (e) => { e.preventDefault(); cellMenu(e.clientX, e.clientY, deck, layer, col); } }, h('span', { class: 'plus' }, '+'));
     }
     const m = L.mediaOf(clip);
-    const img = h('img', { src: L.thumbUrl(m, 160), alt: '', draggable: 'false', loading: 'lazy', onerror: (e) => e.target.classList.add('gone') });
-    const ring = h('span', { class: 'lv-ring', html: '<svg viewBox="0 0 24 24"><circle class="bg" cx="12" cy="12" r="9"/><circle class="fg" cx="12" cy="12" r="9" pathLength="100" stroke-dasharray="0 100"/></svg>' });
-    return h('div', { class: 'lv-cell', ...base, 'data-clip': clip.id, 'data-media': m?.id || '', draggable: L.locked() ? 'false' : 'true' },
-      h('button', { class: 'lv-thumb', title: `Launch "${clip.name}"`, 'aria-label': `Launch ${clip.name}`, onclick: () => trigger(deck, layer.id, col) },
-        img, ring,
-        h('span', { class: 'lv-bar' }, h('i')),
-        h('span', { class: 'lv-copy' }, h('i'), h('em', { class: 'tnum' })),
-        h('span', { class: 'lv-flag' }),
-        h('span', { class: 'lv-left tnum' })), // the time left, on the picture (read from afar; the name keeps its room)
-      h('button', { class: 'lv-name', title: `${clip.name} — select`, onclick: () => L.select({ kind: 'cell', layerId: layer.id, column: col }) },
-        h('span', { class: 'dot' }), h('span', { class: 't' }, clip.name)));
+    const img = h('img', { src: L.thumbUrl(m, size === 'L' ? 480 : 160), alt: '', draggable: 'false', loading: 'lazy', onerror: (e) => e.target.classList.add('gone') });
+    return h('div', { class: 'lv-cell', ...base, 'data-clip': clip.id, 'data-media': m?.id || '', draggable: L.locked() ? 'false' : 'true',
+      oncontextmenu: (e) => { e.preventDefault(); if (!L.isInSel(layer.id, col)) L.select({ kind: 'cell', layerId: layer.id, column: col }); cellMenu(e.clientX, e.clientY, deck, layer, col); } },
+    h('button', { class: 'lv-thumb', title: `Launch "${clip.name}"`, 'aria-label': `Launch ${clip.name}`, onclick: (e) => { if (e.shiftKey || e.ctrlKey || e.metaKey) selectCell(e, layer.id, col); else trigger(deck, layer.id, col); } },
+      img,
+      h('i', { class: 'lv-ph' }),
+      h('span', { class: 'lv-copy' }, h('i'), h('em', { class: 'tnum' })),
+      h('span', { class: 'lv-flag' }),
+      h('span', { class: 'lv-keylbl' }),
+      h('span', { class: 'lv-left tnum' })), // the time left, on the picture (read from afar; the name keeps its room)
+    h('button', { class: 'lv-name', title: `${clip.name} — select`, onclick: select },
+      h('span', { class: 'dot' }), h('span', { class: 't' }, clip.name)),
+    h('button', { class: 'btn small lv-locatebtn', title: 'Search a folder for the missing files of the show', onclick: (e) => { e.stopPropagation(); locate(L); } }, 'Locate…'));
+  }
+
+  /** Click on a cell's name or empty space: select (Ctrl: add or take away; Shift: the rectangle from the last one). */
+  function selectCell(e, layerId, col) {
+    const mod = e?.ctrlKey || e?.metaKey, shift = e?.shiftKey;
+    const deck = L.deck();
+    if ((mod || shift) && L.clipAt(deck, layerId, col)) {
+      let list = L.cellsSelected();
+      if (shift && list.length) {
+        const anchor = L.anchor || list[0], order = L.view().layers.map((l) => l.id);
+        const a = order.indexOf(anchor.layerId), b = order.indexOf(layerId), c0 = Math.min(anchor.column, col), c1 = Math.max(anchor.column, col);
+        list = [];
+        for (let li = Math.min(a, b); li <= Math.max(a, b); li++) for (let c = c0; c <= c1; c++) if (L.clipAt(deck, order[li], c)) list.push({ layerId: order[li], column: c });
+      } else {
+        const has = list.some((x) => x.layerId === layerId && x.column === col);
+        list = has ? list.filter((x) => !(x.layerId === layerId && x.column === col)) : [...list, { layerId, column: col }];
+        L.anchor = { layerId, column: col };
+      }
+      L.select(list.length ? { kind: 'cell', layerId: list[list.length - 1].layerId, column: list[list.length - 1].column } : null);
+      L.setMulti(list);
+      return;
+    }
+    L.anchor = { layerId, column: col };
+    L.select({ kind: 'cell', layerId, column: col });
   }
 
   function trigger(deck, layerId, column) {
@@ -90,22 +149,46 @@ export function createGrid(L) {
     const locked = L.locked();
     const decks = h('div', { class: 'well lv-decks', role: 'tablist', 'aria-label': 'Decks' },
       L.view().decks.map((d) => h('button', {
-        class: d.id === deck.id ? 'on' : '', role: 'tab', 'aria-selected': String(d.id === deck.id), 'data-deck': d.id, title: show && !locked ? 'Double-click to rename' : d.name,
+        class: d.id === deck.id ? 'on' : '', role: 'tab', 'aria-selected': String(d.id === deck.id), 'data-deck': d.id, title: show && !locked ? 'Double-click to rename; drop files here to fill its first layer' : d.name,
         onclick: () => L.setDeck(d.id), ondblclick: () => renameDeck(d),
       }, d.name)));
+    const sizes = h('div', { class: 'seg lv-sizes', role: 'group', 'aria-label': 'Size of the cells' }, Object.keys(SIZES).map((k) => h('button', {
+      class: k === size ? 'on' : '', 'aria-pressed': String(k === size), 'data-size': k, title: { S: 'Small cells', M: 'Medium cells', L: 'Large cells: to read from afar' }[k], onclick: () => setSize(k),
+    }, k)));
     return h('div', { class: 'lv-gbar' },
       decks,
-      h('button', { class: 'ibtn lv-adddeck', title: 'Add a deck', disabled: !show || locked || L.view().decks.length >= 32 || undefined, onclick: addDeck }, '+'),
+      h('button', { class: 'ibtn lv-adddeck', title: 'Add a deck (drop a folder here: a deck named after it)', disabled: !show || locked || L.view().decks.length >= 32 || undefined, onclick: addDeck }, '+'),
       h('div', { class: 'grow' }),
       locked ? h('span', { class: 'lv-locknote', title: 'Show mode locks the show against edits; launching works as always' }, 'Show mode · launching only') : null,
+      h('button', { class: `ibtn small lv-keysbtn${L.keys ? ' armed' : ''}`, 'aria-pressed': String(L.keys), disabled: !show || undefined,
+        title: 'Keys: the keyboard launches. 1–9, 0 = columns; Q–I, A–K, Z–, = the clips of the layers. It disarms itself after 10 minutes without a key.', onclick: () => setKeys(!L.keys) }, 'Keys'),
+      sizes,
+      h('button', { class: `ibtn small lv-bbtn${L.main?.classList.contains('nobrowser') ? '' : ' on'}`, title: 'The browser: files of the show and of this computer (B)', 'aria-label': 'Browser', onclick: () => L.browser.toggle() }, 'Browser'),
       h('button', { class: 'btn small', title: 'Eject every layer (with each layer\'s transition)', disabled: !show || undefined, onclick: () => L.run(cmd('media.clearAll')) }, 'Eject all'),
       h('button', { class: 'btn small lv-showbtn', title: 'The show: what the grid, the decks and the cards belong to', onclick: (e) => showMenu(e.currentTarget) },
         h('span', { class: 'lbl' }, 'Show'), h('span', { class: 't' }, show ? show.name : 'None yet'), h('span', { class: 'caret' }, '▾')));
   }
 
+  function setSize(k) {
+    size = k;
+    try { localStorage.setItem('vt-live-size', k); } catch { /* storage blocked */ }
+    L.grid.render(true);
+  }
+
+  function setKeys(on) {
+    L.keys = on && !!L.show();
+    clearTimeout(keysTimer);
+    if (L.keys) keysTimer = setTimeout(() => setKeys(false), 10 * 60 * 1000);
+    L.touchKeys = () => { if (L.keys) { clearTimeout(keysTimer); keysTimer = setTimeout(() => setKeys(false), 10 * 60 * 1000); } };
+    for (const b of el.querySelectorAll('.lv-keysbtn')) { b.classList.toggle('armed', L.keys); b.setAttribute('aria-pressed', String(L.keys)); }
+    el.classList.toggle('keys', L.keys);
+    patch();
+  }
+  L.setKeys = setKeys;
+
   function render(force = false) {
     const show = L.show(), deck = L.deck(), V = L.view();
-    const k = JSON.stringify([show?.id ?? null, show?.rev ?? null, deck.id, L.locked(), V.decks.map((d) => d.name)]);
+    const k = JSON.stringify([show?.id ?? null, show?.rev ?? null, deck.id, L.locked(), V.decks.map((d) => d.name), size]);
     if (!force && k === key) return;
     key = k;
     const sc = rows?.parentElement;
@@ -120,13 +203,13 @@ export function createGrid(L) {
         const start = !!show && show.start?.deckId === deck.id && show.start?.column === c;
         return h('button', {
           class: `lv-col${start ? ' start' : ''}`, 'data-col': String(c), disabled: !show || undefined,
-          title: `Launch column ${c + 1}${start ? ' — the room opens with it' : ''}\nRight-click: start the room with it`,
+          title: `Launch column ${c + 1}${start ? ' — the room opens with it' : ''}\nRight-click: start the room with it · drop files here: one per layer`,
           onclick: () => L.run(cmd('column.trigger', { deckId: deck.id, column: c })),
-          oncontextmenu: (e) => { e.preventDefault(); if (show) columnMenu(e.currentTarget, deck, c, start); },
+          oncontextmenu: (e) => { e.preventDefault(); if (show) columnMenu(e.clientX, e.clientY, deck, c, start); },
         }, h('span', { class: 'n tnum' }, String(c + 1)), h('span', { class: 'go' }, '▶'), start ? h('span', { class: 'st' }, 'START') : null);
       }),
       h('button', { class: 'lv-addcol', title: 'Add a column', disabled: !show || locked || deck.columns >= MAX_COLUMNS || undefined, onclick: addColumn }, '+'));
-    rows = h('div', { class: 'lv-rows' },
+    rows = h('div', { class: 'lv-rows', 'data-size': size },
       head,
       layers.map((layer) => h('div', { class: 'lv-row', 'data-layer': layer.id },
         layerHead(L, layer),
@@ -136,21 +219,20 @@ export function createGrid(L) {
     const scroller = h('div', { class: 'lv-scroll' }, rows);
     const report = el.querySelector('.lv-report'); // what an import refused stays until it is closed
     el.replaceChildren(...[bar(show, deck), show ? null : h('div', { class: 'lv-empty' },
-      h('b', {}, 'No show yet.'), ' Drop HAP files from the explorer onto a cell to start one — they are copied into the library.'), scroller, report].filter(Boolean));
+      h('b', {}, 'No show yet.'), ' Drop files from the browser or the explorer onto a cell to start one — they are copied into the library.'), scroller, report].filter(Boolean));
     el.classList.toggle('locked', locked);
+    el.classList.toggle('keys', L.keys);
     resize();
     scroller.scrollLeft = scroll[0]; scroller.scrollTop = scroll[1];
   }
 
-  /** Cell width from the room there is: up to eight columns fill the width; more scroll. */
+  /** Cell width from the size chosen (S · M · L). */
   function resize() {
     if (!rows) return;
-    const n = Math.max(1, Math.min(8, L.deck().columns));
-    const avail = el.clientWidth - 24 - LH_W - ADD_W - GAP * (n + 1) - 10; // (the scroller's padding, a scroll bar)
-    const cw = Math.max(CW_MIN, Math.min(CW_MAX, Math.floor(avail / n)));
-    rows.style.setProperty('--cw', `${cw}px`);
+    rows.style.setProperty('--cw', `${SIZES[size]}px`);
     rows.style.setProperty('--n', String(L.deck().columns));
     rows.style.setProperty('--lhw', `${LH_W}px`);
+    for (const b of el.querySelectorAll('.lv-bbtn')) b.classList.toggle('on', !L.main?.classList.contains('nobrowser'));
   }
 
   // ---------------------------------------------------------------- what plays (no rebuild)
@@ -158,9 +240,15 @@ export function createGrid(L) {
   function patch() {
     if (!rows) return;
     const deck = L.deck(), M = L.media(), now = L.now();
+    const multi = L.cellsSelected();
+    const layerIdx = new Map([...L.view().layers].reverse().map((l, i) => [l.id, i]));
     for (const c of rows.querySelectorAll('.lv-cell')) {
       const layerId = c.dataset.layer, col = Number(c.dataset.col), clipId = c.dataset.clip;
-      c.classList.toggle('sel', !!L.sel && L.isSel('cell', layerId, col));
+      const inSel = multi.some((x) => x.layerId === layerId && x.column === col);
+      c.classList.toggle('sel', (!!L.sel && L.isSel('cell', layerId, col)) || inSel);
+      c.classList.toggle('multi', multi.length > 1 && inSel);
+      const kr = KEY_ROWS[layerIdx.get(layerId)];
+      c.querySelector('.lv-keylbl')?.replaceChildren(L.keys && kr && col < kr.length ? kr[col].toUpperCase() : '');
       if (!clipId) continue;
       const e = L.entry(layerId);
       const live = !!e?.play && fromCell(e.play, clipId, deck, layerId, col);
@@ -181,7 +269,7 @@ export function createGrid(L) {
       flag.textContent = st.kind === 'missing' ? 'Missing' : st.kind === 'problem' ? 'Copy stopped' : '';
       const copy = c.querySelector('.lv-copy');
       if (st.kind === 'copying') { copy.querySelector('i').style.width = `${st.pct}%`; copy.querySelector('em').textContent = st.job.state === 'queued' ? 'Waiting' : `Copying ${st.pct} %`; }
-      if (!live) { c.querySelector('.lv-left').textContent = ''; }
+      if (!live) { c.querySelector('.lv-left').textContent = ''; c.querySelector('.lv-ph').style.left = '0'; }
     }
     for (const b of rows.querySelectorAll('.lv-col')) b.classList.toggle('live', !!M.column && M.column.deckId === deck.id && M.column.index === Number(b.dataset.col));
     for (const r of rows.querySelectorAll('.lv-row[data-layer]')) {
@@ -190,14 +278,20 @@ export function createGrid(L) {
       const head = r.querySelector('.lv-lh');
       head.classList.toggle('sel', !!L.sel && (id === 'xlayer' ? L.sel.kind === 'xlayer' : L.isSel('layer', id)));
       if (id === 'xlayer') continue;
+      // what plays on the layer, by name (read from the head without looking for the cell)
+      const np = head.querySelector('.lv-np .t'), playing = e?.play ? L.clip(e.play.clipId) : null;
+      if (np) np.textContent = playing ? playing.name : '—';
+      head.querySelector('.lv-np')?.classList.toggle('on', !!playing);
       // another device moved a fader (or the engine took the mix back): this head is built again — never under a drag
       const layer = L.layer(id);
-      if (layer && head.dataset.key !== headKey(L, layer) && !head.querySelector('.vfield.drag') && !head.contains(document.activeElement)) {
+      const a = document.activeElement, typing = !!a && head.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.classList.contains('vfield'));
+      if (layer && head.dataset.key !== headKey(L, layer) && !head.querySelector('.vfield.drag') && !typing) {
         const fresh = layerHead(L, layer);
         fresh.classList.toggle('sel', head.classList.contains('sel'));
         head.replaceWith(fresh);
       }
     }
+    for (const b of el.querySelectorAll('.lv-keysbtn')) b.classList.toggle('armed', L.keys);
     xcell();
   }
 
@@ -224,8 +318,7 @@ export function createGrid(L) {
       const e = L.entry(c.dataset.layer);
       if (!e?.play) continue;
       const pr = progressOf(e.play, now, e.state === 'held');
-      if (pr.kind === 'ring') c.querySelector('.lv-ring .fg').setAttribute('stroke-dasharray', `${(pr.frac * 100).toFixed(1)} 100`);
-      else c.querySelector('.lv-bar i').style.width = `${(pr.frac * 100).toFixed(2)}%`;
+      c.querySelector('.lv-ph').style.left = `${(pr.frac * 100).toFixed(2)}%`;
       c.querySelector('.lv-left').textContent = pr.kind === 'bar' ? (e.state === 'held' ? 'Hold' : `−${clockText(pr.left)}`) : '';
     }
     const x = rows.querySelector('.lv-xcell.live'), e = L.media().xlayer;
@@ -267,58 +360,71 @@ export function createGrid(L) {
     L.editShow((s) => { if (s.decks.length < 2) return false; s.decks = s.decks.filter((x) => x.id !== d.id); return true; }, 'delete deck');
   }
 
+  // ---------------------------------------------------------------- a cell's menu (right-click)
+
+  function cellMenu(x, y, deck, layer, col) {
+    const clip = L.clipAt(deck, layer.id, col), locked = L.locked(), n = L.cellsSelected().length;
+    const off = locked || !L.show();
+    const items = clip ? [
+      locked ? 'Show mode: unlock the room to edit.' : null,
+      ['Launch', () => trigger(deck, layer.id, col), { key: 'Enter' }],
+      ['Select', () => L.select({ kind: 'cell', layerId: layer.id, column: col })],
+      'sep',
+      ['Rename…', () => A.rename(L, { layerId: layer.id, column: col }), { off, key: 'F2' }],
+      ['Replace file…', () => A.replaceFile(L, { layerId: layer.id, column: col }), { off, title: 'Pick the new file in the browser: the clip keeps its settings' }],
+      ['Show in browser', () => L.browser.reveal(clip.mediaId)],
+      'sep',
+      [n > 1 ? `Duplicate ${n} clips` : 'Duplicate', () => A.duplicate(L), { off, key: 'Ctrl+D' }],
+      [n > 1 ? `Copy ${n} clips` : 'Copy', () => A.copy(L), { key: 'Ctrl+C' }],
+      [n > 1 ? `Cut ${n} clips` : 'Cut', () => A.cut(L), { off, key: 'Ctrl+X' }],
+      ['Paste', () => A.paste(L, { layerId: layer.id, column: col }), { off: off || !L.clipboard, key: 'Ctrl+V' }],
+      'sep',
+      [n > 1 ? `Remove ${n} clips from the grid` : 'Remove from the grid', () => A.removeFromGrid(L), { off, danger: true, title: 'The files stay in the show' }],
+      ['Remove the file…', () => A.removeFile(L, clip), { off, danger: true, title: 'Takes the file and its clips out of the show' }],
+    ] : [
+      locked ? 'Show mode: unlock the room to edit.' : null,
+      ['Paste', () => A.paste(L, { layerId: layer.id, column: col }), { off: off || !L.clipboard, key: 'Ctrl+V' }],
+      ['Open the browser', () => { if (L.main.classList.contains('nobrowser')) L.browser.toggle(); }],
+    ];
+    popMenu(x, y, items.filter(Boolean));
+  }
+
   // ---------------------------------------------------------------- a column's menu (right-click on its head)
 
   /**
    * Launch it, or make it the room's start column: when the engine starts (the computer is switched on), it launches by
    * itself — with the start card, if one is set (show.start; engine/media/index.js › autostart). One per show.
    */
-  function columnMenu(anchor, deck, c, start) {
+  function columnMenu(x, y, deck, c, start) {
     const locked = L.locked();
-    const item = (label, fn, o = {}) => h('button', { disabled: o.off || undefined, title: o.title || '', onclick: () => { close(); fn(); } }, label);
     const setStart = (on) => L.editShow((s) => { s.start = { ...(s.start || {}), deckId: deck.id, column: on ? c : null }; }, on ? 'start column' : 'no start column');
-    const menu = h('div', { class: 'lv-menu', role: 'menu' },
-      locked ? h('div', { class: 'lv-menu-note' }, 'Show mode: unlock the room to change the start.') : null,
-      item(`Launch column ${c + 1}`, () => L.run(cmd('column.trigger', { deckId: deck.id, column: c }))),
-      h('div', { class: 'sep' }),
-      start ? item('Do not start the room with it', () => setStart(false), { off: locked })
-        : item(`Start the room with column ${c + 1}`, () => setStart(true), { off: locked, title: 'When the computer starts, this column launches by itself (with the start card, if one is set)' }));
-    const r = anchor.getBoundingClientRect();
-    document.body.append(menu);
-    Object.assign(menu.style, { left: `${Math.max(8, Math.min(innerWidth - menu.offsetWidth - 8, r.left))}px`, top: `${r.bottom + 4}px` });
-    const away = (e) => { if (!menu.contains(e.target)) close(); };
-    const esc = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
-    function close() { menu.remove(); removeEventListener('pointerdown', away, true); removeEventListener('keydown', esc, true); }
-    setTimeout(() => { addEventListener('pointerdown', away, true); addEventListener('keydown', esc, true); }, 0);
-    menu.querySelector('button:not([disabled])')?.focus();
+    popMenu(x, y, [
+      locked ? 'Show mode: unlock the room to change the start.' : null,
+      [`Launch column ${c + 1}`, () => L.run(cmd('column.trigger', { deckId: deck.id, column: c }))],
+      'sep',
+      start ? ['Do not start the room with it', () => setStart(false), { off: locked }]
+        : [`Start the room with column ${c + 1}`, () => setStart(true), { off: locked, title: 'When the computer starts, this column launches by itself (with the start card, if one is set)' }],
+    ].filter(Boolean));
   }
 
   // ---------------------------------------------------------------- the show's menu
 
   function showMenu(anchor) {
     const show = L.show(), locked = L.locked(), desk = !!store.state?.local;
-    const item = (label, fn, o = {}) => h('button', { class: o.danger ? 'danger' : '', disabled: o.off || undefined, title: o.title || '', onclick: () => { close(); fn(); } }, label);
-    const menu = h('div', { class: 'lv-menu', role: 'menu' },
-      locked ? h('div', { class: 'lv-menu-note' }, 'Show mode: unlock the room to change shows.') : null,
-      item('New show…', newShow, { off: locked }),
-      item('Open…', openShow, { off: locked }),
-      item('Rename…', renameShow, { off: locked || !show }),
-      item('Duplicate…', duplicateShow, { off: locked || !show }),
-      h('div', { class: 'sep' }),
-      item('Export to a folder…', exportShow, { off: locked || !show || !desk, title: desk ? 'A folder with show.json and its media, to take to another computer' : 'On the computer of the room' }),
-      item('Import from a folder…', importShow, { off: locked || !desk, title: desk ? 'A folder exported from another computer' : 'On the computer of the room' }),
-      h('div', { class: 'sep' }),
-      item('Rename deck…', () => renameDeck(L.deck()), { off: locked || !show }),
-      item('Delete deck', () => deleteDeck(L.deck()), { off: locked || !show || L.view().decks.length < 2, danger: true }));
     const r = anchor.getBoundingClientRect();
-    document.body.append(menu);
-    const w = menu.offsetWidth;
-    Object.assign(menu.style, { left: `${Math.max(8, Math.min(innerWidth - w - 8, r.right - w))}px`, top: `${r.bottom + 4}px` });
-    const away = (e) => { if (!menu.contains(e.target)) close(); };
-    const esc = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
-    function close() { menu.remove(); removeEventListener('pointerdown', away, true); removeEventListener('keydown', esc, true); }
-    setTimeout(() => { addEventListener('pointerdown', away, true); addEventListener('keydown', esc, true); }, 0);
-    menu.querySelector('button:not([disabled])')?.focus();
+    popMenu(r.right - 200, r.bottom + 4, [
+      locked ? 'Show mode: unlock the room to change shows.' : null,
+      ['New show…', newShow, { off: locked }],
+      ['Open…', openShow, { off: locked }],
+      ['Rename…', renameShow, { off: locked || !show }],
+      ['Duplicate…', duplicateShow, { off: locked || !show }],
+      'sep',
+      ['Export to a folder…', exportShow, { off: locked || !show || !desk, title: desk ? 'A folder with show.json and its media, to take to another computer' : 'On the computer of the room' }],
+      ['Import from a folder…', importShow, { off: locked || !desk, title: desk ? 'A folder exported from another computer' : 'On the computer of the room' }],
+      'sep',
+      ['Rename deck…', () => renameDeck(L.deck()), { off: locked || !show }],
+      ['Delete deck', () => deleteDeck(L.deck()), { off: locked || !show || L.view().decks.length < 2, danger: true }],
+    ].filter(Boolean));
   }
 
   async function newShow() {
@@ -361,5 +467,5 @@ export function createGrid(L) {
     const close = modal('Open a show', h('div', {}, h('p', { class: 'muted', style: { marginTop: 0 } }, 'Opening a show stops the clips of the one that is open.'), list));
   }
 
-  return { el, render, patch, paint, resize };
+  return { el, render, patch, paint, resize, trigger, setSize, get size() { return size; } };
 }

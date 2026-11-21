@@ -29,7 +29,7 @@ Producto reutilizable: **nada de una sala concreta va en el código** — todo v
 - **`engine/media/`** = el media server en el motor: biblioteca y copias, shows (rejilla, clips, presets), transporte
   (`transport.js`, servido como `/shared/transport.js`: `playhead()` es LA fórmula), HAP/MOV/PCM y miniaturas.
 - **`ui/js/mixer/`** = el mezclador WebGL2 de la página de salida (capas, reproductor HAP).
-- **`ui/js/live/`** = Live en el escritorio (estantería de experiencias, rejilla, inspector, biblioteca);
+- **`ui/js/live/`** = Live en el escritorio (estantería de experiencias, navegador de archivos, rejilla, panel de clip, barra inferior);
   `ui/js/remote-live.js` es Live en el teléfono.
 - **`cloud/`** = acceso por internet: relé en Cloudflare (`relay/`) y página de salas en Vercel (`launcher/`).
 - **`README.md`** = índice del repositorio y cómo arrancar.

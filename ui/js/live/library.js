@@ -1,7 +1,6 @@
-// Live › the library drawer (MEDIA-SERVER.md §4b.3, §4d): one line, always there — the copies in progress
-// ("Copying 2 of 7 · 12.4 / 31 GB · 4 min left"), the room's master level and mute — and, opened, the files of the show
-// (drag one onto a cell to make a clip of it; drop files here to add them without a cell), the library folder and its
-// free space. Clips play from the library, never from the USB stick: importing copies (§4d.2).
+// Live › the bottom bar and the library's helpers (MEDIA-SERVER.md §4b.3, §4d): the copies in progress ("Copying 2 of 7
+// · 12.4 / 31 GB · 4 min left"), the room's video and audio masters and Mute. Clips play from the library, never from the
+// USB stick: importing copies (§4d.2); the files of the show are the browser's (browser.js).
 // Also here: "Locate…" (§4d.5: a folder is searched by name + size + content and every match is fixed at once) and the
 // Problems the show adds to the top bar (missing files, copies that stopped).
 
@@ -25,6 +24,8 @@ export function left(s) {
   return m < 60 ? `${m} min left` : `${Math.floor(m / 60)} h ${m % 60} min left`;
 }
 export const duration = (s) => { s = Math.max(0, Math.round(s || 0)); const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, '0')}`; };
+/** m:ss.t — a position in a clip, to a tenth. */
+export const stamp = (s) => { s = Math.max(0, s || 0); const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toFixed(1).padStart(4, '0')}`; };
 
 /**
  * What the copies are doing, in one line: {text, frac, kind: 'copying'|'stopped'|'done'|null, job (the one copying)}.
@@ -104,51 +105,33 @@ export function locate(L) {
   setTimeout(() => input.focus(), 30);
 }
 
+/**
+ * The bottom bar of Live: what is copying into the library (one line, with its bar and Cancel), the room's video master
+ * (amber while it is not 100 %), the audio master and Mute. The files themselves are the browser's (browser.js).
+ */
 export function createLibrary(L) {
-  const el = h('div', { class: 'lv-drawer' });
-  try { L.drawer = localStorage.getItem('vt-live-drawer') === '1'; } catch { /* storage blocked */ }
+  const el = h('div', { class: 'lv-bottom' });
   let key = '';
 
-  function toggle() {
-    L.drawer = !L.drawer;
-    try { localStorage.setItem('vt-live-drawer', L.drawer ? '1' : '0'); } catch { /* storage blocked */ }
-    render(true);
-  }
-
-  function tile(m) {
-    const name = m.file.split('/').pop();
-    return h('div', { class: 'lv-tile', 'data-media': m.id, draggable: L.locked() ? 'false' : 'true', title: `${name} — drag it onto a cell; click for its details`, onclick: () => L.select({ kind: 'media', mediaId: m.id }) },
-      h('div', { class: 'lv-tthumb' }, h('img', { src: L.thumbUrl(m, 160), alt: '', draggable: 'false', loading: 'lazy', onerror: (e) => e.target.classList.add('gone') }),
-        h('span', { class: 'lv-tdur tnum' }, duration(m.video?.duration)), h('span', { class: 'lv-copy' }, h('i'), h('em', { class: 'tnum' }))),
-      h('div', { class: 'lv-tlbl' }, h('span', { class: 'dot' }), h('span', { class: 't' }, name)));
-  }
+  const keyNow = () => { const S = store.state, A = S.profile.audio; return JSON.stringify([A.master, A.mute, S.media?.master ?? 1, !!L.show(), L.locked()]); };
+  // a fader of the bar being moved (or focused) is never built again under the hand
+  const busy = () => !!el.querySelector('.vfield.drag') || (el.contains(document.activeElement) && document.activeElement.classList.contains('vfield'));
 
   function render(force = false) {
-    const S = store.state, show = L.show(), A = S.profile.audio, lib = S.library || {};
-    const k = JSON.stringify([show?.id, show?.rev, L.drawer, L.locked(), A.master, A.mute, lib.dir, lib.free, !!S.local]);
-    if (!force && k === key) return;
+    const S = store.state, A = S.profile.audio, vm = S.media?.master ?? 1;
+    const k = keyNow();
+    if (!force && (k === key || busy())) return;
     key = k;
-    const files = show?.media || [];
-    const head = h('div', { class: 'lv-dbar' },
-      h('button', { class: 'lv-dtoggle', 'aria-expanded': String(L.drawer), title: L.drawer ? 'Close the library' : 'Open the library: the files of the show', onclick: toggle },
-        h('span', { class: 'caret' }, L.drawer ? '▾' : '▸'), h('span', { class: 'lbl' }, 'Library'),
-        h('span', { class: 'n tnum' }, files.length ? `${files.length} file${files.length === 1 ? '' : 's'}` : '')),
+    const vfader = fader('Video', vm, { min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
+      L.throttle((v) => cmd('media.master', { value: v }).catch(() => {})), (v) => L.run(cmd('media.master', { value: v })));
+    el.replaceChildren(
       h('div', { class: 'lv-copyline' }, h('span', { class: 'txt tnum' }), h('span', { class: 'lv-cbar' }, h('i'))),
       h('button', { class: 'btn small lv-cancel', hidden: true, title: 'Stop this copy (it leaves nothing behind)', onclick: cancel }, 'Cancel'),
       h('div', { class: 'grow' }),
-      h('div', { class: 'lv-master' }, fader('Master', A.master, { min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
+      h('div', { class: `lv-master lv-vmaster${vm < 0.999 ? ' off' : ''}`, title: 'The room picture level: every layer, together (the Blackout is the switch)' }, vfader),
+      h('div', { class: 'lv-master' }, fader('Audio', A.master, { min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
         L.throttle((v) => cmd('audio.set', { master: v }).catch(() => {})), (v) => L.run(cmd('audio.set', { master: v })))),
       h('button', { class: `btn small lv-mute${A.mute ? ' on' : ''}`, 'aria-pressed': String(!!A.mute), title: A.mute ? 'The room is muted — click to hear it' : 'Mute the room (sound pieces and clips)', onclick: () => L.run(cmd('audio.mute', { mute: !store.state.profile.audio.mute })) }, A.mute ? 'Muted' : 'Mute'));
-    const body = L.drawer ? h('div', { class: 'lv-dbody' },
-      h('div', { class: 'lv-tiles' }, files.map(tile),
-        h('div', { class: 'lv-drop lv-tiledrop' }, L.locked() ? 'Show mode: unlock the room to add files.' : window.vtDesktop ? 'Drop HAP files here to add them to the show (no cell)' : 'Import works in the desktop app')),
-      h('div', { class: 'lv-libinfo muted' },
-        h('span', {}, 'Library: ', h('b', {}, lib.dir || '—')),
-        lib.free != null ? h('span', { class: 'tnum' }, ` · ${bytes(lib.free)} free${lib.drive ? ` on ${lib.drive}` : ''}`) : null,
-        h('span', { class: 'grow' }),
-        (S.media?.problems || []).some((p) => p.kind === 'missing-media') ? h('button', { class: 'btn small', onclick: () => locate(L) }, 'Locate missing…') : null)) : null;
-    el.replaceChildren(...[head, body].filter(Boolean));
-    el.classList.toggle('open', L.drawer);
     patch();
   }
 
@@ -158,6 +141,8 @@ export function createLibrary(L) {
   }
 
   function patch() {
+    el.querySelector('.lv-vmaster')?.classList.toggle('off', (store.state.media?.master ?? 1) < 0.999); // (in place: a fader in hand stays)
+    if (key && keyNow() !== key && !busy()) { render(); return; } // another device moved a master
     const sum = copySummary(L.media().import);
     const line = el.querySelector('.lv-copyline');
     if (!line) return;
@@ -167,15 +152,6 @@ export function createLibrary(L) {
     line.classList.toggle('stopped', sum.kind === 'stopped');
     line.classList.toggle('done', sum.kind === 'done');
     el.querySelector('.lv-cancel').hidden = !(sum.kind === 'copying' && sum.job && !L.locked());
-    for (const t of el.querySelectorAll('.lv-tile')) {
-      const st = L.status(t.dataset.media);
-      t.classList.toggle('sel', !!L.sel && L.isSel('media', t.dataset.media));
-      for (const k of ['copying', 'ready', 'missing', 'problem']) t.classList.toggle(`st-${k}`, st.kind === k);
-      const dot = t.querySelector('.dot');
-      dot.className = `dot${st.kind === 'ready' ? ' live' : st.kind === 'copying' ? '' : ' warn'}`;
-      dot.title = st.text;
-      if (st.kind === 'copying') { t.querySelector('.lv-copy i').style.width = `${st.pct}%`; t.querySelector('.lv-copy em').textContent = `${st.pct} %`; }
-    }
   }
 
   return { el, render, patch, paint() {} };

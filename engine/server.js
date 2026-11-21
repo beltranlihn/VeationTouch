@@ -277,6 +277,16 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       }, (e) => { log.warn(`thumbnail ${m[1]}: ${e.message}`); res.writeHead(500); res.end(); });
       return undefined;
     }
+    if (p === '/api/media/diskthumb' && req.method === 'GET') {
+      // a thumbnail of a file in the browser's Disk view (not in any show): THIS computer only, like the PCM route
+      if (!peerOf(req).local) { res.writeHead(403); return res.end(); }
+      engine.media.diskThumb(url.searchParams.get('path'), url.searchParams.get('s')).then((t) => {
+        if (!t) { res.writeHead(404); return res.end(); }
+        serveFile(res, t.file, { ...OWN, 'Cache-Control': 'private, max-age=3600' });
+      }, (e) => { log.warn(`disk thumbnail: ${e.message}`); res.writeHead(500); res.end(); });
+      return undefined;
+    }
+    if (p.startsWith('/api/helper/')) return helperRoute(req, res, p);
     if (p === '/api/media/pcm' && req.method === 'GET') {
       // raw PCM of a clip for the audio window (§4c.1): THIS computer only — refused from the LAN and through the relay
       // (peerOf: tunnel traffic arrives on loopback but is never local)

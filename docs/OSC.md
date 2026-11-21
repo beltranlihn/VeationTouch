@@ -199,13 +199,17 @@ Allowed in Show mode (the room locked): the launch ops.
 
 | Op | Args | Does |
 |---|---|---|
-| `clip.trigger` | `clipId` or `{deckId, layerId, column}` | Launches a clip on its layer (a second launch restarts or ejects, per the layer's trigger) |
+| `clip.trigger` | `clipId` or `{deckId, layerId, column}`, optional `offset` (seconds into one pass of the clip's segment) | Launches a clip on its layer (a second launch restarts or ejects, per the layer's trigger). With `offset` it starts there and never toggles off: the clip panel's scrub |
 | `column.trigger` · `column.next` · `column.prev` | `{deckId, column}` · `{dir: 1 \| -1}` | Launches a column (layers with `ignoreColumn` are skipped) / steps through them |
 | `layer.clear` · `media.clearAll` | `{layerId}` | Ejects with the layer's transition |
 | `layer.set` | `{layerId, opacity, blend, bypass, volume, mute}` | Live mix |
+| `layer.solo` | `{layerId}` or `{layerId: null}` | Shows only that layer: the others reach the output as `bypass: true` (their own switch is `bypassSet`); `state.media.solo`. Not saved in the show |
+| `media.master` | `{value}` 0…1 | The room's picture level, all layers together (`state.media.master`; the output page dims the image by it). Not saved in the show |
 | `media.blackout` | `{on}` | Fades to black and silences; lifting it brings everything back |
 | `preset.load` · `preset.unload` · `preset.param` | `{presetId}` · — · `{presetId, key, value}` | The live experience of a preset card |
 | `output.testCard` | `{on}` | Test card on the Advanced Output screens |
+
+Read-only, **this computer only** (refused from the LAN and through the relay; the Live browser's Disk view): `media.fsRoots` (the library, the user's folders and the drives), `media.fsList {dir}` (the folders and files of an absolute path, hidden ones left out; `{dir, parent, entries: [{name, kind: 'dir'|'file', size, mtimeMs}], truncated}`) and `media.fsExpand {paths}` (a folder becomes the files in it). `GET /api/media/diskthumb?path=&s=160|480` gives a thumbnail of a file that is in no show (same rule).
 
 Blocked in Show mode: `show.update` (revision-checked), `show.load/create/delete/export/import`, `media.import`,
 `media.importCancel`, `media.relink`, `media.remove`, `media.setDir`, `output.screens`. `audio.media` stays open in Show mode for `level` only (routing is locked).

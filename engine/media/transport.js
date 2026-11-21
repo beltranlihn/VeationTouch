@@ -122,6 +122,8 @@ export class Transport {
     this.x = blankEntry(XLAYER, XLAYER_SETTINGS);
     this.blackout = false;
     this.blackoutAt = null;
+    this.master = 1;          // the room's video level (media.master): the output page dims the image by it
+    this.solo = null;         // the layer soloed (layer.solo): the others reach the output as bypassed; never written in the show
     this.column = null;       // { deckId, index }: the column last launched (column.next / prev go on from it)
     this.rev = 0;             // moves on with every change clients must see
     this.seq = 0;
@@ -135,9 +137,14 @@ export class Transport {
   /** What clients get as state.media (plus the facade's preset, import and problems). */
   state() {
     return {
-      rev: this.rev, prerollMs: this.preroll, blackout: this.blackout, blackoutAt: this.blackoutAt,
+      rev: this.rev, prerollMs: this.preroll, blackout: this.blackout, blackoutAt: this.blackoutAt, master: this.master,
+      solo: this.solo && this.entries.has(this.solo) ? this.solo : null,
       column: this.column ? { ...this.column } : null, preload: [...this.preloads],
-      layers: Object.fromEntries([...this.entries].map(([id, e]) => [id, pubEntry(e)])),
+      // a soloed layer hides the others from the output page: `bypass` says so, `bypassSet` is the layer's own switch
+      layers: Object.fromEntries([...this.entries].map(([id, e]) => {
+        const p = pubEntry(e);
+        return [id, this.solo && this.entries.has(this.solo) && id !== this.solo ? { ...p, bypassSet: p.bypass, bypass: true } : p];
+      })),
       xlayer: pubEntry(this.x),
     };
   }
@@ -203,12 +210,14 @@ export class Transport {
     if (args.loops !== undefined) s.loops = Math.round(numIn(args.loops, 1, 99, 'loops'));
     const now = this.now(), cur = e.play;
     // Toggle: the clip that is on this layer, launched again, goes (a column never toggles: it is a scene change)
-    if (!fromColumn && s.trigger === 'toggle' && cur && cur.clipId === clip.id) {
+    if (!fromColumn && args.offset === undefined && s.trigger === 'toggle' && cur && cur.clipId === clip.id) {
       this._eject(e, layer.transitionMs, now, 'toggled');
       this.rev++;
       return { playId: null, layerId, toggled: true };
     }
     const p = this._play(clip, layerId, s, r1(now + this.preroll), deckId, column);
+    // `offset` (seconds into one pass of the segment): a launch that starts there — the clip panel's scrub
+    if (args.offset !== undefined) { p.offset = Math.max(0, Math.min(passLength(p) - 0.001, numIn(args.offset, 0, 1e6, 'offset'))); p.endsAt = endsAt(p); }
     if (cur && cur.clipId === clip.id) {
       // Normal on the clip that is already there: back to its start, no crossfade with itself
       this._end(cur, 'restarted');
@@ -314,6 +323,20 @@ export class Transport {
     for (const k of ['bypass', 'mute']) if (k in args) { if (typeof args[k] !== 'boolean') throw new Error(`${k}: true or false`); m[k] = args[k]; }
     if (JSON.stringify(m) !== JSON.stringify(e.mix)) { e.mix = m; this.rev++; }
     return { ...m };
+  }
+
+  /** media.master: the room's video level 0…1 (the output page dims the image by it; 1 = untouched). */
+  setMaster(v) {
+    const n = Math.round(numIn(v, 0, 1, 'value') * 1000) / 1000;
+    if (n !== this.master) { this.master = n; this.rev++; }
+    return { master: this.master };
+  }
+
+  /** layer.solo: only that layer is shown (null: all again). Not an edit of the show: it goes with the session. */
+  setSolo(layerId) {
+    if (layerId !== null && !this.entries.has(layerId)) throw new Error(`unknown layer "${layerId}"`);
+    if (layerId !== this.solo) { this.solo = layerId; this.rev++; }
+    return { solo: this.solo };
   }
 
   /** media.blackout: a flag with the instant it changed; the output and audio pages fade on it. The plays go on underneath. */

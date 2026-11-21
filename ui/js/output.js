@@ -287,7 +287,9 @@ function compose(t, expCanvas = null) {
     if (drawn('media')) registry.group('media').frame({ t, now: a, dt, gl: mixer.gl, mixer });
     draws = buildDraws(want, sources(), registry);
   }
-  mixer.time('compose', timed, () => { mixer.compose(draws, { fade }); if (screensMode()) presenter.present(screensPlan()); else mixer.present(viewFit()); });
+  // the room's video master (media.master, 1 = untouched) dims the image the way the blackout does
+  const master = Math.max(0, Math.min(1, store.state?.media?.master ?? 1)), shown = 1 - (1 - fade) * master;
+  mixer.time('compose', timed, () => { mixer.compose(draws, { fade: shown }); if (screensMode()) presenter.present(screensPlan()); else mixer.present(viewFit()); });
   stats.composed++;
   dirty = fade !== goal; // keep composing until the fade has arrived
   rec.t.push(a); rec.cpu.push(performance.now() - a);

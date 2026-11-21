@@ -15,7 +15,9 @@
 import { EventEmitter } from 'node:events';
 import { Worker } from 'node:worker_threads';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { normalizeShow, blankShow, newClip, withoutMedia, fileName, nextId, clipSettings, MAX_COLUMNS } from './show.js';
 import { Transport, XLAYER } from './transport.js';
 import { Presets, migratePresets, presetForExperience } from './presets.js';
@@ -298,6 +300,11 @@ export class MediaEngine extends EventEmitter {
       case 'column.prev': return this._run(() => this.transport.step(-1, args));
       case 'layer.clear': return this._run(() => this.transport.clear(args.layerId, { transitionMs: args.transitionMs }));
       case 'layer.set': return this._layerSet(args);
+      case 'layer.solo': return this._run(() => this.transport.setSolo(args.layerId ?? null));
+      case 'media.master': return this._run(() => this.transport.setMaster(args.value));
+      case 'media.fsRoots': return this.fsRoots(args);
+      case 'media.fsList': return this.fsList(args.dir, args);
+      case 'media.fsExpand': return this.fsExpand(args.paths, args);
       case 'media.clearAll': return this._run(() => this.transport.clearAll());
       case 'media.blackout': return this._run(() => this.transport.setBlackout('on' in args ? args.on : !this.transport.blackout));
       case 'media.report': return this._report(args);
@@ -1059,6 +1066,92 @@ export class MediaEngine extends EventEmitter {
     const out = [];
     for (const m of await this._task({ kind: 'fingerprint', files })) if (m.type === 'fingerprint') out[m.i] = m.result;
     return out;
+  }
+
+  // ------------------------------------------------------------------ the file browser of Live (this computer only, read only)
+
+  /** media.fsRoots: where the browser starts: the library, the user's folders and the drives of this computer. */
+  async fsRoots(args = {}) {
+    if (!args.__local) throw new Error('the file browser is on the computer of the room (the desktop app)');
+    const home = os.homedir(), roots = [{ id: 'library', name: 'Library', path: this.libraryDir, kind: 'library' }];
+    for (const [id, name] of [['desktop', 'Desktop'], ['downloads', 'Downloads'], ['videos', 'Videos'], ['movies', 'Movies']]) {
+      const p = path.join(home, name);
+      try { if (fs.statSync(p).isDirectory()) roots.push({ id, name, path: p, kind: 'folder' }); } catch { /* not there */ }
+    }
+    if (process.platform === 'win32') {
+      // a drive letter that does not answer in 1.5 s (an empty card reader, a network drive asleep) is left out
+      const probe = (L) => new Promise((res) => {
+        const t = setTimeout(() => res(null), 1500);
+        fs.promises.stat(`${L}:\\`).then(() => { clearTimeout(t); res({ id: `drive-${L}`, name: `${L}:`, path: `${L}:\\`, kind: 'drive' }); }, () => { clearTimeout(t); res(null); });
+      });
+      for (const d of await Promise.all('CDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(probe))) if (d) roots.push(d);
+    } else {
+      roots.push({ id: 'root', name: '/', path: '/', kind: 'drive' });
+      for (const base of ['/Volumes', '/media', '/mnt']) {
+        let list = [];
+        try { list = fs.readdirSync(base, { withFileTypes: true }); } catch { /* none */ }
+        for (const d of list) if (d.isDirectory() && !d.name.startsWith('.')) roots.push({ id: `drive-${d.name}`, name: d.name, path: path.join(base, d.name), kind: 'drive' });
+      }
+    }
+    return { roots };
+  }
+
+  /** media.fsList {dir}: the folders and files in a folder of this computer (hidden ones left out). Read only. */
+  async fsList(dir, args = {}) {
+    if (!args.__local) throw new Error('the file browser is on the computer of the room (the desktop app)');
+    if (typeof dir !== 'string' || !path.isAbsolute(dir) || dir.length > 1024 || dir.includes('\0')) throw new Error('dir: the full path of a folder');
+    let list;
+    try { list = await fs.promises.readdir(dir, { withFileTypes: true }); } catch (e) {
+      throw new Error(e.code === 'ENOENT' || e.code === 'ENOTDIR' ? `The folder ${dir} is not there.` : e.code === 'EPERM' || e.code === 'EACCES' ? `No access to ${dir}.` : `${dir}: ${e.message}`);
+    }
+    const SKIP = /^(\$RECYCLE\.BIN|System Volume Information|desktop\.ini|thumbs\.db)$/i, MAX = 3000;
+    const named = list.filter((d) => !d.name.startsWith('.') && !SKIP.test(d.name));
+    const entries = (await Promise.all(named.slice(0, MAX).map(async (d) => {
+      const st = await fs.promises.stat(path.join(dir, d.name)).catch(() => null);
+      if (!st || !(st.isDirectory() || st.isFile())) return null;
+      return { name: d.name, kind: st.isDirectory() ? 'dir' : 'file', size: st.isDirectory() ? 0 : st.size, mtimeMs: Math.round(st.mtimeMs) };
+    }))).filter(Boolean);
+    entries.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) : a.kind === 'dir' ? -1 : 1));
+    const parent = path.dirname(dir);
+    return { dir: path.resolve(dir), parent: parent === dir ? null : parent, entries, truncated: named.length > MAX };
+  }
+
+  /**
+   * media.fsExpand {paths}: what to import for what was dropped — a file is itself, a folder is the files in it (one
+   * level, in name order). → {files, folder: {name, path}|null (the first folder: a new deck is named after it)}.
+   */
+  async fsExpand(paths, args = {}) {
+    if (!args.__local) throw new Error('files are imported in the desktop app, on this computer');
+    const files = [];
+    let folder = null;
+    for (const p of (Array.isArray(paths) ? paths : []).slice(0, 500)) {
+      if (typeof p !== 'string' || !path.isAbsolute(p) || p.length > 1024) continue;
+      const st = await fs.promises.stat(p).catch(() => null);
+      if (!st || !st.isDirectory()) { files.push(p); continue; } // (a path that is not there: the import says why)
+      folder ??= { name: path.basename(p) || p, path: p };
+      const inside = (await fs.promises.readdir(p, { withFileTypes: true }).catch(() => [])).filter((d) => d.isFile() && !d.name.startsWith('.')).map((d) => d.name);
+      inside.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+      for (const n of inside) files.push(path.join(p, n));
+    }
+    return { files: files.slice(0, 500), folder };
+  }
+
+  /**
+   * A thumbnail of a file that is NOT in a show (the browser's Disk view), cached by path + size + date. THIS computer
+   * only (the route checks). → {file} or null when the file cannot give one.
+   */
+  async diskThumb(file, width) {
+    if (typeof file !== 'string' || !path.isAbsolute(file) || file.length > 1024) return null;
+    const st = await fs.promises.stat(file).catch(() => null);
+    if (!st || !st.isFile()) return null;
+    const key = `d${createHash('sha1').update(`${path.resolve(file).toLowerCase()}|${st.size}|${Math.round(st.mtimeMs)}`).digest('hex').slice(0, 24)}`;
+    const out = path.join(this.thumbsDir, thumbName(key, Number(width) === 480 ? 480 : 160, null));
+    if (fs.existsSync(out)) return { file: out };
+    const tk = `${key}|disk`;
+    if (!this.thumbing.has(tk)) this.thumbing.set(tk, this._makeThumb({ src: file, fp: key, frame: null, kind: 'auto', name: path.basename(file) }).finally(() => this.thumbing.delete(tk)));
+    const made = await this.thumbing.get(tk);
+    if (fs.existsSync(out)) return { file: out };
+    return made?.icon ? { file: made.icon(Number(width) === 480 ? 480 : 160) } : null;
   }
 
   // ------------------------------------------------------------------ for the HTTP routes (engine/server.js)

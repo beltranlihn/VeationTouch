@@ -517,3 +517,51 @@ test('engine: audio.media sets the clips\' audio of the room; Show mode lets onl
     await assert.rejects(engine.command('audio.media', { route: 'spread' }), /locked \(Show mode\)/);
   } finally { await r.close(); }
 });
+
+// ---------------------------------------------------------------------------------------------- Live UI round 1: solo, video master, seek
+
+// Fails if soloing a layer leaves the others visible to the output page (their `bypass` must read true), if the layer's
+// own bypass switch is lost (bypassSet keeps it), if un-soloing does not bring them back, or if an unknown layer is taken.
+test('transport: layer.solo shows only that layer to the output (the others read bypass), keeps each layer\'s own switch, and goes with null', () => {
+  const { tr, L } = rig();
+  tr.setMix('L2', { bypass: true });
+  assert.equal(tr.state().solo, null);
+  assert.deepEqual([L('L1').bypass, L('L2').bypass, L('L3').bypass], [false, true, false]);
+  tr.setSolo('L1');
+  assert.equal(tr.state().solo, 'L1');
+  assert.deepEqual([L('L1').bypass, L('L2').bypass, L('L3').bypass], [false, true, true], 'the others are hidden');
+  assert.deepEqual([L('L1').bypassSet, L('L2').bypassSet, L('L3').bypassSet], [undefined, true, false], 'their own switch is kept');
+  tr.setSolo(null);
+  assert.deepEqual([L('L1').bypass, L('L2').bypass, L('L3').bypass], [false, true, false], 'everything is back as it was');
+  assert.throws(() => tr.setSolo('L9'), /unknown layer/);
+});
+
+// Fails if the master is not kept (and published) or accepts what is not a level.
+test('transport: media.master is the room\'s picture level, 0…1, published in the state', () => {
+  const { tr } = rig();
+  assert.equal(tr.state().master, 1);
+  const rev = tr.rev;
+  tr.setMaster(0.4);
+  assert.equal(tr.state().master, 0.4);
+  assert.ok(tr.rev > rev, 'clients are told');
+  assert.throws(() => tr.setMaster(1.5), /0 to 1/);
+  assert.throws(() => tr.setMaster('x'), /0 to 1/);
+});
+
+// Fails if a launch with `offset` still starts at the first frame, if the end of a one-shot does not move up by the offset,
+// or if a Toggle clip launched with an offset (the panel's scrub) ejects itself instead of jumping.
+test('transport: a launch can start part-way in (offset): the position and the end follow; a scrub never toggles a clip off', () => {
+  const { tr, at, L } = rig();
+  tr.trigger({ clipId: 'clear', layerId: 'L1', offset: 4 });
+  const p = L('L1').play;
+  assert.equal(p.offset, 4);
+  assert.equal(playhead(p, p.startAt).time, 4, 'it starts 4 s in');
+  assert.equal(p.endsAt, p.startAt + 6000, 'a 10 s one-shot launched at 4 s ends 6 s later');
+  tr.trigger({ clipId: 'tog', layerId: 'L2' });
+  const first = tr.state().layers.L2.play.playId;
+  tr.trigger({ clipId: 'tog', layerId: 'L2', offset: 2 });
+  const l2 = tr.state().layers.L2;
+  assert.ok(l2.play && l2.play.playId !== first && l2.play.offset === 2, 'jumped, not toggled off');
+  assert.throws(() => tr.trigger({ clipId: 'clear', layerId: 'L1', offset: -1 }), /offset/);
+  void at;
+});

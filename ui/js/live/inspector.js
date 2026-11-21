@@ -14,6 +14,7 @@ import { store, cmd } from '../conn.js';
 import { h, sec, field, selectField, toggle, fader, badge, confirmBox, toast } from '../dom.js';
 import * as V from '../views.js';
 import { locate, bytes, duration } from './library.js';
+import { clipPanel, bulkPanel, filePanel } from './clip-panel.js';
 import { newClip } from './dnd.js';
 import { mixOf } from './layers.js';
 
@@ -69,8 +70,9 @@ export function inspectorKey(L) {
   const st = (mediaId) => { const x = L.status(mediaId); return [x.kind, x.kind === 'copying' ? Math.floor(x.pct / 10) : 0]; };
   if (s.kind === 'cell') {
     const clip = L.clipAt(L.deck(), s.layerId, s.column);
-    return JSON.stringify(['cell', s.layerId, s.column, clip?.id ?? null, clip ? st(clip.mediaId) : null, L.entry(s.layerId)?.play?.clipId === clip?.id]);
+    return JSON.stringify(['cell', s.layerId, s.column, clip?.id ?? null, clip ? st(clip.mediaId) : null, L.entry(s.layerId)?.play?.clipId === clip?.id, L.itab, L.multi.length]);
   }
+  if (s.kind === 'file') return JSON.stringify(['file', s.path]);
   if (s.kind === 'media') return JSON.stringify(['media', s.mediaId, st(s.mediaId)]);
   if (s.kind === 'layer' || s.kind === 'xlayer') { const e = L.entry(s.layerId || 'xlayer'); return JSON.stringify([s.kind, s.layerId, e?.play?.playId ?? null, e ? mixOf(L, { id: s.layerId || 'xlayer', audio: {} }) : null]); }
   return JSON.stringify([s.kind, s.id, L.liveCard()]);
@@ -79,6 +81,7 @@ export function inspectorKey(L) {
 export function inspector(L) { return parts(L).filter(Boolean); } // (a section a selection has not got is null)
 
 function parts(L) {
+  L.panelPaint = null; // (the clip panel's playhead sets it again)
   let s = L.sel || L.defaultSel();
   const show = L.show();
   // a selection that is gone (another device removed it): the live card
@@ -87,7 +90,12 @@ function parts(L) {
     || (s.kind === 'media' && !show?.media.some((m) => m.id === s.mediaId))
     || ((s.kind === 'cell' || s.kind === 'layer') && !L.layer(s.layerId))) { L.sel = null; s = L.defaultSel(); }
   switch (s.kind) {
-    case 'cell': { const clip = L.clipAt(L.deck(), s.layerId, s.column); return clip ? clipInspector(L, s, clip) : emptyCell(L, s); }
+    case 'cell': {
+      const clip = L.clipAt(L.deck(), s.layerId, s.column);
+      if (clip && L.multi.length > 1) return bulkPanel(L, L.multi, kit);
+      return clip ? clipInspector(L, s, clip) : emptyCell(L, s);
+    }
+    case 'file': return filePanel(L, s);
     case 'layer': return layerInspector(L, L.layer(s.layerId));
     case 'xlayer': return xlayerInspector(L);
     case 'preset': return presetInspector(L, show.presets.find((p) => p.id === s.id));
@@ -99,70 +107,8 @@ function parts(L) {
 
 // ------------------------------------------------------------------ a clip
 
-function clipInspector(L, s, clip) {
-  const layer = L.layer(s.layerId), m = L.mediaOf(clip), st = L.status(clip.mediaId), e = L.entry(s.layerId);
-  const live = e?.play?.clipId === clip.id;
-  const v = m?.video || {}, dur = v.duration || 0, fps = v.fps || 30, canvas = store.state.profile.canvas;
-  const edit = (fn, label) => L.editShow((sh) => { const c = sh.clips.find((x) => x.id === clip.id); if (!c) return false; fn(c, sh); return true; }, label);
-  const deckId = L.deck().id;
-  const launch = () => L.run(cmd('clip.trigger', { deckId, layerId: s.layerId, column: s.column }));
-  const effEnd = clip.end === 'layer' ? layer.end : clip.end;
-  const step = Math.max(0.001, Math.round((1 / fps) * 1000) / 1000);
-
-  const top = sec([h('span', { class: 'lv-ititle', title: clip.name }, clip.name), h('span', { class: 'grow' }), live ? badge('LIVE', 'live') : null,
-    h('button', { class: 'btn small primary', title: 'Launch it on its layer', disabled: st.kind !== 'ready' || undefined, onclick: launch }, live ? 'Restart' : 'Launch')],
-  h('div', { class: 'lv-ithumb' }, h('img', { src: L.thumbUrl(m, 480), alt: '', onerror: (ev) => ev.target.classList.add('gone') })),
-  statusBox(L, st),
-  h('dl', { class: 'kv' },
-    h('dt', {}, 'Cell'), h('dd', {}, `${layer.name} · column ${s.column + 1}${L.view().decks.length > 1 ? ` · ${L.deck().name}` : ''}`),
-    h('dt', {}, 'File'), h('dd', {}, m?.file || '—'),
-    h('dt', {}, 'Video'), h('dd', {}, `${v.width} × ${v.height} · ${Math.round(fps * 100) / 100} fps · ${duration(dur)} · ${HAP_NAME[v.fourcc] || v.fourcc}`),
-    h('dt', {}, 'Audio'), h('dd', {}, audioText(m?.audio)),
-    h('dt', {}, 'Size'), h('dd', {}, bytes(m?.size))));
-
-  const playback = lockIt(L, sec('Playback',
-    field('Name', clip.name, (val) => { const n = String(val).trim(); if (n && n !== clip.name) edit((c) => { c.name = n.slice(0, 80); }, 'rename clip'); }),
-    selectField('End', clip.end, [['layer', `Layer default — ${END_LABEL[layer.end]}`], ...LAYER_ENDS.map((k) => [k, END_LABEL[k]])], (val) => edit((c) => { c.end = val; }, 'clip end')),
-    AUTOPILOT.has(effEnd) ? fader('Loops', clip.loops, { min: 1, max: 99, step: 1, unit: '×' }, null, (val) => edit((c) => { c.loops = val; }, 'clip loops')) : null,
-    fader('In', clip.in, { min: 0, max: dur, step, unit: 's', decimals: 2 }, null, (val) => edit((c) => { c.in = val; if (c.out !== null && c.out <= val) c.out = null; }, 'clip in')),
-    fader('Out', clip.out ?? dur, { min: 0, max: dur, step, unit: 's', decimals: 2 }, null, (val) => edit((c) => { c.out = val >= dur - step / 2 ? null : val; }, 'clip out')),
-    selectField('Transition', clip.transitionMs === null ? 'layer' : 'own', [['layer', `Layer default — ${seconds(layer.transitionMs)}`], ['own', 'Its own']],
-      (val) => edit((c) => { c.transitionMs = val === 'layer' ? null : (c.transitionMs ?? layer.transitionMs); }, 'clip transition')),
-    clip.transitionMs !== null ? fader('Time', clip.transitionMs / 1000, { min: 0, max: 10, step: 0.1, unit: 's', decimals: 1 }, null, (val) => edit((c) => { c.transitionMs = Math.round(val * 1000); }, 'clip transition')) : null,
-    selectField('Launch', clip.trigger, [['layer', `Layer default — ${layer.trigger === 'toggle' ? 'Toggle' : 'Normal'}`], ['restart', TRIGGER_LABEL.restart], ['toggle', TRIGGER_LABEL.toggle]], (val) => edit((c) => { c.trigger = val; }, 'clip launch'))), false);
-
-  const walls = store.state.profile.walls;
-  const where = clip.place.target === 'wall' ? `wall:${clip.place.wallId}` : clip.place.target;
-  const placement = lockIt(L, sec('Placement',
-    segRow('Fit', [['stretch', 'Stretch'], ['fit', 'Fit'], ['fill', 'Fill']], clip.place.fit, (val) => edit((c) => { c.place.fit = val; }, 'clip fit')),
-    selectField('Where', where, [['canvas', 'The whole canvas'], ...walls.map((w) => [`wall:${w.id}`, `${w.id} · ${w.name || w.id}`])],
-      (val) => edit((c) => { c.place = val.startsWith('wall:') ? { ...c.place, target: 'wall', wallId: val.slice(5) } : { ...c.place, target: val, wallId: null }; }, 'clip place')),
-    v.width && (v.width !== canvas.width || v.height !== canvas.height) ? h('p', { class: 'muted' }, `This clip is ${v.width} × ${v.height}; the room canvas is ${canvas.width} × ${canvas.height}.`) : null), false);
-
-  const audio = m?.audio ? lockIt(L, sec('Audio',
-    m.audio.supported ? null : h('div', { class: 'callout attn' }, `The audio of this file is ${m.audio.codecName || m.audio.codec || 'not PCM'} and will not play. Export it with PCM audio.`),
-    selectField('Route', clip.audio.route ?? '', [['', `Layer default — ${layer.audio.route ? ROUTE_LABEL[layer.audio.route] : 'the room\'s'}`], ...CLIP_ROUTES.map((r) => [r, ROUTE_LABEL[r]])], (val) => edit((c) => { c.audio.route = val || null; }, 'clip route')),
-    fader('Gain', clip.audio.gainDb, { min: -60, max: 12, step: 0.5, unit: 'dB', decimals: 1 }, null, (val) => edit((c) => { c.audio.gainDb = val; }, 'clip gain'))), false)
-    : sec('Audio', h('p', { class: 'muted' }, 'This file has no audio.'));
-
-  const actions = lockIt(L, sec(null, h('div', { class: 'actions' },
-    h('button', { class: 'btn small', title: 'Take it out of this cell (the file stays in the show)', onclick: () => removeCell(L, s, clip) }, 'Remove from the grid'),
-    h('button', { class: 'btn small danger', title: 'Take the file and its clips out of the show (the file stays in the library folder)', onclick: () => removeMedia(L, m) }, 'Remove the file…'))), true);
-  return [top, playback, placement, audio, actions];
-}
-
-function removeCell(L, s, clip) {
-  const deckId = L.deck().id;
-  L.editShow((sh) => {
-    const d = sh.decks.find((x) => x.id === deckId);
-    if (!d) return false;
-    delete d.cells[`${s.layerId}:${s.column}`];
-    // a clip no cell and no card uses any more goes with it
-    const used = sh.decks.some((x) => Object.values(x.cells).includes(clip.id)) || sh.presets.some((p) => Object.values(p.media || {}).flat().includes(clip.id));
-    if (!used) sh.clips = sh.clips.filter((c) => c.id !== clip.id);
-    return true;
-  }, 'remove clip');
-}
+const kit = { lockIt, statusBox };
+function clipInspector(L, s, clip) { return clipPanel(L, s, clip, kit); }
 
 async function removeMedia(L, m) {
   if (!m) return;
@@ -177,9 +123,9 @@ function emptyCell(L, s) {
   const layer = L.layer(s.layerId), desk = !!window.vtDesktop;
   return [sec(`Empty cell · ${layer.name} · column ${s.column + 1}`,
     h('p', {}, L.locked() ? 'Show mode: unlock the room to add clips.' : desk
-      ? 'Drop HAP files here from the explorer: they are copied into the library, and several fill the next columns of this layer.'
-      : 'Import works in the desktop app: drop HAP files on this cell on the computer of the room.'),
-    L.show()?.media.length && !L.locked() ? h('p', { class: 'muted' }, 'Or drag a file from the library (the drawer under the grid).') : null)];
+      ? 'Drop files here from the browser or the explorer: they are copied into the library, and several fill the free cells that follow in this layer.'
+      : 'Import works in the desktop app: drop files on this cell on the computer of the room.'),
+    L.show()?.media.length && !L.locked() ? h('p', { class: 'muted' }, 'Or drag a file of the show from the browser (left).') : null)];
 }
 
 // ------------------------------------------------------------------ a layer
