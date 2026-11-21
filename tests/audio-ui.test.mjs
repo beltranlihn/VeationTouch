@@ -394,3 +394,43 @@ test('audio card: dropouts (underruns) show on the output that had them and in t
   assert.deepEqual(result.drops.map((d) => d.slice(0, 2)).sort(), [['2', '3 dropouts'], ['total', '· 3 dropouts']], `only the output that had them, and the total (${JSON.stringify(result.drops)})`);
   assert.ok(result.drops.every((d) => d[2] === 'rgb(229, 181, 103)'), 'in amber: it needs attention');
 });
+
+test('audio card: the Clips block — level, route, stereo width, A/V offset, ducking as faders; the matrix as dB fields; Show mode locks the routing, not the level', opt, async () => {
+  const { result, errors, engine } = await inUi(`
+    const v = window.__vt; v.go('audio');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    await wait(500);
+    const q = (s) => [...document.querySelectorAll(s)];
+    const block = () => document.querySelector('[data-card="audio"] [data-clips]');
+    const out = { block: !!block(), ranges: document.querySelectorAll('input[type=range]').length };
+    out.faders = q('[data-clips] .vfield').map((f) => f.getAttribute('aria-label'));
+    const sel = block().querySelector('select');
+    out.routes = [...sel.options].map((o) => o.textContent);
+    sel.value = 'matrix'; sel.dispatchEvent(new Event('change'));
+    await wait(400);
+    out.cells = q('[data-clips] [data-cell]').length;
+    const cell = block().querySelector('[data-cell="1:2"]');
+    cell.value = '-6'; cell.dispatchEvent(new Event('change'));
+    await wait(400);
+    out.fadersMatrix = q('[data-clips] .vfield').map((f) => f.getAttribute('aria-label'));
+    const { cmd } = await import('/js/conn.js');
+    await cmd('app.lock', { locked: true });
+    await wait(500);
+    out.lockedRoute = block().querySelector('select').disabled;
+    out.lockedLevel = block().querySelector('[aria-label="Clips level"]').getAttribute('aria-disabled');
+    await cmd('app.lock', { locked: false });
+    return out;`, { setup: async (e) => { await e.command('audio.set', { on: true }); } });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.ok(result.block, 'the audio card has a Clips block');
+  assert.equal(result.ranges, 0, 'no native sliders');
+  // Fails if a value of the block is a native range input or missing
+  for (const f of ['Clips level', 'Stereo width', 'A/V offset', 'Sound pieces under a clip']) assert.ok(result.faders.includes(f), `${f} is a VEATION fader (${result.faders})`);
+  assert.deepEqual(result.routes, ['Automatic (by the clip\'s channels)', 'All speakers', 'Mono, all speakers', 'One channel per wall', 'Direct', 'Advanced matrix']);
+  assert.equal(result.cells, 2 * 5, 'the matrix: stereo rows × the room\'s 5 logical channels');
+  assert.ok(!result.fadersMatrix.includes('Stereo width'), 'the width is for All speakers / Automatic only');
+  const M = engine.profile.audio.media;
+  assert.equal(M.route, 'matrix', 'the route select sent audio.media');
+  assert.deepEqual(M.matrix, [[null, null, null, null, null], [null, null, -6, null, null]], 'R → channel 3 at −6 dB');
+  assert.equal(result.lockedRoute, true, 'Show mode locks the route');
+  assert.equal(result.lockedLevel, null, 'but not the Clips level (allowed in Show mode)');
+});

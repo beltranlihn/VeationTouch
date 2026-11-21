@@ -1530,15 +1530,54 @@ function xpParts(ctx) {
       drops ? h('span', { class: 'au-drop tnum', 'data-drop': 'total', title: DROP_TITLE }, ` · ${dropouts(drops)}`) : null);
   };
 
+  // ---- the clips' sound (MEDIA-SERVER.md §4c): its level (allowed in Show mode), the route, the A/V offset, the ducking
+  const AM = AP.media || { level: 1, avOffsetMs: 0, route: 'auto', width: 0.6, front: prof.walls[0]?.id, matrix: null, duckDb: -60 };
+  const setMedia = (args) => run(cmd('audio.media', args));
+  const CLIP_ROUTES = [['auto', 'Automatic (by the clip\'s channels)'], ['spread', 'All speakers'], ['mono', 'Mono, all speakers'], ['walls', 'One channel per wall'], ['direct', 'Direct'], ['matrix', 'Advanced matrix']];
+  const clipMatrix = () => {
+    // rows: the clips' channels (the widest clip of the show, at least stereo); columns: the logical channels. Empty = no cross
+    const srcN = Math.min(16, Math.max(2, ...(S.show?.media || []).map((m) => (m.audio?.supported ? m.audio.channels : 0)), (AM.matrix || []).length));
+    const cell = (k, c) => {
+      const v = AM.matrix?.[k]?.[c];
+      const inp = h('input', { type: 'text', inputmode: 'decimal', spellcheck: 'false', value: v === null || v === undefined ? '' : String(v), placeholder: '–', 'aria-label': `Clip channel ${k + 1} to channel ${c + 1} (dB)`, 'data-cell': `${k}:${c}`, style: { width: '100%', minWidth: 0, textAlign: 'center' } });
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); });
+      inp.addEventListener('change', () => {
+        const t = inp.value.trim().replace(',', '.'), x = t === '' ? null : Number(t);
+        if (x !== null && !Number.isFinite(x)) { inp.value = v ?? ''; return; }
+        const m = Array.from({ length: srcN }, (_, i) => Array.from({ length: AP.channels }, (_, j) => AM.matrix?.[i]?.[j] ?? null));
+        m[k][c] = x === null ? null : Math.round(Math.min(6, Math.max(-60, x)) * 10) / 10;
+        setMedia({ matrix: m.some((row) => row.some((y) => y !== null)) ? m : null });
+      });
+      return inp;
+    };
+    return h('div', { class: 'au-matrix', style: { display: 'grid', gridTemplateColumns: `3.2em repeat(${AP.channels}, minmax(2.6em, 1fr))`, gap: 'var(--sp-4)', alignItems: 'center', overflowX: 'auto' } },
+      h('span', { class: 'muted' }, 'dB'), chans.map((c) => h('span', { class: 'muted tnum', style: { textAlign: 'center' } }, String(c))),
+      Array.from({ length: srcN }, (_, k) => [h('span', { class: 'muted tnum' }, srcN === 2 ? ['L', 'R'][k] : `In ${k + 1}`), chans.map((c) => cell(k, c - 1))]));
+  };
+  const clipsBlock = () => h('div', { class: 'xp-set au-clips', 'data-clips': '' },
+    h('h3', {}, 'Clips', h('small', {}, 'the sound of the video clips, in step with the picture')),
+    fader('Clips level', AM.level, { min: 0, max: 1, step: 0.01, k: 100, unit: '%' }, xpLive((v) => cmd('audio.media', { level: v }).catch(() => {})), (v) => setMedia({ level: v })),
+    lockIt(h('div', { class: 'xp-set', style: { borderTop: 0, paddingTop: 0 } },
+      selectField('Route', AM.route, CLIP_ROUTES, (v) => setMedia({ route: v })),
+      AM.route === 'auto' || AM.route === 'spread' ? [
+        fader('Stereo width', AM.width, { min: 0, max: 1, step: 0.01, k: 100, unit: '%' }, null, (v) => setMedia({ width: v })),
+        selectField('Front wall', AM.front ?? '', prof.walls.map((w) => [w.id, w.name || w.id]), (v) => setMedia({ front: v })),
+      ] : null,
+      AM.route === 'matrix' ? clipMatrix() : null,
+      fader('A/V offset', AM.avOffsetMs, { min: -200, max: 200, step: 1, unit: 'ms' }, null, (v) => setMedia({ avOffsetMs: v })),
+      h('p', { class: 'muted' }, 'Positive: the sound leaves earlier (the speakers are later than the projectors). Set it in the room with a clip that flashes and clicks.'),
+      fader('Sound pieces under a clip', AM.duckDb, { min: -60, max: 0, step: 1, unit: 'dB' }, null, (v) => setMedia({ duckDb: v }))), false));
+
   const audioCard = () => h('div', { class: `xp-card xp-audio${AU.running ? ' on' : ''}`, 'data-card': 'audio' },
     h('div', { class: 'head' },
-      h('div', { class: 't' }, 'Audio — room sound', h('small', {}, 'Sound pieces over the speakers of the room, with the sub, a master level and a limiter that is always on')),
+      h('div', { class: 't' }, 'Audio — room sound', h('small', {}, 'Sound pieces and the clips\' sound over the speakers of the room, with the sub, a master level and a limiter that is always on')),
       AU.running ? badge(AP.mute ? 'muted' : 'live', AP.mute ? 'warn' : 'live') : null),
     toggle('Audio', AP.on, (on) => setAudio({ on })),
     audioStatus(),
     AP.on ? [
       fader('Master', AP.master, { min: 0, max: 1, step: 0.01, k: 100, unit: '%' }, auLive('master'), (v) => setAudio({ master: v })),
       toggle('Mute', AP.mute, (mute) => run(cmd('audio.mute', { mute }))),
+      clipsBlock(),
     ] : null,
     channelTable(),
     setup(),
