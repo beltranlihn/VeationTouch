@@ -120,8 +120,9 @@ to the operator's layers. The UI shows it (`state.output.calibrating`); the laye
 
 Control (UI channel commands, not OSC): `output.set {on, sink, senderName, displayId, fit, scale, fps}` (Show mode locks
 everything but `on`), `output.layers {layers}` (all three layers, bottom to top, each `{id, on, opacity, blend}`; `touches`
-also `radius, sizeMode, softness, trailMs, walls, scale`), `experience.play` / `experience.stop` (select the experience
-and switch its layer on or off). State: `state.output = {running, calibrating, layersEffective, …}`.
+also `radius, sizeMode, softness, trailMs, walls, scale`), `experience.play` / `experience.stop`. `experience.play` selects the
+experience and loads the show's preset for it, when there is one: the live parameters are reset to the preset's. `experience.stop`
+switches the experience off and clears the clips that belong to it (the other layers keep playing). State: `state.output = {running, calibrating, layersEffective, …}`.
 
 **Screens (Advanced Output, `sink: 'screens'`).** Instead of the whole canvas, the room output is cut into **slices**
 drawn onto the room's displays (`profile.output.screens[]`: each screen `{id, name, enabled, display, width, height,
@@ -185,7 +186,7 @@ rate. `x, y` are wall metres (origin bottom-left). The SDK emits `cross` like `d
 SDK: `http://<server>:<port>/sdk/veation-touch.js` (see the header of the file).
 
 
-## Media server (additive — nothing above changes)
+## Media server (nothing above is removed; `experience.play`/`stop` now also drive the show's preset and clips)
 
 The engine is also the room's media server (clips in a grid of layers × columns, presets, GPU mix, audio of the clips).
 It is driven through the **app socket** `ws://<server>:<port>/ws/ui` (same access key as the UI; the `/ws/data` socket
@@ -204,10 +205,10 @@ Allowed in Show mode (the room locked): the launch ops.
 | `layer.set` | `{layerId, opacity, blend, bypass, volume, mute}` | Live mix |
 | `media.blackout` | `{on}` | Fades to black and silences; lifting it brings everything back |
 | `preset.load` · `preset.unload` · `preset.param` | `{presetId}` · — · `{presetId, key, value}` | The live experience of a preset card |
-| `output.testCard` | `{on, screenId}` | Test card on the Advanced Output screens |
+| `output.testCard` | `{on}` | Test card on the Advanced Output screens |
 
 Blocked in Show mode: `show.update` (revision-checked), `show.load/create/delete/export/import`, `media.import`,
-`media.importCancel`, `media.relink`, `media.remove`, `media.setDir`, `output.screens`, `audio.media`.
+`media.importCancel`, `media.relink`, `media.remove`, `media.setDir`, `output.screens`. `audio.media` stays open in Show mode for `level` only (routing is locked).
 
 **State** (additions to the `state` message and the `status` message):
 - `show` — `{id, name, rev, media[], clips[], layers[], decks[], presets[], start}` (`start`: the card/column the room
@@ -215,7 +216,7 @@ Blocked in Show mode: `show.update` (revision-checked), `show.load/create/delete
 - `media` — the transport: `{rev, blackout, column, preload[], layers{<id>: {play, from, …}}, xlayer, preset, import[], problems[]}`.
   Positions are never sent as a moving value: a play carries `startAt`, `in`, `out`, `loops`, `end` and the clock does the rest
   (`/shared/transport.js › playhead()` is the one formula).
-- `library` — `{dir, freeBytes}`.
+- `library` — `{dir, isDefault, drive, free, total}`.
 - `status.health` — `[{kind: 'bad' | 'warn', code, text}]`; codes: `output-down`, `output-error`, `decode-lag`,
   `library-missing`, `library-full`, `audio-device`, `audio-error`, `audio-down`, `audio-dropouts`, `engine-stall`.
   `status.engine` gains `tickGapMs` (the longest gap between two ticks of the last second).

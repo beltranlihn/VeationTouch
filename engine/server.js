@@ -296,6 +296,17 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     res.writeHead(400); res.end();
   });
 
+  const originOk = (origin, localPort) => {
+    if (origin === undefined) return true;
+    let u; try { u = new URL(String(origin)); } catch { return false; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    if ((u.port || (u.protocol === 'https:' ? '443' : '80')) !== String(localPort)) return false;
+    const h = u.hostname.replace(/^\[|\]$/g, '');
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true;
+    for (const list of Object.values(os.networkInterfaces())) for (const a of list || []) if (a.address === h) return true;
+    return false;
+  };
+
   const wssUi = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
   const wssData = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
@@ -304,6 +315,14 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     const peer = peerOf(req);
     const addr = peer.addr;
     if (url.pathname === '/ws/ui') {
+      // a web page open in this computer's browser must not reach the room (127.0.0.1 needs no key): a browser always
+      // sends Origin, and it has to be this server itself. No Origin = not a browser (Electron main, node, the relay).
+      // Relay traffic carries the relay page's origin, but it always needs the key.
+      if (!peer.tunnel && !originOk(req.headers.origin, req.socket.localPort)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy();
+        log.warn(`UI connection refused from ${addr} (foreign origin ${oneLine(req.headers.origin, 80)})`);
+        return;
+      }
       if (!peer.trusted && url.searchParams.get('k') !== engine.settings.token) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy();
         log.warn(`UI connection refused from ${addr} (missing/wrong access key)`);
@@ -368,7 +387,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
           send(ws, { type: 'ack', id: m.id, ok: true, result });
         } catch (e) {
           send(ws, { type: 'ack', id: m.id, ok: false, error: e.message });
-          if (/^stale/.test(e.message)) { client.showStamp = undefined; send(ws, forClient(client, showFor(client, engine.state()))); }
+          if (/^stale/.test(e.message)) { client.showStamp = undefined; send(ws, forClient(client, showFor(client, { ...engine.state(), lan: lan(), token: engine.settings.token, local: client.local, you: client.id }))); }
         }
       }
     });

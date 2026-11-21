@@ -370,23 +370,24 @@ test('engine: in Show mode the transport works (launch, column, clear, mix, blac
   } finally { await r.close(); }
 });
 
-// Fails if a live mix change (allowed in Show mode) does not move the show's revision once it is written — a device
-// editing the grid from the show as it was before would then put the old mix back without being told.
-test('engine: a show edit made on an old revision is refused — also after a live layer.set has been written', async () => {
+// Fails if a live mix change (allowed in Show mode) bumps the show's revision when it is written (a concurrent edit made
+// with the revision it had would be refused as stale for no reason), or if an edit made from a copy of the show from
+// before the mix puts the old mix back.
+test('engine: a live layer.set written into the show does not bump its revision, and a show edit keeps the mix', async () => {
   const r = await engineRig();
   try {
     const { engine } = r;
     const old = engine.state().show;
+    const stamp0 = engine.media.showStamp;
     await engine.command('layer.set', { layerId: 'L1', opacity: 0.25 });
     assert.equal(engine.state().media.layers.L1.opacity, 0.25, 'live at once in the transport');
-    await until(() => engine.state().show.rev !== old.rev, 3000, 'the mix written into the show (700 ms after it settles)');
-    assert.equal(r.store.loadShow('shw').layers[0].opacity, 0.25, 'saved with the show');
-    await assert.rejects(engine.command('show.update', { show: { ...old, name: 'Stale' }, rev: old.rev }), /^Error: stale/);
-    assert.equal(engine.state().show.name, 'Shw');
-    const fresh = engine.state().show;
-    await engine.command('show.update', { show: { ...fresh, name: 'Fresh' }, rev: fresh.rev });
-    assert.equal(engine.state().show.name, 'Fresh');
+    await until(() => r.store.loadShow('shw').layers[0].opacity === 0.25, 3000, 'the mix written into the show (700 ms after it settles)');
+    assert.equal(engine.state().show.rev, old.rev, 'the revision did not move');
+    assert.notEqual(engine.media.showStamp, stamp0, 'but clients are told the show changed');
+    await engine.command('show.update', { show: { ...old, name: 'Edited' }, rev: old.rev });
+    assert.equal(engine.state().show.name, 'Edited');
     assert.equal(engine.state().media.layers.L1.opacity, 0.25, 'the edit kept the mix');
+    await assert.rejects(engine.command('show.update', { show: { ...old, name: 'Stale' }, rev: old.rev }), /^Error: stale/);
   } finally { await r.close(); }
 });
 

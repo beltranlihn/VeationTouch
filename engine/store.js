@@ -236,7 +236,7 @@ export class Store {
   uniqueShowId(name) {
     const base = slug(name);
     let id = base, k = 2;
-    while (fs.existsSync(this._showFile(id))) id = `${base}-${k++}`;
+    while (fs.existsSync(this._showFile(id))) { const suf = `-${k++}`; id = `${base.slice(0, 40 - suf.length).replace(/-+$/, '')}${suf}`; }
     return id;
   }
 

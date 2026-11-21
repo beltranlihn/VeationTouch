@@ -244,7 +244,13 @@ export class MediaEngine extends EventEmitter {
           const cur = l && this.show.layers.find((x) => x.id === l.id);
           return cur ? { ...l, opacity: cur.opacity, blend: cur.blend, bypass: cur.bypass, audio: { ...l.audio, volume: cur.audio?.volume, mute: cur.audio?.mute } } : l;
         }) : args.show.layers;
-        this._saveShow({ ...args.show, layers, id: this.show.id, media: this.show.media });
+        // preset parameters are live too (preset.param writes them without a revision): keep the current ones
+        const presets = Array.isArray(args.show.presets) ? args.show.presets.map((p) => {
+          const cur = p && this.show.presets?.find((x) => x.id === p.id);
+          if (!cur) return p;
+          return { ...p, params: cur.params, ...(p.sound && cur.sound ? { sound: { ...p.sound, params: cur.sound.params } } : {}) };
+        }) : args.show.presets;
+        this._saveShow({ ...args.show, layers, presets, id: this.show.id, media: this.show.media });
         return { rev: this.showRev };
       }
       case 'show.load': {
@@ -302,7 +308,7 @@ export class MediaEngine extends EventEmitter {
     const saved = this.store.saveShow(show, opts);
     if (this.show && saved.id === this.show.id) {
       clearTimeout(this._showSaveTimer); this._showSaveTimer = null; // (what was waiting to be written is in this save)
-      this.show = saved; this.showRev++; this._showSet(); this.emit('state');
+      this.show = saved; if (!opts?.keepRev) this.showRev++; else this.layerRev++; this._showSet(); this.emit('state');
     }
     return saved;
   }
@@ -407,7 +413,7 @@ export class MediaEngine extends EventEmitter {
 
   _deferShowSave() {
     clearTimeout(this._showSaveTimer);
-    this._showSaveTimer = setTimeout(() => { this._showSaveTimer = null; if (this.show && !this._stopped) this._saveShow(this.show, { backup: false }); }, SHOW_SAVE_MS);
+    this._showSaveTimer = setTimeout(() => { this._showSaveTimer = null; if (this.show && !this._stopped) this._saveShow(this.show, { backup: false, keepRev: true }); }, SHOW_SAVE_MS);
     this._showSaveTimer.unref?.();
   }
 

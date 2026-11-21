@@ -102,6 +102,7 @@ export class Engine extends EventEmitter {
     const auto = this.media.autostart();
     const x = this.profile.experience;
     if (auto?.preset) { /* the start card decided what plays (its experience, or none) */ }
+    else if (this.media._restored) { /* the transport came back from a restart: what plays is what was playing */ }
     else if (x.autostart && x.id && this._visual().some((e) => e.id === x.id)) { this._experienceRun(); this.log.info(`experience "${x.id}" started with the app`); }
     else if (this.profile.output.on) this.log.info(`room output "${this.profile.output.senderName}" on`);
     this._soundAutostart();
