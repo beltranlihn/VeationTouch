@@ -48,6 +48,10 @@ Producto reutilizable: **nada de una sala concreta va en el código** — todo v
   El driver del S2E es implementación propia desde el protocolo publicado (no se copia el SDK de Slamtec).
   **NDI:** se usa el NDI Runtime que el cliente instala (gratuito, de Vizrt); no se empaqueta nada de NDI y se muestra
   la mención de marca «NDI® is a registered trademark of Vizrt NDI AB».
+  **Códecs:** se decodifica lo que trae Chromium/Electron (H.264/HEVC/AAC/VP9/AV1, imágenes) — decisión del director
+  (2026-11-21), revisar patentes antes de vender a terceros. **FFmpeg:** nunca enlazado ni empaquetado en el instalador;
+  la app lo descarga a petición del operador (build **LGPL**, ejecutable aparte en los datos de la app, con su licencia
+  y su origen visibles) sólo para convertir lo que Chromium no lee (ProRes, DNxHD…) a HAP.
 - **Cada cambio de comportamiento lleva su prueba** en `tests/`. Pregunta obligatoria: ¿la prueba sabe fallar?
   (ej.: sin la corrección de contacto el error sube a ~35 mm y la prueba de precisión cae).
 - **Nada de `prompt/alert/confirm`** en la UI (Electron no los soporta): usar `promptBox/confirmBox` de `ui/js/dom.js`.
