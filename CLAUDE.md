@@ -27,7 +27,7 @@ Producto reutilizable: **nada de una sala concreta va en el código** — todo v
 - **`docs/plans/`** = planes de construcción por fases; `MEDIA-SERVER.md` es el del media server (diseño, decisiones del
   director, fases F0–F13 y sus pruebas).
 - **`engine/media/`** = el media server en el motor: biblioteca y copias, shows (rejilla, clips, presets), transporte
-  (`transport.js`, servido como `/shared/transport.js`: `playhead()` es LA fórmula), HAP/MOV/PCM y miniaturas.
+  (`transport.js`, servido como `/shared/transport.js`: `playhead()` es LA fórmula), HAP/MOV/PCM y miniaturas; `convert.js` = Convert to HAP (helper de Chromium o FFmpeg LGPL bajo demanda, `ffmpeg.js`).
 - **`ui/js/mixer/`** = el mezclador WebGL2 de la página de salida (capas, reproductor HAP).
 - **`ui/js/live/`** = Live en el escritorio (estantería de experiencias, navegador de archivos, rejilla, panel de clip, barra inferior);
   `ui/js/remote-live.js` es Live en el teléfono.

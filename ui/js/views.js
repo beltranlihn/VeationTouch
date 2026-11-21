@@ -1670,6 +1670,7 @@ export function system(ctx) {
           h('button', { class: 'btn small', onclick: () => duplicate(p) }, 'Duplicate'),
           p.id !== S.profile.id ? h('button', { class: 'btn small danger', onclick: async () => { if (await confirmBox(`Delete the room profile "${p.name}"? A backup is kept in the data folder.`, 'Delete', true)) run(cmd('profile.delete', { id: p.id })); } }, 'Delete') : null))))),
     sec('Network', ...networkBox()),
+    sec('Converter', converterBox()),
     sec('Recordings', recordingsBox()),
     sec('Processing (advanced)', ...processingFields()),
     sec('Application',
@@ -1702,6 +1703,46 @@ export function system(ctx) {
     const text = await f.text();
     run(cmd('profile.import', { json: text }), `Imported ${f.name}`);
   }
+}
+
+/**
+ * System › Converter: the FFmpeg that turns what Chromium cannot read (ProRes, DNxHD, MPEG-2, AVI...) into HAP (Live › Convert to
+ * HAP). Never part of the app: downloaded when the operator presses Install (an LGPL build, checked against a pinned SHA-256),
+ * kept in the app's data folder with its licence and the address of its source, run as a separate program. Removable.
+ */
+function converterBox() {
+  const box = h('div', {});
+  let timer = null;
+  const mb = (b) => `${Math.round(b / 1048576)} MB`;
+  const paint = (st) => {
+    const local = store.state.local;
+    const kv = (k, v) => [h('dt', {}, k), h('dd', {}, v)];
+    const link = (url) => h('a', { href: url, target: '_blank', rel: 'noopener', style: { color: 'var(--ink-2)' } }, url.replace('https://', ''));
+    const busy = !!st.installing;
+    box.replaceChildren(
+      h('p', { class: 'muted' }, 'Chromium converts H.264 videos and pictures to HAP by itself. For ProRes, DNxHD, MPEG-2, AVI and other formats it cannot read, install FFmpeg here: it is downloaded only when you press Install, and never comes with the app.'),
+      h('dl', { class: 'kv' },
+        ...kv('FFmpeg', busy ? `Downloading… ${st.installing.pct} % (${mb(st.installing.done)} of ${mb(st.installing.total)})` : st.installed ? `Installed · ${st.version}` : 'Not installed'),
+        ...kv('Licence', h('span', {}, `${st.license} (LGPL build) · `, link(st.licenseUrl))),
+        ...kv('Source', h('span', {}, 'Build: ', link(st.source), ' · Code: ', link(st.sourceCode))),
+        ...(st.installed ? kv('Folder', st.folder) : kv('Download', `about ${mb(st.size)} · FFmpeg ${st.pin.version}, checked against a fixed SHA-256`))),
+      st.error ? h('div', { class: 'callout attn' }, st.error) : null,
+      !st.supported ? h('p', { class: 'muted' }, 'The converter is available on Windows only.') : !local ? h('p', { class: 'muted' }, 'It is installed and removed at the server itself.')
+        : h('div', { class: 'acts' },
+          st.installed ? h('button', { class: 'btn small danger', onclick: async () => { if (await confirmBox('Remove FFmpeg? Conversions of files Chromium cannot read stop working until you install it again.', 'Remove', true)) run(cmd('media.ffmpeg.remove'), 'Converter removed').then(load); } }, 'Remove')
+            : busy ? h('button', { class: 'btn small', onclick: () => toast('Downloading… it finishes by itself', 'ok') }, 'Installing…')
+              : h('button', { class: 'btn small', onclick: async () => { if (await confirmBox(`Download FFmpeg ${st.pin.version} (about ${mb(st.size)}) from github.com? It is an LGPL build, saved in the app's data folder with its licence.`, 'Install')) { run(cmd('media.ffmpeg.install')).then(() => { load(); poll(); }); } } }, 'Install')));
+  };
+  const load = () => cmd('media.ffmpeg.status').then(paint).catch((e) => box.replaceChildren(h('p', { class: 'muted' }, e.message)));
+  const poll = () => {
+    clearInterval(timer);
+    timer = setInterval(async () => {
+      if (!box.isConnected) { clearInterval(timer); return; }
+      try { const st = await cmd('media.ffmpeg.status'); paint(st); if (!st.installing) clearInterval(timer); } catch { clearInterval(timer); }
+    }, 700);
+  };
+  load().then(() => { if (box.isConnected) cmd('media.ffmpeg.status').then((st) => { if (st.installing) poll(); }).catch(() => {}); });
+  return box;
 }
 
 /** Record raw sensor data in the room; replay it anywhere to tune without hardware. */

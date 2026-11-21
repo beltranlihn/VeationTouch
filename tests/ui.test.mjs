@@ -2349,3 +2349,21 @@ test('ui: conn.js keeps the show on a showSame state, also through the relay\'s 
   assert.deepEqual(result.same, { rev: 3, clip: 1, flag: false });
   assert.equal(result.plain, 3);
 });
+
+// Fails if System has no Converter card, if it hides the licence and the source of FFmpeg (CLAUDE.md asks for both to be visible),
+// if it offers no Install on this computer, or if merely opening the System view downloads anything (only the click does).
+test('ui: System › Converter says FFmpeg is not installed, its LGPL licence and its source, and offers Install (nothing is downloaded by looking)', opt, async () => {
+  const { result, errors } = await inUi(`
+    window.__vt.go('system');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const find = () => [...document.querySelectorAll('#panel .sec')].find((s) => /^Converter/i.test(s.innerText.trim()));
+    for (let i = 0; i < 40 && !/Not installed/.test(find()?.innerText || ''); i++) await wait(50);
+    const card = find();
+    return { text: card?.innerText || '', links: [...(card?.querySelectorAll('a') || [])].map((a) => a.href), buttons: [...(card?.querySelectorAll('button') || [])].map((b) => b.innerText) };`, { w: 1180, h: 820 });
+  assert.deepEqual(errors, []);
+  assert.match(result.text, /Not installed/);
+  assert.match(result.text, /LGPL/);
+  assert.ok(result.links.some((l) => /github\.com\/BtbN\/FFmpeg-Builds/.test(l)) && result.links.some((l) => /gnu\.org/.test(l)), `licence and source are links: ${result.links}`);
+  assert.ok(result.buttons.includes('Install'), `buttons: ${result.buttons}`);
+  assert.match(result.text, /only when you press Install|never comes with the app/);
+});

@@ -644,6 +644,17 @@ the clips' audio over the room's speakers. Every piece below is optional: a room
   and the audio cache. With no helper (engine alone) images and WAV still import; MP3/AAC refuse with a message; H.264 is
   accepted with a note and its AAC is silent. CPU-decoded video (H.264 wider than the GPU's 4096) is limited to ~250 Mpx/s
   (`MediaEngine._checkVideo`; measured in `docs/research/media-formats-medidas.md`).
+  **Convert to HAP** (`engine/media/convert.js`; ops `media.convert {mediaId | path, codec: hap|hapq|hapa, fps?}`, `media.convertCancel {jobId}`,
+  `media.ffmpeg.status|install|remove`): one job at a time, listed in `state.media.import` with `kind: 'convert'` (states
+  waiting / converting / done / failed; `done`/`total` = frames, or ms of the source on the FFmpeg road) and failures in
+  `state.media.problems`. Road A (Chromium decodes: H.264 in MP4/MOV, pictures): the helper page decodes with WebCodecs, DXT-compresses
+  on the low-power GPU (`ui/js/helper/dxt-gpu.js`, ported from VEATION) and posts HAP frames and PCM to `/api/helper/part/<id>`;
+  the engine writes the .mov (`HapWriter`, `hapenc.js` shared with the page). Road B (ProRes, DNxHD, AVI...): an LGPL `ffmpeg.exe`
+  the operator installs from System › Converter (`ffmpeg.js`: pinned URL + SHA-256, kept in `<data>/tools/ffmpeg/` with its licence
+  and source; never bundled, never linked, never downloaded but on that click) runs as a separate process with `-progress pipe:1`.
+  The result is written to `<library>/.convert/` (swept at start; removed on cancel or failure), renamed into the show's folder and
+  adopted in ONE show edit (`MediaEngine.adoptConverted`): a new medium, every clip of the source switched to it with its settings;
+  the original stays. Refused files that can be converted carry `convert: true` and `path` in `importFiles().rejected`.
 - **Phone** (`ui/js/remote-live.js`): Live on the phone is the same commands over the same socket. Through the relay the
   state is sent compact (`wire.js`: clip fields equal to the defaults, finished copies and `mtimeMs` are dropped;
   `conn.js` expands it back) and stays well under 64 kB for a 60-clip show.
