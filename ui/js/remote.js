@@ -1,5 +1,10 @@
-// Calibration remote — what a phone or tablet opens in the room (main.js decides; the computer keeps the full app).
-// At the top, the room live (walls, zones, hands) and the guide: ONE next thing to do, in order, until the room is
+// The room remote — what a phone or tablet opens in the room (main.js decides; the computer keeps the full app).
+// A bar at the bottom has two modes (MEDIA-SERVER.md §7.1): Live (remote-live.js: what is on the walls, launch clips
+// and columns, load the experience, the master, blackout) and Calibrate (this file, as it always was). It opens in Live
+// when the room is in Show mode or every wall with sensors is calibrated and verified, otherwise in Calibrate; once the
+// operator switches, this device remembers the choice (vt-remote-mode). In Live the calibration parts are not drawn,
+// the projection leaves the Fit / walk-test views, and the engine sends no point clouds (setViz).
+// Calibrate: at the top, the room live (walls, zones, hands) and the guide: ONE next thing to do, in order, until the room is
 // ready — sensors running → background → projection → calibrate each wall → verify each wall (a failed one goes to
 // Fit at its worst point) → walk test → lock. The operator stands at the wall with the phone in one hand:
 //   Prepare   sensors running, background captured, projection open
@@ -17,8 +22,9 @@
 // change 30 times a second (progress ring, hand, mini map) are updated in place: buttons are never rebuilt under
 // the finger.
 
-import { store, on, connect, cmd, editProfile, undo, history, otherControl } from './conn.js';
+import { store, on, connect, cmd, editProfile, undo, history, otherControl, setViz } from './conn.js';
 import { h, sec, toast, confirmBox, switchUi } from './dom.js';
+import { createLive } from './remote-live.js';
 import * as V from './views.js';
 import { gridFrom, gridSolveNode, gridNearestNode, wallUvToCanvas, mappingOutline, shapeOutline, planCloses, verifyPassMm, calibVerdict } from '/shared/geometry.js';
 import { canvasZoneOnWall } from './shapes.js';
@@ -47,8 +53,10 @@ const rc = {
   pendingFix: null,    // {wallId, x, y}: Fit opens on the mesh point nearest to this spot (a failed check point)
   walk: { walls: new Set(), corners: new Set() }, // Test: walls touched and corners crossed so far
   calibOpt: { cols: 3, rows: 3, top: 1.9, bottom: 0.45, holdMs: 700 },
+  mode: null,          // 'live' | 'calibrate' — decided when the first state arrives (openingMode)
   get calibWall() { return rc.wall; },
   set calibWall(v) { rc.wall = v; },
+  setMode: (m) => setMode(m), openingMode: () => openingMode(),
   select() {}, go() {}, // the shared panels may call them; the remote has no other views
   rerender: () => render(true),
   takeControl,
@@ -75,13 +83,50 @@ const el = {
   steps: h('nav', { class: 'r-steps' }),
   body: h('main', { class: 'r-body', id: 'rBody' }),
   foot: h('footer', { class: 'r-foot' }),
+  title: h('b', {}, 'Calibration'),
+  modes: h('nav', { class: 'r-modes', 'aria-label': 'Mode' },
+    [['live', 'Live'], ['calibrate', 'Calibrate']].map(([m, t]) => h('button', { 'data-mode': m, 'aria-pressed': 'false', onclick: () => setMode(m) }, h('span', { class: 'd' }), t))),
 };
+const liveUi = createLive();
 document.body.prepend(h('div', { class: 'remote', id: 'remote' },
   h('header', { class: 'r-top' },
     h('img', { src: 'brand/veation-marca-pequena.svg', alt: '' }),
-    h('div', { class: 'r-title' }, h('b', {}, 'Calibration'), el.room),
-    h('div', { class: 'grow' }), el.chips),
-  el.banner, el.live, el.guide, el.walls, el.steps, el.body, el.foot));
+    h('div', { class: 'r-title' }, el.title, el.room),
+    h('div', { class: 'grow' }), liveUi.lockBtn, el.chips),
+  el.banner, el.live, el.guide, el.walls, el.steps, el.body, el.foot, liveUi.el, el.modes));
+
+// ------------------------------------------------------------------ modes: Live | Calibrate (MEDIA-SERVER.md §7.1)
+
+const MODE_KEY = 'vt-remote-mode';
+/** Every wall with sensors is calibrated and passed its verification. */
+const roomReady = () => { const W = P().walls.filter((w) => V.wallReadiness(w).sensors.length); return W.length > 0 && W.every((w) => wallDone(w) && !!w.verified?.pass); };
+/** Where the remote opens: this device's last choice; else Live in Show mode or with the room ready, Calibrate otherwise. */
+function openingMode() {
+  const m = lsGet(MODE_KEY);
+  if (m === 'live' || m === 'calibrate') return m;
+  if (store.status?.calib || store.status?.verify) return 'calibrate'; // a session is running: it owns the remote
+  return store.state.locked || roomReady() ? 'live' : 'calibrate';
+}
+let vizOff = false;
+function applyMode(m) {
+  rc.mode = m;
+  const live = m === 'live';
+  document.getElementById('remote').classList.toggle('mode-live', live);
+  document.body.classList.toggle('rl-on', live);
+  el.title.textContent = live ? 'Live' : 'Calibration';
+  for (const b of el.modes.children) { const on = b.dataset.mode === m; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
+  liveUi.setActive(live);
+  if (live !== vizOff) { vizOff = live; setViz(!live); } // Live draws no point clouds: none cross the relay
+  sendFit(); sendWalk(); // Live: the projection leaves the Fit and walk-test views
+}
+function setMode(m) {
+  if (m !== 'live' && m !== 'calibrate') return;
+  lsSet(MODE_KEY, m); // remembered on this device once chosen
+  if (m === rc.mode) return;
+  liftSimHand();
+  applyMode(m);
+  if (m === 'calibrate') { lastBody = ''; lastChrome = ''; chipsKey = ''; guideKey = ''; render(true); }
+}
 
 function curWall() {
   const W = P().walls;
@@ -151,6 +196,8 @@ function bodyKey(w) {
 let lastBody = '', lastChrome = '', pending = false;
 function render(force = false) {
   if (!store.state) return;
+  if (rc.mode === null) applyMode(openingMode());
+  if (rc.mode === 'live') { renderChips(); el.room.textContent = P().name; return; } // remote-live.js draws Live
   followSession();
   const w = curWall();
   renderChrome(w, force);
@@ -562,7 +609,7 @@ function makeMesh(w) {
 let fitSent = 'none';
 function sendFit() {
   const w = store.state && curWall();
-  const want = w && rc.step === 'fit' && w.mapping.mode === 'grid' && !document.hidden ? { wallId: w.id, node: rc.node } : null;
+  const want = w && rc.mode !== 'live' && rc.step === 'fit' && w.mapping.mode === 'grid' && !document.hidden ? { wallId: w.id, node: rc.node } : null;
   const key = JSON.stringify(want);
   if (key === fitSent || !store.connected) return;
   fitSent = key;
@@ -995,7 +1042,7 @@ function updateWalk() {
 /** While Test is open, the projection shows the walk-test view (what the outputs send) on every wall. */
 let walkSent = 'none';
 function sendWalk() {
-  const want = !!store.state && rc.step === 'test' && !document.hidden;
+  const want = !!store.state && rc.mode !== 'live' && rc.step === 'test' && !document.hidden;
   if (String(want) === walkSent || !store.connected) return;
   walkSent = String(want);
   cmd('projection.set', { walk: want }).catch(() => { walkSent = 'none'; });
@@ -1084,7 +1131,7 @@ async function takeControl() {
 on('state', () => render());
 on('status', () => render());
 on('calib', () => render());
-on('live', () => { onLive(); live(); });
+on('live', () => { if (rc.mode === 'live') { renderChips(); return; } onLive(); live(); });
 on('history', () => updateFit());
 on('error', (e) => toast(e.message, 'bad'));
 on('connection', (ok) => {

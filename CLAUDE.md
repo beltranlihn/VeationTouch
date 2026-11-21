@@ -3,9 +3,14 @@
 Software de tracking táctil con LiDAR 2D para muros interactivos de salas inmersivas, de Alma Digital
 Studio (director creativo: Beltrán; developer: Claude). Recibe N sensores **Slamtec RPLIDAR S2E** por
 Ethernet/UDP, calibra la sala, define zonas y envía toques por **OSC, TUIO, WebSocket y Spout** (y zonas por
-Webhook, Art-Net y sACN) a TouchDesigner, Unreal y apps propias. Se opera desde el escritorio **y desde un teléfono/tablet dentro de la sala**.
-**El teléfono es para calibrar; la app del ordenador es la app completa:** un dispositivo táctil abre el mando de
-calibración (`ui/js/remote.js`: preparar, calibrar, ajustar con la mano, verificar), no la aplicación entera.
+Webhook, Art-Net y sACN) a TouchDesigner, Unreal y apps propias. Es también el **media server de la sala**: clips HAP en
+una rejilla de capas y columnas, presets de experiencia, mezcla en GPU y audio de los clips por los altavoces de la sala
+(`docs/plans/MEDIA-SERVER.md`). Se opera desde el escritorio **y desde un teléfono/tablet dentro de la sala**.
+**El teléfono es el mando de la sala; la app del ordenador es la app completa:** un dispositivo táctil abre el mando
+(`ui/js/remote.js`), no la aplicación entera. El mando tiene dos modos: **Live** (ver qué sale, lanzar clips y
+columnas de la rejilla, cargar la experiencia, volumen, blackout) y **Calibrate** (preparar, calibrar, ajustar con la
+mano, verificar). Importar medios, editar la rejilla, el Advanced Output, las zonas y el sistema se hace sólo en el
+ordenador. Por el relé de internet viajan estado, órdenes y miniaturas; **nunca vídeo ni audio**.
 Producto reutilizable: **nada de una sala concreta va en el código** — todo vive en perfiles de sala
 (`profiles/*.json`). Barcelona XR Lab (`profiles/xrlab.json`) es sólo el primer prototipo.
 
@@ -19,6 +24,13 @@ Producto reutilizable: **nada de una sala concreta va en el código** — todo v
   Las piezas de **sonido** (`kind: "sound"`, contrato `experiences/SOUND-API.md`; la primera es `ambient-notes`) suenan
   por los altavoces de la sala a la vez que la visual; dispositivos, mapa muro→canal, sub y limitador viven en
   `profile.audio` (ARCHITECTURE.md › Room audio). Sólo síntesis Web Audio propia, sin samples.
+- **`docs/plans/`** = planes de construcción por fases; `MEDIA-SERVER.md` es el del media server (diseño, decisiones del
+  director, fases F0–F13 y sus pruebas).
+- **`engine/media/`** = el media server en el motor: biblioteca y copias, shows (rejilla, clips, presets), transporte
+  (`transport.js`, servido como `/shared/transport.js`: `playhead()` es LA fórmula), HAP/MOV/PCM y miniaturas.
+- **`ui/js/mixer/`** = el mezclador WebGL2 de la página de salida (capas, reproductor HAP).
+- **`ui/js/live/`** = Live en el escritorio (estantería de experiencias, rejilla, inspector, biblioteca);
+  `ui/js/remote-live.js` es Live en el teléfono.
 - **`cloud/`** = acceso por internet: relé en Cloudflare (`relay/`) y página de salas en Vercel (`launcher/`).
 - **`README.md`** = índice del repositorio y cómo arrancar.
 
