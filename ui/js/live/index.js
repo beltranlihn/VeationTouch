@@ -178,6 +178,37 @@ L.throttle = (send) => {
 };
 
 let editChain = Promise.resolve();
+
+// The engine edits the show on its own too (Convert to HAP relinking the clips, media.cover, media.import): those are not in
+// the undo stack, and restoring an older whole-show snapshot over them would silently undo them (a clip pointed back at a
+// medium that has been replaced). So when the show's revision moves and the move is not one of OUR show.update calls, the
+// undo and redo history is dropped.
+let inflight = 0, seenMax = 0, known = null; // known: {id, rev} — the revision this page last accounted for
+const dropHistory = () => { L.undoStack.length = 0; L.redoStack.length = 0; };
+function watchRev() {
+  const s = store.state?.show;
+  if (!s?.id) { known = null; return; }
+  if (!known || known.id !== s.id) { known = { id: s.id, rev: s.rev }; return; }
+  if (s.rev === known.rev) return;
+  if (inflight > 0) { seenMax = Math.max(seenMax, s.rev); return; } // (our own edit's echo, or a foreign one: settled when the call ends)
+  dropHistory(); known.rev = s.rev;
+}
+/** show.update with the bookkeeping that tells our own revisions from the engine's. */
+async function ownUpdate(args) {
+  inflight++; seenMax = 0;
+  try {
+    const res = await cmd('show.update', args);
+    const now = store.state?.show?.rev;
+    if (known) {
+      if (Math.max(seenMax, Number.isFinite(now) ? now : 0) > (res?.rev ?? now)) dropHistory(); // another revision landed besides ours
+      known.rev = Number.isFinite(res?.rev) ? Math.max(res.rev, seenMax) : (now ?? known.rev);
+    }
+    return res;
+  } catch (e) {
+    if (known && store.state?.show && store.state.show.rev !== known.rev) { dropHistory(); known.rev = store.state.show.rev; }
+    throw e;
+  } finally { inflight--; }
+}
 /**
  * Edits the open show: `mutate(copy)` on the latest show the engine confirmed, sent with its revision (show.update; an
  * edit made from a show that changed meanwhile is refused). Edits run one after another, so quick ones never race.
@@ -191,7 +222,7 @@ L.editShow = (mutate, label = 'edit') => {
     const next = clone(cur); delete next.rev;
     if (mutate(next) === false) return null;
     const before = clone(cur); delete before.rev;
-    const res = await cmd('show.update', { show: next, rev: cur.rev });
+    const res = await ownUpdate({ show: next, rev: cur.rev });
     L.undoStack.push({ label, showId: cur.id, show: before });
     L.redoStack.length = 0;
     if (L.undoStack.length > UNDO_MAX) L.undoStack.shift();
@@ -236,7 +267,7 @@ function stepBack(u, message) {
     if (now && now.experienceId === p.experienceId) p.params = { ...now.params };
     if (now?.sound && p.sound?.id === now.sound.id) p.sound.params = { ...now.sound.params };
   }
-  const run = editChain.then(() => cmd('show.update', { show: back, rev: store.state.show.rev }));
+  const run = editChain.then(() => ownUpdate({ show: back, rev: store.state.show.rev }));
   editChain = run.catch(() => {});
   run.then(() => toast(message), (e) => toast(e.message, 'bad'));
 }
@@ -445,6 +476,7 @@ addEventListener('keydown', (e) => {
 
 let inspKey = '';
 on('state', () => {
+  watchRev();
   paintTop();
   if (L.root && !L.conv?.asked) C.probe(L); // does the engine convert to HAP? (hides the action when it has no such operations)
 });

@@ -205,7 +205,25 @@ const toS16 = (planes, from, count, out, outAt) => {
 };
 
 /** Decodes a sound the browser knows (MP3, AAC, FLAC, Ogg) whole: 48 kHz, the channels it has. */
+/** A length (seconds) for a compressed sound BEFORE it is decoded: the MP3 header's bitrate (CBR) over the bytes, else null. */
+export function estimateSoundSeconds(head, size) {
+  let i = 0;
+  if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) i = 10 + (((head[6] & 0x7f) << 21) | ((head[7] & 0x7f) << 14) | ((head[8] & 0x7f) << 7) | (head[9] & 0x7f));
+  for (let k = i; k + 4 <= head.length && k < i + 8192; k++) {
+    if (head[k] !== 0xff || (head[k + 1] & 0xe0) !== 0xe0) continue;
+    const ver = (head[k + 1] >> 3) & 3, layer = (head[k + 1] >> 1) & 3, br = head[k + 2] >> 4;
+    if (ver === 1 || layer !== 1 || br === 0 || br === 15) continue; // Layer III only
+    const t = ver === 3 ? [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320] : [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
+    return ((size - k) * 8) / (t[br] * 1000);
+  }
+  return null;
+}
+const SOUND_MAX_BYTES = 256 << 20; // whatever the codec, a file this big is longer than the cap or too big to hold decoded
+
 async function soundPlanes(url) {
+  const { size, read } = await openRemote(url);
+  const est = estimateSoundSeconds(await read(0, Math.min(size, 16384)), size);
+  if ((est != null && est > SOUND_MAX_S + 5) || size > SOUND_MAX_BYTES) throw Object.assign(new Error('longer than 20 min'), { code: 'audio-long' });
   const r = await fetch(url), data = await r.arrayBuffer();
   const ctx = new OfflineAudioContext(2, 1, 48000);
   const buf = await ctx.decodeAudioData(data);
@@ -216,6 +234,7 @@ async function soundPlanes(url) {
 async function aacPlanes(url) {
   const { size, read } = await openRemote(url), ix = await movIndexAsync(read, size), a = ix.audio;
   if (!a?.aac) throw Object.assign(new Error('no AAC track'), { code: 'audio-bad' });
+  if (a.duration > SOUND_MAX_S + 5) throw Object.assign(new Error('the sound is longer than 20 min'), { code: 'audio-long' }); // before decoding a byte
   const rate = a.rate, ch = a.channels;
   const planes = Array.from({ length: ch }, () => []);
   let outRate = rate, err = null;
@@ -316,20 +335,20 @@ function movieSource(ix, read, fps) {
       if (!stopped && !err) await dec.flush();
       finished = true;
     })().catch((e) => { err = err || e; finished = true; });
-    let prev = null, k = 0;
+    let prev = null, cur = null, k = 0;
     const tk = (i) => t0 + i / outFps;
     try {
       for (;;) {
         if (!q.length) { if (err) throw err; if (finished) break; await sleep(1); continue; }
-        const cur = q.shift();
-        if (outFps === srcFps) { yield upright(cur); cur.close(); continue; }
+        cur = q.shift();
+        if (outFps === srcFps) { yield upright(cur); cur.close(); cur = null; continue; }
         // another rate: every output instant takes the last decoded frame at or before it
         const ct = cur.timestamp / 1e6;
         if (prev) { while (k < total && tk(k) < ct - 1e-6) { yield upright(prev); k++; } prev.close(); }
-        prev = cur;
+        prev = cur; cur = null;
       }
       if (prev) { while (k < total) { yield upright(prev); k++; } prev.close(); prev = null; }
-    } finally { stopped = true; for (const f of q) f.close(); try { prev?.close(); } catch { /* closed */ } try { dec.close(); } catch { /* closed */ } }
+    } finally { stopped = true; for (const f of q) f.close(); try { cur?.close(); } catch { /* closed */ } try { prev?.close(); } catch { /* closed */ } try { dec.close(); } catch { /* closed */ } }
   }
   return { width: W, height: H, fps: outFps, total, frames };
 }
@@ -345,7 +364,8 @@ async function convertJob(job) {
     if (!info) throw Object.assign(new Error('the image header does not read'), { code: 'image-bad' });
     const red = reducedSize(info.width, info.height);
     const blob = new Blob([await (await fetch(job.src)).arrayBuffer()]);
-    bm = await createImageBitmap(blob, { imageOrientation: 'from-image', premultiplyAlpha: 'premultiply', ...(red ? { resizeWidth: red.width, resizeHeight: red.height, resizeQuality: 'high' } : {}) });
+    // 'none': the DXT5 keeps straight colour and the player premultiplies on playback (hap-worker mode 1); premultiplying here too gave dark halos
+    bm = await createImageBitmap(blob, { imageOrientation: 'from-image', premultiplyAlpha: 'none', ...(red ? { resizeWidth: red.width, resizeHeight: red.height, resizeQuality: 'high' } : {}) });
     const fps = job.fps || 30;
     src = { width: bm.width, height: bm.height, fps, total: Math.round(fps), still: true, frames: async function* () { yield bm; } };
   } else if (sn.kind === 'mov') {
@@ -442,5 +462,5 @@ async function poll() {
   }
 }
 
-window.__helper = { run, HANDLERS, openRemote, stop: () => { stopped = true; }, stats: () => ({ stopped }) };
+window.__helper = { run, HANDLERS, openRemote, estimateSoundSeconds, stop: () => { stopped = true; }, stats: () => ({ stopped }) };
 if (!new URLSearchParams(location.search).has('manual')) poll();

@@ -68,3 +68,40 @@ test('convert (helper page): H.264 → HAP and HAP Q — every frame in order, u
   assert.ok(near(r.png.tl, MARKERS.topLeft) && near(r.png.tr, MARKERS.topRight) && near(r.png.bl, MARKERS.bottomLeft) && near(r.png.br, MARKERS.bottomRight), `the picture is upright: ${JSON.stringify(r.png)}`);
   assert.deepEqual(r.leftover, [], 'no part file is left');
 });
+
+// Fails if the picture is premultiplied in the page: the player premultiplies HAP Alpha on playback (hap-worker mode 1), so a
+// premultiplied file shows its half-transparent pixels twice as dark (dark halos). The library's block reader shows a HAP
+// Alpha frame over black (colour x alpha), so straight (200,100,50) at alpha 128 reads ~ (100,50,25); stored premultiplied
+// it would read ~ (50,25,12).
+test('convert (helper page): a half-transparent PNG → HAP Alpha keeps STRAIGHT colour (no double premultiply)', opt, async () => {
+  const { result: r, errors } = await withHelperPage(async (rig) => {
+    const m = rig.engine.media;
+    for (let i = 0; i < 200 && !m.helper.online; i++) await sleep(50);
+    const px = new Uint8Array(64 * 32 * 4);
+    for (let i = 0; i < 64 * 32; i++) px.set([200, 100, 50, 128], i * 4);
+    const png = path.join(rig.dir, 'soft.png');
+    fs.writeFileSync(png, pngFile(64, 32, px));
+    const p = await convertAndOpen(rig, png, { codec: 'hapa' });
+    const f = frameOf(p, 0);
+    return { fourcc: p.d.video.fourcc, mid: f.px(30, 14), tl: f.px(2, 2) };
+  });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  assert.equal(r.error, undefined, r.error);
+  assert.equal(r.fourcc, 'Hap5');
+  assert.ok(near(r.mid, [100, 50, 25], 14) && near(r.tl, [100, 50, 25], 14), `straight colour expected, got ${JSON.stringify(r)}`);
+});
+
+// Fails if a long MP3 is decoded whole before its length is checked (out of memory): the length is estimated from the header's
+// bitrate and the bytes, so the page can refuse it (audio-long) before it decodes a sample.
+test('helper page: the length of an MP3 is estimated from its header before decoding (the 20 min cap)', opt, async () => {
+  const { result: r, errors } = await withHelperPage(async () => ({}), { pageScript: `
+    const mp3 = (br) => new Uint8Array([0xff, 0xfb, br << 4, 0x00, 0, 0, 0, 0]);
+    const tagged = new Uint8Array([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 4, 1, 2, 3, 4, 0xff, 0xfb, 0x90, 0]); // ID3v2 of 4 bytes, then a 128 kbps frame
+    const h = window.__helper;
+    return { a: h.estimateSoundSeconds(mp3(9), 128000 * 60 / 8 + 0), b: h.estimateSoundSeconds(mp3(9), 128000 * 3600 / 8), c: h.estimateSoundSeconds(tagged, 1600000 + 14), d: h.estimateSoundSeconds(new Uint8Array([1, 2, 3, 4, 5, 6]), 1000) };
+  ` });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.ok(Math.abs(r.a - 60) < 0.01 && Math.abs(r.b - 3600) < 0.01, JSON.stringify(r));
+  assert.ok(Math.abs(r.c - 100) < 0.01, `ID3 tag skipped: ${JSON.stringify(r)}`);
+  assert.equal(r.d, null);
+});

@@ -276,6 +276,7 @@ export function bulkPanel(L, cells, kit) {
   const withMixed = (opts, cur) => (cur === MIXED ? [[MIXED, '— differs —'], ...opts] : opts);
   const pick = (fn) => (val) => { if (val !== MIXED) fn(val); };
   const layerOf = (c) => L.layer(c.layerId);
+  const layerIdOfClip = new Map(cells.map((c) => [deck.cells[`${c.layerId}:${c.column}`], c])); // clip id → its cell (each clip's OWN layer)
   const end = common(clips, (c) => c.end), trig = common(clips, (c) => c.trigger), fit = common(clips, (c) => c.place.fit);
   const where = common(clips, (c) => (c.place.target === 'wall' ? `wall:${c.place.wallId}` : c.place.target));
   const gain = common(clips, (c) => c.audio.gainDb), trans = common(clips, (c) => c.transitionMs === null ? 'layer' : 'own');
@@ -286,7 +287,7 @@ export function bulkPanel(L, cells, kit) {
   const body = lockIt(L, sec('Playback',
     selectField('End', end, withMixed([['layer', 'Layer default'], ...Object.entries(END_LABEL)], end), pick((val) => set((c) => { c.end = val; }, 'clips end'))),
     selectField('Launch', trig, withMixed([['layer', 'Layer default'], ['restart', TRIGGER_LABEL.restart], ['toggle', TRIGGER_LABEL.toggle]], trig), pick((val) => set((c) => { c.trigger = val; }, 'clips launch'))),
-    selectField('Transition', trans, withMixed([['layer', 'Layer default'], ['own', 'Its own (from the layer\'s)']], trans), pick((val) => set((c) => { c.transitionMs = val === 'layer' ? null : (c.transitionMs ?? layerOf(cells[0])?.transitionMs ?? 500); }, 'clips transition'))),
+    selectField('Transition', trans, withMixed([['layer', 'Layer default'], ['own', 'Its own (from the layer\'s)']], trans), pick((val) => set((c) => { c.transitionMs = val === 'layer' ? null : (c.transitionMs ?? layerOf(layerIdOfClip.get(c.id))?.transitionMs ?? 500); }, 'clips transition'))),
     row('Fit', fit === MIXED ? h('span', { class: 'muted' }, '— differs —') : null, seg([['stretch', 'Stretch'], ['fit', 'Fit'], ['fill', 'Fill']], fit === MIXED ? null : fit, (val) => set((c) => { c.place.fit = val; }, 'clips fit'))),
     selectField('Where', where, withMixed([['canvas', 'The whole canvas'], ...walls.map((w) => [`wall:${w.id}`, `${w.id} · ${w.name || w.id}`])], where),
       pick((val) => set((c) => { c.place = val.startsWith('wall:') ? { ...c.place, target: 'wall', wallId: val.slice(5) } : { ...c.place, target: val, wallId: null }; }, 'clips place'))),

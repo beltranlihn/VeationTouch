@@ -47,5 +47,5 @@ export const rejectConvert = (r) => !!(r?.convert || r?.message?.convert);
 
 /** The colours of a clip (clip.color): six tints low in saturation — they read as value, never as a third accent. */
 export const CLIP_COLORS = [
-  ['#7f8b99', 'Slate'], ['#8f8a7c', 'Sand'], ['#7e8e84', 'Moss'], ['#8a8296', 'Heather'], ['#977f78', 'Clay'], ['#7a8f96', 'Mist'],
+  ['#808892', 'Slate'], ['#8c8981', 'Sand'], ['#7e8c84', 'Moss'], ['#888494', 'Heather'], ['#8f7f7b', 'Clay'], ['#87898c', 'Mist'],
 ];

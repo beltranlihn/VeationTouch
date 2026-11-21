@@ -19,7 +19,7 @@ export let electronPath = null;
 try { electronPath = (await import('electron')).default; } catch { /* not installed: the page tests are skipped */ }
 
 /** The engine, its server and one hidden helper page; `go(rig)` runs in the engine when the page is polling. → whatever it returns */
-export async function withHelperPage(go) {
+export async function withHelperPage(go, { pageScript = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-cvp-'));
   const rig = { dir };
   rig.store = new Store(dir, path.join(root, 'profiles'), quiet);
@@ -38,8 +38,8 @@ export async function withHelperPage(go) {
     p.simulation.wanderers = 0;
     await rig.engine.command('profile.update', { profile: p, rev: rig.engine.rev });
     const file = path.join(dir, 'script.js');
-    fs.writeFileSync(file, `return await fetch('http://127.0.0.1:${ctl.address().port}/go').then((x) => x.json());`);
-    const run = [path.join(root, 'tests', 'ui', 'runner.cjs'), `--url=http://127.0.0.1:${rig.server.port}/helper`, `--script=${file}`, '--wait=load'];
+    fs.writeFileSync(file, pageScript || `return await fetch('http://127.0.0.1:${ctl.address().port}/go').then((x) => x.json());`);
+    const run = [path.join(root, 'tests', 'ui', 'runner.cjs'), `--url=http://127.0.0.1:${rig.server.port}/helper${pageScript ? '?manual' : ''}`, `--script=${file}`, '--wait=load'];
     const outText = await new Promise((resolve, reject) => {
       const pr = spawn(electronPath, run, { stdio: ['ignore', 'pipe', 'pipe'] });
       let buf = '';

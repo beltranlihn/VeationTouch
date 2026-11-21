@@ -1193,7 +1193,7 @@ test('live: screenshots for review', { skip: (!electronPath && 'electron is not 
 // ---------------------------------------------------------------------------------------------- round 2: formats, Convert to HAP, colours, names, order, cover
 
 const fixtureBytes = (name) => new Uint8Array(fs.readFileSync(path.join(root, 'tests', 'fixtures', 'media', name)));
-const COLORS = ['#7f8b99', '#8f8a7c', '#7e8e84', '#8a8296', '#977f78', '#7a8f96'];
+const COLORS = ['#808892', '#8c8981', '#7e8c84', '#888494', '#8f7f7b', '#87898c'];
 
 /** Opens a menu on an element the way a right-click does. */
 const MENU = `const menuOn = (el) => { const r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 20 })); };
@@ -1588,7 +1588,7 @@ test('live: round 2 screenshots for review', { skip: (!electronPath && 'electron
       s.name = 'Barcelona XR Lab — Tonight';
       s.decks[0].colNames = { 0: 'Intro', 1: 'Drop', 2: 'Calm', 4: 'Finale' };
       const by = (n) => s.clips.find((c) => c.name === n);
-      by('Intro loop').color = '#7f8b99'; by('Embers').color = '#977f78'; by('Aurora wide').color = '#7e8e84'; by('Forest').color = '#7e8e84'; by('Poster').color = '#8a8296';
+      by('Intro loop').color = '#808892'; by('Embers').color = '#8f7f7b'; by('Aurora wide').color = '#7e8c84'; by('Forest').color = '#7e8c84'; by('Poster').color = '#888494';
       by('City night').end = 'hold';
       s.layers[0].name = 'Floor'; s.layers[1].name = 'Walls'; s.layers[2].name = 'Overlay';
     });
@@ -1628,4 +1628,67 @@ test('live: round 2 screenshots for review', { skip: (!electronPath && 'electron
     await wait(1200);
     return 'ok';`, { setup, media, shot: path.join(SHOTS, 'round2-5-cell-menu-1440x900.png') }));
   for (const s of shots) assert.deepEqual(s.errors, [], s.errors.join(' | '));
+});
+
+test('live: an edit the ENGINE makes on its own (cover frame, Convert to HAP relink) empties the undo history — Ctrl+Z never restores an older show over it; our own edits still undo', opt, async () => {
+  // fails if: the undo stack survives a revision that was not one of our show.update calls (Ctrl+Z would put the whole old
+  // snapshot back, e.g. a clip pointed at a medium the conversion replaced), or if our own edit's revision empties it.
+  const { result, errors } = await inLive(`
+    const out = {}, show = () => store.state.show;
+    const A = cellEl('L1', 0).dataset.clip;
+    dragTo(cellEl('L1', 0), cellEl('L2', 3));
+    await until(() => show().decks[0].cells['L2:3'] === A);
+    await wait(300);
+    out.afterOwn = L.undoStack.length;
+    const rev0 = show().rev;
+    await cmd('media.cover', { mediaId: show().media[0].id, frame: 3 });
+    await until(() => show().rev > rev0);
+    await wait(200);
+    out.afterEngine = L.undoStack.length;
+    key('z', { ctrlKey: true }); await wait(400);
+    out.cellAfterUndo = show().decks[0].cells['L2:3'] === A;
+    out.cover = show().media[0].thumbFrame;
+    return out;`, {
+    setup: async ({ engine, file }) => { await imported(engine, [[file('A.mov'), { layerId: 'L1', column: 0 }]]); },
+  });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.equal(result.afterOwn, 1, 'our own edit is undoable (its revision does not empty the history)');
+  assert.equal(result.afterEngine, 0, 'the engine edited the show: the history is gone');
+  assert.equal(result.cellAfterUndo, true, 'Ctrl+Z did not roll the show back over the engine edit');
+  assert.equal(result.cover, 3, 'the cover frame is still set');
+});
+
+test('live: the six clip label tints are neutral — low chroma, none anywhere near the cyan or the amber accent', async () => {
+  // fails if a tint is made saturated enough to read as an accent (chroma = max − min of the channels, 0–255) or lands in the accents' hue bands
+  const { CLIP_COLORS } = await import('../ui/js/live/media-info.js');
+  assert.equal(CLIP_COLORS.length, 6);
+  for (const [hex] of CLIP_COLORS) {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), chroma = mx - mn;
+    assert.ok(chroma <= 24, `${hex} is too saturated (chroma ${chroma})`);
+    const hue = chroma === 0 ? 0 : (mx === r ? ((g - b) / chroma + 6) % 6 : mx === g ? (b - r) / chroma + 2 : (r - g) / chroma + 4) * 60;
+    const cyan = hue >= 175 && hue <= 205, amber = hue >= 30 && hue <= 48;
+    assert.ok(!(chroma > 12 && (cyan || amber)), `${hex} reads as an accent (hue ${hue.toFixed(0)}, chroma ${chroma})`);
+  }
+});
+
+test('live: bulk Transition to "Its own" gives each clip ITS layer time, not the first cell one', opt, async () => {
+  // fails if every selected clip takes the transition of the first selected cell's layer (200 ms on both)
+  const { result, errors } = await inLive(`
+    const click = (el, o = {}) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...o }));
+    click($('.lv-name', cellEl('L1', 0)));
+    click($('.lv-name', cellEl('L2', 0)), { ctrlKey: true });
+    await wait(150);
+    const sel = [...$$('#panel select')].find((s) => s.closest('.row')?.textContent.startsWith('Transition'));
+    sel.value = 'own'; sel.dispatchEvent(new Event('change'));
+    const clipOf = (k) => store.state.show.clips.find((c) => c.id === store.state.show.decks[0].cells[k]);
+    await until(() => clipOf('L1:0').transitionMs !== null && clipOf('L2:0').transitionMs !== null);
+    return { a: clipOf('L1:0').transitionMs, b: clipOf('L2:0').transitionMs };`, {
+    setup: async ({ engine, file }) => {
+      await imported(engine, [[file('A.mov', hapOf(1)), { layerId: 'L1', column: 0 }], [file('B.mov', hapOf(2)), { layerId: 'L2', column: 0 }]]);
+      await editShow(engine, (s) => { s.layers.find((l) => l.id === 'L1').transitionMs = 200; s.layers.find((l) => l.id === 'L2').transitionMs = 900; });
+    },
+  });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.deepEqual(result, { a: 200, b: 900 });
 });
