@@ -22,6 +22,11 @@
 // over [touches, grid] only (state.output.calibrating); the experience is then neither copied nor drawn, but keeps running.
 // Without an experience (or when it stops calling) this page's own frame loop composes, only when something changed.
 // Blackout (state.media.blackout): the image fades to black in 0.5 s, and back.
+// Another experience (MEDIA-SERVER.md §4.5, §4b.4): the outgoing one's last image stays, frozen, while the incoming page
+// loads — however long that takes (an experience that never starts leaves it there; its card shows the error) — and
+// fades to the incoming one over SWITCH_MS from its first frame. Never two experiences alive, never black in between.
+// A TRANSPARENT experience (its manifest says "transparent": true) is drawn just above the clips (the media group) when
+// the profile has it below them, and not opaque: its premultiplied canvas lets the video show through.
 // Screens (the Advanced Output, MEDIA-SERVER.md §5; sink "screens", or ?screens=preview): the image is not presented as
 // it is but cut into SLICES drawn onto the screens (ui/js/mixer/screens.js), each screen with its test card on top when
 // state.output.testCard. ?screens=window is the desktop app's window over the screens' displays (each screen where its
@@ -42,6 +47,7 @@ import { sliceInput, sliceMesh, outputCorners } from '/shared/media/screens.js';
 
 const AMBER = '#E5B567', CYAN = '#4FC3E8';
 const BLACKOUT_MS = 500;
+const SWITCH_MS = 800; // the frozen frame of the outgoing experience → the incoming one
 const stage = document.getElementById('stage'); // the layers' sources
 const view = document.getElementById('mix');    // the mixer's canvas: what this page shows
 // counters (UI and mixer tests): grid / touches / feedbackUploads = texture uploads; gridDraws / feedback = canvas redraws
@@ -57,6 +63,7 @@ let want = [];                     // the layers drawn now, bottom → top ({id,
 let dirty = true;                  // something to compose
 let fade = null;                   // blackout: 0 = image … 1 = black (null until the first state)
 let lastCompose = 0, lastExp = -Infinity, frameNo = 0, timingAt = 0;
+let frozen = null;                 // the outgoing experience's last image { tex, texW, texH, gen, opaque } (until the switch is over)
 const rec = { t: [], cpu: [] };    // the last compositions: instants and CPU ms (stats.timing)
 
 const P = () => store.state?.profile;
@@ -114,9 +121,36 @@ function uploadChanged() {
 
 // ---------------------------------------------------------------------------------------------- layers
 
+/** The catalog entry of the room's experience, or null. */
+function experienceEntry() {
+  const S = store.state, id = S?.profile?.experience?.id;
+  return (id && (S.experiences || []).find((c) => c.id === id)) || null;
+}
+
 function experienceSrc() {
-  const S = store.state, id = S.profile.experience.id, e = id && (S.experiences || []).find((c) => c.id === id);
+  const e = experienceEntry();
   return e ? `/experiences/${e.id}/${e.entry}?run=1&layer=1` : '';
+}
+
+/** The outgoing experience's last image is kept (its texture leaves the layer), if it ever showed one. */
+function freeze(L) {
+  if (!mixer || !L.ready || !L.tex || L.gen !== mixer.generation) return; // nothing shown yet: an older frozen frame stays
+  freeTex(frozen);
+  frozen = { tex: L.tex, texW: L.texW, texH: L.texH, gen: L.gen, opaque: L.opaque !== false };
+  L.tex = null;
+}
+
+function unfreeze() { freeTex(frozen); frozen = null; }
+
+/** What the experience layer shows now: its own frames, the frozen frame of the one before, or the fade between them. */
+function experienceSource(E, now) {
+  const opaque = E.opaque !== false;
+  if (frozen && (!mixer || frozen.gen !== mixer.generation)) frozen = null; // a lost context took it
+  if (!frozen) return { tex: E.tex, ready: E.ready, opaque };
+  if (!E.ready || E.firstAt == null) return { tex: frozen.tex, ready: true, opaque: frozen.opaque };
+  const k = (now - E.firstAt) / SWITCH_MS;
+  if (k >= 1) { unfreeze(); return { tex: E.tex, ready: true, opaque }; }
+  return { tex: frozen.tex, texB: E.tex, mix: Math.max(0, k), ready: true, opaque: opaque && frozen.opaque };
 }
 
 function drop(L) {
@@ -130,16 +164,17 @@ function ensure(cfg) {
   if (cfg.id === 'experience') {
     const src = experienceSrc();
     if (!src) return null;
-    if (L && L.src !== src) { drop(L); L = null; } // another piece: a fresh page (black until its first frame, as before)
+    if (L && L.src !== src) { freeze(L); drop(L); L = null; } // another piece: a fresh page, the old one's image frozen until it draws
     if (!L) {
       const el = document.createElement('iframe');
       el.className = 'layer'; el.dataset.layer = 'experience'; el.title = 'Experience'; el.setAttribute('scrolling', 'no');
-      L = { id: 'experience', el, src, ready: false, tex: null };
+      L = { id: 'experience', el, src, ready: false, tex: null, firstAt: null };
       el.addEventListener('load', () => { stats.expLoads++; L.ready = false; dirty = true; }); // every load = a (re)start of the piece
       el.src = src;
       stage.append(el);
       layers.set('experience', L);
     }
+    L.opaque = !experienceEntry()?.transparent;
     place(L.el);
     return L;
   }
@@ -187,6 +222,10 @@ function sync() {
   const parked = O.on && S.output?.calibrating && O.layers.some((l) => l.id === 'experience' && l.on) && layers.get('experience');
   if (parked) keep.add('experience');
   for (const [id, L] of [...layers]) if (!keep.has(id)) drop(L);
+  if (!keep.has('experience')) unfreeze(); // no experience any more (None, or its layer off): nothing to fade from
+  // a transparent experience goes just above the clips (when the profile has it below them): the video shows through it
+  const xi = list.findIndex((l) => l.id === 'experience'), mi = list.findIndex((l) => l.id === 'media');
+  if (xi >= 0 && mi > xi && experienceEntry()?.transparent) list.splice(mi, 0, list.splice(xi, 1)[0]);
   want = list;
   if (fade == null) fade = blackoutTarget(); // a page that opens during a blackout starts black
   dirty = true;
@@ -233,6 +272,7 @@ function compose(t, expCanvas = null) {
     const tex = texOf(E, expCanvas.width, expCanvas.height);
     mixer.time('copy', timed, () => mixer.upload(tex, expCanvas));
     E.ready = true; stats.expFrames++;
+    if (E.firstAt == null) E.firstAt = a; // (the fade from a frozen frame starts here)
   }
   let draws = [];
   if (!dark) {
@@ -305,7 +345,7 @@ function cardOf(screen) {
 function sources() {
   const E = layers.get('experience'), T = layers.get('touches'), G = layers.get('grid');
   return {
-    experience: E && { tex: E.tex, ready: E.ready },
+    experience: E && experienceSource(E, performance.now()),
     touches: T && { tex: T.tex },
     grid: G && { tex: G.tex },
     feedback: G?.fb && drawn('grid') && { tex: G.fb.tex, on: G.fb.on },
@@ -557,6 +597,7 @@ document.fonts?.load?.('600 20px Geist').then(() => drawGrid(true)).catch(() => 
 window.__out = {
   sync, touchFrame, drawGrid, drawFeedback, stats, registry, clock, media,
   layers: () => want.map((l) => l.id),
+  frozen: () => !!frozen, // the outgoing experience's frame is still shown (or fading out)
   plan: () => [...want.map((l) => ({ id: l.id, blend: l.blend || 'normal', opacity: l.opacity ?? 1 })), ...(sources().feedback?.on ? [{ id: 'feedback', blend: 'normal', opacity: 1 }] : [])],
   compose: () => compose(performance.now(), null),
   mixer: () => mixer,

@@ -93,7 +93,7 @@ export function createRegistry() {
 /**
  * The draws of one composed frame, bottom → top.
  * @param {object[]} layers  the layers to draw ({id, opacity, blend}), bottom → top — already without what is off or parked
- * @param {object} src       the sources: { experience: {tex, ready}, touches: {tex}, grid: {tex}, feedback: {tex, on} }
+ * @param {object} src       the sources: { experience: {tex, ready, opaque?, texB?, mix?}, touches: {tex}, grid: {tex}, feedback: {tex, on} }
  * @param {object} registry  createRegistry()
  * @returns {object[]} draws for mixer.compose: {id, tex, texB?, mix?, opacity, blend, opaque?, src?, dst?}
  */
@@ -104,8 +104,10 @@ export function buildDraws(layers, src, registry) {
     if (l.id === 'media') { out.push(...registry.group('media').draws(opacity, blend)); continue; }
     const s = src[l.id];
     if (!s?.tex || (l.id === 'experience' && !s.ready)) continue;
-    // the experience was its page on black: whatever alpha its canvas has, it is shown opaque
-    out.push({ id: l.id, tex: s.tex, opacity, blend, opaque: l.id === 'experience' });
+    // the experience was its page on black: whatever alpha its canvas has, it is shown opaque — unless its manifest says
+    // it is transparent (s.opaque false: its premultiplied canvas lets the clips under it show). texB / mix: the switch
+    // from the outgoing experience's frozen frame (tex) to the incoming one (texB)
+    out.push({ id: l.id, tex: s.tex, opacity, blend, opaque: l.id === 'experience' && s.opaque !== false, ...(s.texB ? { texB: s.texB, mix: s.mix } : {}) });
   }
   // the calibration feedback (what moves under the hand): above every layer, as it is drawn
   if (src.feedback?.on && src.feedback.tex) out.push({ id: 'feedback', tex: src.feedback.tex, opacity: 1, blend: 'normal' });

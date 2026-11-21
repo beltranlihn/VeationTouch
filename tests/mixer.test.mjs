@@ -1,6 +1,8 @@
 // The room output's GPU mixer (ui/js/mixer, MEDIA-SERVER.md §4.5, phase F5): blends, layer order, the experience copied in
 // the task that drew it (not empty, not flipped), calibration mode (the piece is set aside, never restarted), the grid
 // uploaded only when it changes, the blackout, the clip-layer registry F6 fills, and the engine clock of the page.
+// And (F10, MEDIA-SERVER.md §4b.4): a switch of experience never goes through black (the outgoing frame stays frozen),
+// two cards of one experience switch without a reload, and a transparent experience goes above the clips.
 // Pure parts run in Node; the rest in the REAL output page (/output) in Electron, reading the mixer's image with
 // readPixels — in the tests only (mixer.readFbo): the product never reads pixels back.
 // Two kinds of window (tests/ui/runner.cjs): a hidden one gets no frames (requestAnimationFrame does not run), so its
@@ -17,6 +19,7 @@ import { Store } from '../engine/store.js';
 import { Engine } from '../engine/engine.js';
 import { createServer } from '../engine/server.js';
 import { normalizeProfile } from '../engine/profile.js';
+import { normalizeShow } from '../engine/media/show.js';
 import { makeClock } from '../ui/js/clock.js';
 import { makeHands } from '../experiences/runtime.js';
 import { createRegistry, buildDraws } from '../ui/js/mixer/layers.js';
@@ -318,4 +321,85 @@ test('mixer: the experience reaches the mixer not empty and not flipped, copied 
   assert.equal(result.restored.lost, 1);
   assert.ok(result.restored.generation >= 1 && result.restored.rowProbe > result.size[0] * 0.5 && near(result.restored.mark, [0, 255, 255]), `after a lost context the image comes back: ${JSON.stringify(result.restored)}`);
   console.log(`  mixer: ${result.timing.fps} fps, CPU ${JSON.stringify(result.timing.cpuMs)} ms, GPU ${JSON.stringify(result.timing.gpuMs)}`);
+});
+
+/** Four cards in a show: two of the touch probe, two of the media probe (one that never draws: `stall`). */
+async function withCards(engine) {
+  engine.experienceDirs.push(FIXTURES);
+  await engine.command('experience.list');
+  const p = structuredClone(engine.profile);
+  p.simulation.wanderers = 0;
+  p.experience = normalizeProfile({}).experience;
+  p.output = normalizeProfile({}).output;
+  await engine.command('profile.update', { profile: p, rev: engine.rev });
+  await engine.command('output.set', { scale: 0.25 });
+  engine.store.saveShow(normalizeShow({ id: 'sw', name: 'Switch', presets: [
+    { id: 'a1', name: 'Probe', experienceId: 'touch-probe', params: { gain: 1 } },
+    { id: 'a2', name: 'Probe dim', experienceId: 'touch-probe', params: { gain: 0.5 } },
+    { id: 'b1', name: 'Never starts', experienceId: 'media-probe', params: { stall: true } },
+    { id: 'b2', name: 'Over the clips', experienceId: 'media-probe', params: { stall: false } },
+  ] }));
+  await engine.command('show.load', { id: 'sw' });
+  await engine.command('output.layers', { layers: [{ id: 'experience' }, { id: 'media' }, { id: 'touches', on: false }, { id: 'grid', on: false }] });
+  await engine.command('preset.load', { presetId: 'a1' });
+}
+
+test('mixer: a switch of experience is never black — the outgoing frame stays frozen (even when the incoming one never starts) and fades to it; two cards of one experience switch without a reload; a transparent one goes above the clips', opt, async () => {
+  const { result, errors } = await inPage(`
+    const { store, cmd } = await import('/js/conn.js');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const until = async (f, ms = 8000) => { const t0 = performance.now(); while (!f() && performance.now() - t0 < ms) await wait(40); return !!f(); };
+    await until(() => window.__out && store.state && window.__out.layers().includes('experience'));
+    const O = window.__out, ifr = () => document.querySelector('#stage iframe');
+    await until(() => ifr()?.contentWindow?.__probe && O.stats.expFrames > 20);
+    const m = O.mixer(), W = m.width, H = m.height;
+    const px = (x, y) => [...m.readFbo(Math.round(x), Math.round(y), 1, 1)];
+    const mid = () => { O.compose(); return px(W / 2, H * 0.6); };
+    const out = { first: mid(), boots: ifr().contentWindow.__probe.boots, loads: O.stats.expLoads, order1: O.layers() };
+    // (1) another card of the same experience: only its parameters change (green = gain / 2), the page stays
+    const page = ifr().contentWindow.__probe;
+    await cmd('preset.load', { presetId: 'a2' });
+    await until(() => Math.abs(mid()[1] - 64) <= 4, 4000);
+    out.same = { px: mid(), sameProbe: ifr().contentWindow.__probe === page, boots: ifr().contentWindow.__probe.boots, loads: O.stats.expLoads };
+    // (2) another experience that never draws: the room keeps the last image of the outgoing one
+    await cmd('preset.load', { presetId: 'b1' });
+    const samples = [], t0 = performance.now();
+    while (performance.now() - t0 < 1500) { samples.push(mid()); await wait(60); }
+    out.during = { samples, frozen: O.frozen(), src: ifr()?.src || null };
+    await until(() => store.state.media.preset?.state === 'error', 8000);
+    out.error = { preset: store.state.media.preset, px: mid(), frozen: O.frozen() };
+    // (3) the same piece starts drawing (the other card): it fades in over the frozen frame; it is transparent, so it
+    //     goes above the clips (a green clip layer here) and lets them show through
+    const c = document.createElement('canvas'); c.width = c.height = 4;
+    const g2 = c.getContext('2d'); g2.fillStyle = '#00ff00'; g2.fillRect(0, 0, 4, 4);
+    const tex = m.texture(4, 4); m.upload(tex, c);
+    O.registry.group('media').add('test-green', { order: -1 }).show(tex);
+    await cmd('preset.load', { presetId: 'b2' });
+    const mixes = [];
+    await until(() => { const v = mid(); if (O.frozen()) mixes.push(v); return !O.frozen() && ifr().contentWindow.__probe?.frames > 0; }, 6000);
+    await wait(150);
+    out.after = { mid: mid(), corner: px(2, 2), order: O.layers(), mixes: mixes.length };
+    return out;`, { offscreen: true, setup: withCards });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  const isProbe = (p, g = 127.5) => Math.abs(p[1] - g) <= 4 && Math.abs(p[2] - 102) <= 4;
+  assert.ok(isProbe(result.first), `the touch probe on the wall: ${result.first}`);
+  assert.deepEqual(result.order1, ['experience', 'media'], 'an opaque experience stays where the profile puts it');
+  // Fails if two cards of one experience reload its page: its boot counter and the iframe loads would move
+  assert.ok(isProbe(result.same.px, 64), `the second card's parameters, live: ${result.same.px}`);
+  assert.deepEqual([result.same.sameProbe, result.same.boots, result.same.loads], [true, result.boots, result.loads], 'the same page, not started again');
+  // Fails if the frozen frame is not kept: between the order and the incoming page's first frame the room would be black
+  assert.ok(result.during.src?.includes('/experiences/media-probe/'), 'the incoming page is there');
+  const black = result.during.samples.filter((p) => p[0] + p[1] + p[2] < 30);
+  assert.equal(black.length, 0, `never black after the order (${black.length} of ${result.during.samples.length} samples black)`);
+  assert.ok(result.during.samples.every((p) => isProbe(p, 64)), `the outgoing image, frozen: ${JSON.stringify(result.during.samples.slice(0, 3))}`);
+  assert.equal(result.during.frozen, true);
+  // an experience that does not start in 5 s: its card is in error, the frozen image stays
+  assert.equal(result.error.preset.state, 'error');
+  assert.match(result.error.preset.error, /did not start within 5 s/);
+  assert.equal(result.error.frozen, true);
+  assert.ok(isProbe(result.error.px, 64), `still the frozen image: ${result.error.px}`);
+  // Fails if a transparent experience stays below the clips, or is drawn opaque (the clip would not show through it)
+  assert.deepEqual(result.after.order, ['media', 'experience'], 'transparent: above the clips');
+  assert.ok(result.after.mid[1] > 240 && result.after.mid[0] < 15 && result.after.mid[2] < 15, `the green clip through the transparent experience: ${result.after.mid}`);
+  assert.ok(result.after.corner[0] > 240 && result.after.corner[1] < 15 && result.after.corner[2] > 240, `its own (opaque) magenta corner on top: ${result.after.corner}`);
 });

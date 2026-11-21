@@ -227,3 +227,13 @@
 .lv-locked{font-size:var(--fs-s);}
 .lv-locate input{margin-bottom:var(--sp-8);}
 .lv-locate .lv-drop{padding:16px 10px;}
+/* a card's clip slots: drop zones (a clip of the grid or a file of the library), one row per clip */
+.lv-slot{margin:0 0 var(--sp-8);padding:var(--sp-6);border:.5px solid rgba(255,255,255,.08);border-radius:3px;background:var(--s0);}
+.lv-slot.dragover{border-color:rgba(201,205,211,.6);background:rgba(201,205,211,.08);}
+.lv-slothead{display:flex;justify-content:space-between;gap:var(--sp-6);margin-bottom:var(--sp-6);font-size:var(--fs-s);}
+.lv-slothead .k{color:var(--ink-2);font-weight:500;}
+.lv-slotclip{display:flex;align-items:center;gap:4px;min-width:0;padding:2px 0 2px 6px;border-left:2px solid rgba(201,205,211,.45);}
+.lv-slotclip+.lv-slotclip{margin-top:3px;}
+.lv-slotclip .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lv-slotclip .ibtn.small{height:20px;font-size:var(--fs-s);}
+.lv-slot .row{margin-top:var(--sp-6);}

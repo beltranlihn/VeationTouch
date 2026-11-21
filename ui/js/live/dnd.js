@@ -28,8 +28,11 @@ function targetOf(t) {
   return null;
 }
 
-/** A new clip of a library file, for a layer: the layer's settings, except a clip with audio on a looping layer plays once. */
-function newClip(show, media, layerId) {
+/**
+ * A new clip of a library file, for a layer: the layer's settings, except a clip with audio on a looping layer plays
+ * once. (No layer — a card's slot, inspector.js: the experience says how it plays.)
+ */
+export function newClip(show, media, layerId) {
   const layer = show.layers.find((l) => l.id === layerId);
   const audible = !!media.audio?.supported;
   return {

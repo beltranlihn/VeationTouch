@@ -289,6 +289,62 @@ test('live: a clip moved within the grid goes there with the show\'s revision; o
   assert.equal(engine.media.show.decks[0].cells['L3:5'], engine.media.show.clips.at(-1).id);
 });
 
+test('live: a card\'s clip slots take a grid clip or a library file dropped on them, or one picked from their menu (show.update with the revision); × takes one out', opt, async () => {
+  // fails if: the card's inspector shows no drop zone per slot of the manifest, a grid clip or a library file dropped on
+  // a slot is not saved in the preset (a file: as a new clip), the menu does not add, a 'clips' slot takes the same clip
+  // twice, the × does not take it out (and drop the clip nothing else uses), or an edit goes without the revision.
+  const { result, errors, engine } = await inLive((ctx) => `
+    const out = {}, P = () => store.state.show.presets.find((p) => p.id === 'p1').media;
+    const slot = (k) => $('#panel .lv-slot[data-slot="' + k + '"]');
+    L.select({ kind: 'preset', id: 'p1' }); await wait(150);
+    out.zones = $$('#panel .lv-slot').map((z) => z.dataset.slot);
+    const A = cellEl('L1', 0).dataset.clip, B = cellEl('L1', 1).dataset.clip;
+    let rev = store.state.show.rev;
+    dragTo(cellEl('L1', 0), slot('reel'));
+    await until(() => P().reel === A);
+    out.revs = [store.state.show.rev > rev]; rev = store.state.show.rev;
+    out.reel = P().reel === A && store.state.show.decks[0].cells['L1:0'] === A; // the grid keeps its clip
+    $('.lv-dtoggle').click(); await wait(100);
+    const n = store.state.show.clips.length;
+    await until(() => slot('projects'));
+    dragTo($('.lv-tile[data-media="${ctx.mC}"]'), slot('projects'));
+    await until(() => (P().projects || []).length === 1);
+    out.revs.push(store.state.show.rev > rev); rev = store.state.show.rev;
+    const fresh = P().projects[0];
+    out.fromFile = { clips: store.state.show.clips.length - n, media: store.state.show.clips.find((c) => c.id === fresh)?.mediaId };
+    await wait(100);
+    const sel = slot('projects').querySelector('select');
+    out.menu = [...sel.options].map((o) => o.value);
+    sel.value = 'clip:' + B; sel.dispatchEvent(new Event('change')); sel.blur();
+    await until(() => (P().projects || []).length === 2);
+    await wait(100);
+    dragTo(cellEl('L1', 1), slot('projects')); await wait(300); // B again: refused
+    out.projects = [...P().projects];
+    out.chips = $$('#panel .lv-slot[data-slot="projects"] .lv-slotclip').map((c) => c.dataset.clip);
+    slot('projects').querySelector('.lv-slotclip[data-clip="' + fresh + '"] button').click();
+    await until(() => P().projects.length === 1);
+    out.removed = { projects: [...P().projects], clipGone: !store.state.show.clips.some((c) => c.id === fresh) };
+    return { ...out, A, B, fresh };`, {
+    setup: async (ctx) => {
+      const { engine, file } = ctx;
+      await imported(engine, [[file('A.mov'), { layerId: 'L1', column: 0 }], [file('B.mov', makeHap({ frames: 8 }).bytes), { layerId: 'L1', column: 1 }], [file('C.mov', makeHap({ frames: 6 }).bytes), null]]);
+      ctx.mC = engine.media.show.media.find((m) => m.file.endsWith('C.mov')).id;
+      await editShow(engine, (s) => { s.presets = [{ id: 'p1', name: 'Probe', experienceId: 'media-probe', params: {}, sound: null, media: {}, onLoad: 'keep' }]; });
+    },
+  });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  const { A, B, fresh } = result;
+  assert.deepEqual(result.zones, ['reel', 'projects'], 'one drop zone per slot the manifest declares');
+  assert.equal(result.reel, true, 'a grid clip dropped on the reel slot');
+  assert.deepEqual(result.revs, [true, true], 'each edit is a show.update with the revision');
+  assert.deepEqual(result.fromFile, { clips: 1, media: engine.media.show.media.find((m) => m.file.endsWith('C.mov')).id }, 'a library file: a new clip of it');
+  assert.ok(result.menu.includes(`clip:${A}`) && result.menu.includes(`clip:${B}`), JSON.stringify(result.menu));
+  assert.deepEqual(result.projects, [fresh, B], 'picked from the menu; the same clip is not taken twice');
+  assert.deepEqual(result.chips, [fresh, B]);
+  assert.deepEqual(result.removed, { projects: [B], clipGone: true }, '× takes it out; a clip nothing uses goes');
+  assert.deepEqual(engine.media.show.presets[0].media, { reel: A, projects: [B] });
+});
+
 // ---------------------------------------------------------------------------------------------- problems, Show mode
 
 test('live: a missing file marks its cell amber and adds to Problems; Locate… finds it in a folder and the cell is ready again', opt, async () => {

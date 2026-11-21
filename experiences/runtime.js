@@ -11,6 +11,9 @@
 // Hands: vt.hands() (every frame) gives the hands as strokes — played back HAND_DELAY_MS late on a smooth curve through the
 // tracker's real readings, a hand the tracker splits staying one stroke — and the 'touch' events (down / move / up, `id` = the
 // stroke) and vt.touches() follow the same playback. See makeHands below.
+// Walls: vt.walls[i] = { id, name, rect (render px), width, height (metres), pxPerM (render px per metre), masks (render-px
+// boxes { id, name, x, y, w, h } of the wall's masks — doors, lamps: the sensor does not see there) }.
+// Clips: vt.media plays the clips of the preset's slots on the room's reserved layer — see makeMedia below.
 // Contract: ARCHITECTURE.md › Experiences. Nothing here is specific to any one experience or room.
 
 const q = new URLSearchParams(typeof location === 'undefined' ? '' : location.search); // (also importable from Node: tests of makeHands)
@@ -69,6 +72,7 @@ function makeHandle(base) {
     toPx: () => [0, 0],
     touches: () => [],
     hands: () => [],
+    media: null, // set by each connect* (makeMedia)
     loop: (fn, src) => runLoop(vt, fn, src),
     frame: (src) => frameOut(vt, src),
     ...base,
@@ -376,6 +380,178 @@ function setParams(vt, next) {
   vt.emit('params', vt.params);
 }
 
+// ---------------------------------------------------------------------------------------------- walls
+
+/**
+ * A wall as a page sees it. `s`: the render scale; `toCanvas(u, v)`: the wall's (u, v) → canvas px (v = 0 at the top).
+ * Masks are in wall metres (x from the left, y from the floor); each becomes the render-px box of its outline's bounds.
+ */
+export function wallView(w, s, toCanvas = (u, v) => [w.pixelRect.x + u * w.pixelRect.w, w.pixelRect.y + v * w.pixelRect.h]) {
+  const r = w.pixelRect, W = w.width || 1, H = w.height || 1;
+  const masks = (w.masks || []).map((m) => {
+    const pts = [[m.x0, m.y0], [m.x1, m.y0], [m.x1, m.y1], [m.x0, m.y1]].map(([x, y]) => toCanvas(x / W, 1 - y / H));
+    const xs = pts.map((p) => p[0] * s), ys = pts.map((p) => p[1] * s);
+    const x = Math.round(Math.min(...xs)), y = Math.round(Math.min(...ys));
+    return { id: m.id, name: m.name, x, y, w: Math.round(Math.max(...xs)) - x, h: Math.round(Math.max(...ys)) - y };
+  });
+  return {
+    id: w.id, name: w.name, rect: { x: Math.round(r.x * s), y: Math.round(r.y * s), w: Math.round(r.w * s), h: Math.round(r.h * s) },
+    width: w.width, height: w.height, pxPerM: (r.w * s) / W, masks,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------- clips (vt.media)
+// MEDIA-SERVER.md §4.4. The operator gives a preset's experience its clips in Live (the slots its manifest declares,
+// `"media": [{ "key": "reel", "type": "clip" }, { "key": "projects", "type": "clips", "max": 12 }]`); the page plays
+// them on the reserved layer of the room output ("Experience clips", above the grid's layers). What it launched stops
+// by itself when its preset is unloaded. Only the room's running instance launches anything: the app's viewer and a
+// page opened on its own get a harmless simulation (same calls, same events, nothing reaches the room).
+//   vt.media.available                      true only in the room's running instance
+//   vt.media.slot(key)                      'clip' slot → clip | null · 'clips' slot → [clip, …] · an undeclared key → null
+//                                           clip = { id, name, duration (s), hasAudio, thumb (URL | null), missing }
+//   vt.media.slots()                        every slot: { key → clip | null | [clip, …] }
+//   vt.media.play(clip | id, { end = 'clear', transitionMs, loops })   → Promise<{ playId, startAt }>; rejects with the
+//                                           engine's reason (a file that is missing, a clip still copying)
+//   vt.media.stop({ transitionMs })         → Promise; ejects what it launched (with the layer's transition by default)
+//   vt.media.preload(clip | id)             → Promise; the output keeps its first frame ready (8 clips at most, the oldest leaves)
+//   vt.media.on(type, fn)                   'started' / 'ended' / 'error' { playId, clipId, reason?, error? }; 'slots'
+//                                           (the operator changed the clips) { key → … }. Returns the unsubscribe.
+//   vt.media.state()                        { playing, held, playId, clipId, position (s into the clip), duration (s) }
+
+export const XLAYER = 'xlayer';
+const SIM_CLIP_S = 5;   // a stand-in clip (or one whose length is unknown) lasts this long in the simulation
+const SIM_ENDS = ['loop', 'hold', 'clear', 'bounce', 'next', 'prev', 'random', 'first']; // = transport.js › ENDS
+const r3 = (v) => Math.round(v * 1000) / 1000;
+
+/** A clip of the show as a page sees it. */
+export function clipView(state, clip) {
+  const show = state?.show, M = state?.media || {};
+  const m = show?.media?.find((x) => x.id === clip.mediaId) || null, v = m?.video || {};
+  const len = v.duration > 0 ? v.duration : v.frames > 0 && v.fps > 0 ? v.frames / v.fps : 0;
+  const inS = Math.min(Math.max(0, clip.in || 0), len);
+  const out = clip.out !== null && clip.out !== undefined && clip.out > inS ? Math.min(clip.out, len) : len;
+  const copying = !!m && (M.import || []).some((j) => j.mediaId === m.id && j.showId === show.id && j.kind !== 'export' && j.state !== 'done' && j.state !== 'cancelled');
+  const gone = !!m && (M.problems || []).some((p) => p.mediaId === m.id && p.kind === 'missing-media');
+  const thumb = m?.fingerprint ? `/api/media/thumb/${encodeURIComponent(m.id)}.png?s=480&v=${m.fingerprint}${state.local ? '' : `&k=${encodeURIComponent(state.token || '')}`}` : null;
+  return { id: clip.id, name: clip.name, duration: r3(Math.max(0, out - inS)), hasAudio: !!m?.audio?.supported, thumb, missing: !m || copying || gone };
+}
+
+/**
+ * The slots of experience `id` in the live preset (state.media.preset, when it is a card of this experience): only the
+ * slots its manifest declares, clips that left the show left out. No live card of it: every slot empty.
+ */
+export function slotsOf(state, id) {
+  const decl = (state?.experiences || []).find((e) => e.id === id)?.media || [];
+  const show = state?.show, P = state?.media?.preset;
+  const preset = P?.id && P.experienceId === id ? show?.presets?.find((p) => p.id === P.id) || null : null;
+  const out = {};
+  for (const s of decl) {
+    const v = preset?.media?.[s.key], ids = Array.isArray(v) ? v : v ? [v] : [];
+    const clips = ids.map((c) => show.clips.find((x) => x.id === c)).filter(Boolean).map((c) => clipView(state, c));
+    out[s.key] = s.type === 'clips' ? clips.slice(0, s.max || 64) : clips[0] || null;
+  }
+  return out;
+}
+
+/** Standalone: every slot of the manifest filled with stand-in clips (one for 'clip', up to three for 'clips'). */
+export function standInSlots(decl) {
+  const out = {};
+  for (const s of Array.isArray(decl) ? decl : []) {
+    if (!s || typeof s.key !== 'string') continue;
+    const label = typeof s.label === 'string' && s.label ? s.label : s.key;
+    const one = (k) => ({ id: `sim-${s.key}${k ? `-${k}` : ''}`, name: k ? `${label} ${k}` : label, duration: SIM_CLIP_S, hasAudio: false, thumb: null, missing: false });
+    out[s.key] = s.type === 'clips' ? Array.from({ length: Math.min(3, Math.max(1, Number(s.max) || 3)) }, (_, i) => one(i + 1)) : one(0);
+  }
+  return out;
+}
+
+/**
+ * vt.media. o.real: the commands go to the engine (o.cmd; o.xlayer() = state.media.xlayer, o.engineNow() = the engine's
+ * time or null, o.playhead = transport.js › playhead); otherwise a simulation that resolves at once and plays nothing.
+ * o.slots() → the slots. The runtime feeds it the engine's events of the reserved layer (_event) and every state change
+ * (_changed: a 'slots' event when the clips of the slots changed).
+ */
+export function makeMedia(o) {
+  const subs = new Map();
+  const emit = (type, e) => { for (const fn of subs.get(type) || []) { try { fn(e); } catch (err) { console.error(err); } } };
+  const key = () => JSON.stringify(o.slots());
+  let slotsKey = key();
+  const idOf = (ref) => (ref && typeof ref === 'object' ? ref.id : ref);
+  const clipOf = (ref) => {
+    for (const v of Object.values(o.slots())) for (const c of [].concat(v || [])) if (c && c.id === idOf(ref)) return c;
+    throw new Error(`"${idOf(ref)}" is not a clip of this experience's slots`);
+  };
+  const sim = { seq: 0, cur: null, timer: 0 };
+  const simEnd = (reason) => {
+    const c = sim.cur;
+    clearTimeout(sim.timer);
+    if (!c) return;
+    sim.cur = null;
+    if (!c.ended) emit('ended', { playId: c.playId, clipId: c.clipId, reason });
+  };
+  return {
+    get available() { return !!o.real; },
+    slot(k) { const s = o.slots(); return k in s ? s[k] : null; },
+    slots: () => o.slots(),
+    async play(ref, opt = {}) {
+      const clip = clipOf(ref);
+      const end = opt.end ?? 'clear'; // what an experience launches plays once unless it says otherwise
+      if (!o.real) {
+        if (!SIM_ENDS.includes(end)) throw new Error(`end: one of ${SIM_ENDS.join(', ')}`);
+        simEnd('replaced');
+        const playId = `sim-${++sim.seq}`, dur = clip.duration > 0 ? clip.duration : SIM_CLIP_S;
+        sim.cur = { playId, clipId: clip.id, at: performance.now(), duration: dur, end, ended: false, held: false };
+        setTimeout(() => { if (sim.cur?.playId === playId) emit('started', { playId, clipId: clip.id }); }, 0);
+        if (end !== 'loop' && end !== 'bounce') {
+          sim.timer = setTimeout(() => {
+            const c = sim.cur;
+            if (c?.playId !== playId) return;
+            if (end === 'hold') { c.ended = true; c.held = true; emit('ended', { playId, clipId: clip.id, reason: 'end' }); } else simEnd('end');
+          }, dur * 1000);
+        }
+        return { playId, startAt: null, simulated: true };
+      }
+      const args = { clipId: clip.id, layerId: XLAYER, end };
+      if (opt.transitionMs !== undefined && opt.transitionMs !== null) args.transitionMs = opt.transitionMs;
+      if (opt.loops !== undefined) args.loops = opt.loops;
+      const r = await o.cmd('clip.trigger', args);
+      return { playId: r.playId, startAt: r.startAt ?? null };
+    },
+    async stop(opt = {}) {
+      if (!o.real) { const had = !!sim.cur; simEnd('cleared'); return { cleared: had, simulated: true }; }
+      return o.cmd('layer.clear', { layerId: XLAYER, ...(opt.transitionMs !== undefined && opt.transitionMs !== null ? { transitionMs: opt.transitionMs } : {}) });
+    },
+    async preload(ref) {
+      const clip = clipOf(ref);
+      if (!o.real) return { preload: [clip.id], simulated: true };
+      return o.cmd('clip.preload', { clipId: clip.id });
+    },
+    on(type, fn) { if (!subs.has(type)) subs.set(type, new Set()); subs.get(type).add(fn); return () => subs.get(type).delete(fn); },
+    state() {
+      const idle = { playing: false, held: false, playId: null, clipId: null, position: 0, duration: 0 };
+      if (!o.real) {
+        const c = sim.cur;
+        if (!c) return idle;
+        const el = (performance.now() - c.at) / 1000, d = c.duration;
+        const pos = c.end === 'loop' ? el % d : c.end === 'bounce' ? d - Math.abs((el % (2 * d)) - d) : Math.min(el, d);
+        return { playing: !c.held, held: c.held, playId: c.playId, clipId: c.clipId, position: r3(pos), duration: r3(d) };
+      }
+      const e = o.xlayer(), p = e?.play;
+      if (!p) return idle;
+      const now = o.engineNow?.() ?? p.startAt;
+      const t = o.playhead ? o.playhead(p, now).time : p.in;
+      return { playing: e.state === 'playing', held: e.state === 'held', playId: p.playId, clipId: p.clipId, position: r3(t - p.in), duration: r3(p.out - p.in) };
+    },
+    /** (runtime) an engine event of the reserved layer: started / ended / error. */
+    _event(e) {
+      if (!['started', 'ended', 'error'].includes(e?.event)) return;
+      emit(e.event, { playId: e.playId, clipId: e.clipId, ...(e.reason ? { reason: e.reason } : {}), ...(e.error ? { error: e.error } : {}) });
+    },
+    /** (runtime) the state changed: a 'slots' event when the clips of the slots did. */
+    _changed() { const k = key(); if (k !== slotsKey) { slotsKey = k; emit('slots', o.slots()); } },
+  };
+}
+
 // ---------------------------------------------------------------------------------------------- with the engine
 
 // layer (?run=1&layer=1): this page is one layer of the room output (ui/output.html composes it with the others in an iframe)
@@ -405,11 +581,12 @@ async function connectEngine(id, run, viewer = false, layer = false) {
   const refresh = () => {
     P = store.state.profile; X = P.output;
     const s = vt.scale;
-    vt.walls = P.walls.map((w) => ({ id: w.id, name: w.name, rect: { x: Math.round(w.pixelRect.x * s), y: Math.round(w.pixelRect.y * s), w: Math.round(w.pixelRect.w * s), h: Math.round(w.pixelRect.h * s) } }));
+    vt.walls = P.walls.map((w) => wallView(w, s, (u, v) => geo.wallUvToCanvas(w, u, v)));
     vt.closedLoop = geo.planCloses(P.walls);
     vt.fit = X.fit; vt.fps = viewer ? Math.min(X.fps, VIEW_FPS) : X.fps;
     vt._sink();
     setParams(vt, paramValues());
+    vt.media._changed();
     // the render size is fixed for a page's life: a new canvas or scale means a fresh page
     const want = sizeOf(P, X);
     if (run && (want.width !== vt.size.width || want.height !== vt.size.height)) location.reload();
@@ -435,6 +612,20 @@ async function connectEngine(id, run, viewer = false, layer = false) {
     return [x * vt.scale, y * vt.scale];
   };
   vt.touches = hands.touches; vt.hands = hands.hands; vt._tick = hands.tick;
+
+  // the clips: real only in the room's running instance; the viewer and a page opened by hand simulate (they see the slots)
+  // (playhead is THE formula of a clip's position; a server without it — an older engine — leaves state().position at 0)
+  const { playhead = null } = await import('/shared/transport.js').catch(() => ({}));
+  vt.media = makeMedia({
+    real: run && !viewer,
+    slots: () => slotsOf(store.state, id),
+    cmd,
+    xlayer: () => store.state.media?.xlayer || null,
+    engineNow: () => (hands.offset == null ? null : performance.now() - hands.offset),
+    playhead,
+  });
+  on('media', () => vt.media._changed());
+  on('mediaEvent', (e) => { if (e.layerId === XLAYER) vt.media._event(e); });
 
   // A touch in the live feed: [id, x, y, size, coasting, rx, ry, seenAt] — x, y are the tracker's (extrapolated up to 60 ms),
   // rx, ry the filtered position at its last REAL reading and seenAt the engine time (ms, the clock of L.t) of that reading.
@@ -583,15 +774,18 @@ async function connectStandalone(id) {
   const fit = () => {
     const w = Math.max(1, Math.round(innerWidth * dpr)), h = Math.max(1, Math.round(innerHeight * dpr));
     vt.canvas = { width: w, height: h }; vt.scale = 1; vt.size = { width: w, height: h };
-    vt.walls = [{ id: WALL, name: 'Wall', rect: { x: 0, y: 0, w, h } }];
+    vt.walls = [{ id: WALL, name: 'Wall', rect: { x: 0, y: 0, w, h }, width: w / PX_PER_M, height: h / PX_PER_M, pxPerM: PX_PER_M, masks: [] }];
   };
   fit();
   vt.fps = 60; vt.fit = 'fit'; vt.sink = 'browser'; vt.closedLoop = false;
-  // the defaults of the manifest sitting next to the page
+  // the defaults of the manifest sitting next to the page (and its clip slots, filled with stand-in clips)
+  let manifest = null;
   try {
-    const m = await within(fetch(new URL('manifest.json', location.href)).then((r) => r.json()), 2500);
-    for (const p of m?.params || []) if (p && p.key && 'default' in p) vt.params[p.key] = p.default;
+    manifest = await within(fetch(new URL('manifest.json', location.href)).then((r) => r.json()), 2500);
+    for (const p of manifest?.params || []) if (p && p.key && 'default' in p) vt.params[p.key] = p.default;
   } catch { /* no manifest: no parameters */ }
+  const stand = standInSlots(manifest?.media);
+  vt.media = makeMedia({ real: false, slots: () => stand });
   vt.toPx = (_wallId, xm, ym) => [xm * PX_PER_M, vt.canvas.height - ym * PX_PER_M];
   vt.touches = hands.touches; vt.hands = hands.hands; vt._tick = hands.tick;
   addEventListener('resize', () => { fit(); vt.emit('resize', vt.size); });

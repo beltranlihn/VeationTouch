@@ -3,16 +3,18 @@
 //               "Layer default" (a clip follows its layer until it is given its own value: §2.2, Resolume's lesson)
 //   a layer     its live mix (opacity, volume, blend, bypass, mute) and the defaults its clips inherit
 //   a card      the experience's parameters (live when it is the live card), its sound piece and that one's
-//               parameters, the clip slots its manifest declares (read-only for now), what it does to the grid
+//               parameters, the clip slots its manifest declares (drop a clip or a library file on one, or pick it from
+//               its menu), what it does to the grid
 //   an experience without a card, and None: its parameters, and the room's sound pieces as they always were
 //   a library file, the experience's own row, an empty cell
 // With nothing selected it shows the live card. Show mode: what is an edit of the show is locked (the engine refuses
 // it too); what runs the show — launching, the mix, the parameters — is not.
 
 import { store, cmd } from '../conn.js';
-import { h, sec, field, selectField, toggle, fader, badge, confirmBox } from '../dom.js';
+import { h, sec, field, selectField, toggle, fader, badge, confirmBox, toast } from '../dom.js';
 import * as V from '../views.js';
 import { locate, bytes, duration } from './library.js';
+import { newClip } from './dnd.js';
 import { mixOf } from './layers.js';
 
 const LAYER_ENDS = ['loop', 'hold', 'clear', 'bounce', 'next', 'prev', 'random', 'first'];
@@ -249,13 +251,7 @@ function presetInspector(L, p) {
       (v) => edit((x) => { x.sound = v ? { id: v, params: {} } : null; }, 'card sound').then(reloadIfLive))), false),
     snd?.params.length ? snd.params.map((q) => paramControl(q, q.key in p.sound.params ? p.sound.params[q.key] : q.default, param(q.key, true), liveParam(q.key, true))) : null,
     p.sound && !snd ? h('p', { class: 'muted' }, `The sound piece "${p.sound.id}" is not installed.`) : null);
-  const slots = e?.media?.length ? sec('Clips of the experience',
-    e.media.map((slot) => {
-      const v = p.media?.[slot.key], ids = Array.isArray(v) ? v : v ? [v] : [];
-      const names = ids.map((id) => L.clip(id)?.name).filter(Boolean);
-      return h('div', { class: 'row' }, h('span', { class: 'k' }, slot.label || slot.key), h('span', { class: names.length ? '' : 'muted' }, names.join(', ') || '—'));
-    }),
-    h('p', { class: 'muted' }, 'Read-only for now: the clips a piece like Reel plays.')) : null;
+  const slots = e?.media?.length ? slotSection(L, p, e) : null;
   const autostartOn = !!S.profile.experience.autostart && (show.start?.presetId ? show.start.presetId === p.id : S.profile.experience.id === p.experienceId);
   const setup = sec('Card',
     lockIt(L, h('div', {},
@@ -277,6 +273,76 @@ function presetInspector(L, p) {
         edit((x, sh) => { sh.presets = sh.presets.filter((q) => q.id !== p.id); if (sh.start?.presetId === p.id) sh.start.presetId = null; }, 'remove card');
       } }, 'Remove the card')), true));
   return [top, params, sound, slots, setup];
+}
+
+/**
+ * The clip slots a card's experience declares (MEDIA-SERVER.md §4.4: a piece like Reel plays them through vt.media).
+ * Each slot takes a clip of the grid or a file of the library — dragged onto it, or picked from its menu (a file gets a
+ * clip of its own) — saved in the show (show.update with its revision). A live card's page sees the change at once.
+ */
+function slotSection(L, p, e) {
+  const show = L.show();
+  const used = (sh, id) => sh.decks.some((d) => Object.values(d.cells).includes(id)) || sh.presets.some((q) => Object.values(q.media || {}).flat().includes(id));
+  const edit = (fn, label) => L.editShow((sh) => { const x = sh.presets.find((q) => q.id === p.id); if (!x) return false; x.media = { ...(x.media || {}) }; return fn(x, sh); }, label);
+  /** The clip id for a dragged / picked thing: {kind:'clip', clipId} | {kind:'media', mediaId} (a new clip of that file). */
+  const clipFor = (sh, ref) => {
+    if (ref.kind === 'clip') return sh.clips.some((c) => c.id === ref.clipId) ? ref.clipId : null;
+    const m = sh.media.find((x) => x.id === ref.mediaId);
+    if (!m) return null;
+    const c = newClip(sh, m, null);
+    sh.clips.push(c);
+    return c.id;
+  };
+  const put = (slot, ref) => edit((x, sh) => {
+    const list = [].concat(x.media[slot.key] || []);
+    if (slot.type === 'clips' && ref.kind === 'clip' && list.includes(ref.clipId)) return false;
+    if (slot.type === 'clips' && list.length >= slot.max) { toast(`${slot.label} holds ${slot.max} clip${slot.max === 1 ? '' : 's'} at most.`, 'warn'); return false; }
+    const id = clipFor(sh, ref);
+    if (!id) return false;
+    x.media[slot.key] = slot.type === 'clips' ? [...list, id] : id;
+    const old = slot.type === 'clip' ? list[0] : null; // the clip it replaced, if nothing else uses it, goes
+    if (old && old !== id && !used(sh, old)) sh.clips = sh.clips.filter((c) => c.id !== old);
+    return true;
+  }, 'card clip');
+  const take = (slot, id) => edit((x, sh) => {
+    if (slot.type === 'clips') x.media[slot.key] = [].concat(x.media[slot.key] || []).filter((c) => c !== id); else delete x.media[slot.key];
+    if (!used(sh, id)) sh.clips = sh.clips.filter((c) => c.id !== id); // a clip nothing uses any more goes with it, as in the grid
+    return true;
+  }, 'card clip');
+  // the menu: the show's clips, then the library files that have none yet
+  const options = show ? [...show.clips.map((c) => [`clip:${c.id}`, c.name]),
+    ...show.media.filter((m) => !show.clips.some((c) => c.mediaId === m.id)).map((m) => [`media:${m.id}`, `${m.file.split('/').pop()} (file)`])] : [];
+  const pick = (slot) => (v) => { if (v) put(slot, v.startsWith('clip:') ? { kind: 'clip', clipId: v.slice(5) } : { kind: 'media', mediaId: v.slice(6) }); };
+  const zone = (slot, children) => {
+    const el = h('div', { class: 'lv-slot', 'data-slot': slot.key }, children);
+    const ok = () => !L.locked() && (L.drag?.kind === 'clip' || L.drag?.kind === 'media');
+    el.addEventListener('dragover', (ev) => { if (!ok()) return; ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; el.classList.add('dragover'); });
+    el.addEventListener('dragleave', (ev) => { if (!el.contains(ev.relatedTarget)) el.classList.remove('dragover'); });
+    el.addEventListener('drop', (ev) => {
+      el.classList.remove('dragover');
+      if (!ok()) return;
+      ev.preventDefault();
+      const d = L.drag;
+      put(slot, d.kind === 'clip' ? { kind: 'clip', clipId: d.clipId } : { kind: 'media', mediaId: d.mediaId });
+    });
+    return el;
+  };
+  const chip = (slot, id) => {
+    const c = L.clip(id);
+    return h('div', { class: 'lv-slotclip', 'data-clip': id }, h('span', { class: 't', title: c?.name || id }, c?.name || id),
+      h('button', { class: 'ibtn small', title: 'Take it out of this slot', 'aria-label': `Remove ${c?.name || id}`, onclick: () => take(slot, id) }, '×'));
+  };
+  const body = e.media.map((slot) => {
+    const v = p.media?.[slot.key], ids = (Array.isArray(v) ? v : v ? [v] : []).filter((id) => L.clip(id));
+    const full = slot.type === 'clips' && ids.length >= slot.max;
+    return zone(slot, [
+      h('div', { class: 'lv-slothead' }, h('span', { class: 'k' }, slot.label), slot.type === 'clips' ? h('span', { class: 'muted' }, `${ids.length} / ${slot.max}`) : null),
+      ids.length ? ids.map((id) => chip(slot, id)) : h('div', { class: 'lv-drop' }, slot.type === 'clips' ? 'Drop clips here' : 'Drop a clip here'),
+      options.length && !full ? selectField(slot.type === 'clips' ? 'Add' : 'Clip', '', [['', slot.type === 'clips' ? 'Choose a clip…' : ids.length ? 'Change…' : 'Choose a clip…'], ...options], pick(slot)) : null,
+    ]);
+  });
+  return lockIt(L, sec('Clips of the experience', body,
+    h('p', { class: 'muted' }, show?.clips.length || show?.media.length ? 'Drag a clip from the grid or a file from the library onto a slot.' : 'Add clips to the show first: drop HAP files on the grid or the library.')), true);
 }
 
 /** The old Experience panel's Sound section (views.js): the room's sound pieces, Play / Stop, parameters, start with the app. */

@@ -17,8 +17,11 @@
 //              Compensation, Resolume 7.27)
 //   xlayer     the reserved layer of the clips an experience launches (vt.media.play, MEDIA-SERVER.md §4.4)
 //   preroll    a launch starts PREROLL_MS after the order (startAt = now + preroll): time for the first frame and PCM
+//   preload    clip.preload (vt.media.preload): the clips the output page keeps ready to start (their first frame decoded),
+//              PRELOAD_MAX at most, the oldest leaves; they belong to the live experience (cleared when it goes)
 
 export const PREROLL_MS = 120;
+export const PRELOAD_MAX = 8;
 export const XLAYER = 'xlayer';
 export const AUTOPILOT = ['next', 'prev', 'random', 'first'];
 export const ENDS = ['loop', 'hold', 'clear', 'bounce', ...AUTOPILOT];
@@ -124,6 +127,7 @@ export class Transport {
     this.seq = 0;
     this.sid = Math.floor(random() * 36 ** 4).toString(36).padStart(4, '0'); // play ids of this session never repeat an older one
     this.events = [];         // { event: 'started' | 'ended' | 'error', playId, clipId, layerId, … } for the facade to send
+    this.preloads = [];       // clip ids kept ready by the output page (clip.preload), oldest first
   }
 
   // ------------------------------------------------------------------ state
@@ -132,7 +136,7 @@ export class Transport {
   state() {
     return {
       rev: this.rev, prerollMs: this.preroll, blackout: this.blackout, blackoutAt: this.blackoutAt,
-      column: this.column ? { ...this.column } : null,
+      column: this.column ? { ...this.column } : null, preload: [...this.preloads],
       layers: Object.fromEntries([...this.entries].map(([id, e]) => [id, pubEntry(e)])),
       xlayer: pubEntry(this.x),
     };
@@ -169,6 +173,8 @@ export class Transport {
       }
     }
     this.entries = next;
+    const keep = same ? this.preloads.filter((id) => show.clips.some((c) => c.id === id)) : [];
+    if (keep.length !== this.preloads.length) { this.preloads = keep; this.rev++; }
     if (!same) this.column = null;
     else if (this.column && !show.decks.some((d) => d.id === this.column.deckId)) this.column = null;
     if (this._key() !== before) this.rev++;
@@ -190,6 +196,7 @@ export class Transport {
     const why = this.playable(clip);
     if (why) throw new Error(why);
     const s = { ...this.settingsOf(clip, layer) };
+    if (layerId === XLAYER) s.trigger = 'restart'; // what an experience launches always starts (a clip's own Toggle is the grid's)
     if (args.end !== undefined) { if (!ENDS.includes(args.end)) throw new Error(`end: one of ${ENDS.join(', ')}`); s.end = args.end; }
     if (args.transitionMs !== undefined && args.transitionMs !== null) s.transitionMs = Math.round(numIn(args.transitionMs, 0, MAX_TRANSITION_MS, 'transitionMs'));
     if (args.loops !== undefined) s.loops = Math.round(numIn(args.loops, 1, 99, 'loops'));
@@ -216,6 +223,25 @@ export class Transport {
     this.rev++;
     return { playId: p.playId, layerId, startAt: p.startAt };
   }
+
+  /**
+   * clip.preload (vt.media.preload): the output page decodes the first frame of this clip and keeps it, so a launch of
+   * it starts without a wait. PRELOAD_MAX at most: the oldest leaves; asking again for one makes it the newest.
+   * @returns {{preload: string[]}}
+   */
+  preload(clipId) {
+    if (!this.show) throw new Error('no show is open');
+    const clip = this.show.clips.find((c) => c.id === clipId);
+    if (!clip) throw new Error(`unknown clip "${clipId}"`);
+    const why = this.playable(clip);
+    if (why) throw new Error(why);
+    const next = [...this.preloads.filter((id) => id !== clip.id), clip.id].slice(-PRELOAD_MAX);
+    if (next.join() !== this.preloads.join()) { this.preloads = next; this.rev++; }
+    return { preload: [...this.preloads] };
+  }
+
+  /** The live experience went: the clips it asked to keep ready are let go. */
+  clearPreload() { if (this.preloads.length) { this.preloads = []; this.rev++; } }
 
   /** column.trigger: the scene change. → { deckId, column, plays, errors } (a clip that cannot play is reported, the others go). */
   columnTrigger(args = {}) {
@@ -439,7 +465,7 @@ export class Transport {
   /** Everything needed to continue after a restart. */
   dump() {
     return {
-      sid: this.sid, seq: this.seq, rev: this.rev, blackout: this.blackout, blackoutAt: this.blackoutAt, column: this.column,
+      sid: this.sid, seq: this.seq, rev: this.rev, blackout: this.blackout, blackoutAt: this.blackoutAt, column: this.column, preload: [...this.preloads],
       entries: this._all().map((e) => ({ id: e.id, play: clonePlay(e.play), from: clonePlay(e.from), fadeAt: e.fadeAt, transitionMs: e.transitionMs, held: e.held, mix: e.id === XLAYER ? { ...e.mix } : null })),
     };
   }
@@ -463,6 +489,7 @@ export class Transport {
     }
     this.blackout = !!d.blackout; this.blackoutAt = mv(d.blackoutAt);
     this.column = d.column && this.show?.decks.some((x) => x.id === d.column.deckId) ? { deckId: d.column.deckId, index: d.column.index } : null;
+    this.preloads = (Array.isArray(d.preload) ? d.preload : []).filter((id) => this.show?.clips.some((c) => c.id === id)).slice(-PRELOAD_MAX);
     this.seq = Math.max(this.seq, Number(d.seq) || 0);
     this.rev = Math.max(this.rev, Number(d.rev) || 0) + 1;
   }

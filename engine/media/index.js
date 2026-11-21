@@ -93,7 +93,12 @@ export class MediaEngine extends EventEmitter {
     this.transport = new Transport({ now: () => this.clock.now(), settings: clipSettings, random, playable: (clip) => this._playable(clip) });
     this.presets = new Presets({
       now: () => this.clock.now(), log,
-      host: { ...this.host, clearGrid: () => this.transport.clearAll({ grid: true, x: false }), clearX: () => this.transport.clearAll({ grid: false, x: true, reason: 'stopped' }) },
+      host: {
+        ...this.host,
+        clearGrid: () => this.transport.clearAll({ grid: true, x: false }),
+        // the outgoing experience's own clips stop with their transition, and what it kept ready is let go
+        clearX: () => { this.transport.clearAll({ grid: false, x: true, reason: 'stopped' }); this.transport.clearPreload(); },
+      },
     });
   }
 
@@ -235,6 +240,7 @@ export class MediaEngine extends EventEmitter {
       case 'media.setDir': return this.setDir(args.dir, args);
       // the transport (Show mode allows all of these: they are how a show is run)
       case 'clip.trigger': return this._run(() => this.transport.trigger(args));
+      case 'clip.preload': return this._run(() => this.transport.preload(args.clipId));
       case 'column.trigger': return this._run(() => this.transport.columnTrigger(args));
       case 'column.next': return this._run(() => this.transport.step(Number(args.dir) < 0 ? -1 : 1, args));
       case 'column.prev': return this._run(() => this.transport.step(-1, args));

@@ -380,10 +380,19 @@ in the state as `experience` (running, fps, error, previewAt) and `experiences` 
 - **Window:** a frameless full-screen window on the chosen display.
 
 **Runtime** (`experiences/runtime.js`). It gives the page:
-- the canvas, and the walls in render px (`wallUvToCanvas` × scale);
+- the canvas, and the walls in render px (`wallUvToCanvas` × scale), each also with its `width` / `height` in metres,
+  `pxPerM` and `masks` (render-px boxes of the wall's masks: doors, lamps — where the sensor does not see);
 - `closedLoop` (`planCloses`);
 - live touches as down/move/up with velocity — wrap-aware across the seam when the loop closes;
-- live params, and `loop(fn, gl)` / `frame(gl)`.
+- live params, and `loop(fn, gl)` / `frame(gl)`;
+- `vt.media` (MEDIA-SERVER.md §4.4): the clips the operator put in the live card's slots (`slot(key)`, the slots the
+  manifest declares in `media`), `play(clip, {end = 'clear', transitionMs})` → `{playId}` on the reserved layer
+  (`clip.trigger` with `layerId: 'xlayer'`; an experience's launch never toggles), `stop`, `preload` (`clip.preload`:
+  `state.media.preload`, 8 clips at most, let go with the experience), the `started` / `ended` / `error` events with
+  their `playId`, a `slots` event when the operator changes them, and `state()` from the transport and the engine's
+  clock. Only the room's running instance launches: the app's viewer and a page on its own get a simulation (same
+  calls and events, stand-in clips standalone). What a card's experience launched stops when another experience loads
+  or the card unloads (`tests/runtime-media.test.mjs`, fixture `tests/fixtures/experiences/media-probe`).
 
 `frame` does three things:
 - reads the pixels to Spout (`readPixels`, flipY);
@@ -473,6 +482,13 @@ other file loads the addon, which a test checks. Texture outputs keep NDI and fu
 - an iframe of the experience in layer mode (`?run=1&layer=1`: no Spout, no preview of its own);
 - a canvas of the mask (`TouchMask`);
 - a full-size Canvas 2D grid from `wallPattern`, redrawn only when the profile, session or target changes.
+
+**Switching experiences** (MEDIA-SERVER.md §4.5). Another experience is a fresh iframe, but the outgoing one's last
+texture stays, frozen, until the incoming page draws its first frame (however long: one that never starts leaves it
+there and its card turns to error after 5 s), then fades to it in 0.8 s. Two cards of one experience only change its
+parameters: the page is not reloaded. An experience whose manifest says `"transparent": true` is drawn just above the
+`media` group (when the profile has it below) and not opaque, so the clips show through it. `tests/mixer.test.mjs`
+samples the image: never black during a switch, the clip through a transparent piece.
 
 **Calibration mode.** While a calibration, verification, Fit or walk test runs, or the grid is on,
 `state.output.layersEffective` is `[touches, grid]` on black. The experience is only hidden, not torn down, so it comes
