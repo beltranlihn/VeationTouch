@@ -86,9 +86,10 @@ function makeHandle(base) {
  */
 function runLoop(vt, fn, gl) {
   let last = performance.now(), raf = 0, tm = 0, fb = 0, timerSteps = 0;
-  const step = (fromRaf) => {
+  const step = (fromRaf, tRaf) => {
     cancelAnimationFrame(raf); clearTimeout(tm); clearTimeout(fb);
     const now = performance.now(), every = 1000 / (vt.fps || 60);
+    vt._out.frameT = fromRaf === true && Number.isFinite(tRaf) ? tRaf : now; // the instant of this frame (frameOut passes it on in layer mode)
     if (fromRaf === true) timerSteps = 0; else if (document.visibilityState === 'visible') timerSteps++; // rAF that never fires (a window nobody sees)
     if (fromRaf === true && now - last < every - 2) { schedule(); return; } // a display faster than the target rate
     const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
@@ -99,7 +100,7 @@ function runLoop(vt, fn, gl) {
   const schedule = () => {
     const every = 1000 / (vt.fps || 60);
     if (document.visibilityState === 'visible') {
-      raf = requestAnimationFrame(() => step(true));
+      raf = requestAnimationFrame((t) => step(true, t));
       // a window that never paints must not freeze the piece: once rAF has proved dead the timer runs at the full rate
       fb = setTimeout(() => step(false), timerSteps >= 3 ? Math.max(1, every - 2) : Math.max(60, every * 3));
     } else tm = setTimeout(() => step(false), every);
@@ -131,6 +132,12 @@ function frameOut(vt, gl) {
   const o = vt._out, now = performance.now();
   o.frames++;
   if (vt.sink === 'viewer') { viewerFrame(vt, gl, now); return; }
+  if (vt.sink === 'layer') {
+    // a layer of the room output: its mixer copies this canvas NOW, in the task that drew it (a canvas is empty once
+    // presented), and composes the frame — MEDIA-SERVER.md §4.5. `frameT`: this frame's requestAnimationFrame time.
+    try { window.parent.__vtLayerFrame?.(canvasOf(gl), o.frameT ?? now); } catch (e) { o.error = `output: ${String(e?.message || e).slice(0, 160)}`; }
+    return;
+  }
   const out = window.vtOut;
   if (vt.sink === 'spout' && out && out.kind === 'spout-gpu') {
     // the desktop app takes the window's paints to Spout on the GPU: no pixels to read here

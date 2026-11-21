@@ -1,52 +1,98 @@
-// The room output (/output): ONE image made of stacked layers, on black. The desktop app opens this page in an
-// off-screen window of the render size (canvas × the output's scale) and sends what Chromium paints — 1:1 — to the
-// single Spout sender (app/main.js); the same page can fill a display instead (sink "window") or open in a browser.
+// The room output (/output): ONE image made of stacked layers, on black, composed on the GPU (ui/js/mixer, MEDIA-SERVER.md
+// §4.5). The desktop app opens this page in an off-screen window of the render size (canvas × the output's scale) and
+// sends what Chromium paints — 1:1 — to the single Spout sender (app/main.js); the same page can fill a display instead
+// (sink "window") or open in a browser, where the image is fitted to the window.
 //
-// Layers (engine: profile.output.layers, bottom → top; state.output.layersEffective is what to draw right now):
-//   experience — an <iframe> of the experience page in layer mode (?run=1&layer=1): the piece, at the render size
-//   touches    — the black-and-white mask of the touches, drawn by the engine's own rasteriser (/shared/mask.js, the
-//                same code as the Texture output) at the layer's scale and stretched to the render size
-//   grid       — the pixel map (wall outlines, metre grid, wall ids) and the calibration targets, drawn with Canvas 2D
-//                at the FULL render size (crisp lines and text), redrawn only when something it shows changes
-//   (feedback) — not a layer of the profile: a transparent canvas above everything, with what MOVES during a calibration or
-//                verification (the hand, the filling ring, the capture radius, the flash). Only the small rectangles around
-//                those are cleared and redrawn, 30 times a second; the grid under it stays still.
-// Each layer has an opacity and a CSS blend mode; z-index follows the array order. While a calibration runs the engine
-// hands over [touches, grid] only (state.output.calibrating) and this page simply follows.
+// Layers (engine: profile.output.layers, bottom → top; state.output.layersEffective is what to draw right now). Each is
+// a texture of the mixer, with an opacity and a blend (normal / screen / add / multiply, premultiplied: gl.js):
+//   experience — an <iframe> of the experience page in layer mode (?run=1&layer=1), at the render size, under the mixer's
+//                canvas (covered, never hidden: it must keep rendering). In the task in which it draws, its runtime calls
+//                __vtLayerFrame(canvas, t) here and the mixer copies the canvas (a canvas is empty once presented) and
+//                composes the frame right then: the experience's frames drive the output.
+//   media      — the clip layers (a group, ui/js/mixer/layers.js): empty until the clip player registers its layers.
+//   touches    — the black-and-white mask of the touches, drawn by the engine's own rasteriser (/shared/mask.js, the same
+//                code as the Texture output) at the layer's scale and stretched to the render size; uploaded when it changes
+//   grid       — the pixel map (wall outlines, metre grid, wall ids) and the calibration targets, drawn with Canvas 2D at
+//                the FULL render size (crisp lines and text), redrawn and uploaded only when something it shows changes
+//   (feedback) — not a layer of the profile: what MOVES during a calibration or verification (the hand, the filling ring,
+//                the capture radius, the flash), on its own canvas above everything, with the grid. Only the small
+//                rectangles around those are cleared and redrawn, 30 times a second; the grid under it stays still.
+// The 2D canvases are never displayed: they are the sources of the textures. While a calibration runs the engine hands
+// over [touches, grid] only (state.output.calibrating); the experience is then neither copied nor drawn, but keeps running.
+// Without an experience (or when it stops calling) this page's own frame loop composes, only when something changed.
+// Blackout (state.media.blackout): the image fades to black in 0.5 s, and back.
 
 import { store, on, connect } from './conn.js';
 import { TouchMask, wallPattern, overlayOf } from '/shared/mask.js';
 import { wallUvToCanvas } from '/shared/geometry.js';
 import { drawHands, drawSessionFeedback } from './feedback.js';
+import { createMixer } from './mixer/gl.js';
+import { createRegistry, buildDraws, LAYER_IDS } from './mixer/layers.js';
+import { makeClock } from './clock.js';
 
-const BLEND = { normal: 'normal', screen: 'screen', add: 'plus-lighter', multiply: 'multiply' };
 const AMBER = '#E5B567', CYAN = '#4FC3E8';
-const stage = document.getElementById('stage');
-const stats = { grid: 0, feedback: 0, feedbackSkipped: 0 }; // redraw counters (UI tests)
-const layers = new Map(); // id → { id, el, ... } for the layers on screen
-let size = null;          // the render size { w, h } of this page's life (a new one means a fresh page)
-let css = { w: 0, h: 0 }; // the stage in CSS pixels
+const BLACKOUT_MS = 500;
+const stage = document.getElementById('stage'); // the layers' sources
+const view = document.getElementById('mix');    // the mixer's canvas: what this page shows
+// counters (UI and mixer tests): grid / touches / feedbackUploads = texture uploads; gridDraws / feedback = canvas redraws
+const stats = { grid: 0, gridDraws: 0, touches: 0, feedback: 0, feedbackSkipped: 0, feedbackUploads: 0, composed: 0, expCalls: 0, expFrames: 0, expLoads: 0, lost: 0, error: null, timing: null };
+const layers = new Map();          // id → { id, el, ... } the sources of the layers in use
+const registry = createRegistry(); // groups of layers registered from outside (media)
+const clock = makeClock();         // the engine's clock (live messages carry its time)
+let size = null;                   // the render size { w, h } of this page's life (a new one means a fresh page)
+let mixer = null;
+let want = [];                     // the layers drawn now, bottom → top ({id, opacity, blend, …})
+let dirty = true;                  // something to compose
+let fade = null;                   // blackout: 0 = image … 1 = black (null until the first state)
+let lastCompose = 0, lastExp = -Infinity, frameNo = 0, timingAt = 0;
+const rec = { t: [], cpu: [] };    // the last compositions: instants and CPU ms (stats.timing)
 
 const P = () => store.state?.profile;
-/** The desktop app's Spout window: pinned 1:1 to its own pixels. Anywhere else the stage is fitted to the window. */
+/** The desktop app's Spout window: pinned 1:1 to its own pixels. Anywhere else the image is fitted to the window. */
 const pinned = () => P()?.output?.sink === 'spout' && !!window.vtOut;
+const viewFit = () => (pinned() ? 'pinned' : P()?.output?.fit === 'stretch' ? 'stretch' : 'fit');
+const drawn = (id) => want.some((l) => l.id === id);
 
 // ---------------------------------------------------------------------------------------------- layout
 
 function layout() {
   if (!size) return;
-  const dpr = devicePixelRatio || 1;
-  css = { w: size.w / dpr, h: size.h / dpr };
-  const st = stage.style;
-  st.width = `${css.w}px`; st.height = `${css.h}px`;
-  if (pinned()) { st.transform = 'none'; document.body.style.background = '#000'; return; }
-  const kx = innerWidth / css.w, ky = innerHeight / css.h;
-  if (P().output.fit === 'stretch') st.transform = `scale(${kx}, ${ky})`;
-  else { const k = Math.min(kx, ky); st.transform = `translate(${(innerWidth - css.w * k) / 2}px, ${(innerHeight - css.h * k) / 2}px) scale(${k})`; }
+  const dpr = devicePixelRatio || 1, cw = size.w / dpr, ch = size.h / dpr;
+  Object.assign(stage.style, { width: `${cw}px`, height: `${ch}px` });
+  const [w, h, css] = pinned() ? [size.w, size.h, [`${cw}px`, `${ch}px`]] : [Math.max(1, Math.round(innerWidth * dpr)), Math.max(1, Math.round(innerHeight * dpr)), ['100vw', '100vh']];
+  Object.assign(view.style, { width: css[0], height: css[1] });
+  if (view.width !== w) view.width = w; // (a canvas that changes size is cleared: only when it does)
+  if (view.height !== h) view.height = h;
+  dirty = true;
 }
 
 function place(el) {
-  el.style.width = `${css.w}px`; el.style.height = `${css.h}px`;
+  const dpr = devicePixelRatio || 1;
+  el.style.width = `${size.w / dpr}px`; el.style.height = `${size.h / dpr}px`;
+}
+
+// ---------------------------------------------------------------------------------------------- textures
+
+/** The texture of a source (w × h), made again when its size changes or the GL context came back. */
+function texOf(holder, w, h) {
+  if (holder.tex && holder.texW === w && holder.texH === h && holder.gen === mixer.generation) return holder.tex;
+  if (holder.gen === mixer.generation) mixer.deleteTexture(holder.tex);
+  holder.tex = mixer.texture(w, h); holder.texW = w; holder.texH = h; holder.gen = mixer.generation;
+  return holder.tex;
+}
+
+function freeTex(holder) {
+  if (holder?.tex && mixer && holder.gen === mixer.generation) mixer.deleteTexture(holder.tex);
+  if (holder) holder.tex = null;
+}
+
+/** The 2D layers that changed since the last composition go to their textures. */
+function uploadChanged() {
+  const T = layers.get('touches'), G = layers.get('grid');
+  if (T?.dirty && drawn('touches')) { mixer.upload(texOf(T, T.el.width, T.el.height), T.el); T.dirty = false; stats.touches++; }
+  if (G?.dirty && drawn('grid')) { mixer.upload(texOf(G, G.el.width, G.el.height), G.el); G.dirty = false; stats.grid++; }
+  const fb = G?.fb;
+  if (fb?.on && fb.dirty && drawn('grid')) { mixer.upload(texOf(fb, fb.el.width, fb.el.height), fb.el); fb.dirty = false; stats.feedbackUploads++; }
 }
 
 // ---------------------------------------------------------------------------------------------- layers
@@ -56,38 +102,47 @@ function experienceSrc() {
   return e ? `/experiences/${e.id}/${e.entry}?run=1&layer=1` : '';
 }
 
+function drop(L) {
+  L.el.remove(); L.fb?.el.remove();
+  freeTex(L); freeTex(L.fb);
+  layers.delete(L.id);
+}
+
 function ensure(cfg) {
   let L = layers.get(cfg.id);
   if (cfg.id === 'experience') {
     const src = experienceSrc();
     if (!src) return null;
-    if (L && L.src !== src) { L.el.remove(); layers.delete('experience'); L = null; } // another piece: a fresh page
+    if (L && L.src !== src) { drop(L); L = null; } // another piece: a fresh page (black until its first frame, as before)
     if (!L) {
       const el = document.createElement('iframe');
       el.className = 'layer'; el.dataset.layer = 'experience'; el.title = 'Experience'; el.setAttribute('scrolling', 'no');
+      L = { id: 'experience', el, src, ready: false, tex: null };
+      el.addEventListener('load', () => { stats.expLoads++; L.ready = false; dirty = true; }); // every load = a (re)start of the piece
       el.src = src;
       stage.append(el);
-      L = { id: 'experience', el, src };
       layers.set('experience', L);
     }
+    place(L.el);
     return L;
   }
   if (!L) {
     const el = document.createElement('canvas');
     el.className = 'layer'; el.dataset.layer = cfg.id;
     stage.append(el);
-    L = cfg.id === 'touches' ? { id: 'touches', el, g: el.getContext('2d'), mask: new TouchMask(), img: null, lastT: null } : { id: 'grid', el, g: el.getContext('2d'), key: '', fb: newFeedback() };
+    L = cfg.id === 'touches' ? { id: 'touches', el, g: el.getContext('2d'), mask: new TouchMask(), img: null, lastT: null, dirty: true, tex: null }
+      : { id: 'grid', el, g: el.getContext('2d'), key: '', fb: newFeedback(), dirty: true, tex: null };
     layers.set(cfg.id, L);
   }
   if (cfg.id === 'touches') {
     const c = P().canvas, w = Math.max(16, Math.round(c.width * cfg.scale)), h = Math.max(16, Math.round(c.height * cfg.scale));
     if (L.mask.resize(w, h)) { // (a canvas that changes size is cleared)
-      L.el.width = w; L.el.height = h; L.img = new ImageData(w, h); L.lastT = null;
+      L.el.width = w; L.el.height = h; L.img = new ImageData(w, h); L.lastT = null; L.dirty = true;
       for (let i = 3; i < L.img.data.length; i += 4) L.img.data[i] = 255;
     }
   } else {
-    if (L.el.width !== size.w || L.el.height !== size.h) { L.el.width = size.w; L.el.height = size.h; L.key = ''; }
-    if (L.fb.el.width !== size.w || L.fb.el.height !== size.h) { L.fb.el.width = size.w; L.fb.el.height = size.h; L.fb.key = ''; L.fb.rects = []; }
+    if (L.el.width !== size.w || L.el.height !== size.h) { L.el.width = size.w; L.el.height = size.h; L.key = ''; L.dirty = true; }
+    if (L.fb.el.width !== size.w || L.fb.el.height !== size.h) { L.fb.el.width = size.w; L.fb.el.height = size.h; L.fb.key = ''; L.fb.rects = []; L.fb.on = false; }
   }
   return L;
 }
@@ -99,27 +154,160 @@ function sync() {
   const O = S.profile.output, c = S.profile.canvas;
   const sz = { w: Math.max(1, Math.round(c.width * O.scale)), h: Math.max(1, Math.round(c.height * O.scale)) };
   if (size && (sz.w !== size.w || sz.h !== size.h)) { location.reload(); return; } // the render size is fixed for a page's life
-  size = sz;
+  if (!size) { size = sz; start(); }
   layout();
-  const want = O.on ? (S.output?.layersEffective || O.layers).filter((l) => l.on) : [];
-  const keep = new Set();
-  want.forEach((cfg, i) => {
-    const L = ensure(cfg);
-    if (!L) return;
+  const list = [], keep = new Set();
+  for (const cfg of O.on ? (S.output?.layersEffective || O.layers).filter((l) => l.on) : []) {
+    if (!LAYER_IDS.includes(cfg.id) || keep.has(cfg.id)) continue;
+    if (cfg.id !== 'media' && !ensure(cfg)) continue; // (media: a group, its layers are registered by the clip player)
     keep.add(cfg.id);
-    L.cfg = cfg;
-    // order = z-index (the DOM order never changes: moving an iframe in the document would reload it)
-    Object.assign(L.el.style, { zIndex: String(i + 1), opacity: String(cfg.opacity), mixBlendMode: BLEND[cfg.blend] || 'normal', visibility: 'visible' });
-    place(L.el);
-    if (L.fb) { place(L.fb.el); L.fb.el.style.zIndex = '1000'; } // above every layer
-  });
-  // calibration mode only HIDES the piece the operator has on: removing its iframe would restart it (a new GPU device,
-  // its warm-up) every time the grid or a calibration comes and goes
+    const L = layers.get(cfg.id);
+    if (L) L.cfg = cfg;
+    list.push(cfg);
+  }
+  // calibration mode only sets aside the piece the operator has on: removing its iframe would restart it (a new GPU device,
+  // its warm-up) every time the grid or a calibration comes and goes. It keeps running, neither copied nor drawn.
   const parked = O.on && S.output?.calibrating && O.layers.some((l) => l.id === 'experience' && l.on) && layers.get('experience');
-  if (parked && !keep.has('experience')) { keep.add('experience'); parked.el.style.visibility = 'hidden'; }
-  for (const [id, L] of [...layers]) if (!keep.has(id)) { L.el.remove(); L.fb?.el.remove(); layers.delete(id); }
+  if (parked) keep.add('experience');
+  for (const [id, L] of [...layers]) if (!keep.has(id)) drop(L);
+  want = list;
+  if (fade == null) fade = blackoutTarget(); // a page that opens during a blackout starts black
+  dirty = true;
   drawGrid();
   drawFeedback();
+}
+
+/**
+ * How dark the image should be now (0 … 1): state.media.blackout, faded over BLACKOUT_MS from the engine instant it changed
+ * (state.media.blackoutAt, engine clock = the live feed's) — so a page that opens late, or reloads, is where the fade is.
+ * Before the first live message (no clock yet) or without the instant: the flag alone (the fade then runs from now).
+ * An engine without state.media never blacks out.
+ */
+function blackoutTarget() {
+  const m = store.state?.media;
+  const on = m?.blackout === true;
+  const at = m?.blackoutAt, eng = clock.engineNow();
+  if (!Number.isFinite(at) || eng == null) return on ? 1 : 0;
+  const k = Math.max(0, Math.min(1, (eng - at) / BLACKOUT_MS));
+  return on ? k : 1 - k;
+}
+
+// ---------------------------------------------------------------------------------------------- composing
+
+/**
+ * One frame of the room's image: the experience's canvas (when it is the caller: in the task it drew in) and the 2D layers
+ * that changed go to their textures, the media group's hooks run, then the draws, the blackout and the presentation.
+ * `t`: the instant of the frame (page clock) — the experience's requestAnimationFrame time when it drives the output.
+ */
+function compose(t, expCanvas = null) {
+  if (!mixer || mixer.lost) return;
+  const a = performance.now();
+  const dt = lastCompose ? Math.min(100, a - lastCompose) : 0;
+  lastCompose = a;
+  const timed = frameNo++ % 4 === 0; // GPU timer queries on one frame in four
+  mixer.pollTimers();
+  // the blackout: towards where the engine's instant says it is, never faster than the fade itself (no jumps)
+  const target = blackoutTarget(), goal = store.state?.media?.blackout === true ? 1 : 0;
+  if (fade == null) fade = target;
+  else if (fade !== target) fade = target > fade ? Math.min(target, fade + dt / BLACKOUT_MS) : Math.max(target, fade - dt / BLACKOUT_MS);
+  const dark = fade >= 1;
+  const E = layers.get('experience');
+  if (expCanvas && E && !dark) {
+    const tex = texOf(E, expCanvas.width, expCanvas.height);
+    mixer.time('copy', timed, () => mixer.upload(tex, expCanvas));
+    E.ready = true; stats.expFrames++;
+  }
+  let draws = [];
+  if (!dark) {
+    uploadChanged();
+    if (drawn('media')) registry.group('media').frame({ t, now: a, dt, gl: mixer.gl, mixer });
+    draws = buildDraws(want, sources(), registry);
+  }
+  mixer.time('compose', timed, () => { mixer.compose(draws, { fade }); mixer.present(viewFit()); });
+  stats.composed++;
+  dirty = fade !== goal; // keep composing until the fade has arrived
+  rec.t.push(a); rec.cpu.push(performance.now() - a);
+  if (rec.t.length > 240) { rec.t.splice(0, 120); rec.cpu.splice(0, 120); }
+}
+
+function sources() {
+  const E = layers.get('experience'), T = layers.get('touches'), G = layers.get('grid');
+  return {
+    experience: E && { tex: E.tex, ready: E.ready },
+    touches: T && { tex: T.tex },
+    grid: G && { tex: G.tex },
+    feedback: G?.fb && drawn('grid') && { tex: G.fb.tex, on: G.fb.on },
+  };
+}
+
+// The experience's runtime (layer mode) calls this in the task in which it drew: copy now, compose now (MEDIA-SERVER-
+// MEDIDAS.md §8.2: this page's requestAnimationFrame runs BEFORE the iframe's, so composing there would always show the
+// previous frame of the piece). `t`: its requestAnimationFrame time, in its own clock.
+window.__vtLayerFrame = (canvas, t) => {
+  stats.expCalls++;
+  const E = layers.get('experience');
+  if (!mixer || !E || !canvas || canvas.ownerDocument !== E.el.contentDocument) return;
+  if (!drawn('experience')) return; // parked (calibration mode) or off: not copied; this page's loop composes the rest
+  lastExp = performance.now();
+  let tp = lastExp;
+  try { if (Number.isFinite(t)) tp = t + (E.el.contentWindow.performance.timeOrigin - performance.timeOrigin); } catch { /* going away */ }
+  compose(tp, canvas);
+};
+
+/** This page's own frames: they compose only when the experience is not driving (none, parked, or > 2 frames late). */
+function pageFrame(t) {
+  if (!mixer) return;
+  const now = performance.now();
+  if (now - timingAt >= 1000) { timingAt = now; stats.timing = timing(now); }
+  const every = 1000 / (P()?.output?.fps || 60);
+  if (drawn('experience') && now - lastExp < every * 2.5) return;
+  if (dirty || (drawn('media') && registry.active)) compose(t ?? now, null);
+}
+
+/** requestAnimationFrame, and a timer when it does not come (a window nobody sees: the tests' hidden windows). */
+function runLoop() {
+  let raf = 0, tm = 0, timerSteps = 0;
+  const step = (fromRaf, t) => {
+    cancelAnimationFrame(raf); clearTimeout(tm);
+    if (fromRaf) timerSteps = 0; else timerSteps++;
+    try { pageFrame(fromRaf ? t : performance.now()); } catch (e) { stats.error = String(e?.message || e).slice(0, 200); console.error(e); }
+    const every = 1000 / (P()?.output?.fps || 60);
+    raf = requestAnimationFrame((ts) => step(true, ts));
+    tm = setTimeout(() => step(false), timerSteps >= 3 ? Math.max(1, every - 2) : Math.max(60, every * 3));
+  };
+  step(false);
+}
+
+const pct = (arr, p) => { if (!arr.length) return null; const s = [...arr].sort((x, y) => x - y); return +s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))].toFixed(2); };
+const sum = (arr) => (arr.length ? { p50: pct(arr, 50), p95: pct(arr, 95), max: +Math.max(...arr).toFixed(2) } : null);
+
+/** The last two seconds of compositions: rate, gaps, CPU ms; GPU ms of the copy and the composition (timer queries). */
+function timing(now) {
+  const i0 = rec.t.findIndex((x) => x >= now - 2000), ts = i0 < 0 ? [] : rec.t.slice(i0), cpu = i0 < 0 ? [] : rec.cpu.slice(i0);
+  const gaps = ts.slice(1).map((x, i) => x - ts[i]);
+  const g = mixer?.gpu, last = (k) => (g?.[k] ? g[k].slice(-60) : []);
+  return {
+    fps: ts.length > 1 ? +((ts.length - 1) / ((ts.at(-1) - ts[0]) / 1000)).toFixed(1) : 0,
+    driver: drawn('experience') && now - lastExp < 100 ? 'experience' : 'page',
+    gapMs: sum(gaps), cpuMs: sum(cpu),
+    gpuMs: g ? { copy: sum(last('copy')), compose: sum(last('compose')) } : null,
+  };
+}
+
+function start() {
+  mixer = createMixer(view, { width: size.w, height: size.h });
+  if (!mixer) { // no WebGL 2 here: the experience's own page shows (no other layer) rather than nothing
+    stats.error = 'WebGL 2 is not available: the output shows the experience alone';
+    console.warn(stats.error);
+    view.hidden = true;
+    return;
+  }
+  mixer.gl.canvas.addEventListener('webglcontextlost', () => { stats.lost++; });
+  mixer.onRestored(() => {
+    for (const L of layers.values()) { L.dirty = true; L.ready = false; if (L.fb) L.fb.dirty = true; }
+    dirty = true;
+  });
+  runLoop();
 }
 
 // ---------------------------------------------------------------------------------------------- touches
@@ -133,10 +321,11 @@ function touchFrame() {
   L.lastT = live.t;
   const walls = prof.walls.filter((w) => !c.walls?.length || c.walls.includes(w.id))
     .map((wall) => ({ wall, touches: (live.walls?.[wall.id] || []).map(([, x, y, sz]) => ({ x, y, size: sz })) }));
-  if (!L.mask.render(walls, c, c.scale, dt)) return; // nothing changed: the canvas keeps its (black) frame
+  if (!L.mask.render(walls, c, c.scale, dt)) return; // nothing changed: the texture keeps its (black) frame
   const m = L.mask.frame, d = L.img.data;
   for (let i = 0, j = 0; i < m.length; i++, j += 4) { const v = m[i]; d[j] = v; d[j + 1] = v; d[j + 2] = v; }
   L.g.putImageData(L.img, 0, 0);
+  L.dirty = true; dirty = true;
 }
 
 // ---------------------------------------------------------------------------------------------- grid
@@ -176,7 +365,8 @@ function drawGrid(force = false) {
   const ov = sessionOverlay(), key = gridKey(ov);
   if (!force && key === L.key) return;
   L.key = key;
-  stats.grid++;
+  stats.gridDraws++;
+  L.dirty = true; dirty = true;
   const g = L.g, s = prof.output.scale; // canvas px → render px
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.clearRect(0, 0, L.el.width, L.el.height);
@@ -236,12 +426,12 @@ const wallPoint = (wall, x, y) => wallUvToCanvas(wall, x / wall.width, 1 - y / w
 
 // ---------------------------------------------------------------------------------------------- feedback
 
-/** The canvas above the layers for what moves during a calibration. `rects` = what was drawn last time (render px). */
+/** The canvas for what moves during a calibration. `rects` = what was drawn last time (render px); `on` = something shows. */
 function newFeedback() {
   const el = document.createElement('canvas');
   el.className = 'fb'; el.dataset.layer = 'feedback';
   stage.append(el);
-  return { el, g: el.getContext('2d'), rects: [], key: '' };
+  return { el, g: el.getContext('2d'), rects: [], key: '', on: false, dirty: false, tex: null };
 }
 
 /**
@@ -273,19 +463,31 @@ function drawFeedback() {
     if (kind === 'calib') drawHands(g, hands, o);
     drawSessionFeedback(g, sess, kind, o);
   }
-  fb.el.style.display = fb.rects.length ? 'block' : 'none';
+  const was = fb.on;
+  fb.on = fb.rects.length > 0;
+  if (fb.on || was) { fb.dirty = true; dirty = true; }
 }
 
 // ---------------------------------------------------------------------------------------------- go
 
 addEventListener('resize', layout);
 on('state', sync);
+on('media', () => { if (fade == null && store.state) fade = blackoutTarget(); dirty = true; }); // the transport (blackout…) comes on its own
 on('status', () => drawGrid());
 on('calib', () => drawGrid());
-on('live', () => { touchFrame(); drawFeedback(); });
+on('live', (L) => { clock.sample(L?.t); touchFrame(); drawFeedback(); });
 document.fonts?.load?.('600 20px Geist').then(() => drawGrid(true)).catch(() => {});
-// UI tests: a hidden window paints no frames. layers() = the ones that show (a piece parked by calibration mode does not)
-window.__out = { sync, touchFrame, drawGrid, drawFeedback, stats, layers: () => [...layers.values()].filter((L) => L.el.style.visibility !== 'hidden').map((L) => L.id) };
+// Tests and the clip player (F6). layers(): the layers drawn, bottom → top (a piece parked by calibration mode is not);
+// plan(): with their blend and opacity, and the feedback when it shows; compose(): a frame now (a hidden window has none).
+window.__out = {
+  sync, touchFrame, drawGrid, drawFeedback, stats, registry, clock,
+  layers: () => want.map((l) => l.id),
+  plan: () => [...want.map((l) => ({ id: l.id, blend: l.blend || 'normal', opacity: l.opacity ?? 1 })), ...(sources().feedback?.on ? [{ id: 'feedback', blend: 'normal', opacity: 1 }] : [])],
+  compose: () => compose(performance.now(), null),
+  mixer: () => mixer,
+  fade: () => fade,
+  view: () => ({ fit: viewFit(), canvas: [view.width, view.height], css: [view.style.width, view.style.height], rect: mixer?.view?.rect || null, size }),
+};
 connect();
 if (store.state) sync();
 const offStarted = on('state', () => { offStarted(); window.__vtStarted?.(); }); // the startup guard (boot-guard.js) stands down once the engine has answered

@@ -8,16 +8,19 @@
   @font-face{font-family:'Geist';font-weight:500;src:url('fonts/geist-500.woff2') format('woff2');}
   @font-face{font-family:'Geist';font-weight:600;src:url('fonts/geist-600.woff2') format('woff2');}
   html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none;}
-  /* The room's image: the layers stacked on black, 1:1 with the render size (output.js sizes them). Blend modes act
-     inside it (isolation), never against the page behind. */
-  #stage{position:absolute;left:0;top:0;background:#000;isolation:isolate;overflow:hidden;transform-origin:0 0;}
-  .layer,.fb{position:absolute;left:0;top:0;display:block;border:0;background:transparent;}
-  .fb{pointer-events:none;}
+  /* The layers' sources (output.js sizes them): the experience's page at the full render size, under the mixer's canvas
+     — covered, never hidden, so it keeps rendering — and the 2D layers, never displayed: the mixer takes them as textures. */
+  #stage{position:absolute;left:0;top:0;overflow:hidden;z-index:0;background:#000;}
+  #stage iframe{position:absolute;left:0;top:0;display:block;border:0;background:#000;}
+  #stage canvas{display:none;}
+  /* The room's image, composed on the GPU (js/mixer): 1:1 in the Spout window, fitted to the window anywhere else. */
+  #mix{position:fixed;left:0;top:0;display:block;z-index:1;background:#000;}
 </style>
 <script src="js/boot-guard.js"></script>
 </head>
 <body>
 <div id="stage"></div>
+<canvas id="mix"></canvas>
 <script type="module" src="js/output.js"></script>
 </body>
 </html>

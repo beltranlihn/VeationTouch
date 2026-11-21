@@ -1588,7 +1588,8 @@ async function withLayers(engine, layers) {
   await engine.command('output.layers', { layers });
 }
 
-test('ui: the output page stacks its layers in the chosen order with the chosen blend and opacity; reordering never reloads the experience; a layer that is off is gone', opt, async () => {
+test('ui: the output page composes its layers in the chosen order with the chosen blend and opacity; reordering never reloads the experience; a layer that is off is gone', opt, async () => {
+  // (the layers are textures of the GPU mixer, ui/js/mixer: what it draws is __out.plan(); tests/mixer.test.mjs checks the pixels)
   const { result, errors, engine } = await inUi(`
     const { store, cmd } = await import('/js/conn.js');
     const { wallUvToCanvas } = await import('/shared/geometry.js');
@@ -1596,24 +1597,26 @@ test('ui: the output page stacks its layers in the chosen order with the chosen 
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     for (let k = 0; k < 150 && !(window.__out && store.state && window.__out.layers().length >= 3); k++) await wait(100);
     const stage = document.getElementById('stage');
-    const info = () => [...stage.querySelectorAll(':scope > .layer')].map((el) => { const cs = getComputedStyle(el); return { id: el.dataset.layer, tag: el.tagName, z: Number(cs.zIndex), blend: cs.mixBlendMode, opacity: cs.opacity }; });
-    const topFirst = () => info().sort((a, b) => b.z - a.z).map((l) => l.id);
+    const info = () => window.__out.plan().map((l) => ({ ...l, tag: stage.querySelector('[data-layer=' + l.id + ']')?.tagName }));
+    const topFirst = () => info().map((l) => l.id).reverse();
     const out = { first: info(), order: topFirst() };
     const ifr = stage.querySelector('iframe');
     for (let k = 0; k < 150 && !ifr.contentWindow.__probe?.vt; k++) await wait(100);
     const vt = ifr.contentWindow.__probe.vt;
     out.iframe = { src: ifr.getAttribute('src'), sink: vt.sink, canvasPos: getComputedStyle(ifr.contentDocument.querySelector('canvas')).position, size: vt.size, w: ifr.style.width };
-    // not the Spout window of the app (no bridge here): the stage is fitted to the window
-    out.fitted = stage.style.transform.startsWith('translate(') || stage.style.transform.startsWith('scale(');
+    // not the Spout window of the app (no bridge here): the image is fitted to the window
+    out.fitted = window.__out.view().fit;
     // reorder: the experience must stay alive (moving an iframe in the document would reload it)
     await cmd('output.layers', { layers: [{ id: 'touches' }, { id: 'grid' }, { id: 'experience' }] });
     await wait(300);
     out.reordered = topFirst(); out.sameFrame = stage.querySelector('iframe') === ifr && ifr.contentWindow.__probe?.vt === vt;
-    // pinned 1:1 like the desktop app's Spout window (its preload exposes vtOut): CSS size x dpr = the render size, no transform
+    // pinned 1:1 like the desktop app's Spout window (its preload exposes vtOut): the mixer's canvas is the render size,
+    // CSS size x dpr = its pixels; the experience's page is the render size too
     window.vtOut = { kind: 'spout-gpu', ok: true }; window.__out.sync();
     const dpr = devicePixelRatio || 1, P = store.state.profile, want = { w: Math.round(P.canvas.width * P.output.scale), h: Math.round(P.canvas.height * P.output.scale) };
-    out.pinned = { transform: stage.style.transform, w: Math.round(parseFloat(stage.style.width) * dpr), h: Math.round(parseFloat(stage.style.height) * dpr), want,
-      layerW: [...stage.querySelectorAll('.layer')].map((el) => Math.round(parseFloat(el.style.width) * dpr)), gridPx: stage.querySelector('[data-layer=grid]').width, touchesPx: stage.querySelector('[data-layer=touches]').width };
+    const mix = document.getElementById('mix'), v = window.__out.view();
+    out.pinned = { fit: v.fit, canvas: v.canvas, w: Math.round(parseFloat(mix.style.width) * dpr), h: Math.round(parseFloat(mix.style.height) * dpr), want,
+      iframeW: Math.round(parseFloat(ifr.style.width) * dpr), gridPx: stage.querySelector('[data-layer=grid]').width, touchesPx: stage.querySelector('[data-layer=touches]').width };
     delete window.vtOut; window.__out.sync();
     // the touches layer draws the mask, the grid layer the pixel map
     const wall = P.walls.find((w) => w.id === 'P2');
@@ -1653,20 +1656,20 @@ test('ui: the output page stacks its layers in the chosen order with the chosen 
   });
   assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
   const by = (id) => result.first.find((l) => l.id === id);
-  assert.deepEqual(result.order, ['touches', 'experience', 'grid'], 'the profile\'s array order (bottom → top) is the z-order');
-  assert.deepEqual([by('touches').z, by('experience').z, by('grid').z], [3, 2, 1]);
-  assert.deepEqual([by('touches').blend, by('experience').blend, by('grid').blend], ['screen', 'multiply', 'plus-lighter'], '"add" is CSS plus-lighter');
-  assert.deepEqual([by('touches').opacity, by('experience').opacity, by('grid').opacity], ['0.7', '0.9', '0.5']);
-  assert.deepEqual([by('touches').tag, by('experience').tag, by('grid').tag], ['CANVAS', 'IFRAME', 'CANVAS']);
+  assert.deepEqual(result.order, ['touches', 'experience', 'grid'], 'the profile\'s array order (bottom → top) is the order the mixer draws in');
+  assert.deepEqual([by('touches').blend, by('experience').blend, by('grid').blend], ['screen', 'multiply', 'add']);
+  assert.deepEqual([by('touches').opacity, by('experience').opacity, by('grid').opacity], [0.7, 0.9, 0.5]);
+  assert.deepEqual([by('touches').tag, by('experience').tag, by('grid').tag], ['CANVAS', 'IFRAME', 'CANVAS'], 'the sources: 2D canvases and the experience\'s page');
   assert.match(result.iframe.src, /^\/experiences\/touch-probe\/index\.html\?run=1&layer=1$/, 'the experience runs in layer mode');
   assert.equal(result.iframe.sink, 'layer');
   assert.equal(result.iframe.canvasPos, 'fixed', 'its canvas is pinned 1:1 in its frame');
-  assert.equal(result.fitted, true, 'outside the desktop app\'s Spout window the stage is fitted to the window');
+  assert.equal(result.fitted, 'fit', 'outside the desktop app\'s Spout window the image is fitted to the window');
   assert.deepEqual(result.reordered, ['experience', 'grid', 'touches'], 'reordered live');
   assert.equal(result.sameFrame, true, 'reordering does not reload the experience');
-  assert.equal(result.pinned.transform, 'none', 'in the Spout window: no scaling');
-  assert.deepEqual([result.pinned.w, result.pinned.h], [result.pinned.want.w, result.pinned.want.h], 'the stage is the render size, 1:1');
-  assert.ok(result.pinned.layerW.every((w) => w === result.pinned.want.w), `every layer covers it (${result.pinned.layerW})`);
+  assert.equal(result.pinned.fit, 'pinned', 'in the Spout window: no scaling');
+  assert.deepEqual(result.pinned.canvas, [result.pinned.want.w, result.pinned.want.h], 'the mixer\'s canvas is the render size');
+  assert.deepEqual([result.pinned.w, result.pinned.h], [result.pinned.want.w, result.pinned.want.h], 'shown 1:1');
+  assert.equal(result.pinned.iframeW, result.pinned.want.w, 'the experience renders at the render size');
   assert.equal(result.pinned.gridPx, result.pinned.want.w, 'the grid is drawn at the FULL render size');
   assert.ok(result.pinned.touchesPx < result.pinned.want.w, 'the touches mask is a smaller canvas, stretched up');
   assert.deepEqual(result.touchesSize.slice(0, 2), result.touchesSize.slice(2), 'the mask has the layer\'s scale of the canvas');
@@ -1688,7 +1691,8 @@ test('ui: calibration mode — the output page shows only the grid on the touche
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     for (let k = 0; k < 150 && !(window.__out && store.state && window.__out.layers().length >= 1); k++) await wait(100);
     const stage = document.getElementById('stage');
-    const info = () => [...stage.querySelectorAll(':scope > .layer')].filter((el) => getComputedStyle(el).visibility !== 'hidden').map((el) => { const cs = getComputedStyle(el); return { id: el.dataset.layer, z: Number(cs.zIndex), blend: cs.mixBlendMode, opacity: cs.opacity }; }).sort((a, b) => b.z - a.z);
+    // what the mixer draws, top first (the calibration feedback, when it shows, is not a layer of the profile)
+    const info = () => window.__out.plan().filter((l) => l.id !== 'feedback').reverse();
     const amber = () => {
       const c = stage.querySelector('[data-layer=grid]');
       if (!c) return -1;
@@ -1703,10 +1707,12 @@ test('ui: calibration mode — the output page shows only the grid on the touche
     for (let k = 0; k < 50 && !(window.__out.layers().length === 2 && amber() > 0); k++) await wait(100);
     const frame0 = document.querySelector('iframe');
     out.calib = info(); out.calibratingDuring = store.state.output.calibrating; out.frames = document.querySelectorAll('iframe').length; out.amberDuring = amber();
-    out.parked = frame0 && getComputedStyle(frame0).visibility; out.sameFrame = document.querySelector('iframe') === frame0;
+    out.parked = !!frame0 && !window.__out.plan().some((l) => l.id === 'experience'); out.sameFrame = document.querySelector('iframe') === frame0;
+    out.boots = frame0?.contentWindow?.__probe?.boots;
     await cmd('calib.cancel');
     for (let k = 0; k < 50 && !(window.__out.layers().join() === 'experience'); k++) await wait(100);
     out.after = info().map((l) => l.id); out.calibratingAfter = store.state.output.calibrating; out.framesAfter = document.querySelectorAll('iframe').length;
+    out.bootsAfter = document.querySelector('iframe')?.contentWindow?.__probe?.boots;
     // the grid on its own (the Grid switch of Calibrate / the phone) is calibration mode too
     await cmd('projection.set', { grid: true });
     for (let k = 0; k < 50 && window.__out.layers().length !== 2; k++) await wait(100);
@@ -1723,11 +1729,12 @@ test('ui: calibration mode — the output page shows only the grid on the touche
   assert.equal(result.calibratingBefore, false);
   assert.equal(result.calibratingDuring, true);
   assert.deepEqual(result.calib.map((l) => l.id), ['grid', 'touches'], 'calibration: the grid on top of the touches');
-  assert.deepEqual(result.calib.map((l) => [l.blend, l.opacity]), [['screen', '1'], ['screen', '1']]);
-  // the piece is hidden, not torn down: it comes back as it was, without restarting (a new GPU device, its warm-up)
+  assert.deepEqual(result.calib.map((l) => [l.blend, l.opacity]), [['screen', 1], ['screen', 1]]);
+  // the piece is set aside, not torn down: it comes back as it was, without restarting (a new GPU device, its warm-up)
   assert.equal(result.frames, 1);
-  assert.equal(result.parked, 'hidden', 'no experience shows while calibrating');
+  assert.equal(result.parked, true, 'no experience shows while calibrating');
   assert.equal(result.sameFrame, true, 'the same experience page, kept running');
+  assert.ok(result.boots >= 1 && result.bootsAfter === result.boots, `not restarted (boots ${result.boots} → ${result.bootsAfter})`);
   assert.ok(result.amberDuring > 0, `the grid draws the calibration target in amber (${result.amberDuring} px)`);
   assert.deepEqual(result.after, ['experience'], 'calibration cancelled: back to the operator\'s layers');
   assert.equal(result.calibratingAfter, false);
@@ -1801,15 +1808,15 @@ test('ui: Output › Screens › room output card — on/off, layer switches, re
   assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
   assert.equal(result.title, 'Output — VEATION Touch');
   assert.deepEqual(result.listed, result.profileTop, 'the list reads top to bottom: the first row is the top layer');
-  assert.deepEqual(result.listed, ['grid', 'touches', 'experience'], 'by default the grid is on top, the experience at the bottom');
+  assert.deepEqual(result.listed, ['grid', 'touches', 'media', 'experience'], 'by default the grid is on top, the clips (media) right above the experience at the bottom');
   assert.equal(result.sink, 'spout');
   assert.equal(result.sender, 'VEATION Touch');
   assert.equal(result.offAtStart, true); assert.equal(result.onAfter, true, 'the output switch sends output.set');
   assert.equal(result.gridOn, true, 'a layer\'s switch');
   assert.equal(result.topUpDisabled, true); assert.equal(result.bottomDownDisabled, true, 'nothing above the top, nothing below the bottom');
-  assert.deepEqual(result.afterDown.list, ['touches', 'grid', 'experience'], '↓ on the top layer');
+  assert.deepEqual(result.afterDown.list, ['touches', 'grid', 'media', 'experience'], '↓ on the top layer');
   assert.deepEqual(result.afterDown.profile, result.afterDown.list);
-  assert.deepEqual(result.afterUp.list, ['touches', 'experience', 'grid'], '↑ on the bottom one');
+  assert.deepEqual(result.afterUp.list, ['touches', 'grid', 'experience', 'media'], '↑ on the bottom one (it swaps with the clips)');
   assert.deepEqual(result.afterUp.profile, result.afterUp.list);
   assert.equal(result.opacityStep, 0.99, 'a fader step');
   assert.equal(result.opacityDrag, 0.5, 'a drag to the middle of the groove');
@@ -1852,7 +1859,7 @@ test('ui: output page — during a calibration the wall shows the hand, the fill
     await cmd('calib.start', { wallId: wall.id, force: true });
     for (let k = 0; k < 80 && !(store.status?.calib && window.__out.layers().length === 2); k++) await wait(100);
     const fb = stage.querySelector('canvas.fb'), g = fb.getContext('2d'), grid = stage.querySelector('[data-layer=grid]');
-    const out = { fbAbove: Number(getComputedStyle(fb).zIndex), maxLayerZ: Math.max(...[...stage.querySelectorAll('.layer')].map((el) => Number(getComputedStyle(el).zIndex))), size: [fb.width, fb.height], gridSize: [grid.width, grid.height] };
+    const out = { size: [fb.width, fb.height], gridSize: [grid.width, grid.height] };
     const base = structuredClone(store.status.calib), tgt = base.targets[base.index];
     out.pm = wall.pixelRect.h / wall.height;
     const [tx, ty] = toPx(tgt.x, tgt.y), R = out.pm * 0.14 * s;
@@ -1866,6 +1873,7 @@ test('ui: output page — during a calibration the wall shows the hand, the fill
     await wait(150);
     out.liveHands = store.live?.calibHands?.[wall.id] || null;
     out.hand = centroid(g, fb.width, fb.height, isCyan); out.handAt = [hx, hy];
+    out.plan = window.__out.plan().map((l) => l.id); // the mixer draws the feedback last: above every layer
     out.gridCyan = centroid(grid.getContext('2d'), grid.width, grid.height, isCyan).n;
     await cmd('sim.touch', { wallId: wall.id, x: 0, y: 0, id: 'h', down: false });
     for (let k = 0; k < 60 && store.live?.calibHands?.[wall.id]?.length; k++) await wait(50);
@@ -1910,7 +1918,7 @@ test('ui: output page — during a calibration the wall shows the hand, the fill
     const ms = (performance.now() - t0) / N;
     g.clearRect = orig;
     const stats1 = window.__out.stats;
-    out.redraws = { grid: stats1.grid - stats0.grid, feedback: stats1.feedback - stats0.feedback };
+    out.redraws = { grid: stats1.gridDraws - stats0.gridDraws, feedback: stats1.feedback - stats0.feedback };
     out.perFrameMs = ms; out.clears = calls.length; out.biggestClear = Math.max(0, ...calls.map((c) => c[2] * c[3])); out.canvasArea = fb.width * fb.height;
     // a message with nothing new draws nothing
     const f0 = window.__out.stats.feedback; window.__out.drawFeedback(); window.__out.drawFeedback(); out.idleRedraws = window.__out.stats.feedback - f0;
@@ -1923,7 +1931,7 @@ test('ui: output page — during a calibration the wall shows the hand, the fill
     setup: (e) => withLayers(e, [{ id: 'experience', on: true }, { id: 'touches', on: false }, { id: 'grid', on: false }]),
   });
   assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
-  assert.ok(result.fbAbove > result.maxLayerZ, 'the feedback canvas sits above every layer');
+  assert.deepEqual(result.plan, ['touches', 'grid', 'feedback'], 'the feedback is drawn above every layer');
   assert.deepEqual(result.size, result.gridSize, 'and covers the same render size');
   assert.equal(result.cyanBefore, 0, 'no hand: nothing cyan');
   assert.ok(result.liveHands?.length >= 1, `the engine sends the hand (${JSON.stringify(result.liveHands)})`);
