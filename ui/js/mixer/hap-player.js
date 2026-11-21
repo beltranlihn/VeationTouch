@@ -29,7 +29,7 @@
 export const FAIL_LIMIT = 3;    // read / decode failures in a row before a clip is broken
 export const STALL_MS = 3000;   // a frame asked for this long ago and not back: the file does not answer (a drive pulled out)
 // errors that no retry can fix: the clip is broken at the first one
-const FATAL = /^(no-moov|mov-bad|not-hap|hapm|not-supported|truncated|no-node|no-webgl2|no-s3tc|no-offscreen):/;
+const FATAL = /^(no-moov|mov-bad|not-hap|hapm|not-supported|truncated|no-node|no-webgl2|no-s3tc|no-offscreen|no-webcodecs|no-decoder|unsupported-config):/;
 
 /** K and L of the request window (driveHAP): {K, L} for a clip at `fps` with `latMs` of measured latency. */
 export function requestWindow(fps, latMs) {

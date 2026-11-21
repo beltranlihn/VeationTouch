@@ -19,6 +19,8 @@
 //   page never waits for anything: a broken clip is only an image that goes.
 // - LATE frames (the wanted frame was not decoded in time: the previous one stays) are counted and sent, at most every
 //   REPORT_MS, as media.report {late, frames, seconds, layers}.
+// - KINDS (docs/research/media-formats.md): a HAP clip has a HapPlayer, a still image a StillPlayer (decoded once, one texture
+//   with mipmaps), an H.264 video a VideoPlayer (a decoder with state in a worker), a sound has none (it is the audio page's).
 // - Each player has its own texture (RGBA8, the clip's size), recycled; after a lost GPU context they are made again
 //   and the current frames asked for again.
 // - PRELOAD (state.media.preload, vt.media.preload — MEDIA-SERVER.md §4.4): the clips an experience asked to keep ready
@@ -29,6 +31,9 @@
 
 import { HapPool, hapWorkers } from './hap-pool.js';
 import { HapPlayer, FrameLock, requestWindow } from './hap-player.js';
+import { StillPlayer } from './still-player.js';
+import { VideoPool } from './video-pool.js';
+import { VideoPlayer } from './video-player.js';
 
 export const HOLD_MS = 1000;
 export const GRACE_MS = 1500;
@@ -124,12 +129,12 @@ export function libraryFile(dir, file) {
  * @param {Function} d.playhead transport.js › playhead (served as /shared/transport.js)
  * @param {() => object} [d.spawn] a decode worker (default: hap-worker.js as a module worker)
  */
-export function createMediaLayers({ registry, mixer, store, on, cmd, clock, playhead, spawn = null, now = () => performance.now(), timers = globalThis }) {
+export function createMediaLayers({ registry, mixer, store, on, cmd, clock, playhead, spawn = null, spawnVideo = null, now = () => performance.now(), timers = globalThis }) {
   const group = registry.group('media');
   const players = new Map();  // playId → P = { playId, play, layerId, pl, tex, gen, w, h, ready, lock, failedAt, reported, loc, seq }
   const pre = new Map();      // clipId → P of a clip kept ready (state.media.preload): its first frame on its texture, parked
   const spare = [];           // textures to recycle: { tex, w, h, gen }
-  let pool = null, lastHook = -Infinity, lastReport = now(), parkedAll = false;
+  let pool = null, vpool = null, lastHook = -Infinity, lastReport = now(), parkedAll = false;
   const rec = { late: 0, frames: 0, byLayer: {} };
   const last = {};            // layerId → what the last composed frame showed (tests, the real-size check)
   const stats = { frames: 0, parks: 0, reports: 0, errorsReported: 0, texturesMade: 0, preloaded: 0, adopted: 0 };
@@ -142,18 +147,22 @@ export function createMediaLayers({ registry, mixer, store, on, cmd, clock, play
     size: hapWorkers(),
   }));
 
+  const getVPool = () => vpool || (vpool = new VideoPool({
+    spawn: spawnVideo || (() => new Worker(new URL('./video-worker.js', import.meta.url), { type: 'module', name: 'video' })),
+  }));
+
   // ------------------------------------------------------------------ textures
 
-  function takeTexture(mx, w, h) {
-    const i = spare.findIndex((s) => s.w === w && s.h === h && s.gen === mx.generation);
+  function takeTexture(mx, w, h, mips = false) {
+    const i = spare.findIndex((s) => s.w === w && s.h === h && s.gen === mx.generation && !!s.mips === mips);
     if (i >= 0) return spare.splice(i, 1)[0].tex;
     stats.texturesMade++;
-    return mx.texture(w, h);
+    return mx.texture(w, h, { mips });
   }
   function releaseTexture(P) {
     const mx = mixer();
     if (P.tex && mx && P.gen === mx.generation) {
-      if (spare.length < 2) spare.push({ tex: P.tex, w: P.w, h: P.h, gen: P.gen }); else mx.deleteTexture(P.tex);
+      if (spare.length < 2) spare.push({ tex: P.tex, w: P.w, h: P.h, gen: P.gen, mips: !!P.still }); else mx.deleteTexture(P.tex);
     }
     P.tex = null; P.ready = false;
   }
@@ -166,14 +175,19 @@ export function createMediaLayers({ registry, mixer, store, on, cmd, clock, play
       const w = bm.width, h = bm.height;
       if (!P.tex || P.gen !== mx.generation || P.w !== w || P.h !== h) {
         if (P.tex && P.gen === mx.generation) mx.deleteTexture(P.tex);
-        P.tex = takeTexture(mx, w, h); P.gen = mx.generation; P.w = w; P.h = h;
+        P.tex = takeTexture(mx, w, h, !!P.still); P.gen = mx.generation; P.w = w; P.h = h;
       }
-      mx.upload(P.tex, bm);
+      mx.upload(P.tex, bm, w, h, { mips: !!P.still }); // a still image is uploaded once: its mipmaps are made with it
       P.ready = true;
     } finally { try { bm.close(); } catch { /* closed */ } }
   }
 
   // ------------------------------------------------------------------ players
+
+  /** What a play is: 'hap' | 'video' | 'image' | 'audio' — the play says (state.media), else the medium of the show. */
+  function kindOf(p) {
+    return p.kind || S()?.show?.media?.find((x) => x.id === p.mediaId)?.kind || 'hap';
+  }
 
   function fileOf(p) {
     const st = S(), m = st?.show?.media?.find((x) => x.id === p.mediaId);
@@ -183,11 +197,16 @@ export function createMediaLayers({ registry, mixer, store, on, cmd, clock, play
   /** A player for play `p` (registered in `into` under `key`: the plays by playId, the preloads by clipId). */
   function create(p, layerId, into = players, key = p.playId) {
     const path = fileOf(p), pl0 = getPool();
-    const P = { playId: p.playId, play: p, layerId, path, tex: null, gen: -1, w: 0, h: 0, ready: false, closed: false, lock: new FrameLock(periodMs()), failedAt: null, reported: false, loc: 1, seq: { prev: -1, newFrames: 0, skipped: 0, late: 0, wraps: 0, frames: 0, wantPrev: -1, wrapAt: null, wrapLog: [] }, lastLate: 0 };
-    P.pl = new HapPlayer({ path, pool: pl0, deliver: (bm) => upload(P, bm), now });
+    const kind = kindOf(p);
+    const P = { playId: p.playId, play: p, layerId, path, kind, still: kind === 'image', tex: null, gen: -1, w: 0, h: 0, ready: false, closed: false, lock: new FrameLock(periodMs()), failedAt: null, reported: false, loc: 1, seq: { prev: -1, newFrames: 0, skipped: 0, late: 0, wraps: 0, frames: 0, wantPrev: -1, wrapAt: null, wrapLog: [] }, lastLate: 0 };
+    const vp = kind === 'video' ? getVPool() : null;
+    if (kind === 'image') P.pl = new StillPlayer({ path, pool: pl0, deliver: (bm) => upload(P, bm) });
+    else if (vp) P.pl = new VideoPlayer({ path, pool: vp, deliver: (bm) => upload(P, bm), now });
+    else P.pl = new HapPlayer({ path, pool: pl0, deliver: (bm) => upload(P, bm), now });
     into.set(key, P);
     if (!path) { P.pl.broken = 'read: the clip\'s file is not in the show'; return P; }
-    pl0.info(path).then((ix) => { if (P.closed) return; P.pl.setInfo(ix); pl0.add(P.pl); pl0.pump(); }, (e) => { if (!P.closed) P.pl.broken = String(e?.message || e); });
+    if (kind === 'image') return P; // (decoded at its first drive: no index, no pool slot)
+    (vp || pl0).info(path).then((ix) => { if (P.closed) return; P.pl.setInfo(ix); (vp || pl0).add(P.pl); (vp || pl0).pump(); }, (e) => { if (!P.closed) P.pl.broken = String(e?.message || e); });
     return P;
   }
 
@@ -197,7 +216,7 @@ export function createMediaLayers({ registry, mixer, store, on, cmd, clock, play
     releaseTexture(P);
     if (players.get(P.playId) === P) players.delete(P.playId);
     if (pre.get(P.play.clipId) === P) pre.delete(P.play.clipId);
-    if (pool && P.path && ![...players.values(), ...pre.values()].some((x) => x.path === P.path)) pool.closeFile(P.path);
+    if (P.path && ![...players.values(), ...pre.values()].some((x) => x.path === P.path)) { pool?.closeFile(P.path); vpool?.closeFile(P.path); } // (the decoder of a clip goes with its last player)
   }
 
   // ------------------------------------------------------------------ preload (state.media.preload)
@@ -205,7 +224,7 @@ export function createMediaLayers({ registry, mixer, store, on, cmd, clock, play
   /** What a kept-ready clip's player plays: its segment, from the medium's video (frames, rate). */
   function preloadPlay(clip, m) {
     const fps = m?.video?.fps || 30, frames = Math.max(1, m?.video?.frames || 1);
-    return { playId: `pre:${clip.id}`, clipId: clip.id, mediaId: clip.mediaId, in: clip.in || 0, out: clip.out ?? frames / fps, fps, frames, end: 'hold', loops: 1, startAt: 0, offset: 0 };
+    return { playId: `pre:${clip.id}`, clipId: clip.id, mediaId: clip.mediaId, kind: m?.kind || 'hap', in: clip.in || 0, out: clip.out ?? frames / fps, fps, frames, end: 'hold', loops: 1, startAt: 0, offset: 0 };
   }
 
   /**
@@ -250,8 +269,9 @@ export function createMediaLayers({ registry, mixer, store, on, cmd, clock, play
     if (!m) return out;
     for (const [id, e] of [...Object.entries(m.layers || {}), [XLAYER, m.xlayer]]) {
       if (!e) continue;
-      if (e.from) out.push({ p: e.from, layerId: id, role: 'from', e });
-      if (e.play) out.push({ p: e.play, layerId: id, role: 'play', e });
+      // a sound has no picture: it is the audio page's (ui/js/audio-media.js), the mixer makes no player for it
+      if (e.from && kindOf(e.from) !== 'audio') out.push({ p: e.from, layerId: id, role: 'from', e });
+      if (e.play && kindOf(e.play) !== 'audio') out.push({ p: e.play, layerId: id, role: 'play', e });
     }
     return out;
   }
@@ -425,11 +445,12 @@ export function createMediaLayers({ registry, mixer, store, on, cmd, clock, play
       return {
         frames: stats.frames, parks: stats.parks, reports: stats.reports, errorsReported: stats.errorsReported, texturesMade: stats.texturesMade,
         workers: pool ? pool.workers.length : 0, inFlight: pool ? pool.inFlight : 0, pool: pool ? { ...pool.stats } : null,
+        video: vpool ? { workers: vpool.workers.length, inFlight: vpool.inFlight, ...vpool.stats } : null,
         players: [...players.values()].map((P) => ({
           playId: P.playId, layerId: P.layerId, clipId: P.play.clipId, ready: P.ready, held: P.pl.held, pend: P.pl.pend.size,
           shown: P.pl.shown, quiere: P.pl.quiere, lat: Math.round(P.pl.lat * 10) / 10, parked: P.pl.parked, broken: P.pl.broken,
           fourcc: P.pl.ix?.fourcc || null, seq: { ...P.seq, wrapLog: [...P.seq.wrapLog] }, stats: { ...P.pl.stats }, last: P.last || null,
-          failedAt: P.failedAt, reported: P.reported,
+          failedAt: P.failedAt, reported: P.reported, kind: P.kind, w: P.w, h: P.h, reduced: !!P.pl.reduced,
         })),
         preloaded: stats.preloaded, adopted: stats.adopted,
         preloads: [...pre.values()].map((P) => ({ clipId: P.play.clipId, ready: P.ready, shown: P.pl.shown, held: P.pl.held, parked: P.pl.parked, broken: P.pl.broken })),
@@ -438,7 +459,7 @@ export function createMediaLayers({ registry, mixer, store, on, cmd, clock, play
     destroy() {
       off(); for (const o of offs) o(); timers.clearInterval?.(watchdog);
       for (const P of [...players.values(), ...pre.values()]) closePlayer(P);
-      pool?.terminate(); pool = null;
+      pool?.terminate(); pool = null; vpool?.terminate(); vpool = null;
     },
   };
 }
