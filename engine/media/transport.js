@@ -296,13 +296,17 @@ export class Transport {
     return { blackout: this.blackout };
   }
 
-  /** media.report: a page could not play a play (its file is unreadable): the layer is ejected at once, with an 'error' event. */
+  /**
+   * media.report: a page could not play a play (its file is unreadable: a drive pulled out, a file cut short). The output
+   * page has already held its last image for a second (MEDIA-SERVER.md §4d.3, step 6); the layer is ejected now with
+   * its transition (the image fades out as with any eject), with an 'error' event.
+   */
   fail(playId, error) {
     const e = this._all().find((x) => x.play?.playId === playId);
     if (!e) return { ejected: false };
     const p = e.play;
     this.events.push({ event: 'error', playId, clipId: p.clipId, layerId: e.id, error: String(error || 'the clip could not be played').slice(0, 300) });
-    this._eject(e, 0, this.now(), 'error');
+    this._eject(e, this._layer(e.id)?.transitionMs ?? 0, this.now(), 'error');
     this.rev++;
     return { ejected: true };
   }

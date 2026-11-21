@@ -9,7 +9,8 @@
 //                canvas (covered, never hidden: it must keep rendering). In the task in which it draws, its runtime calls
 //                __vtLayerFrame(canvas, t) here and the mixer copies the canvas (a canvas is empty once presented) and
 //                composes the frame right then: the experience's frames drive the output.
-//   media      — the clip layers (a group, ui/js/mixer/layers.js): empty until the clip player registers its layers.
+//   media      — the clip layers (a group, ui/js/mixer/layers.js), filled by the HAP clip player (ui/js/mixer/media-layers.js)
+//                from state.media: one player per playing clip, decoded in workers, on the frame the engine's clock says.
 //   touches    — the black-and-white mask of the touches, drawn by the engine's own rasteriser (/shared/mask.js, the same
 //                code as the Texture output) at the layer's scale and stretched to the render size; uploaded when it changes
 //   grid       — the pixel map (wall outlines, metre grid, wall ids) and the calibration targets, drawn with Canvas 2D at
@@ -22,12 +23,14 @@
 // Without an experience (or when it stops calling) this page's own frame loop composes, only when something changed.
 // Blackout (state.media.blackout): the image fades to black in 0.5 s, and back.
 
-import { store, on, connect } from './conn.js';
+import { store, on, connect, cmd } from './conn.js';
 import { TouchMask, wallPattern, overlayOf } from '/shared/mask.js';
 import { wallUvToCanvas } from '/shared/geometry.js';
+import { playhead } from '/shared/transport.js';
 import { drawHands, drawSessionFeedback } from './feedback.js';
 import { createMixer } from './mixer/gl.js';
 import { createRegistry, buildDraws, LAYER_IDS } from './mixer/layers.js';
+import { createMediaLayers } from './mixer/media-layers.js';
 import { makeClock } from './clock.js';
 
 const AMBER = '#E5B567', CYAN = '#4FC3E8';
@@ -41,6 +44,8 @@ const registry = createRegistry(); // groups of layers registered from outside (
 const clock = makeClock();         // the engine's clock (live messages carry its time)
 let size = null;                   // the render size { w, h } of this page's life (a new one means a fresh page)
 let mixer = null;
+// the clip layers: HAP players driven by state.media, in the media group (they run their hook before the group draws)
+const media = createMediaLayers({ registry, mixer: () => mixer, store, on, cmd, clock, playhead });
 let want = [];                     // the layers drawn now, bottom → top ({id, opacity, blend, …})
 let dirty = true;                  // something to compose
 let fade = null;                   // blackout: 0 = image … 1 = black (null until the first state)
@@ -261,7 +266,8 @@ function pageFrame(t) {
   if (now - timingAt >= 1000) { timingAt = now; stats.timing = timing(now); }
   const every = 1000 / (P()?.output?.fps || 60);
   if (drawn('experience') && now - lastExp < every * 2.5) return;
-  if (dirty || (drawn('media') && registry.active)) compose(t ?? now, null);
+  // (a clip that is playing keeps the frames coming even before its first image: its player is driven by them)
+  if (dirty || (drawn('media') && (registry.active || media.busy))) compose(t ?? now, null);
 }
 
 /** requestAnimationFrame, and a timer when it does not come (a window nobody sees: the tests' hidden windows). */
@@ -480,7 +486,7 @@ document.fonts?.load?.('600 20px Geist').then(() => drawGrid(true)).catch(() => 
 // Tests and the clip player (F6). layers(): the layers drawn, bottom → top (a piece parked by calibration mode is not);
 // plan(): with their blend and opacity, and the feedback when it shows; compose(): a frame now (a hidden window has none).
 window.__out = {
-  sync, touchFrame, drawGrid, drawFeedback, stats, registry, clock,
+  sync, touchFrame, drawGrid, drawFeedback, stats, registry, clock, media,
   layers: () => want.map((l) => l.id),
   plan: () => [...want.map((l) => ({ id: l.id, blend: l.blend || 'normal', opacity: l.opacity ?? 1 })), ...(sources().feedback?.on ? [{ id: 'feedback', blend: 'normal', opacity: 1 }] : [])],
   compose: () => compose(performance.now(), null),

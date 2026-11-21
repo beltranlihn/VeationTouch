@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
+const { outputWebPreferences, guardOutputWindow } = require('./output-window.cjs');
 const ENGINE = path.join(ROOT, 'engine', 'main.js');
 const ICON = path.join(ROOT, 'build', 'icon.png');
 const HIDDEN = process.argv.includes('--hidden');
@@ -52,7 +53,8 @@ function startEngine() {
   engine.on('message', onEngineMessage);
   engine.on('exit', (code) => {
     engine = null; engineReady = false;
-    closeOutputWindow(); // its page talks to the engine that just went away; ready opens a fresh one
+    // the room output stays: its clips keep playing on its own clock and files (its workers read the disk), and its page
+    // reconnects when the engine is back (on the same port the window is kept; on another one, ready makes a fresh one)
     closeAudioWindow();
     if (quitting) return;
     if (Date.now() - startedAt > 60000) restarts = 0; // it ran fine for a minute: reset the backoff
@@ -312,6 +314,7 @@ function startPreview(w) {
  * layers are applied live by the page.
  */
 function applyOutputWindow() {
+  if (!engineReady && !quitting) return; // the engine is restarting: the output window keeps playing as it is
   const want = engineReady ? outWanted : null;
   const display = want?.sink === 'window' ? screen.getAllDisplays().find((d) => d.id === want.displayId) : null;
   if (!want || (want.sink === 'window' && !display)) { closeOutputWindow(); return; }
@@ -323,19 +326,20 @@ function applyOutputWindow() {
   // Spout on the GPU when the addon supports it and it has not failed in this run (see spoutOut)
   const gpu = !display && !spoutOut.failed && want.width > 0 && want.height > 0 && !!spoutSender(true);
   if (!display && !gpu) spoutSender(false);
-  // the preload only tells the page that this window IS a Spout output (it is pinned 1:1 to the render size, not fitted)
-  const spoutWeb = { preload: path.join(ROOT, 'app', 'experience-preload.cjs'), additionalArguments: ['--vt-spout=main'], zoomFactor: 1, contextIsolation: true, nodeIntegration: false, sandbox: false, backgroundThrottling: false };
+  // The preload only tells the page that this window IS a Spout output (it is pinned 1:1 to the render size, not fitted).
+  // Both kinds have Node in their WORKERS (the HAP decoders read the clips with fs: app/output-window.cjs), so both are
+  // guarded below: they never leave this app's server.
   // Spout: OFF-SCREEN rendering. A merely hidden window gets no requestAnimationFrame and its timers tick at Windows'
   // 15.6 ms granularity — measured about 26 fps for a 60 fps piece. Off-screen, Chromium drives frames at setFrameRate().
   // The window is the render size either way and paints, 1:1, what the page composes.
   const w = display
     ? new BrowserWindow({
       ...common, x: display.bounds.x, y: display.bounds.y, width: display.bounds.width, height: display.bounds.height, fullscreen: true, show: false,
-      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+      webPreferences: outputWebPreferences({ spout: false }),
     })
     : new BrowserWindow({
       ...common, width: Math.max(16, want.width), height: Math.max(16, want.height), useContentSize: true, show: false, enableLargerThanScreen: true,
-      webPreferences: { ...spoutWeb, offscreen: gpu ? { useSharedTexture: true } : true },
+      webPreferences: outputWebPreferences({ spout: true, preload: path.join(ROOT, 'app', 'experience-preload.cjs'), gpu }),
     });
   if (!display) {
     w.webContents.setFrameRate(Math.max(1, Math.min(240, Number(want.fps) || 60)));
@@ -346,9 +350,10 @@ function applyOutputWindow() {
   outWin = w; outKey = key;
   if (display) w.once('ready-to-show', () => w.showInactive());
   w.on('closed', () => { if (outWin === w) { outWin = null; outKey = ''; } });
-  // the preload can load native code: this window never leaves the app's own server
+  // the preload can load native code and the workers have Node: this window never leaves the app's own server
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   w.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(uiUrl('/'))) e.preventDefault(); });
+  guardOutputWindow(w.webContents, uiUrl('/').replace(/\/$/, ''), (url) => log(`room output: navigation to ${String(url).slice(0, 120)} refused`));
   w.webContents.on('render-process-gone', (_e, d) => {
     log(`output renderer gone (${d.reason}); restarting it`);
     setTimeout(() => { if (outWin === w) { closeOutputWindow(); applyOutputWindow(); } }, 1000);

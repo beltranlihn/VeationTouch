@@ -360,7 +360,16 @@ export class MediaEngine extends EventEmitter {
 
   /** media.report: the output page could not play a play (unreadable file): the layer is ejected and an 'error' event goes out. */
   _report(args) {
-    if (typeof args.playId !== 'string' || !args.error) return { ejected: false }; // (health figures without a failed play: F6/F13)
+    if (typeof args.playId !== 'string' || !args.error) {
+      // the output page's late clip frames (the previous frame stayed on screen): a log line at most every 30 s
+      const late = Number(args.late);
+      if (late > 0 && Date.now() - (this._lateLogAt || 0) > 30000) {
+        this._lateLogAt = Date.now();
+        const where = Object.entries(args.layers && typeof args.layers === 'object' ? args.layers : {}).slice(0, 8).map(([k, v]) => `${String(k).slice(0, 12)} ${Number(v) || 0}`).join(', ');
+        this.log.warn(`room output: ${Math.round(late)} clip frame(s) late in ${Number(args.seconds) || '?'} s${where ? ` (${where})` : ''} — the decoders did not keep up`);
+      }
+      return { ejected: false };
+    }
     const r = this._run(() => this.transport.fail(args.playId, args.error));
     if (r.ejected) this.log.warn(`clip ${args.playId} could not be played: ${String(args.error || '').slice(0, 200)}`);
     return r;

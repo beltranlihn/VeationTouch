@@ -175,6 +175,9 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (p === '/shared/mask.js') return serveFile(res, path.join(root, 'engine', 'core', 'mask.js')); // the Texture output's rasteriser (live preview)
     // the transport's playhead() — THE formula of a clip's position — for the mixer, the HAP player and the audio page
     if (p === '/shared/transport.js') return serveFile(res, path.join(root, 'engine', 'media', 'transport.js'), OWN);
+    // the HAP decoders of the output page's workers read the movies with the engine's own code (mov.js imports ./hap.js)
+    if (p === '/shared/mov.js') return serveFile(res, path.join(root, 'engine', 'media', 'mov.js'), OWN);
+    if (p === '/shared/hap.js') return serveFile(res, path.join(root, 'engine', 'media', 'hap.js'), OWN);
     if (p === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       const mem = process.memoryUsage(), mb = (b) => Math.round(b / 1048576);
