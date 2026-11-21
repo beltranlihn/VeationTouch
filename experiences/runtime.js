@@ -465,6 +465,15 @@ async function connectEngine(id, run, viewer = false, layer = false) {
     cmd('experience.report', { fps: Math.round(fps * 10) / 10, error: o.pageError || o.error || null }).catch(() => {});
   }, REPORT_MS);
   o.lastReport = performance.now();
+  // ...and once as soon as the first frames are out, so the card in Live turns LIVE at once instead of after up to 2 s
+  if (!viewer) {
+    const t0 = performance.now();
+    const first = () => {
+      if (o.frames > 0) cmd('experience.report', { fps: Math.round((o.frames * 10000) / Math.max(1, performance.now() - t0)) / 10, error: o.pageError || o.error || null }).catch(() => {});
+      else if (performance.now() - t0 < REPORT_MS) setTimeout(first, 50);
+    };
+    setTimeout(first, 50);
+  }
   window.__vtStarted?.();
   return vt;
 }

@@ -436,7 +436,7 @@ test('ui: __vt.go() with every old view id opens its section and sub-tab; keys 1
     status: S('status', 'setup', 'Status'),
     audio: S('audio', 'output', 'Audio'),
   });
-  assert.deepEqual(result.live, { health: false, experiences: ['experiences', 'sound'] }, 'Live: the experience panel, not the health list');
+  assert.deepEqual(result.live, { health: false, experiences: ['sound'] }, 'Live: the inspector (the experiences are the shelf\'s cards; the room\'s sound pieces stay), not the health list');
   assert.deepEqual(result.status, { health: true, feed: true }, 'the old Live panel (health, events) is Status');
   assert.deepEqual(result.keys, ['audio', 'zones', 'live', 'live', 'live'], 'keys 1–3: sections (each on its last sub-tab); 4–9 nothing');
   assert.deepEqual(result.back, ['outputs', 'room']);
@@ -1346,7 +1346,11 @@ test('ui: Live — the experience catalog, Play and Stop, the manifest controls;
     const out = {};
     const v = window.__vt;
     const panel = document.getElementById('panel');
-    const card = () => panel.querySelector('.xp-card[data-id="touch-probe"]');
+    // Live (F8): the experience is a card of the shelf (picture = load it, name = select it) and its controls are in the
+    // inspector, Live's right-hand panel
+    const shelf = () => document.querySelector('.lv-card[data-kind="experience"][data-id="touch-probe"]');
+    const card = () => panel;
+    const params = () => [...panel.querySelectorAll('.sec')].find((s) => /^Parameters/.test(s.querySelector('h2')?.textContent || '')) || null;
     const outCard = () => panel.querySelector('.xp-card[data-card="output"]');
     const btn = (root, t) => [...root.querySelectorAll('button')].find((b) => b.innerText.trim() === t);
     const live = async () => { v.go('live'); await wait(150); };
@@ -1355,9 +1359,10 @@ test('ui: Live — the experience catalog, Play and Stop, the manifest controls;
     out.nav = !!document.querySelector('button[data-view="experiences"]');
     v.go('system'); await wait(50); v.go('experiences'); await wait(150);
     out.oldId = v.view;
-    out.catalog = [...panel.querySelectorAll('.xp-card[data-id]')].map((c) => c.dataset.id);
+    out.catalog = [...document.querySelectorAll('.lv-card[data-id]')].map((c) => c.dataset.id);
     out.liveCards = { output: !!outCard(), audio: !!panel.querySelector('[data-card="audio"]') };
-    out.idleHasPlay = !!btn(card(), 'Play'); out.idleHasStop = !!btn(card(), 'Stop');
+    shelf().querySelector('.lv-cname').click(); await wait(150);
+    out.idleHasPlay = !!btn(card(), 'Load'); out.idleHasStop = !!btn(card(), 'Stop');
     await screens();
     const last = panel.lastElementChild;
     out.outputUnderMapping = !!outCard() && last.contains(outCard()) && /output canvas/i.test(panel.firstElementChild.innerText) && /Output — VEATION Touch/.test(outCard().innerText);
@@ -1365,26 +1370,29 @@ test('ui: Live — the experience catalog, Play and Stop, the manifest controls;
     out.idleOutputOn = outCard().querySelector('.row .switch').classList.contains('on');
     // Play
     await live();
-    btn(card(), 'Play').click();
+    shelf().querySelector('.lv-cthumb').click();
     for (let k = 0; k < 30 && !store.state.experience.running; k++) await wait(50);
-    await wait(200);
+    // the card turns LIVE with the page's first frames (no output page here: say what it would report)
+    out.startingFirst = shelf().classList.contains('loading');
+    await cmd('experience.report', { fps: 30 });
+    for (let k = 0; k < 20 && !shelf().classList.contains('live'); k++) await wait(50);
     out.running = store.state.experience.running; out.outRunning = store.state.output.running; out.url = store.state.experience.url;
-    out.on = card().classList.contains('on'); out.hasStop = !!btn(card(), 'Stop');
-    out.faders = card().querySelectorAll('.vfield').length;
-    out.labels = [...card().querySelectorAll('.row > label')].map((l) => l.innerText);
+    out.on = shelf().classList.contains('live'); out.hasStop = !!btn(card(), 'Stop');
+    out.faders = params().querySelectorAll('.vfield').length;
+    out.labels = [...params().querySelectorAll('.row > label')].map((l) => l.innerText);
     out.switches = card().querySelectorAll('.switch').length;
     out.rangeInputs = document.querySelectorAll('input[type=range]').length;
-    out.focusOptions = [...card().querySelectorAll('select')].map((s) => [...s.options].map((o) => o.value)).find((v) => v.includes('') && v.length > 2);
+    out.focusOptions = [...params().querySelectorAll('select')].map((s) => [...s.options].map((o) => o.value)).find((v) => v.includes('') && v.length > 2);
     out.cardHasDestination = !!btn(card(), 'Spout') || !!btn(card(), 'Full screen');
     // a fader (keyboard: one step), a toggle, a select
-    card().querySelector('.vfield').focus();
-    card().querySelector('.vfield').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    params().querySelector('.vfield').focus();
+    params().querySelector('.vfield').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     await wait(250);
     out.gain = store.state.profile.experience.params['touch-probe']?.gain;
     document.activeElement.blur(); await wait(150);
-    card().querySelector('.xp-params .switch').click(); await wait(250);
+    params().querySelector('.switch').click(); await wait(250);
     out.trails = store.state.profile.experience.params['touch-probe']?.trails;
-    const modeSel = [...card().querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'hard'));
+    const modeSel = [...params().querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'hard'));
     modeSel.value = 'hard'; modeSel.dispatchEvent(new Event('change')); await wait(250);
     out.mode = store.state.profile.experience.params['touch-probe']?.mode;
     // the output: the preview, the scale, the rate, the destination — in Output › Screens, not in the experience's card
@@ -1409,7 +1417,7 @@ test('ui: Live — the experience catalog, Play and Stop, the manifest controls;
     out.lockedLayers = [...outCard().querySelectorAll('.xp-layer .switch, .xp-layer select')].every((e) => !e.disabled);
     out.lockedSet = await cmd('output.set', { fps: 60 }).then(() => 'accepted', (e) => e.message);
     await live();
-    out.lockedStop = !btn(card(), 'Stop').disabled; out.lockedFader = !!card().querySelector('.vfield');
+    out.lockedStop = !btn(card(), 'Stop').disabled; out.lockedFader = !!params()?.querySelector('.vfield') && !params().querySelector('.vfield').closest('[disabled]');
     await cmd('experience.param', { key: 'gain', value: 0.7 });
     await cmd('app.lock', { locked: false }); await wait(200);
     // Stop: the experience layer goes, the output stays
@@ -1432,6 +1440,7 @@ test('ui: Live — the experience catalog, Play and Stop, the manifest controls;
   assert.equal(result.outRunning, true, 'and switched the output on');
   assert.equal(result.url, '/experiences/touch-probe/index.html?run=1');
   assert.equal(engine.profile.experience.id, 'touch-probe');
+  assert.equal(result.startingFirst, true, 'until its page draws, the card says it is starting');
   assert.equal(result.on, true, 'the running card is highlighted');
   assert.equal(result.hasStop, true);
   assert.equal(result.preview, true, 'live preview image of the output');
