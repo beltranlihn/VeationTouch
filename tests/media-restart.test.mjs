@@ -296,7 +296,8 @@ test('wire: the compact state of the relay expands back to the engine\'s show; f
   const back = expandState(JSON.parse(JSON.stringify(wire)));
   assert.equal('compact' in back, false);
   assert.deepEqual(back.show.clips, st.show.clips, 'the clips are the engine\'s');
-  assert.deepEqual(back.show.media, st.show.media.map(({ mtimeMs, ...m }) => m));
+  assert.deepEqual(back.show.media.map((m) => m.id), st.show.media.map((m) => m.id));
+  assert.ok(back.show.media.every((m, i) => m.fingerprint === st.show.media[i].fingerprint && m.file === st.show.media[i].file && m.video.duration === st.show.media[i].video.duration && !('size' in m) && !('mtimeMs' in m)), 'what the phone reads is there; the bookkeeping is not');
   assert.equal(back.show.rev, 7);
   assert.equal(expandState(st), st, 'a full message is left as it is');
   assert.deepEqual(expandClip(compactClip(st.show.clips[0])), st.show.clips[0]);

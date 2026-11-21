@@ -5,7 +5,11 @@
 // the show the engine has. What is left out:
 //   show.clips[]   every field equal to a new clip's default (show.js › newClip: tests/media-restart.test.mjs checks the
 //                  table below against it, so they cannot drift apart)
-//   show.media[]   mtimeMs (the engine's own bookkeeping of the library check: no page reads it)
+//   show.media[]   what the phone's Live never reads: mtimeMs, size and notes (the import warnings), the video's codec
+//                  details (fourcc, frames...: it keeps width, height, fps and duration), a null audio / thumbFrame
+//                  (expandState puts back notes [], audio null, thumbFrame null). A device on the relay sees the show
+//                  WITHOUT that detail: the desktop (full state) is where it is shown
+//   media.converter the installer's paths and licence texts (the phone only needs to know whether FFmpeg is there)
 //   media.import   finished and cancelled copies (a remote device cannot act on them; it sees the ones that run)
 // The message carries `compact: 1`; expandState() puts the defaults back and drops the flag. A message without the flag is
 // returned as it is (a LAN device and this computer get the full state).
@@ -35,10 +39,26 @@ export function expandClip(c) {
   return Object.assign(out, c);
 }
 
-/** state.media for the wire: the copies that are not over. */
+/** A medium for the wire (see the table at the top). */
+export function compactMedium(m) {
+  const { mtimeMs, size, notes, thumbFrame, audio, video, ...rest } = m;
+  const out = { ...rest };
+  if (video) out.video = { width: video.width, height: video.height, fps: video.fps, duration: video.duration };
+  if (audio) out.audio = audio;
+  if (thumbFrame !== null && thumbFrame !== undefined) out.thumbFrame = thumbFrame;
+  return out;
+}
+
+/** A compact medium with the fields a page may expect back (fresh objects). */
+export function expandMedium(m) { return { notes: [], audio: null, thumbFrame: null, ...m }; }
+
+/** state.media for the wire: the copies that are not over, the converter without its paths. */
 export function compactMedia(m) {
-  if (!m || !Array.isArray(m.import) || !m.import.some((j) => FINISHED.has(j.state))) return m;
-  return { ...m, import: m.import.filter((j) => !FINISHED.has(j.state)) };
+  if (!m) return m;
+  let out = m;
+  if (Array.isArray(m.import) && m.import.some((j) => FINISHED.has(j.state))) out = { ...out, import: m.import.filter((j) => !FINISHED.has(j.state)) };
+  if (m.converter?.ffmpeg) out = { ...out, converter: { ffmpeg: { installed: !!m.converter.ffmpeg.installed, installing: m.converter.ffmpeg.installing ? { pct: m.converter.ffmpeg.installing.pct } : null } } };
+  return out;
 }
 
 /** The state message (or a 'media' message) for a client of the relay. */
@@ -49,7 +69,7 @@ export function compactState(st) {
     out.show = {
       ...st.show,
       clips: (st.show.clips || []).map(compactClip),
-      media: (st.show.media || []).map(({ mtimeMs, ...m }) => m),
+      media: (st.show.media || []).map(compactMedium),
     };
   }
   if (st.media) out.media = compactMedia(st.media);
@@ -60,6 +80,6 @@ export function compactState(st) {
 export function expandState(m) {
   if (!m || m.compact !== 1) return m;
   const { compact, ...out } = m;
-  if (out.show) out.show = { ...out.show, clips: (out.show.clips || []).map(expandClip) };
+  if (out.show) out.show = { ...out.show, clips: (out.show.clips || []).map(expandClip), media: (out.show.media || []).map(expandMedium) };
   return out;
 }

@@ -211,8 +211,24 @@ Allowed in Show mode (the room locked): the launch ops.
 
 Read-only, **this computer only** (refused from the LAN and through the relay; the Live browser's Disk view): `media.fsRoots` (the library, the user's folders and the drives), `media.fsList {dir}` (the folders and files of an absolute path, hidden ones left out; `{dir, parent, entries: [{name, kind: 'dir'|'file', size, mtimeMs}], truncated}`) and `media.fsExpand {paths}` (a folder becomes the files in it). `GET /api/media/diskthumb?path=&s=160|480` gives a thumbnail of a file that is in no show (same rule).
 
+Convert to HAP and covers (the desktop app; the files are on this computer):
+
+| Op | Args | Does |
+|---|---|---|
+| `media.convert` | `{mediaId \| path, codec: 'hap' \| 'hapa' \| 'hapq', fps?, via?: 'chromium' \| 'ffmpeg'}` | Queues a conversion to HAP: `mediaId` = a medium of the open show (its clips switch to the result in one show edit), `path` = an absolute path import refused (the result only joins the library). → `{jobId}`. One job at a time. **This computer only** |
+| `media.convertCancel` | `{jobId}` | Stops a running or queued conversion (nothing is left behind) or dismisses a finished or failed one |
+| `media.ffmpeg.status` | — | The optional converter (FFmpeg, LGPL build, downloaded on the operator's click, never bundled): `{supported, installed, version, license, licenseUrl, source, sourceCode, size, installing: {done, total, pct} \| null, error, pin}`. `folder` and `licenseFile` (paths of this computer) only to this computer |
+| `media.ffmpeg.install` · `media.ffmpeg.remove` | — | Downloads the pinned build (SHA-256 checked) / deletes it (refused while an FFmpeg conversion runs). **This computer only** |
+| `media.cover` | `{mediaId, frame}` | Picks the frame that is the medium's thumbnail (its cover) |
+
+Conversions appear in `state.media.import[]` as jobs with `kind: 'convert'` (next to the copies, `kind: 'import'`):
+`{id, kind, showId, mediaId, name, state: 'waiting' | 'converting' | 'done' | 'failed', done, total, etaS, error, codec, via, resultMediaId}`;
+a failed one also sits in `problems[]` until `media.convertCancel` dismisses it. `state.media.converter` is `{ffmpeg: <the status above>}`
+(through the internet relay: `{ffmpeg: {installed, installing}}`).
+
 Blocked in Show mode: `show.update` (revision-checked), `show.load/create/delete/export/import`, `media.import`,
-`media.importCancel`, `media.relink`, `media.remove`, `media.setDir`, `output.screens`. `audio.media` stays open in Show mode for `level` only (routing is locked).
+`media.importCancel`, `media.relink`, `media.remove`, `media.setDir`, `media.cover`, `media.convert`, `media.ffmpeg.install`,
+`media.ffmpeg.remove`, `output.screens`. `audio.media` stays open in Show mode for `level` only (routing is locked).
 
 **State** (additions to the `state` message and the `status` message):
 - `show` — `{id, name, rev, media[], clips[], layers[], decks[], presets[], start}` (`start`: the card/column the room

@@ -48,7 +48,8 @@ export class HelperLink {
    */
   request(job, { files = {}, dest = null, timeoutMs = JOB_TIMEOUT_MS, onPart = null } = {}) {
     if (!this.online) return Promise.reject(Object.assign(new Error('the media helper is not running (the desktop app has it)'), { code: 'no-helper' }));
-    const id = `h${++this.seq}`, tokens = [];
+    this.seq++;
+    const id = `h${crypto.randomBytes(8).toString('hex')}`, tokens = []; // (unguessable: the routes of this page are keyed by it)
     const send = { ...job, id };
     for (const [k, f] of Object.entries(files)) { const t = this.fileToken(f); tokens.push(t); send[k] = `/api/helper/file/${t}`; }
     this.stats.jobs++;

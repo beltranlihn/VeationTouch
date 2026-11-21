@@ -104,7 +104,7 @@ export class Converter {
     this.jobs = new Map();
     this.seq = 0;
     this.running = null;
-    this.tool = new FfmpegTool({ dir: seams.toolDir || path.join(media.store.dir, 'tools', 'ffmpeg'), log: media.log, fetchImpl: seams.fetchImpl, versionOf: seams.versionOf, platform: seams.platform, pin: seams.pin, onChange: () => media._emitMedia() });
+    this.tool = new FfmpegTool({ dir: seams.toolDir || path.join(media.store.dir, 'tools', 'ffmpeg'), log: media.log, fetchImpl: seams.fetchImpl, versionOf: seams.versionOf, platform: seams.platform, pin: seams.pin, onChange: () => media._emitMedia(), busy: () => [...this.jobs.values()].some((j) => j.state === 'converting' && j.via === 'ffmpeg') });
   }
 
   get libraryDir() { return this.media.libraryDir; }
@@ -297,6 +297,7 @@ export class Converter {
         m._emitMedia();
       }
     };
+    if (job.cancelled) throw coded('cancelled', 'cancelled'); // (cancelled before the road began: nothing is launched)
     const req = m.helper.request({ kind: 'convert', codec: job.codec, fps: job.fps, name: job.name }, { files: { src }, onPart, timeoutMs: 120000 });
     job.cancel = async () => { m.helper.abort(req.id); };
     let res;
@@ -319,6 +320,7 @@ export class Converter {
     const args = [...(cmd.args || []), '-hide_banner', '-nostdin', '-y', '-i', src, '-map', '0:v:0', '-map', '0:a:0?',
       ...(job.fps ? ['-vf', `fps=${job.fps}`] : []),
       '-c:v', 'hap', '-format', FFMPEG_FORMAT[job.codec], '-chunks', '4', '-c:a', 'pcm_s16le', '-f', 'mov', '-progress', 'pipe:1', '-nostats', job.part];
+    if (job.cancelled) throw coded('cancelled', 'cancelled');
     const child = spawn(cmd.cmd, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let err = '', buf = '', durMs = 0, outMs = 0;
     child.stderr.on('data', (d) => {

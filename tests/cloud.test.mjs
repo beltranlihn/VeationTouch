@@ -316,7 +316,11 @@ test('cloud: the phone Live through the relay — a 160 px thumbnail arrives, ca
     assert.ok(kB < 42, `the compact initial state is ${kB.toFixed(1)} kB (budget 42 kB)`);
     const back = expandState(st);
     assert.deepEqual(back.show.clips, show.clips, 'expanded, the clips are the engine\'s');
-    assert.deepEqual(back.show.media, t.engine.media.show.media.map(({ mtimeMs, ...m }) => m));
+    // the media travel WITHOUT the detail the phone never reads (notes, size, codec details); what it reads is the engine's
+    assert.deepEqual(back.show.media.map((x) => [x.id, x.file, x.fingerprint, x.kind, x.video.duration, x.video.width, x.video.fps]),
+      t.engine.media.show.media.map((x) => [x.id, x.file, x.fingerprint, x.kind, x.video.duration, x.video.width, x.video.fps]));
+    assert.ok(back.show.media.every((x) => x.notes.length === 0 && !('size' in x) && !('fourcc' in x.video)), 'no notes, no size, no codec details on the wire');
+    assert.ok(!JSON.stringify(st.media.converter).includes('folder') && !JSON.stringify(st.media.converter).includes('licenseFile'), 'no paths of the computer on the relay');
     assert.ok(!(back.media.import || []).some((j) => j.state === 'done'), 'finished copies stay at home');
     // a device on the LAN (or this computer) still gets the full state
     const local = new WebSocket(`ws://127.0.0.1:${t.server.port}/ws/ui?k=${t.token}&role=ui`);

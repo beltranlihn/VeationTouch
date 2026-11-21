@@ -4,6 +4,8 @@
 // licence text and the address of its source, and runs it as a separate process (convert.js). Nothing here touches the network
 // until install() is called, which only the command `media.ffmpeg.install` does, from this computer.
 //
+// (The repository moved from BtbN/ to the FFmpeg-Builds organisation; the old address answers 301 to the new one. Autobuilds are purged
+// over time: when the pinned one is gone the install says so and the app must be updated.)
 // The pin is one exact build of BtbN's FFmpeg-Builds ("lgpl", static, win64). To move to another build: change PIN (url, sha256,
 // size, version); tests/convert.test.mjs checks the shape and that the url is an LGPL one.
 
@@ -47,8 +49,8 @@ export class FfmpegTool {
    * @param {{dir:string, log?:object, fetchImpl?:Function, versionOf?:Function, platform?:string, pin?:object, onChange?:Function}} o
    * `fetchImpl`, `versionOf`, `pin` and `platform` are test seams: the tests never reach the network nor need a real executable.
    */
-  constructor({ dir, log = null, fetchImpl = null, versionOf = runVersion, platform = process.platform, pin = PIN, onChange = () => {} }) {
-    this.dir = dir; this.log = log; this.fetchImpl = fetchImpl; this.versionOf = versionOf; this.platform = platform; this.pin = pin; this.onChange = onChange;
+  constructor({ dir, log = null, fetchImpl = null, versionOf = runVersion, platform = process.platform, pin = PIN, onChange = () => {}, busy = () => false }) {
+    this.dir = dir; this.log = log; this.fetchImpl = fetchImpl; this.versionOf = versionOf; this.platform = platform; this.pin = pin; this.onChange = onChange; this.busy = busy;
     this.installing = null; // {done, total} while the download runs
     this.error = null;
     this._abort = null;
@@ -85,6 +87,7 @@ export class FfmpegTool {
       fs.mkdirSync(this.dir, { recursive: true });
       this.log?.info?.(`FFmpeg ${pin.version}: downloading from ${pin.url}`);
       const res = await f(pin.url, { redirect: 'follow', signal: this._abort.signal });
+      if (res.status === 404 || res.status === 410) throw new Error('the download is unavailable (the pinned build was withdrawn): update the app to get a newer converter');
       if (!res.ok) throw new Error(`the download failed (HTTP ${res.status})`);
       const hash = crypto.createHash('sha256');
       let n = 0, last = 0;
@@ -130,6 +133,7 @@ export class FfmpegTool {
   /** Deletes the converter (the folder with the executable, the licence and the note of its source). */
   remove() {
     if (this.installing) throw new Error('wait for the installation to finish (or cancel it)');
+    if (this.busy()) throw new Error('a conversion is running with FFmpeg: wait for it to finish (or cancel it) before removing the converter');
     this._wipe(); this.error = null;
     this.onChange();
     return this.status();

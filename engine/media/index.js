@@ -49,6 +49,8 @@ const LAG_FRESH_MS = 12000;  // the output page reports late clip frames every 5
 const LAG_WARN_PER_S = 1;    // late clip frames a second that make a health item (one now and then is not worth one)
 const SOUND_MAX_BYTES = 400 * 1048576; // a compressed sound larger than this is longer than the 20 minutes the helper decodes
 const SOUND_MAX_S = 20 * 60;
+const PCM_CACHE_CAP = 4 * 1024 ** 3;      // bytes of decoded sound kept in <data>/audio-cache (least recently used go first)
+const DISK_THUMB_CAP = 200 * 1024 ** 2;   // bytes of Disk-view thumbnails (thumbs/d<hash>-<w>.png) kept
 const SOFT_MAX_MPXS = 250;   // megapixels a second a CPU-decoded video may ask of this computer (see _checkVideo)
 const LIB_LOW_BYTES = 5e9;   // free space on the library's drive under which Problems warns (a reel is 19–93 GB)
 
@@ -93,14 +95,14 @@ export class MediaEngine extends EventEmitter {
    * @param {() => number} [deps.random] for the 'random' autopilot
    * @param {object} [deps.converter] test seams of Convert to HAP: {ffmpeg: {cmd, args}, fetchImpl, versionOf, platform, pin, toolDir}
    */
-  constructor({ store, log, settings, profile, setShowId, host = null, freeSpace = null, sourceOpener = null, sourceOptions = null, blockSize = null, checkMs = CHECK_MS, cancelMs = CANCEL_WAIT_MS, clock = null, random = Math.random, converter = {} }) {
+  constructor({ store, log, settings, profile, setShowId, host = null, freeSpace = null, sourceOpener = null, sourceOptions = null, blockSize = null, checkMs = CHECK_MS, cancelMs = CANCEL_WAIT_MS, clock = null, random = Math.random, converter = {}, cacheCaps = {} }) {
     super();
     this.store = store;
     this.log = log;
     this.settings = settings;
     this.profile = profile;
     this.setShowId = setShowId;
-    this.opts = { freeSpace, sourceOpener, sourceOptions, blockSize, checkMs, cancelMs };
+    this.opts = { freeSpace, sourceOpener, sourceOptions, blockSize, checkMs, cancelMs, pcmCap: cacheCaps.pcm ?? PCM_CACHE_CAP, diskThumbCap: cacheCaps.diskThumbs ?? DISK_THUMB_CAP };
     this.show = null;
     this.showRev = 0;
     this.jobs = new Map();       // id → copy job (state.media.import)
@@ -149,8 +151,60 @@ export class MediaEngine extends EventEmitter {
     this._restoreJobs();
     this._run(() => this._restoreTransport());
     this.check();
+    this.purgeCaches();
     this._timer = setInterval(() => this.check(), this.opts.checkMs);
     this._timer.unref?.();
+  }
+
+  /** The fingerprints of every medium of every show (the open one included). */
+  _usedFingerprints() {
+    const set = new Set(this.show ? this.show.media.map((m) => m.fingerprint) : []);
+    for (const sh of this.store.listShows()) { try { for (const m of this.store.loadShow(sh.id).media) set.add(m.fingerprint); } catch { /* unreadable: it keeps nothing */ } }
+    return set;
+  }
+
+  /** The decoded sound of a fingerprint goes when no show has a medium with it any more. */
+  _dropAudioCache(fp) {
+    if (typeof fp !== 'string' || !/^[0-9a-f]{8,64}$/.test(fp) || this._usedFingerprints().has(fp)) return false;
+    for (const f of [this._cacheFile(fp), `${this._cacheFile(fp)}.json`]) fs.rmSync(f, { force: true });
+    return true;
+  }
+
+  /**
+   * Keeps the two caches that only grow inside a size: the decoded sounds (audio-cache/*.pcm, 4 GB) and the Disk view's
+   * thumbnails (thumbs/d<hash>-<w>.png, 200 MB). Least recently used first (the file's date: serving it touches it);
+   * a sound no show uses goes before one that is used (that one is decoded again when asked for: 409, then prepareAudio).
+   * → {pcm, thumbs} files removed
+   */
+  purgeCaches() {
+    const out = { pcm: 0, thumbs: 0 };
+    try {
+      const refs = this._usedFingerprints(), dir = this.audioCacheDir, items = [];
+      for (const n of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+        const m = /^([0-9a-f]+)\.pcm$/.exec(n);
+        if (!m) continue;
+        const f = path.join(dir, n), st = fs.statSync(f);
+        let size = st.size; try { size += fs.statSync(`${f}.json`).size; } catch { /* no sidecar */ }
+        items.push({ f, size, at: st.mtimeMs, used: refs.has(m[1]) });
+      }
+      let total = items.reduce((a, x) => a + x.size, 0);
+      for (const x of items.sort((a, b) => Number(a.used) - Number(b.used) || a.at - b.at)) {
+        if (total <= this.opts.pcmCap) break;
+        fs.rmSync(x.f, { force: true }); fs.rmSync(`${x.f}.json`, { force: true }); total -= x.size; out.pcm++;
+      }
+      const th = [];
+      for (const n of fs.existsSync(this.thumbsDir) ? fs.readdirSync(this.thumbsDir) : []) {
+        if (!/^d[0-9a-f]{24}(?:-f\w+)?-(?:160|480)\.png$/.test(n)) continue;
+        const f = path.join(this.thumbsDir, n), st = fs.statSync(f);
+        th.push({ f, size: st.size, at: st.mtimeMs });
+      }
+      let tt = th.reduce((a, x) => a + x.size, 0);
+      for (const x of th.sort((a, b) => a.at - b.at)) {
+        if (tt <= this.opts.diskThumbCap) break;
+        fs.rmSync(x.f, { force: true }); tt -= x.size; out.thumbs++;
+      }
+    } catch (e) { this.log.warn(`cache purge: ${e.message}`); }
+    return out;
   }
 
   /** Stops the timers and the workers. A copy cut here keeps its .part: it resumes when the file is imported again. */
@@ -316,7 +370,11 @@ export class MediaEngine extends EventEmitter {
       // Convert to HAP (convert.js)
       case 'media.convert': return this.convert.start(args);
       case 'media.convertCancel': return this.convert.cancel(args.jobId);
-      case 'media.ffmpeg.status': return this.convert.tool.status();
+      case 'media.ffmpeg.status': {
+        const st = this.convert.tool.status();
+        if (!args.__local) { delete st.folder; delete st.licenseFile; } // (absolute paths of this computer do not go to the phone)
+        return st;
+      }
       case 'media.ffmpeg.install': {
         if (!args.__local) throw new Error('the converter is installed at the server itself');
         const p = this.convert.tool.install();
@@ -635,6 +693,21 @@ export class MediaEngine extends EventEmitter {
     // a refused file that Convert to HAP can take carries `convert: true` and its path (media.convert {path})
     const refused = (c, err) => ({ name: c.name, message: rejectMessage(err, c.name), ...(convertible(err) ? { convert: true, path: c.path } : {}) });
 
+    // The slow part first (the helper decodes and checks, up to 120 s each): NOTHING of the show is held across these awaits.
+    // The show is cloned and saved after them, in one synchronous stretch, so an edit made meanwhile survives.
+    const prep = [];
+    for (let i = 0; i < cand.length; i++) {
+      const c = cand[i], r = results[i];
+      if (!r || r.error) { rejected.push(refused(c, r?.error || { code: 'worker' })); prep.push(null); continue; }
+      let probe = r.probe, soundCache = null;
+      const warnings = [];
+      try {
+        if (r.kind === 'audio' && r.needs === 'decode') { const d = await this._decodeSound(c, r); probe = d.probe; soundCache = d.cache; }
+        else if (r.kind === 'video') probe = await this._checkVideo(c, r, warnings);
+      } catch (e) { rejected.push(refused(c, e)); prep.push(null); continue; }
+      prep.push({ probe, soundCache, warnings });
+    }
+
     const edit = structuredClone(this.show && this.show.id === showId ? this.show : this.store.loadShow(showId));
     const t = target && typeof target === 'object' ? target : null;
     const deck = t ? edit.decks.find((d) => d.id === t.deckId) || edit.decks[0] : null;
@@ -648,13 +721,8 @@ export class MediaEngine extends EventEmitter {
 
     for (let i = 0; i < cand.length; i++) {
       const c = cand[i], r = results[i];
-      if (!r || r.error) { rejected.push(refused(c, r?.error || { code: 'worker' })); continue; }
-      let probe = r.probe, soundCache = null;
-      const warnings = [];
-      try {
-        if (r.kind === 'audio' && r.needs === 'decode') { const d = await this._decodeSound(c, r); probe = d.probe; soundCache = d.cache; }
-        else if (r.kind === 'video') probe = await this._checkVideo(c, r, warnings);
-      } catch (e) { rejected.push(refused(c, e)); continue; }
+      if (!prep[i]) continue;
+      const { probe, soundCache, warnings } = prep[i];
       const v = probe.video;
       for (const w of probe.warnings || []) if (w.code !== 'audio-unsupported') warnings.push(w.message);
       const a0 = probe.audio;
@@ -866,6 +934,7 @@ export class MediaEngine extends EventEmitter {
     this.jobs.delete(id);
     if (!finished && job.kind === 'import') {
       this._editShow(job.showId, (s) => withoutMedia(s, [job.mediaId]));
+      this._dropAudioCache(job.fingerprint);
       if (!this.show?.media.some((m) => m.fingerprint === job.fingerprint)) {
         for (const w of THUMB_WIDTHS) fs.rmSync(path.join(this.thumbsDir, thumbName(job.fingerprint, w)), { force: true });
       }
@@ -1012,6 +1081,7 @@ export class MediaEngine extends EventEmitter {
     const job = this._jobFor(this.show.id, mediaId);
     if (job) { await this.cancelImport(job.id); if (job.kind === 'import') return { removed: mediaId, deleted: false }; }
     this._saveShow(withoutMedia(this.show, [mediaId]));
+    this._dropAudioCache(m.fingerprint);
     let deleted = false;
     if (args.deleteFile) {
       const used = this.store.listShows().some((s) => { try { return this.store.loadShow(s.id).media.some((x) => x.file === m.file); } catch { return false; } });
@@ -1245,6 +1315,7 @@ export class MediaEngine extends EventEmitter {
     const tk = `${key}|disk`;
     if (!this.thumbing.has(tk)) this.thumbing.set(tk, this._makeThumb({ src: file, fp: key, frame: null, kind: 'auto', name: path.basename(file) }).finally(() => this.thumbing.delete(tk)));
     const made = await this.thumbing.get(tk);
+    if (Date.now() - (this._lastPurge || 0) > 60000) { this._lastPurge = Date.now(); this.purgeCaches(); }
     if (fs.existsSync(out)) return { file: out };
     return made?.icon ? { file: made.icon(Number(width) === 480 ? 480 : 160) } : null;
   }
@@ -1353,6 +1424,7 @@ export class MediaEngine extends EventEmitter {
     if (m.audio?.cache) { // AAC, MP3…: the PCM the helper made once (engine/media/audio-cache); until it is there the clip is quietly silent
       file = this._cacheFile(m.fingerprint);
       if (!fs.existsSync(`${file}.json`)) { this.prepareAudio(m); throw httpError(409, 'the sound is being prepared (decoded once into the audio cache)'); }
+      try { const now = new Date(), st = fs.statSync(file); if (now - st.mtime > 3600000) fs.utimesSync(file, now, now); } catch { /* the purge order is only a hint */ }
     }
     return this._withMovie(file, (mv) => this._pcm(mv, start, count));
   }

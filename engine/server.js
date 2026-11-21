@@ -92,6 +92,13 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     }
     return { addr: raw, local: isLocal(raw), trusted: isTrusted(raw), tunnel: false };
   };
+  /**
+   * The gate of every route that is for THIS computer's own pages only (the media helper, PCM, disk thumbnails, the preview post):
+   * the peer is loopback and not the relay, a browser's Origin (when it sends one) is this server, and the Host is this server's own
+   * name (localhost, 127.0.0.1, ::1 or a LAN address of this computer, on this port): a page of another site that makes the browser
+   * reach 127.0.0.1 by DNS rebinding carries the attacker's Host and is refused.
+   */
+  const localOnly = (req) => peerOf(req).local && originOk(req.headers.origin, req.socket.localPort) && originOk(`http://${String(req.headers.host || '')}`, req.socket.localPort);
   const uiDir = path.join(root, 'ui');
   const sdkDir = path.join(root, 'sdk');
 
@@ -108,7 +115,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
    * file/<token> = a file the job names, with ranges (a video is read by pieces).
    */
   const helperRoute = (req, res, p) => {
-    if (!peerOf(req).local) { res.writeHead(403); return res.end(); }
+    if (!localOnly(req)) { res.writeHead(403); return res.end(); }
     const link = engine.media.helper;
     if (p === '/api/helper/next' && req.method === 'GET') {
       const ac = new AbortController();
@@ -120,13 +127,13 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       });
       return undefined;
     }
-    let m = /^\/api\/helper\/done\/(h\d+)$/.exec(p);
+    let m = /^\/api\/helper\/done\/(h[0-9a-f]{16})$/.exec(p);
     if (m && req.method === 'POST') {
       const rec = link.open(m[1]);
       if (!rec) { res.writeHead(404); return res.end(); }
       let meta = {};
       try { const h = req.headers['x-vt-meta']; if (h) meta = JSON.parse(decodeURIComponent(String(h))); } catch { /* none */ }
-      const finish = (result) => { link.done(m[1], result); res.writeHead(204); res.end(); };
+      const finish = (result) => { link.done(m[1], result); if (res.writableEnded || res.destroyed) return; res.writeHead(204); res.end(); };
       if (rec.dest) { // the answer is a file (the decoded PCM of a sound): streamed to disk, never held whole
         fs.mkdirSync(path.dirname(rec.dest), { recursive: true });
         const tmp = `${rec.dest}.${process.pid}.tmp`, out = fs.createWriteStream(tmp);
@@ -134,6 +141,8 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
         req.on('data', (c) => { bytes += c.length; });
         out.on('error', (e) => { fs.rmSync(tmp, { force: true }); finish({ error: e.message, code: 'write' }); });
         out.on('finish', () => { try { fs.renameSync(tmp, rec.dest); } catch (e) { fs.rmSync(tmp, { force: true }); return finish({ error: e.message, code: 'write' }); } return finish({ ...meta, bytes }); });
+        // the page went away mid-upload: nothing half-written stays, and the job fails now instead of at its timeout
+        req.on('close', () => { if (!req.complete) { out.destroy(); fs.rmSync(tmp, { force: true }); finish({ error: 'the helper stopped sending the file', code: 'helper-aborted' }); } });
         req.pipe(out);
         return undefined;
       }
@@ -146,7 +155,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       });
       return undefined;
     }
-    m = /^\/api\/helper\/part\/(h\d+)$/.exec(p);
+    m = /^\/api\/helper\/part\/(h[0-9a-f]{16})$/.exec(p);
     if (m && req.method === 'POST') { // a piece of a long job (a HAP frame, a block of PCM): held whole, handed to the job, answered once written
       let meta = {};
       try { const h = req.headers['x-vt-meta']; if (h) meta = JSON.parse(decodeURIComponent(String(h))); } catch { /* none */ }
@@ -266,7 +275,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (p === '/shared/hapenc.js') return serveFile(res, path.join(root, 'engine', 'media', 'hapenc.js'), OWN);
     if (p === '/shared/hap.js') return serveFile(res, path.join(root, 'engine', 'media', 'hap.js'), OWN);
     // the media helper (a hidden window of the desktop app: decodes images, video frames and sounds — engine/media/helper.js)
-    if (p === '/helper') { if (!peerOf(req).local) { res.writeHead(403); return res.end(); } return serveFile(res, path.join(uiDir, 'helper.html'), OWN); }
+    if (p === '/helper') { if (!localOnly(req)) { res.writeHead(403); return res.end(); } return serveFile(res, path.join(uiDir, 'helper.html'), OWN); }
     if (p === '/shared/sniff.js') return serveFile(res, path.join(root, 'engine', 'media', 'sniff.js'), OWN);
     if (p === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -337,7 +346,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     }
     if (p === '/api/experience/preview' && req.method === 'POST') {
       // only the page running on THIS computer posts it (a LAN device or the internet relay never does)
-      if (!peerOf(req).local) { res.writeHead(403); return res.end(); }
+      if (!localOnly(req)) { res.writeHead(403); return res.end(); }
       const chunks = []; let size = 0, over = false;
       req.on('data', (c) => { size += c.length; if (over) return; if (size > 300 * 1024) { over = true; chunks.length = 0; res.writeHead(413, { Connection: 'close' }); res.end(); res.on('finish', () => req.destroy()); return; } chunks.push(c); });
       req.on('end', () => {
@@ -363,7 +372,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     }
     if (p === '/api/media/diskthumb' && req.method === 'GET') {
       // a thumbnail of a file in the browser's Disk view (not in any show): THIS computer only, like the PCM route
-      if (!peerOf(req).local) { res.writeHead(403); return res.end(); }
+      if (!localOnly(req)) { res.writeHead(403); return res.end(); }
       engine.media.diskThumb(url.searchParams.get('path'), url.searchParams.get('s')).then((t) => {
         if (!t) { res.writeHead(404); return res.end(); }
         serveFile(res, t.file, { ...OWN, 'Cache-Control': 'private, max-age=3600' });
@@ -374,7 +383,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     if (p === '/api/media/pcm' && req.method === 'GET') {
       // raw PCM of a clip for the audio window (§4c.1): THIS computer only — refused from the LAN and through the relay
       // (peerOf: tunnel traffic arrives on loopback but is never local)
-      if (!peerOf(req).local) { res.writeHead(403); return res.end(); }
+      if (!localOnly(req)) { res.writeHead(403); return res.end(); }
       engine.media.pcm({ clip: url.searchParams.get('clip'), media: url.searchParams.get('media'), from: url.searchParams.get('from') ?? 0, n: url.searchParams.get('n') }).then((r) => {
         res.writeHead(200, {
           'Content-Type': 'application/octet-stream', 'Content-Length': r.body.length, 'Cache-Control': 'no-store', ...OWN,
