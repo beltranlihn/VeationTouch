@@ -126,6 +126,19 @@ test('hap pool: VEATION\'s worker count; workers per clip from the F0 measures â
   assert.equal(F.pool.workers.length, 6);
 });
 
+test('hap pool: a worker given up on is asked to close its descriptors before it is terminated', async () => {
+  const calls = [];
+  const spawn = () => { const w = { onmessage: null, onerror: null, terminate() { calls.push('terminate'); }, postMessage(m) { if (m.t === 'closeall') calls.push('closeall'); else if (m.t !== 'frame') queueMicrotask(() => w.onmessage({ data: m.t === 'init' ? { t: 'init', req: m.req, ok: true } : m.t === 'info' ? { t: 'info', req: m.req, ix: IX() } : { t: m.t, req: m.req } })); } }; return w; };
+  const pool = new HapPool({ spawn, size: 1, now: () => 0, timeoutMs: 20 });
+  await pool.init();
+  const e = await pool._call(pool.workers[0], { t: 'frame', path: 'x', idx: 0 }, 20, true).catch((x) => x);
+  assert.ok(e.timeout, 'the hung read times out');
+  assert.deepEqual(calls, ['closeall'], 'closeall goes first; terminate waits for it');
+  await new Promise((r) => setTimeout(r, 450));
+  // Fails if terminate() is called straight away (the worker never gets to close its descriptors) or never
+  assert.deepEqual(calls, ['closeall', 'terminate']);
+});
+
 test('hap pool: a file whose reads hang holds at most its own share of workers, and gets no new requests while a healthy clip has work; it breaks after STALL_MS', async () => {
   const F = await fakePool({ workers: 4, latency: (idx) => (idx >= 1000 ? 1e9 : 10) }); // frames â‰¥ 1000: a file that hangs
   const mk = (path) => { const pl = new HapPlayer({ path, pool: F.pool, now: () => F.clock.now, deliver: (bm) => bm.close() }); pl.setInfo(IX({ count: 5000 })); F.pool.add(pl); return pl; };
@@ -475,7 +488,7 @@ test('output page: a launched clip shows the frame the clock says, the right way
     // right after it opens the estimate still moves by a few ms per message and the clip follows it ~5 ms behind)
     await until(() => O.clock.samples >= 60, 6000);
     await cmd('clip.trigger', { clipId: 'cA', transitionMs: 0 });          // a 1 s loop of 30 frames, the whole image
-    await until(() => P('L1')?.ready && P('L1').seq.newFrames > 8, 8000);
+    await until(() => P('L1')?.ready && P('L1').seq.newFrames > 8, 15000);
     // (1) the frame at the clock's instant, read from the image (sampled ~27 times a second for 2.6 s)
     const s0 = P('L1').seq, e0 = M.last.L1.tEng, samples = [], t0 = performance.now();
     while (performance.now() - t0 < 2600) {
@@ -496,7 +509,8 @@ test('output page: a launched clip shows the frame the clock says, the right way
     out.calib = { parked: q1.players.map((p) => p.parked), held: q1.players.map((p) => p.held), requested: q1.pool.requested - q0.pool.requested };
     await cmd('calib.cancel');
     await until(() => O.layers().includes('media'));
-    await wait(700);
+    // (a condition with a long deadline, not a fixed time: the GPU is shared and a loaded machine takes longer)
+    await until(() => { const L = M.last.L1, pl = store.state.media.layers.L1.play; return L && L.play && pl && !P('L1').parked && Math.abs(L.play.shown - playhead(pl, L.tEng).frame) <= 1 && L.play.shown === stripeAt(); }, 10000).catch(() => {});
     { const L = M.last.L1, pl = store.state.media.layers.L1.play; out.back = { want: L.play.frame, shown: L.play.shown, stripe: stripeAt(), clock: playhead(pl, L.tEng).frame, parked: P('L1').parked }; }
     // (3) a crossfade to another clip over 2 s: half way, the stripe is the mean of both
     await cmd('clip.trigger', { clipId: 'cB', layerId: 'L1', transitionMs: 2000 });
@@ -506,7 +520,8 @@ test('output page: a launched clip shows the frame the clock says, the right way
     await until(() => !M.last.L1?.from, 4000);
     await cmd('layer.clear', { layerId: 'L1', transitionMs: 200 });
     await until(() => !store.state.media.layers.L1.play && !store.state.media.layers.L1.from, 3000);
-    await wait(300);
+    await until(() => M.info().players.length === 0, 10000).catch(() => {});
+    await wait(100);
     out.cleared = { players: M.info().players.length, centre: px(W / 2, H / 2), busy: M.busy };
     out.info = M.info();
     return out;`, {

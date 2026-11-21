@@ -104,7 +104,10 @@ export class HapPool {
     // a worker that does not answer for so long is stuck in a read: a fresh one takes its place
     if (c.frame && !W.dead) {
       W.dead = true;
-      try { W.w.terminate(); } catch { /* gone */ }
+      // ask it to close its descriptors first (a worker stuck in a read will not answer: it is terminated anyway)
+      const w = W.w;
+      try { w.postMessage({ t: 'closeall', req: -1 }); } catch { /* gone */ }
+      setTimeout(() => { try { w.terminate(); } catch { /* gone */ } }, 300);
       this.stats.respawned++;
       this._start(W.i);
       this._initP = null;

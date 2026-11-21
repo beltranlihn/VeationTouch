@@ -267,9 +267,9 @@ export class ClipAudio {
       pl.state = 'ok'; pl.retryAt = 0; pl.error = null;
     } catch (e) {
       const s = e?.status;
-      // still being copied into the library (409): silent, asked again; audio this app cannot play: silent, left alone
+      // still being copied into the library (409): silent, asked again; audio this app cannot play (415/422): silent, left alone; anything else, 404 included (a file not yet there), is retried
       if (s === 409) { pl.state = 'copying'; pl.retryAt = this.now() + RETRY_COPY_MS; }
-      else if (s === 400 || s === 403 || s === 404 || s === 415 || s === 422) { pl.state = 'unsupported'; pl.error = String(e.message || s); }
+      else if (s === 415 || s === 422) { pl.state = 'unsupported'; pl.error = String(e.message || s); }
       else { pl.state = 'retry'; pl.retryAt = this.now() + RETRY_ERROR_MS; pl.error = String(e?.message || e); }
     }
   }

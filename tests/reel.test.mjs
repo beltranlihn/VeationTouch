@@ -16,7 +16,7 @@ import { normManifest } from '../engine/experiences.js';
 import { wallView } from '../experiences/runtime.js';
 import { initial, step, START_TIMEOUT_MS, usable } from '../experiences/reel/states.js';
 import { makeDwell, makeHold, isHit, hitRadius, MIN_HIT_M, HOLD_MS } from '../experiences/reel/hit.js';
-import { landingLayout, menuLayout, blobMotion, toTarget, CORNER_M, REACH, BUTTON_BAND, ease } from '../experiences/reel/layout.js';
+import { landingLayout, menuLayout, blobMotion, toTarget, fitLabel, CORNER_M, REACH, BUTTON_BAND, NAME_MIN_M, NAME_SIZE_M, BACK, DRIFT, ease } from '../experiences/reel/layout.js';
 
 const root = path.resolve(import.meta.dirname, '..');
 const dir = path.join(root, 'experiences', 'reel');
@@ -274,6 +274,44 @@ test('reel: layout is in metres, not fractions of the wall — a 2.4 m wall puts
   assert.ok(Math.abs(ta.y - (912 - 1.25 * 912 / 3.5)) < 1, `button centre at ${ta.y.toFixed(1)} px`);
   checkPlaced(menuLayout(low, 6, {}).blobs, XRLAB.walls.map((w) => ({ ...w, height: 2.4 })), REACH, 'low walls');
   assert.ok(ease(0) === 0 && ease(1) === 1 && ease(0.5) > 0.85, 'the website\'s curve: fast out, soft landing');
+});
+
+test('reel: 6 projects on a wall 6.4 m wide get blobs of at least 0.7 m, 0.8 m when the wall is 7.4 m, and never touch the Back button', () => {
+  const wall = (width) => [{ id: 'P1', width, height: 3.5, masks: [], pixelRect: { x: 0, y: 0, w: Math.round(width * 260), h: 912 } }];
+  for (const [width, min] of [[6.4, 0.7], [7.4, 0.8]]) {
+    const views = viewsOf(wall(width)), M = menuLayout(views, 6, {});
+    assert.equal(M.blobs.length, 6);
+    const size = M.blobs[0].rm * 2;
+    // Fails with the old 0.5 m default (or a layout that shrinks blobs to leave room for names): they came out ~0.5 m
+    assert.ok(size >= min - 1e-6 && size <= 0.8 + 1e-6, `${width} m wall: blobs ${size.toFixed(2)} m`);
+    const back = M.items.find((i) => i.kind === 'back');
+    for (const t of [0, 2.2, 5.1, 9.7]) {
+      const moved = blobMotion(M.blobs, t, views);
+      checkPlaced(moved, wall(width), REACH, `${width} m at ${t} s`);
+      for (const b of moved) {
+        const dx = Math.max(0, Math.abs(b.xm - back.xm) - (BACK.w / 2)), dy = Math.max(0, Math.abs(b.ym - back.ym) - BACK.h / 2);
+        assert.ok(Math.hypot(dx, dy) > b.rm, `${width} m at ${t} s: ${b.id} overlaps Back`);
+      }
+    }
+  }
+  assert.equal(menuLayout(viewsOf(wall(7.4)), 3, {}).blobs[0].rm * 2, 0.8, 'a few projects: the full 0.8 m');
+});
+
+test('reel: a project name wraps onto two rows before it shrinks, and is never set under ~9 cm', () => {
+  const measure = (t, sz) => t.length * sz * 0.62 + (t.length - 1) * 0.18 * sz; // a stand-in for the font, metres
+  const W = 1.3;
+  const one = fitLabel('Fashion', measure, { size: NAME_SIZE_M, minSize: NAME_MIN_M, maxW: W, maxLines: 2 });
+  assert.deepEqual([one.lines, one.size], [['Fashion'], NAME_SIZE_M], 'a short name: one row, full size');
+  // Fails if long names shrink instead of wrapping: "FASHION SHOW MICUIR" is 1.5 m on one row at 0.1 m
+  const long = fitLabel('Fashion Show Micuir', measure, { size: NAME_SIZE_M, minSize: NAME_MIN_M, maxW: W, maxLines: 2 });
+  assert.equal(long.lines.length, 2, `wrapped: ${long.lines}`);
+  assert.equal(long.size, NAME_SIZE_M, 'at the full size');
+  assert.ok(long.lines.every((l) => measure(l, long.size) <= W));
+  for (const name of ['Photogrammetry of the Old Harbour at Dawn', 'Supercalifragilisticexpialidocious Installation Lab', 'x'.repeat(60)]) {
+    const f = fitLabel(name, measure, { size: NAME_SIZE_M, minSize: NAME_MIN_M, maxW: 0.9, maxLines: 2 });
+    assert.ok(f.size >= NAME_MIN_M - 1e-9, `never under 9 cm (${f.size})`);
+    assert.ok(f.lines.length <= 2 && f.lines.every((l) => measure(l, f.size) <= 0.9 + 1e-9), `fits: ${f.lines}`);
+  }
 });
 
 /* ------------------------------------------------------------------ the page (hidden Electron window) */

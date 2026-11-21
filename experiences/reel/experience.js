@@ -9,7 +9,7 @@
 import { connectExperience } from '/experiences/runtime.js';
 import { initial, step, usable, hasProjects } from './states.js';
 import { makeDwell, makeHold } from './hit.js';
-import { landingLayout, menuLayout, blobMotion, toTarget, toPx, ease, BUTTON, LABEL_W_M } from './layout.js';
+import { landingLayout, menuLayout, blobMotion, toTarget, toPx, ease, BUTTON, LABEL_MAX_M, NAME_SIZE_M, NAME_MIN_M } from './layout.js';
 import { makeQuad, makeField, makeUi, makeSprites, textureFrom, textTexture, pm, PALETTE } from './gfx.js';
 import { makeBlobs } from './blobs.js';
 
@@ -188,18 +188,18 @@ function build() {
   labelsDirty = true;
 }
 
-const FONT_M = 0.1, NAME_M = 0.075, SMALL_M = 0.055; // label sizes, metres
+const FONT_M = 0.1, NAME_M = NAME_SIZE_M, SMALL_M = 0.055; // label sizes, metres
 function relabel() {
   labelsDirty = false;
   for (const l of labels.values()) gl.deleteTexture(l.tex);
   labels.clear();
   const k = kMax();
-  const make = (key, text, m, maxM, weight = 300) => labels.set(key, textTexture(gl, text, Math.round(m * k), { weight, maxW: maxM * k }));
+  const make = (key, text, m, maxM, weight = 300, o = {}) => labels.set(key, textTexture(gl, text, Math.round(m * k), { weight, maxW: maxM * k, ...o }));
   make('play', 'Play Reel', FONT_M, BUTTON.w - 0.25);
   make('projects', 'See Projects', FONT_M, BUTTON.w - 0.25);
   make('back', 'Back', SMALL_M + 0.01, 0.5);
   make('hold', 'Hold to exit', SMALL_M, 1.2);
-  slots.projects.forEach((c, i) => make(`name${i}`, c?.name || `Project ${i + 1}`, NAME_M, menu.labelW || LABEL_W_M - 0.05, 300));
+  slots.projects.forEach((c, i) => make(`name${i}`, c?.name || `Project ${i + 1}`, NAME_M, menu.labelW || LABEL_MAX_M, 300, { maxLines: 2, minPx: Math.round(NAME_MIN_M * k) })); // wraps before it shrinks, never under ~9 cm
 }
 
 /** A label centred on (x, y) px of a wall of `k` px per metre. */
@@ -267,8 +267,8 @@ function drawBlob(tg, t, alpha, appear, dt) {
   if (ring > 0.001 || pr > 0.01) {
     for (const dx of copies) gfx.ui.draw(tg.x + dx, tg.y, { r: r * 1.22, trackR: 0, trackW: Math.max(2, 0.012 * k), track: pm(WHITE, 0.25 * alpha * Math.min(1, pr * 2)), prog: pm(WHITE, alpha), progress: ring, glowR: isLaunch ? 0.05 * k : 0, glow: pm(PALETTE.pink, 0.3 * alpha) });
   }
-  const above = tg.row === 1, gap = 0.06 * k, l = labels.get(`name${tg.index}`), lh = l ? (l.h * k) / kMax() : 0;
-  const ly = above ? tg.y - tg.r * 1.25 - gap - lh * 0.25 : tg.y + tg.r * 1.25 + gap + lh * 0.25;
+  const above = tg.row === 1, gap = 0.06 * k, l = labels.get(`name${tg.index}`), lh = l ? ((l.th || l.h * 0.6) * k) / kMax() : 0; // the text block's height on this wall
+  const ly = above ? tg.y - tg.r * 1.25 - gap - lh * 0.5 : tg.y + tg.r * 1.25 + gap + lh * 0.5;
   for (const dx of copies) label(`name${tg.index}`, tg.x + dx, ly, k, (on ? 1 : 0.4) * alpha * appear);
 }
 

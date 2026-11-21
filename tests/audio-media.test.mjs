@@ -407,6 +407,12 @@ out.duck = { silent: await ducked(-60), minus12: await ducked(-12) };
   const r = await render(0.6, ({ ca }) => { ca.update(stateOf({ layers: { L1: entry({ play: play() }), L2: entry({ play: play({ playId: 'p2', clipId: 'C2', mediaId: 'MAAC' }) }) } })); }, { gens: { C1: 409, C2: tone(500, 0.5) }, calls });
   out.copying = { peak: peak(r.ch), players: r.stats.map((s) => [s.playId, s.state]), calls: calls.length };
 }
+// F2. a 404 (the file is not there yet) is retried with backoff; only 415 / 422 (audio this app cannot play) are given up
+{
+  const calls = [];
+  const r = await render(0.6, ({ ca }) => { ca.update(stateOf({ layers: { L1: entry({ play: play({ playId: 'p404', clipId: 'C404', mediaId: 'M48' }) }), L2: entry({ play: play({ playId: 'p422', clipId: 'C422', mediaId: 'M48' }) }) } })); }, { gens: { C404: 404, C422: 422 }, calls });
+  out.missing = { players: r.stats.map((s) => [s.playId, s.state]).sort() };
+}
 // G. calibration mode mutes the clips (0.5 → 1.0 s) and they come back where the clock is; blackout fades them out over 0.5 s
 {
   const st = (o) => stateOf({ layers: { L1: entry({ play: play() }) }, ...o });
@@ -480,6 +486,12 @@ test('clips that cannot sound yet or at all: still copying (409) and AAC play si
   assert.deepEqual(r.copying.players, [['p1', 'copying']], 'the copying clip waits to be asked again; the AAC one has no player at all');
   assert.ok(r.copying.calls <= 2, `no request storm (${r.copying.calls} requests)`);
   assert.deepEqual(errors, []);
+});
+
+test('a 404 is retried, a 422 is given up: only audio this app cannot play stays silent for good', opt, async () => {
+  const { result: r } = await inAudioPage();
+  // Fails if a 404 marks the play 'unsupported' for good (a file still being copied in would never sound)
+  assert.deepEqual(r.missing.players, [['p404', 'retry'], ['p422', 'unsupported']]);
 });
 
 test('clips: calibration mode mutes them and they come back where the clock is; blackout fades them over 0.5 s', opt, async () => {

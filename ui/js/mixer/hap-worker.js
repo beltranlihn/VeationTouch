@@ -14,6 +14,7 @@
 //   {t:'info', req, path}         → {t:'info', req, ix:{fourcc, width, height, count, fps, dur, pts}} | {t:'err', req, msg}
 //   {t:'frame', req, path, idx}   → {t:'frame', req, idx, bm, w, h, alpha, tR, tD, tU}         | {t:'err', req, idx, msg}
 //   {t:'close', req, path}        → {t:'close', req}  (Windows cannot rename over an open file)
+//   {t:'closeall', req}           → {t:'closeall', req}  (every descriptor; sent before the pool terminates a worker)
 // Errors start with a code (`read:` the disk failed — a drive pulled out, a file cut short; the format's own codes from
 // mov.js / hap.js: no-moov, mov-bad, not-hap, hapm, not-supported, hap-bad, snappy; `no-node:`, `no-webgl2:`, `no-s3tc:`).
 //
@@ -149,6 +150,7 @@ self.onmessage = (e) => {
       return;
     }
     if (m.t === 'frame') { const r = frame(m); postMessage({ t: 'frame', req: m.req, idx: m.idx, ...r }, [r.bm]); return; }
+    if (m.t === 'closeall') { for (const k of [...files.keys()]) forget(k); postMessage({ t: 'closeall', req: m.req }); return; }
     if (m.t === 'close') { forget(m.path); postMessage({ t: 'close', req: m.req }); return; }
   } catch (err) { postMessage({ t: 'err', req: m.req, idx: m.idx, msg: codeOf(err) }); }
 };

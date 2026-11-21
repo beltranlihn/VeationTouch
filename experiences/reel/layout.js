@@ -23,8 +23,12 @@ export const DRIFT = { x: 0.07, y: 0.05 };                          // how far a
 export const BLOB_GAP_M = 0.2;          // between two blobs' discs (drift included)
 export const LABEL_W_M = 0.85;          // room a project name needs under a blob (one row)…
 export const LABEL_W2_M = 0.9;          // …and with two rows (names above the top row, below the bottom one)
-export const ROW_Y = { one: 1.3, top: 1.55, bottom: 1.05 };          // blob rows, metres from the floor
-export const MIN_SCALE = 0.5;          // blobs shrink down to this on a crowded wall before one is left out
+export const LABEL_MAX_M = 1.3;         // the widest a project name may be (it wraps onto a second row past this)
+export const NAME_SIZE_M = 0.1;         // a project name's text size, metres (font size)…
+export const NAME_MIN_M = 0.09;         // …never below this: ~9 cm is legible from across a room (a name wraps before it shrinks)
+export const BLOB_SIZE_M = 0.8;         // the blob diameter asked for by default: the biggest that fits is used, down to MIN_SCALE of it
+export const ROW_Y = { one: 1.3, top: 1.65, bottom: 0.95 };          // blob rows, metres from the floor (inside REACH)
+export const MIN_SCALE = 0.3;          // blobs shrink down to this on a crowded wall before one is left out
 export const BRAND_ART = { w: 1003, h: 952 };                       // the logo composition (blob layer), source px
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -198,16 +202,18 @@ function placeBack(wm) {
  */
 function placeBlobs(wm, count, r, taken) {
   if (count <= 0) return { scale: 1, rows: 1, spots: [] };
-  for (let k = 1; k >= MIN_SCALE - 1e-9; k -= 0.05) {
+  for (let k = 1; k >= MIN_SCALE - 1e-9; k -= 0.025) {
     const rk = r * k, ex = rk + DRIFT.x, ey = rk + DRIFT.y;
     // one row
     const s1 = Math.max(2 * ex + BLOB_GAP_M, LABEL_W_M * k);
     const one = fitRow(freeCentres(wm, ROW_Y.one, ex, ey, taken), count, s1, 2.2);
     if (one) return { scale: k, rows: 1, spots: one.map((xm) => ({ xm, ym: ROW_Y.one, row: 0 })) };
-    // two rows, zig-zag: a slot every half step, alternating top / bottom
-    const s2 = Math.max(2 * ex + BLOB_GAP_M, LABEL_W2_M * k);
+    // two rows, zig-zag: a slot every half step, alternating top / bottom. The half step is what keeps a blob and its
+    // diagonal neighbour (a row apart) a disc and a gap apart — and the same-row neighbours (two half steps) too.
+    const D = 2 * ex + BLOB_GAP_M, dy = ROW_Y.top - ROW_Y.bottom;
+    const h2 = Math.max(Math.sqrt(Math.max(0, D * D - dy * dy)), D / 2, (LABEL_W2_M * k) / 2);
     const both = intersect(freeCentres(wm, ROW_Y.top, ex, ey, taken), freeCentres(wm, ROW_Y.bottom, ex, ey, taken));
-    const two = fitRow(both, count, s2 / 2, 1.1);
+    const two = fitRow(both, count, h2, 1.1);
     if (two) return { scale: k, rows: 2, spots: two.map((xm, i) => ({ xm, ym: i % 2 ? ROW_Y.bottom : ROW_Y.top, row: i % 2 ? 2 : 1 })) };
   }
   return null;
@@ -227,7 +233,7 @@ function capacity(wm, r, taken) {
  *   row: 0 = a single row (name below), 1 = top row (name above), 2 = bottom row (name below)
  */
 export function menuLayout(walls, count, opt = {}) {
-  const r = clamp(Number(opt.blobSize) || 0.5, 0.2, 0.9) / 2;
+  const r = clamp(Number(opt.blobSize) || BLOB_SIZE_M, 0.2, 0.9) / 2;
   const around = opt.menuLayout === 'around';
   const backs = [], blobs = [];
   const prep = (walls || []).map((w) => {
@@ -266,12 +272,50 @@ export function menuLayout(walls, count, opt = {}) {
   });
   // the widest a project name may be: the room between two neighbours of the same row (the tightest wall decides,
   // so every wall writes the names at one size)
-  let labelW = LABEL_W_M - 0.05;
+  let labelW = LABEL_MAX_M;
   for (const w of walls || []) for (const row of [0, 1, 2]) {
     const xs = blobs.filter((b) => b.wallId === w.id && b.row === row).map((b) => b.xm).sort((a, b) => a - b);
     for (let i = 1; i < xs.length; i++) labelW = Math.min(labelW, xs[i] - xs[i - 1] - 0.2);
   }
-  return { blobs, items: [...blobs, ...backs], labelW: Math.max(0.3, labelW) };
+  return { blobs, items: [...blobs, ...backs], labelW: Math.max(0.5, labelW) };
+}
+
+// ------------------------------------------------------------------------------------------------ names
+
+/**
+ * A project name in at most `maxLines` rows no wider than `maxW`, at `size` if it can (all in one unit — metres or px —
+ * `measure(line, size)` answers in it): it WRAPS first, and shrinks only when wrapping is not enough, never below
+ * `minSize`; a name that still does not fit at `minSize` is cut with an ellipsis. → { lines: [string], size }
+ */
+export function fitLabel(text, measure, { size, minSize = size, maxW = Infinity, maxLines = 1 } = {}) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  if (!words.length) return { lines: [''], size };
+  const wrapAt = (sz) => {
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      const t = cur ? `${cur} ${w}` : w;
+      if (cur && measure(t, sz) > maxW) { lines.push(cur); cur = w; } else cur = t;
+    }
+    lines.push(cur);
+    return lines;
+  };
+  const lo = Math.min(minSize, size);
+  for (let sz = size; ; sz *= 0.94) {
+    sz = Math.max(sz, lo);
+    const lines = wrapAt(sz);
+    if (lines.length <= maxLines && lines.every((l) => measure(l, sz) <= maxW)) return { lines, size: sz };
+    if (sz <= lo) break;
+  }
+  let lines = wrapAt(lo);
+  if (lines.length > maxLines) lines = [...lines.slice(0, maxLines - 1), lines.slice(maxLines - 1).join(' ')];
+  lines = lines.map((l, i) => {
+    if (measure(l, lo) <= maxW) return l;
+    let t = l;
+    while (t.length > 1 && measure(`${t}…`, lo) > maxW) t = t.slice(0, -1);
+    return `${t.trimEnd()}…`;
+  });
+  return { lines, size: lo };
 }
 
 // ------------------------------------------------------------------------------------------------ the blobs float

@@ -3,6 +3,8 @@
 // page goes above the clip layers, so a video shows through wherever the page is clear).
 // Coordinates are render px with y down (as vt.walls); the shaders flip to GL's y up.
 
+import { fitLabel } from './layout.js';
+
 const QUAD = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
 
 function compile(gl, vs, fs, name) {
@@ -287,24 +289,29 @@ export function textureFrom(gl, src, mip = true) {
 }
 
 /**
- * A line of text as a texture: Raleway, upper case, letters spaced `tracking` em (the website's buttons: 0.18 em), white
- * with a soft indigo shadow (white over the light field needs it). `px`: the font size. Wider than `maxW` px → scaled
- * down to fit. → { tex, w, h } (px at the size asked: draw it at that size for crisp letters).
+ * Text as a texture: Raleway, upper case, letters spaced `tracking` em (the website's buttons: 0.18 em), white with a soft
+ * indigo shadow (white over the light field needs it). `px`: the font size. Wider than `maxW` px → it wraps onto up to
+ * `maxLines` rows first (fitLabel), scaled down only when that is not enough, never under `minPx`; a name that still does
+ * not fit is cut with an ellipsis. → { tex, w, h, th, lines } (px at the size asked: draw it at that size for crisp
+ * letters; th = the text block's own height, without the margins).
  */
-export function textTexture(gl, text, px, { weight = 300, tracking = 0.18, maxW = Infinity, shadow = true, family = 'Raleway' } = {}) {
+export function textTexture(gl, text, px, { weight = 300, tracking = 0.18, maxW = Infinity, minPx = 6, maxLines = 1, shadow = true, family = 'Raleway' } = {}) {
   const s = String(text || '').toUpperCase();
   const c = document.createElement('canvas'), g = c.getContext('2d');
   const font = (size) => `${weight} ${size}px ${family}, "Segoe UI", system-ui, sans-serif`;
-  const widthAt = (size) => { g.font = font(size); let w = 0; for (const ch of s) w += g.measureText(ch).width + tracking * size; return Math.max(1, w - tracking * size); };
-  let size = px, w = widthAt(size);
-  if (w > maxW) { size = Math.max(6, size * (maxW / w)); w = widthAt(size); }
+  const measure = (str, size) => { g.font = font(size); let w = 0; for (const ch of str) w += g.measureText(ch).width + tracking * size; return Math.max(1, w - tracking * size); };
+  const { lines, size } = fitLabel(s, measure, { size: px, minSize: Math.min(px, minPx), maxW, maxLines });
+  const w = Math.max(...lines.map((l) => measure(l, size))), lh = size * 1.25, th = lines.length * lh;
   const pad = Math.ceil(size * 0.5);
-  c.width = Math.ceil(w + 2 * pad); c.height = Math.ceil(size * 1.5 + 2 * pad);
+  c.width = Math.ceil(w + 2 * pad); c.height = Math.ceil(th + size * 0.25 + 2 * pad);
   g.font = font(size);
   g.textBaseline = 'middle';
   g.fillStyle = '#fff';
   if (shadow) { g.shadowColor = 'rgba(53, 48, 160, 0.55)'; g.shadowBlur = size * 0.35; }
-  let x = pad;
-  for (const ch of s) { g.fillText(ch, x, c.height / 2); x += g.measureText(ch).width + tracking * size; }
-  return { tex: textureFrom(gl, c, false), w: c.width, h: c.height, text: s };
+  lines.forEach((line, i) => {
+    let x = pad + (w - measure(line, size)) / 2; // rows centred on each other
+    const y = c.height / 2 + (i - (lines.length - 1) / 2) * lh;
+    for (const ch of line) { g.fillText(ch, x, y); x += g.measureText(ch).width + tracking * size; }
+  });
+  return { tex: textureFrom(gl, c, false), w: c.width, h: c.height, th, text: s, lines };
 }
