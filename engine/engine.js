@@ -30,6 +30,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const TICK_HZ = 60;
+// health (status.health — Problems and Status › Health; MEDIA-SERVER.md F13)
+const STALL_MS = 250;          // a gap between two ticks this long is a stall the room felt (touches that late)
+const STALL_SHOW_MS = 30000;   // … and it stays in Problems this long
+const OUT_SILENT_MS = 5000;    // the desktop app reports the output window every second: this long without a report = not answering
+const OUT_OPEN_MS = 15000;     // a window asked for this long ago that never reported did not open
+const AUD_SILENT_MS = 10000;   // the audio window reports twice a second
+const DROPS_MS = 60000;        // audio dropouts (underruns) counted over this window
 const EXPERIENCES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'experiences');
 
 export class Engine extends EventEmitter {
@@ -90,9 +97,12 @@ export class Engine extends EventEmitter {
     if (!prof) prof = this.store.saveProfile(blankProfile('New room'));
     this.catalog = scanCatalog(this.experienceDirs, this.log);
     this._activate(prof);
-    this.media.start();
+    this.media.start(); // (a transport snapshot from a restart is taken back here)
+    // the room starts on its own: the show's start card and start column (engine/media/index.js › autostart)
+    const auto = this.media.autostart();
     const x = this.profile.experience;
-    if (x.autostart && x.id && this._visual().some((e) => e.id === x.id)) { this._experienceRun(); this.log.info(`experience "${x.id}" started with the app`); }
+    if (auto?.preset) { /* the start card decided what plays (its experience, or none) */ }
+    else if (x.autostart && x.id && this._visual().some((e) => e.id === x.id)) { this._experienceRun(); this.log.info(`experience "${x.id}" started with the app`); }
     else if (this.profile.output.on) this.log.info(`room output "${this.profile.output.senderName}" on`);
     this._soundAutostart();
     this._timer = setInterval(() => this._tick(), 1000 / TICK_HZ);
@@ -254,7 +264,15 @@ export class Engine extends EventEmitter {
     this.emit('frame', frame);
     const s = this.tickStats;
     s.n++; s.maxMs = Math.max(s.maxMs, performance.now() - t0);
-    if (t0 - s.t0 >= 1000) { s.fps = Math.round((s.n * 1000) / (t0 - s.t0)); s.n = 0; s.t0 = t0; s.lastMax = s.maxMs; s.maxMs = 0; }
+    // the gap between two ticks: what the 60 Hz loop could not do while the process was busy elsewhere (a GC, a long
+    // command, a blocked disk read). tickMaxMs is the tick's own cost; this is the touches' real lateness.
+    if (s.prev !== undefined) s.gapMax = Math.max(s.gapMax || 0, t0 - s.prev);
+    s.prev = t0;
+    if (t0 - s.t0 >= 1000) {
+      s.fps = Math.round((s.n * 1000) / (t0 - s.t0)); s.n = 0; s.t0 = t0; s.lastMax = s.maxMs; s.maxMs = 0;
+      s.lastGap = s.gapMax || 0; s.gapMax = 0;
+      if (s.lastGap >= STALL_MS) { s.stallMs = Math.round(s.lastGap); s.stallAt = Date.now(); }
+    }
   }
 
   /**
@@ -318,7 +336,8 @@ export class Engine extends EventEmitter {
     }
     return {
       type: 'status', sensors, outputs: this.outputs.snapshot(),
-      engine: { fps: this.tickStats.fps, tickMaxMs: Math.round((this.tickStats.lastMax || 0) * 100) / 100, uptime: Math.round((Date.now() - this.startedAt) / 1000), rss: Math.round(process.memoryUsage().rss / 1048576) },
+      engine: this.engineStats(),
+      health: this.healthItems(), // what needs attention beyond the sensors: room output, clips, audio, library, the engine's own loop
       calib: this.calib ? this.calib.snapshot(now) : null,
       verify: this.verify ? this.verify.snapshot(now) : null,
       control: this._owner() ? { ...this.control } : null,
@@ -326,6 +345,50 @@ export class Engine extends EventEmitter {
       recording: this.recorder ? { file: path.basename(this.recorder.file), seconds: Math.round(this.recorder.elapsed / 1000), frames: this.recorder.frames, mb: Math.round(this.recorder.bytes / 1e5) / 10 } : null,
       replay: this.replay ? { file: this.replay.file, pos: Math.round(this.replay.source.pos / 1000), duration: Math.round(this.replay.source.duration / 1000), from: this.replay.source.header?.profileName || null } : null,
     };
+  }
+
+  /**
+   * The 60 Hz loop: fps, tickMaxMs (the longest tick of the last second: its own cost), tickGapMs (the longest gap between
+   * two ticks of the last second: how late the touches were), the process's uptime (s) and memory (MB).
+   */
+  engineStats() {
+    const s = this.tickStats, r2 = (v) => Math.round((v || 0) * 100) / 100;
+    return { fps: s.fps, tickMaxMs: r2(s.lastMax), tickGapMs: r2(s.lastGap), uptime: Math.round((Date.now() - this.startedAt) / 1000), rss: Math.round(process.memoryUsage().rss / 1048576) };
+  }
+
+  /**
+   * Everything beyond the sensors that needs attention, worst first: [{kind: 'bad'|'warn', code, text}] (status.health;
+   * the UI shows them in Problems and Status › Health, the phone in its Live mode). Codes (stable, for scripts reading
+   * /api/health): output-down, output-error, decode-lag, library-missing, library-full, audio-device, audio-error,
+   * audio-down, audio-dropouts, engine-stall. Missing clips are state.media.problems (they have their own fix).
+   * The window checks need the desktop app (`this.desktop`, set by engine/main.js): a headless engine has no windows.
+   */
+  healthItems(now = Date.now()) {
+    const out = [], P = this.profile, O = P.output, A = P.audio;
+    if (this.desktop && O.on && this.outputWindow()) {
+      const since = this.out.at ?? null;
+      if (since === null ? now - (this.out.since ?? this.startedAt) > OUT_OPEN_MS : now - since > OUT_SILENT_MS) {
+        out.push({ kind: 'bad', code: 'output-down', text: since === null ? 'The room output window did not open.' : `The room output window is not answering (${Math.round((now - since) / 1000)} s) — it is being restarted.` });
+      } else if (this.out.error) out.push({ kind: 'bad', code: 'output-error', text: `Room output: ${this.out.error}` });
+    }
+    out.push(...this.media.health(now));
+    if (A.on) {
+      const rep = this.aud.report;
+      for (const k of rep?.sinks || []) {
+        if (k.missing) out.push({ kind: 'bad', code: 'audio-device', text: `Audio: "${k.label}" is not connected — its speakers are silent (Dante Virtual Soundcard running? the device plugged in?).` });
+        else if (k.error) out.push({ kind: 'bad', code: 'audio-device', text: `Audio: "${k.label}": ${k.error}` });
+      }
+      if (rep?.error) out.push({ kind: 'bad', code: 'audio-error', text: `Room audio: ${rep.error}` });
+      if (!rep && this.desktop && now - (this.aud.since ?? this.startedAt) > AUD_SILENT_MS) out.push({ kind: 'warn', code: 'audio-down', text: 'The room audio window is not answering.' });
+      const drops = (this.aud.drops || []).filter((d) => now - d.at < DROPS_MS);
+      if (drops.length) {
+        const n = drops.reduce((a, d) => a + d.n, 0), where = [...new Set(drops.map((d) => d.label))].slice(0, 3).join(', ');
+        out.push({ kind: 'warn', code: 'audio-dropouts', text: `Audio: ${n} dropout${n === 1 ? '' : 's'} in the last minute (${where}).` });
+      }
+    }
+    const s = this.tickStats;
+    if (s.stallAt && now - s.stallAt < STALL_SHOW_MS) out.push({ kind: 'warn', code: 'engine-stall', text: `The engine stalled for ${s.stallMs} ms ${Math.max(1, Math.round((now - s.stallAt) / 1000))} s ago (touches were that late).` });
+    return out.sort((a, b) => (a.kind === 'bad' ? 0 : 1) - (b.kind === 'bad' ? 0 : 1));
   }
 
   state() {
@@ -1225,12 +1288,14 @@ export class Engine extends EventEmitter {
     const m = this.outputWindow(), key = JSON.stringify(m);
     if (key === this._outKey) return;
     this._outKey = key;
+    if (m) this.out.since = Date.now(); // (health: a window asked for that never reports did not open)
     this.emit('outputWindow', m);
   }
 
   /** The desktop app sends a JPEG of the whole output once a second, with how the window is doing (engine/main.js). */
   setOutputPreview(buf, { fps, error } = {}) {
     if (!this.profile.output.on) return false;
+    this.out.at = Date.now(); // the window answers (health: output-down when this gets old)
     const was = `${this.out.fps}|${this.out.error}|${this.out.previewAt !== null}`;
     if (buf) { this.outPreview = { buf, at: Date.now() }; this.out.previewAt = this.outPreview.at; } // (no image = only how it is doing)
     if (Number.isFinite(fps)) this.out.fps = Math.max(0, Math.min(1000, Math.round(fps * 10) / 10));
@@ -1325,7 +1390,12 @@ export class Engine extends EventEmitter {
     const seen = this.aud.underruns || (this.aud.underruns = new Map());
     for (const k of rep.sinks) {
       const was = seen.get(k.label) ?? 0;
-      if (k.underruns > was) this.log.warn(`room audio: ${k.underruns - was} underrun${k.underruns - was === 1 ? '' : 's'} on "${k.label}" (a short cut in the sound; ${k.underruns} since it opened)`);
+      if (k.underruns > was) {
+        this.log.warn(`room audio: ${k.underruns - was} underrun${k.underruns - was === 1 ? '' : 's'} on "${k.label}" (a short cut in the sound; ${k.underruns} since it opened)`);
+        // the last minute's, for the health item (cortes de audio)
+        const now = Date.now();
+        this.aud.drops = [...(this.aud.drops || []).filter((d) => now - d.at < DROPS_MS), { at: now, n: k.underruns - was, label: k.label }].slice(-200);
+      }
       seen.set(k.label, k.underruns);
     }
     if (JSON.stringify(rep) !== before) this.emit('state');
@@ -1353,6 +1423,7 @@ export class Engine extends EventEmitter {
     const m = this.audioWindow(), key = JSON.stringify(m);
     if (key === this._audKey) return;
     this._audKey = key;
+    if (m) this.aud.since = Date.now(); // (health: a window asked for that never reports)
     this.emit('audioWindow', m);
   }
 

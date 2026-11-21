@@ -1,5 +1,8 @@
 // Connection to the engine (WebSocket /ws/ui) + the client-side store.
 // The access key arrives in the pairing URL (?k=…) and is remembered on the device.
+// Through the internet relay the state arrives compact (engine/media/wire.js): it is expanded here, before anything reads it.
+
+import { expandState } from '/shared/media/wire.js';
 
 const listeners = new Map();
 export const store = {
@@ -83,7 +86,7 @@ export function connect() {
   };
   ws.onmessage = (ev) => {
     if (typeof ev.data !== 'string') return onViz(ev.data);
-    const m = JSON.parse(ev.data);
+    const m = expandState(JSON.parse(ev.data)); // (a compact message of the relay gets its defaults back)
     switch (m.type) {
       case 'state':
         if (serverProfile && serverProfile.id !== m.profile.id) { history.clear(); store.events.length = 0; emit('events', []); } // another room: its own history and events

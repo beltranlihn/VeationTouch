@@ -246,6 +246,39 @@ test('live: picture = launch, name = select only; a column head launches the col
   assert.equal(result.ranges, 0);
 });
 
+test('live: right-click on a column head makes it the room\'s start column (show.start, START on its head) without launching it; again: not any more; Show mode locks it', opt, async () => {
+  // fails if: the column menu does not write show.start {deckId, column} (the room would not start by itself — the engine
+  // reads it at boot: tests/media-restart.test.mjs), the head is not marked, the right-click launches the column, the
+  // start cannot be taken back, or Show mode lets the start be changed.
+  const { result, errors } = await inLive(`
+    const out = {};
+    const head = (c) => $$('.lv-col')[c];
+    const menuOn = async (c) => { head(c).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); return until(() => $('.lv-menu')); };
+    await menuOn(1);
+    out.items = $$('.lv-menu button').map((b) => b.innerText);
+    $$('.lv-menu button').find((b) => /Start the room with column 2/.test(b.innerText)).click();
+    await until(() => store.state.show.start.column === 1 && head(1)?.classList.contains('start'));
+    out.start = { deckId: store.state.show.start.deckId, column: store.state.show.start.column, label: head(1).querySelector('.st')?.textContent, marks: $$('.lv-col.start').length, launched: !!store.state.media.layers.L1.play };
+    await menuOn(1);
+    $$('.lv-menu button').find((b) => /Do not start the room/.test(b.innerText)).click();
+    await until(() => store.state.show.start.column === null);
+    await wait(150);
+    out.cleared = { column: store.state.show.start.column, marks: $$('.lv-col.start').length };
+    await cmd('app.lock', { locked: true });
+    await until(() => store.state.locked);
+    await wait(200);
+    await menuOn(0);
+    out.locked = $$('.lv-menu button').find((b) => /Start the room/.test(b.innerText))?.disabled;
+    return out;`, {
+    setup: async ({ engine, file }) => { await imported(engine, [[file('A.mov'), { layerId: 'L1', column: 0 }], [file('B.mov', makeHap({ frames: 8 }).bytes), { layerId: 'L1', column: 1 }]]); },
+  });
+  assert.deepEqual(errors, [], errors.join(' | '));
+  assert.deepEqual(result.items, ['Launch column 2', 'Start the room with column 2']);
+  assert.deepEqual(result.start, { deckId: 'D1', column: 1, label: 'START', marks: 1, launched: false });
+  assert.deepEqual(result.cleared, { column: null, marks: 0 });
+  assert.equal(result.locked, true, 'Show mode: the start is locked');
+});
+
 test('live: a clip moved within the grid goes there with the show\'s revision; onto another clip they swap; Ctrl+Z puts it back; a library file dropped on a cell is a new clip', opt, async () => {
   // fails if: an internal drop does not send show.update (or sends it without the revision), the swap loses a clip,
   // Ctrl+Z does not restore the show as it was (or undoes through the profile instead), or a library tile makes no clip.

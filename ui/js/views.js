@@ -155,7 +155,33 @@ function healthItems(ctx) {
     if (s?.lastError) items.push(['bad', `Output ${o.name}: ${s.lastError}`, act('Output', () => { ctx.go('outputs'); ctx.select('output', o.id); })]);
   }
   if (eng.fps && eng.fps < 50) items.push(['warn', `Engine running at ${eng.fps} fps (expected 60)`]);
+  // the room output, the clips, the room audio, the media library, the engine's own loop (engine.js › healthItems)
+  for (const x of store.status?.health || []) {
+    const to = HEALTH_GO[x.code] || HEALTH_GO[x.code.split('-')[0]];
+    items.push([x.kind === 'bad' ? 'bad' : 'warn', x.text, to ? act(to[0], () => ctx.go(to[1])) : null]);
+  }
   return items;
+}
+
+/** Where the fix of a health item is: [button, view] by code or by its family (output-…, audio-…, library-…). */
+const HEALTH_GO = { output: ['Screens', 'mapping'], 'decode-lag': ['Screens', 'mapping'], audio: ['Audio', 'audio'], library: ['Live', 'live'] };
+
+/**
+ * The top bar's chips of the room output and the room audio (shown while they are on): a dot, ok / amber / red from the
+ * health items of their family (status.health), and those items as the tooltip.
+ */
+export function healthChips() {
+  const S = store.state, H = store.status?.health || [];
+  const chip = (label, codes, okText) => {
+    const mine = H.filter((x) => codes.some((c) => x.code === c || x.code.startsWith(`${c}-`)));
+    const kind = mine.some((x) => x.kind === 'bad') ? 'bad' : mine.length ? 'warn' : 'ok';
+    return h('span', { class: 'chip', title: mine.length ? mine.map((x) => x.text).join('\n') : okText, 'data-health': label },
+      h('span', { class: `dot ${kind}` }), label);
+  };
+  return [
+    S?.profile?.output?.on ? chip('output', ['output', 'decode-lag', 'library'], 'The room output is running') : null,
+    S?.profile?.audio?.on ? chip('audio', ['audio'], 'The room audio is running') : null,
+  ].filter(Boolean);
 }
 
 export function feedLines() {

@@ -14,6 +14,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import v8 from 'node:v8';
 import { WebSocketServer } from 'ws';
+import { compactState } from './media/wire.js';
 import { wifiSsids, looksLikeGuestNetwork } from './net.js';
 
 const require = createRequire(import.meta.url);
@@ -175,6 +176,8 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     // the Advanced Output's geometry and templates (screens ▸ slices): the engine, the output page and the UI share it
     // (it imports ../core/geometry.js, hence the alias above)
     if (p === '/shared/media/screens.js') return serveFile(res, path.join(root, 'engine', 'media', 'screens.js'), OWN);
+    // the compact state of the relay's clients, expanded back by conn.js (engine/media/wire.js)
+    if (p === '/shared/media/wire.js') return serveFile(res, path.join(root, 'engine', 'media', 'wire.js'), OWN);
     if (p === '/shared/mask.js') return serveFile(res, path.join(root, 'engine', 'core', 'mask.js')); // the Texture output's rasteriser (live preview)
     // the transport's playhead() — THE formula of a clip's position — for the mixer, the HAP player and the audio page
     if (p === '/shared/transport.js') return serveFile(res, path.join(root, 'engine', 'media', 'transport.js'), OWN);
@@ -187,6 +190,9 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
       return res.end(JSON.stringify({
         ok: true, version: engine.version, profile: engine.profile?.id, uptimeS: Math.round(process.uptime()),
         memory: { rssMb: mb(mem.rss), heapUsedMb: mb(mem.heapUsed), heapLimitMb: mb(v8.getHeapStatistics().heap_size_limit) },
+        // the 60 Hz loop (fps, tickMaxMs, tickGapMs) and what needs attention, as codes only (no file names: no key here)
+        engine: (({ fps, tickMaxMs, tickGapMs }) => ({ fps, tickMaxMs, tickGapMs }))(engine.engineStats()),
+        problems: engine.healthItems().map((x) => `${x.kind}:${x.code}`),
       }));
     }
     if (p === '/api/pair-check') {
@@ -315,15 +321,17 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
 
   const uiClients = new Set();
   const send = (ws, obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+  /** A device that comes through the internet relay gets the state compact (engine/media/wire.js; conn.js expands it). */
+  const forClient = (c, obj) => (c.tunnel ? compactState(obj) : obj);
 
   let clientSeq = 0;
   function onUi(ws, peer, url, ua = '') {
     const addr = peer.addr;
-    const client = { ws, addr, id: `d${++clientSeq}`, role: url.searchParams.get('role') || 'ui', viz: false, vizEvery: 1, vizN: 0, local: peer.local, ua, since: Date.now() };
+    const client = { ws, addr, id: `d${++clientSeq}`, role: url.searchParams.get('role') || 'ui', viz: false, vizEvery: 1, vizN: 0, local: peer.local, tunnel: !!peer.tunnel, ua, since: Date.now() };
     if (!client.local) log.info(`device connected from ${addr.replace('::ffff:', '')} (${deviceName(ua)})`);
     uiClients.add(client);
     updateVizListener();
-    send(ws, { ...engine.state(), lan: lan(), token: engine.settings.token, local: client.local, you: client.id });
+    send(ws, forClient(client, { ...engine.state(), lan: lan(), token: engine.settings.token, local: client.local, you: client.id }));
     send(ws, engine.status());
     ws.on('message', async (raw) => {
       let m;
@@ -342,7 +350,7 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
           send(ws, { type: 'ack', id: m.id, ok: true, result });
         } catch (e) {
           send(ws, { type: 'ack', id: m.id, ok: false, error: e.message });
-          if (/^stale/.test(e.message)) send(ws, engine.state());
+          if (/^stale/.test(e.message)) send(ws, forClient(client, engine.state()));
         }
       }
     });
@@ -374,11 +382,16 @@ export function createServer(engine, { port, root, log, trustLocal = true }) {
     // another room: events still waiting for the next live message belong to the old one
     if (liveRoom !== engine.profile.id) { liveRoom = engine.profile.id; pendingEvents = []; }
     const st = { ...engine.state(), lan: lan(), token: engine.settings.token };
-    for (const c of uiClients) send(c.ws, { ...st, local: c.local, you: c.id });
+    const small = [...uiClients].some((c) => c.tunnel) ? compactState(st) : null;
+    for (const c of uiClients) send(c.ws, { ...(c.tunnel ? small : st), local: c.local, you: c.id });
   });
   const unsubLog = log.onEntry?.((entry) => broadcast({ type: 'log', entry }, (c) => c.role === 'ui'));
   // the media server's own changes (copies in progress, problems): small, so the whole state is not sent each time
-  const onMedia = (m) => broadcast({ type: 'media', ...m }); // copies, problems AND the transport (engine/media/transport.js)
+  const onMedia = (m) => { // copies, problems AND the transport (engine/media/transport.js); compact through the relay
+    const msg = { type: 'media', ...m };
+    broadcast(msg, (c) => !c.tunnel);
+    if ([...uiClients].some((c) => c.tunnel)) broadcast(compactState(msg), (c) => c.tunnel);
+  };
   engine.on('media', onMedia);
   // a play started, ended (with why) or failed: { event, playId, clipId, layerId, … } — for the experience runtime (vt.media.on)
   const onMediaEvent = (e) => broadcast({ type: 'mediaEvent', ...e });

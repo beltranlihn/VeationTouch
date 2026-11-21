@@ -469,6 +469,7 @@ function renderChips() {
     h('span', { class: 'chip', title: 'Sensors scanning' }, h('span', { class: `dot ${bad ? 'bad' : ok === en.length && en.length ? 'ok' : 'warn'}` }), h('span', { class: 'n tnum' }, `${ok}/${en.length}`), 'sensors'),
     h('span', { class: 'chip', title: 'Touches now' }, h('span', { class: `dot ${n ? 'live' : ''}` }), h('span', { class: 'n tnum' }, String(n)), 'touches'),
     h('span', { class: 'chip opt', title: 'Enabled outputs' }, h('span', { class: 'n tnum' }, String(outs)), 'outputs'),
+    ...V.healthChips(), // the room output and the room audio, while on: their health (status.health)
     store.status?.calib ? h('span', { class: 'chip', style: { color: 'var(--attn)' } }, `calibrating ${store.status.calib.wallId}`) : null,
     store.status?.recording ? h('button', { class: 'chip', style: { color: 'var(--danger)' }, title: 'Stop recording', onclick: () => cmd('rec.stop').then(() => toast('Recording saved', 'ok')) }, `● REC ${store.status.recording.seconds}s`) : null,
     store.status?.replay ? h('button', { class: 'chip', style: { color: 'var(--attn)' }, title: 'Stop the replay and go back to the live sensors', onclick: () => cmd('replay.stop') }, `▶ REPLAY ${store.status.replay.pos}s · stop`) : null,

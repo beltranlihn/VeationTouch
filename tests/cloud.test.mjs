@@ -12,6 +12,7 @@ import { createServer } from '../engine/server.js';
 import { startRelay } from '../cloud/relay/node-relay.mjs';
 import { route, RoomHub, LIMITS } from '../cloud/relay/core.mjs';
 import { makeHap } from './fixtures/media/make-hap.mjs';
+import { expandState } from '../engine/media/wire.js';
 
 const quiet = { info() {}, warn() {}, error() {}, recent: () => [] };
 const root = path.resolve(import.meta.dirname, '..');
@@ -308,6 +309,24 @@ test('cloud: the phone Live through the relay — a 160 px thumbnail arrives, ca
     assert.equal(st.show.clips.length, 60, 'the state carries the whole show');
     const kB = Buffer.byteLength(first) / 1024;
     assert.ok(kB < 64, `the initial state is ${kB.toFixed(1)} kB (limit 64 kB)`);
+    // F13: it travels compact (engine/media/wire.js) — ~60 kB → ~36 kB here, right after the 60 copies — and conn.js
+    // expands it to the very show the engine has. Fails without the compaction (the full one is ~59 kB) or if the
+    // expansion differs from the engine's show
+    assert.equal(st.compact, 1, 'compact through the relay');
+    assert.ok(kB < 42, `the compact initial state is ${kB.toFixed(1)} kB (budget 42 kB)`);
+    const back = expandState(st);
+    assert.deepEqual(back.show.clips, show.clips, 'expanded, the clips are the engine\'s');
+    assert.deepEqual(back.show.media, t.engine.media.show.media.map(({ mtimeMs, ...m }) => m));
+    assert.ok(!(back.media.import || []).some((j) => j.state === 'done'), 'finished copies stay at home');
+    // a device on the LAN (or this computer) still gets the full state
+    const local = new WebSocket(`ws://127.0.0.1:${t.server.port}/ws/ui?k=${t.token}&role=ui`);
+    const lf = [];
+    local.on('message', (d, bin) => { if (!bin) lf.push(d.toString()); });
+    local.on('error', () => {});
+    const lst = JSON.parse(await until(() => lf.find(isState), 8000, 'the local state'));
+    assert.equal(lst.compact, undefined, 'not compact on the LAN');
+    assert.deepEqual(lst.show.clips, t.engine.media.show.clips);
+    local.close();
     ws.close();
   } finally { await t.close(); }
 });

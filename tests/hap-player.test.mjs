@@ -682,6 +682,39 @@ test('output page: a file cut short while it plays — its last image holds 1 s,
   assert.equal(r.back.players, 1);
 });
 
+// Fails if the output page does nothing with state.media.preload (vt.media.preload, F10), holds bitmaps or decodes more
+// than the first frame for a kept-ready clip, or if the launch does not take that ready player (its first frame would
+// then wait for the decoders — the reason an experience preloads its clips).
+test('output page: a preloaded clip has the first frame of its segment decoded and parked; its launch adopts that player and shows that frame at once', opt, async () => {
+  const { result: r, errors } = await inOutput(`
+    const out = {};
+    await cmd('clip.preload', { clipId: 'cP' });
+    await until(() => M.info().preloads?.[0]?.ready, 6000);
+    await wait(300);
+    const i0 = M.info();
+    out.pre = { ...i0.preloads[0] };
+    out.requested0 = i0.pool.requested;
+    await wait(400);
+    out.requested1 = M.info().pool.requested; // parked: nothing more is decoded
+    out.made0 = M.stats.texturesMade;
+    await cmd('clip.trigger', { clipId: 'cP', transitionMs: 0 });
+    await until(() => M.info().players.length, 3000);
+    { const i = M.info(), p = i.players[0]; out.first = { ready: p.ready, shown: p.shown, adopted: i.adopted, preloads: i.preloads.length, made: M.stats.texturesMade }; }
+    await until(() => P('L1')?.seq.newFrames > 3, 4000);
+    out.later = { stripe: stripeAt(), shown: P('L1').shown };
+    return out;`, {
+    files: [{ id: 'cP', file: 'p.mov', opts: { frames: 30 }, clip: { in: 0.5, layer: 'L1' } }],
+    layers: [{ id: 'L1', transitionMs: 0 }],
+  });
+  assert.deepEqual(errors, [], `page errors: ${errors.join(' | ')}`);
+  // in = 0.5 s at 30 fps: the segment starts at frame 15
+  assert.deepEqual([r.pre.clipId, r.pre.ready, r.pre.shown, r.pre.held, r.pre.parked, r.pre.broken], ['cP', true, 15, 0, true, null], `kept ready: ${JSON.stringify(r.pre)}`);
+  assert.ok(r.requested0 >= 1 && r.requested0 <= 3, `only its first frame was decoded (${r.requested0} requests)`);
+  assert.equal(r.requested1, r.requested0, 'nothing more while parked');
+  assert.deepEqual(r.first, { ready: true, shown: 15, adopted: 1, preloads: 0, made: r.made0 }, 'the launch took the ready player: its frame on screen at once, no new texture');
+  assert.equal(r.later.stripe, r.later.shown, 'then it plays on');
+});
+
 test('output window: only its workers have Node, and it cannot be taken off our server — the page, a frame, a new window; our own pages still load', opt, async () => {
   const { result: r, errors, refused, url, rig } = await inOutput(`
     const other = (p) => 'http://127.0.0.1:' + CTL + '/' + p;

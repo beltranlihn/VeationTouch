@@ -17,7 +17,11 @@ y a 1,5–3 cm de ella. El software:
 4. Lo envía a TouchDesigner, Unreal o aplicaciones propias por **OSC**, **Triggers (OSC)**, **TUIO**,
    **WebSocket** o como **textura Spout** (máscara blanco y negro).
 
-Se opera desde el ordenador de la sala o desde una **tablet o teléfono** dentro de la sala.
+Además es el **media server de la sala**: clips HAP en una rejilla de capas y columnas, presets de experiencia,
+mezcla en la GPU y el audio de los clips por los altavoces de la sala.
+
+Se opera desde el ordenador de la sala (la app completa) o desde un **teléfono o tablet** dentro de la sala (el mando:
+**Live** para lanzar y **Calibrate** para calibrar).
 
 ## 2. Instalación y arranque
 
@@ -35,21 +39,16 @@ Se opera desde el ordenador de la sala o desde una **tablet o teléfono** dentro
 - **Arriba:** sala activa (cambiarla pide confirmación: detiene sus sensores y salidas), estado de sensores y
   toques, modo de proyección (Off / Pattern / Debug),
   **Show** (bloqueo) y **Connect device**.
-- **Izquierda (abajo en el teléfono):** las herramientas, en el orden de montaje.
-  Teclas **1–9** para cambiar de herramienta.
+- **Izquierda (abajo en el teléfono):** tres secciones; las teclas **1**, **2** y **3** cambian de sección y cada una
+  se abre en la última pestaña que usaste. Las pestañas de la sección están debajo de la barra superior.
 
-| Herramienta | Para qué |
-|---|---|
-| **Live** | Ver la sala en funcionamiento, salud del sistema, eventos, manos virtuales |
-| **Room** | Muros: nombre, medidas, orden; redimensionar arrastrando los bordes ámbar |
-| **Mapping** | Dónde cae cada muro en el lienzo de salida: rectángulo, esquinas o malla |
-| **Sensors** | Sensores: red, posición, giro, fondo, auto-alineado, estado |
-| **Calibrate** | Calibración por toques y verificación |
-| **Zones** | Zonas de disparo y máscaras (zonas ignoradas) |
-| **Outputs** | Destinos de los datos |
-| **System** | Conectar dispositivos, salas, grabaciones, ajustes avanzados, registro |
+| Sección | Pestañas | Para qué |
+|---|---|---|
+| **1 · Live** | (sin pestañas) | Lo que está en antena: estantería de experiencias, rejilla de clips, inspector, biblioteca de medios; vista de la sala, manos virtuales. **←/→** pasan a la columna anterior/siguiente de la rejilla |
+| **2 · Output** | **Screens** · **Audio** · **Protocols** | Dónde va la imagen (Advanced Output, Spout, ventana única; el mapeo de cada muro en el lienzo), el sonido de la sala, y los destinos de los datos (OSC, Triggers, TUIO, Webhook, Art-Net, sACN, NDI) |
+| **3 · System & Calibration** | **Status** · **Room** · **Sensors** · **Calibrate** · **Zones** · **System** | Salud del sistema, muros, sensores, calibración y verificación, zonas y máscaras, y ajustes (dispositivos, salas, grabaciones, registro) |
 
-- **Centro:** el espacio de trabajo de cada herramienta. Arrastrar para desplazar, rueda o pellizco para
+- **Centro:** el espacio de trabajo de cada vista. Arrastrar para desplazar, rueda o pellizco para
   zoom, doble clic para encuadrar.
 - **Deshacer / rehacer:** botones ↶ ↷ o **Ctrl+Z / Ctrl+Shift+Z**.
 
@@ -162,7 +161,7 @@ Todo se hace desde la app, sin otro programa: **Sensors › Sensor network…**
 3. ¿Cuál es cuál? El que se acaba de enchufar. Con todos funcionando, agitar la mano delante de un sensor: su fila
    en la lista de Sensors muestra **moving**.
 4. Con la **sala vacía**: **Capture background — all sensors** (arriba en **Sensors**, también en la lista previa de
-   **Calibrate** y en **Live › Health**) captura el fondo de todos a la vez. Después, para cada sensor (su panel sigue
+   **Calibrate** y en **Status › Health**) captura el fondo de todos a la vez. Después, para cada sensor (su panel sigue
    el orden de uso: estado → fondo → montaje → calibración; red y detalles van plegados):
    - **Capture background**: aprende lo que ve sin nadie (suelo, muros vecinos, objetos fijos). Empieza tras una
      cuenta atrás de 5 s para que quien sostiene la tablet se aparte. Si algo se movió durante la captura, lo
@@ -193,9 +192,9 @@ El soporte debe permitir ajustar la inclinación en dos ejes.
 - Lo que no puede ver: un plano demasiado **lejos** de la pared. Comprobar con una regla apoyada perpendicular a la
   pared en varios puntos que se detecta a 1,5–3 cm de la pared en todo el muro.
 
-## 7. Mapping: el muro en los píxeles del contenido
+## 7. Mapping: el muro en los píxeles del contenido (Output › Screens)
 
-**Mapping** muestra el lienzo de salida (ej. 7196 × 912) con la región de cada muro.
+**Mapping** (bajo la barra de Advanced Output, en **Output › Screens**) muestra el lienzo de salida (ej. 7196 × 912) con la región de cada muro.
 - **Rect:** región rectangular. Arrastrar para mover; esquinas para redimensionar; flechas 1 px (Shift 10 px).
 - **Corners:** arrastrar las 4 esquinas de forma libre (corrige keystone).
 - **Grid:** malla de nodos; arrastrar nodos, **+ Row / + Column** donde se hace clic, **Subdivide**. Cruceta
@@ -293,7 +292,7 @@ Detalles por paso:
   una cinta métrica. Después, con la mano sobre una línea, el disco del toque debe caer encima.
 - **Durante una sesión:** mientras se calibra, se verifica o se usa Fit, los objetivos se dibujan sobre la misma
   cuadrícula.
-- **Desactivarla en una salida:** en **Outputs › Texture**, **Calibration overlay: Off** deja esa salida sólo con
+- **Desactivarla en una salida:** en **Output › Protocols › Texture**, **Calibration overlay: Off** deja esa salida sólo con
   los toques.
 
 **Fit — ajustar con la mano.** Después de calibrar, si en algún sitio el toque cae algo desplazado respecto al
@@ -361,7 +360,7 @@ reciben como un movimiento continuo y un aviso `/vt/cross`. Viene activado cuand
 XR Lab); si no, se activa por muro en **Room › Corner with the next wall › Continuous**. En
 **System › Processing › Corner zone** se ajusta la franja (25 cm a cada lado de la esquina).
 
-**Vista 3D.** **Live › 3D** muestra la sala de pie: muros con el contenido, zonas (se iluminan al activarse),
+**Vista 3D.** **Live** (botones **2D / 3D / Inside** de la vista de la sala) muestra la sala de pie: muros con el contenido, zonas (se iluminan al activarse),
 máscaras, manos en tiempo real, sensores y puntos del LiDAR. Arrastrar = girar; botón derecho o Mayús = desplazar;
 rueda o pellizco = zoom; doble clic = encuadrar. **Inside** pone la cámara en el centro de la sala a la altura de
 los ojos. Con **Virtual hand** se toca la pared en 3D (también cruzando esquinas). La forma de la sala sale del orden
@@ -392,7 +391,7 @@ Dibujar:
 
 ## 10. Salidas
 
-**Outputs › + Add…** para añadir un destino:
+**Output › Protocols › + Add…** para añadir un destino:
 
 | Tipo | Para qué | Puerto por defecto |
 |---|---|---|
@@ -432,7 +431,7 @@ Con la sala simulada, **Virtual hand** en la barra del lienzo permite probarla s
 En TouchDesigner: *OSC In DAT* en el puerto (una fila por mensaje); para la textura, *Syphon Spout In TOP*
 con el emisor «VEATION Touch».
 
-## 10 bis. Experiencias (tecla 8)
+## 10 bis. Experiencias (en Live y Output)
 
 Piezas interactivas que corren dentro de VEATION Touch y salen directo a la sala: no hace falta otro programa
 que reciba los toques. La primera es **Alma liquid**, el líquido de la web de Alma Digital: corre en la GPU (WebGPU, con
@@ -447,7 +446,7 @@ logo flota en el muro elegido. La mano:
 - Si el sensor pierde una lectura o el seguimiento cambia de identificador, sigue siendo el mismo trazo: no salta,
   no cambia de color y no deja otra mancha.
 
-**Salida de la sala (Experiences › Output — VEATION Touch).**
+**Salida de la sala (Output › Screens, VEATION Touch).**
 - La app envía **una sola imagen**: la fuente Spout **«VEATION Touch»**, que toma Resolume.
 - En la tarjeta Output se elige:
   - encendido o apagado;
@@ -463,9 +462,9 @@ logo flota en el muro elegido. La mano:
 - **Modo calibración:** mientras se calibra, se verifica, se hace Fit o la prueba de paseo, o está encendida la
   rejilla, la salida muestra sola únicamente la rejilla y los toques, sobre negro. La pieza se oculta pero sigue viva, y
   al terminar vuelven tus capas. La tarjeta lo avisa.
-- La salida Texture de Outputs ya no usa Spout (sólo NDI y pantalla completa): para Spout está esta salida única.
+- La salida Texture de Output › Protocols ya no usa Spout (sólo NDI y pantalla completa): para Spout está esta salida única.
 
-1. **Experiences › Play** en la experiencia la pone en la capa Experience y enciende la salida. Sale por:
+1. **Play** en la tarjeta de la experiencia (Live) la pone en la capa Experience y enciende la salida. Sale por:
    - **Spout**: el emisor «VEATION Touch», que lee el servidor de medios del mismo ordenador (en XR Lab, Resolume).
    - **Full screen**: a pantalla completa en el monitor o proyector elegido. **Fit** mantiene las proporciones;
      **Stretch** rellena la pantalla.
@@ -498,7 +497,7 @@ Sin la app de escritorio (modo servidor) la tarjeta da la dirección de la exper
 - El botón **Experience**, junto a Points, la muestra u oculta y recuerda la elección. Si el ordenador va justo de
   recursos, conviene ocultarla.
 
-**Sonido de la sala (Experiences › Audio).**
+**Sonido de la sala (Output › Audio).**
 Las piezas de sonido (como **Ambient notes**) suenan por los altavoces de la sala a la vez que la experiencia visual, y
 reaccionan a las manos. Van aparte, en la sección **Sound**: **Play** y **Stop** (con un fundido de 1 s), sus parámetros
 y **Start with the app**.
@@ -507,7 +506,7 @@ y **Start with the app**.
 2. **Dispositivos.** Debajo de **Devices** aparecen todas las salidas del ordenador con su número de canales. Con
    **Dante Virtual Soundcard en modo WDM, Windows no ve un dispositivo de 8 canales, sino varios estéreo**: «DVS Transmit 1-2»,
    «3-4», «5-6»… (en XR Lab se llaman «DVS Transmit  1-2 (Dante Virtual Soundcard)», con dos espacios: la app los
-   reconoce igual). Se añaden en **Outputs** en orden con **Add device**: los canales lógicos van encadenados (el primer par
+   reconoce igual). Se añaden en **Output › Audio** en orden con **Add device**: los canales lógicos van encadenados (el primer par
    son los canales 1 y 2, el segundo el 3 y 4…). Los dispositivos se guardan por su nombre. Si uno no está, la tarjeta lo
    dice («not found»), su par queda en silencio y los demás siguen con sus canales. Al arrancar DVS, Windows suele poner
    «DVS Transmit 15-16» como salida por defecto: no importa, la app no usa la salida por defecto cuando hay dispositivos
@@ -553,11 +552,50 @@ Parámetros:
 - **Notes per wall** y **Notes in total**: cuántas notas suenan a la vez como máximo; al llegar al tope, la más antigua
   se apaga suavemente.
 
+## 10 ter. Media server: clips, presets y audio
+
+La sala reproduce clips **HAP** (MOV con vídeo HAP, HAP Alpha o HAP Q, y audio PCM) además de las experiencias. Se prepara en
+el ordenador de la sala; el teléfono sólo lanza (§4).
+
+- **Biblioteca.** Arrastrar archivos o una carpeta del USB sobre la rejilla o la biblioteca de **Live** los copia a la
+  biblioteca de la sala (siempre se copia: el USB se puede retirar al terminar la copia). Lo que no es HAP, o no tiene el
+  tamaño del lienzo, se avisa con el motivo. Si falta un archivo, el clip se marca y **Problems** lo dice; el resto sigue.
+- **Rejilla.** Capas (filas) × columnas. Un clic lanza un clip; el número de columna lanza toda la columna; **←/→** pasan de
+  columna. **Blackout** funde a negro y silencia; al levantarlo todo vuelve. El volumen y la mezcla de cada capa están en
+  su cabecera.
+- **Presets.** Una tarjeta de preset carga una experiencia con sus parámetros y los clips de sus ranuras; **Unload**
+  la quita. Lo que lanza una experiencia va a la fila de sólo lectura «Experience clips».
+- **La sala arranca sola.** El **Start** del show (tarjeta y columna) se lanza una vez al arrancar el motor. Si el motor
+  se reinicia, la sala sigue donde estaba (los clips continúan en la posición que marca el reloj) y la ventana de salida
+  no se detiene. Si la ventana de salida se cae, la app la reabre sola y los clips vuelven a su sitio en un par de
+  segundos.
+- **Salud.** **Status › Health** y **Problems** avisan de: ventana de salida caída, fotogramas tarde, archivos que faltan,
+  biblioteca llena o inaccesible, dispositivo de audio ausente, cortes de audio del último minuto y paradas del motor.
+  Para una vigilancia remota: `/api/health` (campo `problems`).
+- Reel (la experiencia de presentación de Alma, con clips de proyectos) se carga como cualquier otro preset.
+
+### Prueba en la sala (guion)
+
+1. **USB.** Con el USB puesto, en **Live** arrastrar un par de clips HAP del tamaño del lienzo a la rejilla (capa 1, columnas 1–2)
+   y esperar a que termine la copia. Retirar el USB y comprobar que los clips siguen.
+2. **Rejilla.** Lanzar cada clip y una columna entera; probar **←/→** y **Blackout**.
+3. **Presets.** Cargar un preset con una experiencia (por ejemplo Alma liquid) y comprobar que los clips y la experiencia
+   conviven; descargarlo.
+4. **Output › Screens.** Destino **Screens**; plantilla **Datapath Fx4 (2×2)** (o **Fit**); en la salida, **Scale** a 1;
+   **Send to Screens** (el botón **Screens** del destino) y **Test card**: el borde, las diagonales y el nombre de cada
+   pantalla deben verse completos en las cuatro paredes. Quitar la carta.
+5. **Audio.** En **Output › Audio**, el ruteo de los clips en **All speakers**; lanzar un clip con sonido, comprobar cada altavoz con
+   **Test** y ajustar **avOffsetMs** (positivo: el sonido sale antes) hasta que un destello y su clic coincidan.
+6. **Teléfono.** Abrir el enlace de **Connect device**: en **Live** lanzar columnas y clips, y mover el volumen; en
+   **Calibrate** comprobar que la calibración y la verificación siguen funcionando.
+7. **Reinicio.** Con un clip sonando, cerrar el motor desde la bandeja y volver a abrir: la sala debe seguir donde estaba
+   y **Problems** debe quedar vacío.
+
 ## 11. Durante la función
 
 - **Show** (arriba) bloquea la sala: nadie puede mover zonas, sensores ni el mapeo por accidente. Las salidas,
   la proyección y las pruebas siguen funcionando. Para desbloquear hay que confirmar.
-- **Live › Health** muestra lo que necesita atención, agrupado y con el botón que lo resuelve: sensores sin datos
+- **Status › Health** (y **Problems**) muestra lo que necesita atención, agrupado y con el botón que lo resuelve: sensores sin datos
   (con el motivo en palabras: «no answer from … — check its cable, power and IP address»), sensores sin fondo
   (**Capture all**), muros sin calibrar (**Calibrate Px**), salidas con error, motor lento. «✓ All sensors
   scanning…» = todo bien.
@@ -590,4 +628,6 @@ Para llevar una sala a otro ordenador: **System › Export** y **Import**.
 | Toques desplazados | Verify; recalibrar ese muro; revisar Mapping con *Pattern* |
 | Toques que se cortan | Nivelar el soporte (plano demasiado lejos de la pared); *Keep through gaps* en System › Processing |
 | La tablet no abre el enlace | §4: misma red, regla del cortafuegos, aislamiento de la Wi-Fi |
-| TouchDesigner no recibe | Puerto y host en Outputs, **Send test**, cortafuegos del equipo receptor |
+| Un clip no suena o aparece marcado | Archivo ausente en la biblioteca (**Problems** lo dice): reconectar el disco o reimportar |
+| La imagen de la sala se queda congelada | **Problems**: ventana de salida caída (se reabre sola en segundos); fotogramas tarde = clip demasiado pesado (HAP en lugar de HAP Q) |
+| TouchDesigner no recibe | Puerto y host en Output › Protocols, **Send test**, cortafuegos del equipo receptor |

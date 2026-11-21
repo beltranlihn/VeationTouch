@@ -81,6 +81,9 @@
 .lv-col:hover:not(:disabled) .go{color:var(--ink);}
 .lv-col.live{background:rgba(79,195,232,.14);border-color:var(--live);color:var(--live);}
 .lv-col.live .go{color:var(--live);}
+/* the room's start column (show.start): a quiet label, in ink — it is a setting, not something live or wrong */
+.lv-col .st{font-size:8px;font-weight:600;letter-spacing:.08em;color:var(--ink-3);border:.5px solid var(--line-strong);border-radius:2px;padding:0 3px;line-height:11px;}
+.lv-col.live .st{color:var(--live);border-color:rgba(79,195,232,.5);}
 .lv-addcol{height:28px;border-radius:var(--r);border:1px dashed rgba(255,255,255,.12);color:var(--ink-3);}
 .lv-addcol:hover:not(:disabled){border-color:var(--ink-2);color:var(--ink);}
 

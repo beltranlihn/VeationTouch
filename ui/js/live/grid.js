@@ -4,7 +4,8 @@
 //                 ready, amber problem (the reason on hover); the live cell has a cyan border and its play indicator:
 //                 a ring for loops (Ableton), a bar + the time left for clips that end. Computed here from the engine's
 //                 clock and the play the engine sent; the engine is never asked where a clip is.
-//   column head   launches the column (column.trigger); the last column launched is cyan
+//   column head   launches the column (column.trigger); the last column launched is cyan; right-click makes it the
+//                 room's start column (show.start, marked START: it launches by itself when the engine starts)
 //   layer head    layers.js: X, name, M, B, opacity and volume
 //   bar           deck tabs (+ to add one), Eject all, the show's name with its menu (New, Open, Rename, Duplicate,
 //                 Export, Import; Rename / Delete deck)
@@ -114,8 +115,16 @@ export function createGrid(L) {
     const head = h('div', { class: 'lv-row lv-head' },
       h('div', { class: 'lv-corner' },
         h('button', { class: 'ibtn small', title: 'Add a layer on top', disabled: !show || locked || V.layers.length >= MAX_LAYERS || undefined, onclick: addLayer }, '+ Layer')),
-      Array.from({ length: deck.columns }, (_, c) => h('button', { class: 'lv-col', 'data-col': String(c), title: `Launch column ${c + 1}`, disabled: !show || undefined, onclick: () => L.run(cmd('column.trigger', { deckId: deck.id, column: c })) },
-        h('span', { class: 'n tnum' }, String(c + 1)), h('span', { class: 'go' }, '▶'))),
+      Array.from({ length: deck.columns }, (_, c) => {
+        // the room's start column (show.start: it launches by itself when the engine starts) carries START
+        const start = !!show && show.start?.deckId === deck.id && show.start?.column === c;
+        return h('button', {
+          class: `lv-col${start ? ' start' : ''}`, 'data-col': String(c), disabled: !show || undefined,
+          title: `Launch column ${c + 1}${start ? ' — the room opens with it' : ''}\nRight-click: start the room with it`,
+          onclick: () => L.run(cmd('column.trigger', { deckId: deck.id, column: c })),
+          oncontextmenu: (e) => { e.preventDefault(); if (show) columnMenu(e.currentTarget, deck, c, start); },
+        }, h('span', { class: 'n tnum' }, String(c + 1)), h('span', { class: 'go' }, '▶'), start ? h('span', { class: 'st' }, 'START') : null);
+      }),
       h('button', { class: 'lv-addcol', title: 'Add a column', disabled: !show || locked || deck.columns >= MAX_COLUMNS || undefined, onclick: addColumn }, '+'));
     rows = h('div', { class: 'lv-rows' },
       head,
@@ -256,6 +265,32 @@ export function createGrid(L) {
     const n = Object.keys(d.cells).length;
     if (!await confirmBox(`Delete the deck "${d.name}"${n ? ` and its ${n} cell${n === 1 ? '' : 's'}` : ''}? The files stay in the library. Ctrl+Z brings it back.`, 'Delete', true)) return;
     L.editShow((s) => { if (s.decks.length < 2) return false; s.decks = s.decks.filter((x) => x.id !== d.id); return true; }, 'delete deck');
+  }
+
+  // ---------------------------------------------------------------- a column's menu (right-click on its head)
+
+  /**
+   * Launch it, or make it the room's start column: when the engine starts (the computer is switched on), it launches by
+   * itself — with the start card, if one is set (show.start; engine/media/index.js › autostart). One per show.
+   */
+  function columnMenu(anchor, deck, c, start) {
+    const locked = L.locked();
+    const item = (label, fn, o = {}) => h('button', { disabled: o.off || undefined, title: o.title || '', onclick: () => { close(); fn(); } }, label);
+    const setStart = (on) => L.editShow((s) => { s.start = { ...(s.start || {}), deckId: deck.id, column: on ? c : null }; }, on ? 'start column' : 'no start column');
+    const menu = h('div', { class: 'lv-menu', role: 'menu' },
+      locked ? h('div', { class: 'lv-menu-note' }, 'Show mode: unlock the room to change the start.') : null,
+      item(`Launch column ${c + 1}`, () => L.run(cmd('column.trigger', { deckId: deck.id, column: c }))),
+      h('div', { class: 'sep' }),
+      start ? item('Do not start the room with it', () => setStart(false), { off: locked })
+        : item(`Start the room with column ${c + 1}`, () => setStart(true), { off: locked, title: 'When the computer starts, this column launches by itself (with the start card, if one is set)' }));
+    const r = anchor.getBoundingClientRect();
+    document.body.append(menu);
+    Object.assign(menu.style, { left: `${Math.max(8, Math.min(innerWidth - menu.offsetWidth - 8, r.left))}px`, top: `${r.bottom + 4}px` });
+    const away = (e) => { if (!menu.contains(e.target)) close(); };
+    const esc = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
+    function close() { menu.remove(); removeEventListener('pointerdown', away, true); removeEventListener('keydown', esc, true); }
+    setTimeout(() => { addEventListener('pointerdown', away, true); addEventListener('keydown', esc, true); }, 0);
+    menu.querySelector('button:not([disabled])')?.focus();
   }
 
   // ---------------------------------------------------------------- the show's menu

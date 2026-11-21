@@ -610,6 +610,47 @@ audio window (hidden BrowserWindow, /audio — COOP/COEP so SharedArrayBuffer ex
   left + front, ch2 = back + right, ch3 = front, nothing on 4–8 and no sub (`profiles/xrlab.json` has that map).
   Not measured yet: the latency from touch to sound.
 
+## Media server — `engine/media/`, `ui/js/mixer/`, `ui/js/live/` (design and phases: `docs/plans/MEDIA-SERVER.md`)
+
+The engine is also the room's media server: HAP clips in a grid of layers × columns, presets of experiences, a GPU mix and
+the clips' audio over the room's speakers. Every piece below is optional: a room without a show is exactly the touch product.
+
+- **Library and show** (`library.js`, `show.js`, `index.js`). Files are copied into the library (`<data>/media`, or the folder
+  set in System) in a worker thread (`import-worker.js`), fingerprinted, probed and given thumbnails (`thumb.js`, `png.js`;
+  `mov.js` / `hap.js` read MOV and HAP in plain Node). A *show* (`<data>/shows/<id>.json`, versioned like profiles) holds the
+  media, clips, layers, decks (the grid), presets and `start`. Edits are revision-checked (`show.update {rev}`: a stale one is
+  refused). Missing files are `state.media.problems`, never an exception.
+- **Transport** (`transport.js`, also served as `/shared/transport.js`). The engine decides *what plays and since when*
+  (`startAt`, `in`, `out`, `loops`, `end`); nobody sends a moving position. `playhead()` is the one formula every page
+  uses (mixer, audio page, progress bars) against the shared clock (`ui/js/clock.js`). Launches are sent as the small
+  `media` message, not the whole state.
+- **Output page** (`ui/js/mixer/`, `ui/js/output.js`). One WebGL2 compositor: the experience canvas, the media layers
+  (`media-layers.js`, HAP decoded in workers) and the calibration grid; then the Advanced Output slices (`screens.js`).
+  Clips named in `state.media.preload` get a parked player that holds only their first frame; launching one adopts it.
+- **Audio** (`ui/js/audio-media.js`, `/api/media/pcm`, this computer only). The clip's PCM is pulled in blocks and played
+  through the same room graph as the sound experiences; `audio.media.avOffsetMs` compensates the speakers' chain.
+- **Phone** (`ui/js/remote-live.js`): Live on the phone is the same commands over the same socket. Through the relay the
+  state is sent compact (`wire.js`: clip fields equal to the defaults, finished copies and `mtimeMs` are dropped;
+  `conn.js` expands it back) and stays well under 64 kB for a 60-clip show.
+
+**Robustness (F13).**
+- *The room starts by itself*: `show.start` (a preset card and/or a column) is launched once, when the engine starts
+  (`MediaEngine.autostart()`); `profile.media.autostart = false` turns it off. A missing file leaves that clip out and the
+  rest plays.
+- *Engine restart*: every transport change is written to `<data>/run/transport.json` (plain write + rename). The next engine
+  takes it back if it is the same show and recent, moving the times by the time that went by, so clips are where the clock
+  puts them. The output page never stops: it keeps playing and re-syncs when the socket returns, without recreating players.
+- *Output window*: `app/main.js` reopens the output window when its renderer dies, hangs (no report) or its page fails to load;
+  the page rebuilds its players from the state and places them by clock.
+- *Health* (`Engine.healthItems()` → `status.health`, `/api/health › problems`): output window down or in error, clips late
+  (decode lag), library missing or full, audio device missing / error / dropouts in the last minute, and the engine's own loop
+  (`engine.tickGapMs`: the longest gap between two 60 Hz ticks; ≥ 250 ms shows `engine-stall` for 30 s). Problems and
+  Status › Health show them; the phone shows them in Live.
+- *Packaging*: the import worker and everything it imports live in `engine/` (inside `app.asar`, which Electron's workers
+  read); `tests/media-library.test.mjs` checks this statically against `package.json › build`.
+- Tests: `tests/media-restart.test.mjs` (restart, autostart, health, compact wire), `tests/hap-player.test.mjs` (the page's side of
+  a restart), `tests/runtime-media.test.mjs` (`vt.media`, the early first-frame report).
+
 ## Internet access — `engine/cloud.js`, `cloud/`
 
 The room can be opened from any network without touching the router or the firewall. With internet access on

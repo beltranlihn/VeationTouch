@@ -419,3 +419,40 @@ test('engine: during a large simulated copy the 60 Hz loop keeps its pace (tickM
     await engine.media.cancelImport(job.id);
   } finally { await engine.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ------------------------------------------------------------------------------------------------ packaged (app.asar)
+
+// The installer puts the engine inside app.asar (package.json › build.files has engine/**). Electron 44's worker_threads
+// load ES modules and their relative imports from the archive (checked by hand on 2026-11-21 with an asar of the engine:
+// no asarUnpack needed), so the import worker loads when packaged as long as (1) the engine is in build.files and not
+// excluded, (2) MediaEngine finds the worker relative to its own module (inside the archive wherever it is installed),
+// and (3) everything the worker imports is a relative file of engine/ or a node: built-in — never a package of
+// node_modules (only ws and qrcode-generator are shipped) nor a file outside engine/. Fails if any of the three breaks.
+test('packaged: the import worker and every module it imports ship inside app.asar (engine/**), found relative to MediaEngine', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const files = pkg.build.files;
+  assert.ok(files.includes('engine/**'), 'the engine is in the package');
+  assert.ok(!files.some((f) => f.startsWith('!engine')), 'no part of the engine is left out');
+  const src = fs.readFileSync(path.join(root, 'engine', 'media', 'index.js'), 'utf8');
+  assert.match(src, /const WORKER_URL = new URL\('\.\/import-worker\.js', import\.meta\.url\);/, 'found next to MediaEngine');
+  assert.match(src, /new Worker\(WORKER_URL,/);
+  // the worker's import closure
+  const seen = new Set(), bare = [];
+  const walk = (file) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const text = fs.readFileSync(file, 'utf8');
+    for (const m of text.matchAll(/^\s*(?:import|export)\s[^'"]*?from\s+['"]([^'"]+)['"]/gm)) {
+      const spec = m[1];
+      if (spec.startsWith('node:')) continue;
+      if (!spec.startsWith('.')) { bare.push(`${path.relative(root, file)} → ${spec}`); continue; }
+      walk(path.resolve(path.dirname(file), spec));
+    }
+  };
+  walk(path.join(root, 'engine', 'media', 'import-worker.js'));
+  assert.deepEqual(bare, [], 'the worker imports no package');
+  const outside = [...seen].map((f) => path.relative(root, f).split(path.sep).join('/')).filter((f) => !f.startsWith('engine/'));
+  assert.deepEqual(outside, [], 'everything it imports is in engine/');
+  for (const f of seen) assert.ok(fs.existsSync(f), `${f} exists`);
+  assert.ok(seen.size >= 8, `the closure was walked (${seen.size} modules)`);
+});

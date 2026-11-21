@@ -415,3 +415,28 @@ test('page: vt.media in the viewer and standalone is a simulation — nothing re
   assert.equal(after.xlayer.from, null);
   assert.deepEqual(after.preload, [], 'nothing was preloaded');
 });
+
+// Fails if the runtime's early report (experiences/runtime.js: once the first frames are out) is removed: a card in Live
+// would then show "starting" for up to 2 s more (the regular report comes every REPORT_MS = 2 s) — and a phone operator
+// waits on it. The engine side is spied: every experience.report the page sends, when it arrives.
+test('page: the room\'s instance reports its first frames at once, long before the regular 2 s report', opt, async () => {
+  const reports = [];
+  const { result: o, errors } = await inPage('/experiences/media-probe/index.html?run=1', `
+    await until(() => window.__probe?.frames > 0, 6000);
+    const firstFrameAt = Date.now();
+    await wait(1200);
+    return { firstFrameAt, frames: window.__probe.frames };
+  `, {
+    prep: async (engine) => {
+      await engine.command('preset.load', { presetId: 'p1' });
+      const orig = engine.command.bind(engine);
+      engine.command = (op, args = {}) => { if (op === 'experience.report') reports.push({ at: Date.now(), fps: args.fps, error: args.error }); return orig(op, args); };
+    },
+  });
+  assert.deepEqual(errors, []);
+  assert.ok(o.frames > 0, 'the probe draws');
+  const first = reports.find((x) => x.fps > 0);
+  assert.ok(first, `a report with frames arrived within 1.2 s of the first frame: ${JSON.stringify(reports)}`);
+  assert.ok(first.at - o.firstFrameAt < 600, `${first.at - o.firstFrameAt} ms after the first frame`);
+  assert.equal(first.error, null);
+});

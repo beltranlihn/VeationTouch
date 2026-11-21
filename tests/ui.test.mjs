@@ -1156,6 +1156,7 @@ test('ui: a page that cannot start says so on screen and its error reaches the c
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-broken-ui-'));
   fs.cpSync(path.join(root, 'ui'), path.join(tmp, 'ui'), { recursive: true });
   fs.cpSync(path.join(root, 'engine', 'core'), path.join(tmp, 'engine', 'core'), { recursive: true }); // /shared/*.js
+  fs.cpSync(path.join(root, 'engine', 'media'), path.join(tmp, 'engine', 'media'), { recursive: true }); // /shared/media/*.js (conn.js imports wire.js)
   fs.writeFileSync(path.join(tmp, 'ui', 'js', 'main.js'), "import './conn.js';\nthrow new ReferenceError(\"Cannot access 'history' before initialization\");\n");
   const lines = [];
   const log = { ...quiet, warn: (m) => lines.push(m) };

@@ -304,14 +304,35 @@ function onCpuPaint(w, want, image) {
   } catch (err) { spoutOut.err = String(err?.message || err).slice(0, 200); }
 }
 
-/** Once a second: the whole output as a small JPEG (what Chromium composes, so it is the room's image) for the Experiences tab. */
+/**
+ * The output window does not answer (its renderer hangs: a GPU reset, a page in an endless loop): a fresh one. Its page
+ * finds the clips where the engine's clock says (MEDIA-SERVER.md F13: back in place in under 2 s once it loads).
+ */
+const OUT_HANG_MS = 8000;
+function recoverOutput(w, why) {
+  if (outWin !== w) return;
+  log(`room output ${why}; opening it again`);
+  closeOutputWindow();
+  applyOutputWindow();
+}
+
+/**
+ * Once a second: how the output window is doing, and the whole output as a small JPEG (what Chromium composes, so it is
+ * the room's image) while someone looks at it. It is also the window's heartbeat: a page that does not answer a tiny
+ * script for OUT_HANG_MS is a hung renderer, and the window is made again (the engine shows "not answering" meanwhile:
+ * nothing is reported while it hangs).
+ */
 function startPreview(w, want = null) {
   clearInterval(previewTimer);
-  let busy = false;
+  let busy = false, busySince = 0;
+  const visible = want?.sink === 'screens' || want?.sink === 'window';
   previewTimer = setInterval(async () => {
-    if (busy || outWin !== w || w.isDestroyed() || !engine) return;
-    busy = true;
+    if (outWin !== w || w.isDestroyed() || !engine) return;
+    if (busy) { if (Date.now() - busySince > OUT_HANG_MS) recoverOutput(w, `not answering for ${Math.round((Date.now() - busySince) / 1000)} s`); return; }
+    busy = true; busySince = Date.now();
     try {
+      // the page's own composition rate: a visible window has no Spout frames to count (the off-screen one does, below)
+      const pageFps = await w.webContents.executeJavaScript('window.__out?.stats?.timing?.fps ?? null');
       // the image only while someone looks at it (the engine says so): a full-size capture is a GPU readback + encode in
       // this process, the one that forwards every paint to Spout. How it is doing goes every second regardless.
       let jpeg = null;
@@ -327,7 +348,8 @@ function startPreview(w, want = null) {
           jpeg = img.toJPEG(60);
         }
       }
-      engine?.postMessage({ type: 'outputPreview', jpeg: jpeg?.length ? jpeg : null, fps: spoutOut.fps, error: spoutOut.error || spoutOut.err || null });
+      const fps = visible ? (Number.isFinite(pageFps) ? pageFps : 0) : spoutOut.fps;
+      engine?.postMessage({ type: 'outputPreview', jpeg: jpeg?.length ? jpeg : null, fps, error: visible ? null : spoutOut.error || spoutOut.err || null });
     } catch { /* the window is going away */ } finally { busy = false; }
   }, 1000);
 }
@@ -398,9 +420,23 @@ function applyOutputWindow() {
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   w.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(uiUrl('/'))) e.preventDefault(); });
   guardOutputWindow(w.webContents, uiUrl('/').replace(/\/$/, ''), (url) => log(`room output: navigation to ${String(url).slice(0, 120)} refused`));
+  // RECOVERY (MEDIA-SERVER.md F13). The renderer died: a fresh window a second later. It hangs: Chromium's own hang
+  // monitor ('unresponsive', visible windows) or the heartbeat of startPreview (every kind) make a fresh one. The page
+  // did not load (the engine was restarting): loaded again. Either way the page takes the transport from the engine and
+  // puts the clips where its clock says; nothing else is restarted.
   w.webContents.on('render-process-gone', (_e, d) => {
     log(`output renderer gone (${d.reason}); restarting it`);
     setTimeout(() => { if (outWin === w) { closeOutputWindow(); applyOutputWindow(); } }, 1000);
+  });
+  let hang = null;
+  w.on('unresponsive', () => { clearTimeout(hang); hang = setTimeout(() => recoverOutput(w, 'unresponsive'), 5000); });
+  w.on('responsive', () => { clearTimeout(hang); hang = null; });
+  w.on('closed', () => clearTimeout(hang));
+  w.webContents.on('did-fail-load', (_e, code, desc, url, mainFrame) => {
+    if (!mainFrame || code === -3) return; // -3: a navigation aborted (the guard, a reload): not a failed load
+    log(`room output page did not load (${desc || code}); trying again in 2 s`);
+    const retry = () => { if (outWin !== w || w.isDestroyed()) return; if (!engineReady) { setTimeout(retry, 2000); return; } w.loadURL(uiUrl(want.url)); };
+    setTimeout(retry, 2000);
   });
   w.loadURL(uiUrl(want.url));
   startPreview(w, want);

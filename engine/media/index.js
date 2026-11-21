@@ -27,7 +27,6 @@ import { movIndexAsync } from './mov.js';
 import { pcmRanges } from './pcm.js';
 import { writeJsonAtomic } from '../store.js';
 
-const WORKER_URL = new URL('./import-worker.js', import.meta.url);
 const CHECK_MS = 10000;      // missing files, drives that came back, free space (§4d.5)
 const MEDIA_EMIT_MS = 250;   // at most 4 'media' messages a second while copying
 const DONE_KEEP_MS = 10000;  // a finished copy stays in the list this long once nothing is copying
@@ -36,6 +35,14 @@ const MOVIES_OPEN = 4;       // movies the PCM route keeps open (index + handle)
 const SHOW_SAVE_MS = 700;    // a layer's mix or a preset's parameter, moved live, is written once it settles
 const SNAP_LAZY_MS = 250;    // a mix moved live (a fader) rewrites the transport snapshot at most this often; launches write at once
 const RESTORE_MAX_MS = 10 * 60000; // a transport snapshot older than this is not taken back (the room starts as show.start says)
+const LAG_FRESH_MS = 12000;  // the output page reports late clip frames every 5 s while there are any: older figures are over
+const LAG_WARN_PER_S = 1;    // late clip frames a second that make a health item (one now and then is not worth one)
+const LIB_LOW_BYTES = 5e9;   // free space on the library's drive under which Problems warns (a reel is 19–93 GB)
+
+// The copy / inspect worker. Once packaged it is read from inside app.asar, like the rest of the engine: Electron's
+// worker_threads load ES modules (and their relative imports) from the archive — tests/media-library.test.mjs packs the
+// engine into an asar and runs a real import through this very path in Electron's utilityProcess, so no asarUnpack.
+const WORKER_URL = new URL('./import-worker.js', import.meta.url);
 
 /** What the presets drive in the engine (engine.js › _mediaHost); a media server on its own (tests) has no experiences. */
 const NO_HOST = {
@@ -175,6 +182,22 @@ export class MediaEngine extends EventEmitter {
   libraryState() {
     const dir = this.libraryDir;
     return { dir, isDefault: !this.settings.mediaDir, drive: driveOf(dir), free: this.space.free, total: this.space.total };
+  }
+
+  /**
+   * What needs attention in the media server, for status.health (engine.js › healthItems → Problems and Status › Health):
+   * [{kind: 'bad'|'warn', code, text}]. Missing files and stopped copies are not here: they are in state.media.problems,
+   * with their fix (Locate…). `now` = Date.now().
+   */
+  health(now = Date.now()) {
+    const out = [], L = this.lag;
+    if (L && now - L.at < LAG_FRESH_MS && L.perS >= LAG_WARN_PER_S) {
+      out.push({ kind: 'warn', code: 'decode-lag', text: `Room output: ${L.perS} clip frames a second late${L.layers.length ? ` (${L.layers.join(', ')})` : ''} — the decoders do not keep up. Fewer clips at once, HAP rather than HAP Q, or a lower output rate.` });
+    }
+    const lib = this.libraryState();
+    if (this.show?.media.length && this.libReachable === false) out.push({ kind: 'bad', code: 'library-missing', text: `The media library ${lib.dir} cannot be reached — is its drive connected?` });
+    else if (this.show && lib.free !== null && lib.free < LIB_LOW_BYTES) out.push({ kind: 'warn', code: 'library-full', text: `The media library's drive ${lib.drive} is almost full: ${formatBytes(lib.free)} free.` });
+    return out;
   }
 
   _emitMedia() {
@@ -369,6 +392,9 @@ export class MediaEngine extends EventEmitter {
     if (typeof args.playId !== 'string' || !args.error) {
       // the output page's late clip frames (the previous frame stayed on screen): a log line at most every 30 s
       const late = Number(args.late);
+      const secs = Number(args.seconds) > 0 ? Math.min(600, Number(args.seconds)) : 5;
+      // the latest figures, for the health items (Problems) while they are fresh
+      if (late > 0) this.lag = { late: Math.round(late), perS: Math.round((late / secs) * 10) / 10, at: Date.now(), layers: Object.keys(args.layers && typeof args.layers === 'object' ? args.layers : {}).slice(0, 8).map((k) => String(k).slice(0, 12)) };
       if (late > 0 && Date.now() - (this._lateLogAt || 0) > 30000) {
         this._lateLogAt = Date.now();
         const where = Object.entries(args.layers && typeof args.layers === 'object' ? args.layers : {}).slice(0, 8).map(([k, v]) => `${String(k).slice(0, 12)} ${Number(v) || 0}`).join(', ');
@@ -445,7 +471,51 @@ export class MediaEngine extends EventEmitter {
     this.transport.advance(now, { silent: true });
     this.transport.takeEvents();
     try { this.presets.restore(snap.presets, shift); } catch (e) { this.log.warn(`preset after restart: ${e.message}`); }
+    // a play whose file went while the engine was down (a drive unplugged): out at once, the rest carries on
+    for (const [id, e] of [...this.transport.entries, [XLAYER, this.transport.x]]) {
+      const p = e.play, clip = p && this.show.clips.find((c) => c.id === p.clipId);
+      const why = clip ? this._playable(clip) : 'the clip is gone';
+      if (p && why) { this.log.warn(`after the restart, layer ${id}: ${why}`); this.transport.clear(id, { transitionMs: 0 }); }
+    }
+    this.transport.takeEvents();
+    this._restored = true;
     if (this.transport.busy() || this.presets.live) this.log.info(`transport restored (${Math.round(age / 100) / 10} s after it was saved)`);
+  }
+
+  /**
+   * The room starts on its own (MEDIA-SERVER.md F13, decisions of 2026-11-21: without an operator's monitor the room must
+   * come up by itself): once, when the engine starts, the show's start card loads and its start column launches
+   * (show.start {presetId, deckId, column}). Not when a show is opened later, and not after a restart that took the
+   * transport back from its snapshot (the room carries on where it was). The card starts only while the room starts its
+   * experience with the app (profile.experience.autostart — Live's "Start with the app" switch sets both); the whole
+   * thing is off with profile.media.autostart = false. A clip whose file is missing is left out — its layer stays
+   * empty — and Problems says which file; the others play.
+   * @returns {{preset:string|null, column:number|null, errors:string[]}|null} what it did (null: nothing to do)
+   */
+  autostart() {
+    if (this._autostarted) return null;
+    this._autostarted = true;
+    const P = this.profile(), show = this.show;
+    if (!show || this._restored || P?.media?.autostart === false) return null;
+    const st = show.start || {}, out = { preset: null, column: null, errors: [] };
+    const presetId = st.presetId && P?.experience?.autostart ? st.presetId : null;
+    if (presetId === null && (st.column === null || st.column === undefined)) return null;
+    this._run(() => {
+      if (presetId) {
+        try { this.presets.load(show, presetId); out.preset = presetId; } catch (e) { out.errors.push(e.message); }
+      }
+      if (st.column !== null && st.column !== undefined) {
+        try {
+          const r = this.transport.columnTrigger({ deckId: st.deckId, column: st.column });
+          out.column = st.column;
+          for (const x of r.errors || []) out.errors.push(`${x.layerId}: ${x.error}`);
+        } catch (e) { out.errors.push(e.message); }
+      }
+    });
+    const card = out.preset && show.presets.find((p) => p.id === out.preset);
+    this.log.info(`show "${show.name}" started with the app${card ? `: card "${card.name}"` : ''}${out.column !== null ? `${card ? ',' : ':'} column ${out.column + 1}` : ''}`);
+    for (const e of out.errors) this.log.warn(`start of the show: ${e}`);
+    return out;
   }
 
   // ------------------------------------------------------------------ import (§4d.3)
@@ -713,6 +783,8 @@ export class MediaEngine extends EventEmitter {
     for (const [file, mv] of this.movies) if (Date.now() - mv.at > 60000) { this.movies.delete(file); mv.fh.close().catch(() => {}); }
     const before = this.space;
     this.space = await this._space(lib);
+    // the library's folder itself (its drive unplugged, a network share gone): every clip of the show is then missing
+    this.libReachable = !show?.media.length || await fs.promises.stat(lib).then((s) => s.isDirectory(), () => false);
     if (show && show.id === this.show?.id) { // (an edit during the awaits: drop what no longer holds)
       const now = missing.filter((p) => this.show.media.some((m) => m.id === p.mediaId && m.file === p.file && !this._jobFor(show.id, m.id)));
       if (JSON.stringify(now) !== JSON.stringify(this.problems)) { this.problems = now; this._emitMedia(); }
