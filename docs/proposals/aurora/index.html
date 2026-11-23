@@ -1,0 +1,945 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aurora — VEATION Touch proposal</title>
+<style>
+  :root { --bg:#04060a; --ink:#E0E0E0; --ink2:#B8B8B8; --live:#4FC3E8; --warn:#E5B567; }
+  html,body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:var(--ink);
+    font:12px/1.45 Geist,"Segoe UI",system-ui,sans-serif; -webkit-user-select:none; user-select:none; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:crosshair; }
+  #hud { position:fixed; left:16px; top:14px; pointer-events:none; letter-spacing:.14em; text-transform:uppercase; font-size:10px; color:var(--ink2); opacity:.75; transition:opacity .8s; }
+  #hud b { color:var(--ink); font-weight:500; }
+  #hint { position:fixed; left:16px; bottom:14px; pointer-events:none; font-size:11px; color:var(--ink2); opacity:.6; transition:opacity 1.2s; }
+  #meters { position:fixed; right:16px; bottom:14px; display:flex; gap:9px; align-items:flex-end; pointer-events:none; opacity:.55; font-size:9px; letter-spacing:.14em; color:var(--ink2); }
+  #meters .m { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  #meters .bar { width:3px; height:22px; background:#262626; position:relative; overflow:hidden; }
+  #meters .bar i { position:absolute; left:0; right:0; bottom:0; height:0; background:#E0E0E0; }
+  #meters .m.sub .bar i { background:var(--warn); }
+  #body { position:fixed; display:none; pointer-events:none; }
+  #body .bl { position:absolute; font-size:10px; letter-spacing:.1em; color:rgba(236,226,206,.7); white-space:nowrap; }
+  #strip { position:fixed; left:0; right:0; display:none; pointer-events:none; }
+  #strip .div { position:absolute; top:-10px; bottom:-10px; width:0; border-left:1px solid rgba(229,181,103,.55); }
+  #strip .lab { position:absolute; top:-26px; transform:translateX(-50%); font-size:10px; letter-spacing:.2em; color:var(--warn); }
+  #strip .frame { position:absolute; inset:0; border-top:1px solid rgba(255,255,255,.14); border-bottom:1px solid rgba(255,255,255,.14); }
+  #strip .seam { position:absolute; bottom:-30px; font-size:10px; color:var(--ink2); letter-spacing:.12em; opacity:.8; }
+  #help { position:fixed; right:16px; top:14px; width:330px; padding:14px 16px; background:rgba(17,17,17,.82); border:1px solid #262626; border-radius:6px; display:none; backdrop-filter:blur(8px); }
+  #help h4 { margin:0 0 8px; font-weight:500; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--warn); }
+  #help div { display:flex; justify-content:space-between; padding:2px 0; color:var(--ink2); gap:12px; }
+  #help div span:last-child { text-align:right; }
+  #help kbd { font:inherit; color:var(--live); }
+  #err { position:fixed; inset:0; display:none; align-items:center; justify-content:center; color:#E5B567; }
+  body.capture #hud, body.capture #hint, body.capture #meters { display:none; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="body"></div>
+<div id="strip"><div class="frame"></div></div>
+<div id="hud"><b>Aurora</b> &nbsp;·&nbsp; <span id="stat">0 hands · 0 / 12 stones</span> &nbsp;·&nbsp; <span id="chordName">Dorian loop · Dm9</span></div>
+<div id="hint">Click to enable sound &nbsp;·&nbsp; hold a stone = a chord tone &nbsp;·&nbsp; sweep the sky = bells &nbsp;·&nbsp; Shift+click pins a hand &nbsp;·&nbsp; F room strip &nbsp;·&nbsp; B body scale &nbsp;·&nbsp; H help</div>
+<div id="meters"></div>
+<div id="help">
+  <h4>Controls</h4>
+  <div><span>Click and hold</span><span>one hand (mouse = touch)</span></div>
+  <div><span>Hold a stone 0.5 s</span><span>sustains its chord tone</span></div>
+  <div><span>Drag across the sky</span><span>wind, bells; slow = bowed glide</span></div>
+  <div><span>Shift + click</span><span>pin a hand; click it again to remove</span></div>
+  <div><span>Let go of a stone</span><span>it fades over 10–20 s</span></div>
+  <div><span>Stones on 3+ walls</span><span>the sky crowns (also when walking)</span></div>
+  <div><kbd>F</kbd><span>Full window / room strip (7196 × 912)</span></div>
+  <div><kbd>B</kbd><span>Body scale: 1.70 m adult, 1.20 m child, reach</span></div>
+  <div><kbd>S</kbd><span>Sound on / off</span></div>
+  <div><kbd>R</kbd><span>Remove pinned hands</span></div>
+  <div><kbd>D</kbd><span>Auto-demo on / off (virtual people)</span></div>
+  <div><kbd>H</kbd><span>This help</span></div>
+  <div style="margin-top:8px;font-size:11px;display:block">Twelve chord stones, three per wall, 1.1–1.4 m high (children reach them). The progression is a Dorian loop, one chord per wall: Dm9 (P4), Fmaj7 (P1), Cadd9 (P2), Gadd9 (P3). A solo visitor builds a chord by moving along a wall; walking quickly through three walls inside the fade window crowns the sky.</div>
+</div>
+<div id="err">WebGL2 with float render targets is required.</div>
+
+<script>
+(() => {
+'use strict';
+const Q = new URLSearchParams(location.search);
+const CAPTURE = Q.has('capture');
+if (CAPTURE) document.body.classList.add('capture');
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: 'high-performance', preserveDrawingBuffer: CAPTURE });
+const fail = (m) => { const e = document.getElementById('err'); e.textContent = m; e.style.display = 'flex'; throw new Error(m); };
+if (!gl) fail('WebGL2 is required.');
+if (!gl.getExtension('EXT_color_buffer_float') && !gl.getExtension('EXT_color_buffer_half_float')) fail('Float render targets are required.');
+
+// ───────────────────────── helpers ─────────────────────────
+function mulberry(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const rnd = mulberry(CAPTURE ? Number(Q.get('seed') || 7) : (Date.now() ^ 0x9e3779b9));
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const wrapD = (d) => d - Math.round(d);              // signed shortest difference on the 0..1 loop
+const wrap01 = (u) => ((u % 1) + 1) % 1;
+const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+// ───────────────────────── room constants ─────────────────────────
+const STRIP_W = 7196, STRIP_H = 912, STRIP_ASPECT = STRIP_W / STRIP_H;
+const WALLS = [['P4', 0, 1912], ['P1', 1912, 1692], ['P2', 3604, 1920], ['P3', 5524, 1672]];   // name, x0, width (px of the strip)
+const WALL_C = WALLS.map((w) => (w[1] + w[2] / 2) / STRIP_W);
+const WALL_H_M = 3.75, REACH_M = 3.0;                                  // image height / how high people reach
+const PERIM_M = STRIP_W * WALL_H_M / STRIP_H;                          // 29.6 m of wall around the room
+const reach = (v) => clamp(v * WALL_H_M / REACH_M, 0, 1);             // vertical mappings max out at 3.0 m
+
+// ───────────────────────── GL plumbing ─────────────────────────
+function compile(type, src, name) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(`[${name}] ${gl.getShaderInfoLog(s) || ''}`); fail('Shader error in ' + name); }
+  return s;
+}
+const programs = {};
+function program(name, vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs, name + '.vs')); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs, name + '.fs'));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { console.error(name, gl.getProgramInfoLog(p)); fail('Link error in ' + name); }
+  p.u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); p.u[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name); }
+  programs[name] = p; return p;
+}
+const HEAD = `#version 300 es
+precision highp float; precision highp int;
+const float PER = ${PERIM_M.toFixed(4)}, WH = 3.75, TAU = 6.2831853;
+float wd(float d){ return d - floor(d + 0.5); }
+// palette: emerald -> teal -> ice blue -> violet -> pale rose
+vec3 pal(float h){
+  const vec3 c0 = vec3(0.16,0.95,0.60), c1 = vec3(0.09,0.78,0.88), c2 = vec3(0.38,0.64,1.00), c3 = vec3(0.64,0.48,0.98), c4 = vec3(1.00,0.70,0.84);
+  h = clamp(h,0.0,1.0)*4.0;
+  if (h < 1.0) return mix(c0,c1,h); if (h < 2.0) return mix(c1,c2,h-1.0); if (h < 3.0) return mix(c2,c3,h-2.0); return mix(c3,c4,h-3.0);
+}
+`;
+const FS_VERT = HEAD + `out vec2 vUv; void main(){ vec2 p = vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); vUv = p; gl_Position = vec4(p*2.0-1.0, 0.0, 1.0); }`;
+
+// ── pass 1: the "wind field" (low resolution). Every moving hand leaves impulses that push the curtains sideways and ripple outwards.
+const MAXI = 80;
+const FIELD_FS = HEAD + `
+uniform float uTime; uniform vec4 uImp0[${MAXI}], uImp1[${MAXI}];
+in vec2 vUv; out vec4 o;
+void main(){
+  float u = vUv.x, y = vUv.y, D = 0.0, E = 0.0;
+  for (int i = 0; i < ${MAXI}; i++){
+    vec4 a = uImp0[i], b = uImp1[i];
+    float age = uTime - b.x;
+    if (b.y <= 0.0 || age < 0.0 || age > 16.0) continue;
+    float dx = wd(u - a.x)*PER, dy = (y - a.y)*WH;
+    float sg = 0.9 + 0.30*age;
+    float r2 = (dx*dx + dy*dy*0.6)/(sg*sg);
+    if (r2 > 9.0) continue;
+    float G = exp(-r2) * b.y * exp(-age/5.5) * smoothstep(0.0, 0.35, age);
+    float r = sqrt(dx*dx + dy*dy);
+    float wave = sin(age*1.9 - r*1.7 + b.x*3.0);
+    D += G*(a.z*0.55 + 0.10*wave);          // metres of sideways push (+ a little ripple)
+    E += G;
+  }
+  o = vec4(clamp(D,-0.7,0.7)/PER, min(E,1.5), 0.0, 1.0);
+}`;
+
+// ── pass 2: the sky. Curtains, filaments, stars, horizon; stones gather colour and light; the crown wave
+const SKY_FS = HEAD + `
+uniform float uTime, uAspect, uPx, uStarCols;
+uniform sampler2D uField;
+uniform vec4 uSt0[12], uSt1[12];   // (u, y, energy, dwell) (hue, held, type, seed)
+uniform vec4 uCrown;               // (origin u, wave phase 0..1, envelope, strength)
+in vec2 vUv; out vec4 o;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+float pn(vec2 p, float per){            // value noise, periodic in x with an integer period (the room is a loop)
+  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  float x0 = mod(i.x, per), x1 = mod(i.x+1.0, per);
+  return mix(mix(h21(vec2(x0,i.y)), h21(vec2(x1,i.y)), f.x), mix(h21(vec2(x0,i.y+1.0)), h21(vec2(x1,i.y+1.0)), f.x), f.y);
+}
+const float BASE[4] = float[4](0.44, 0.51, 0.585, 0.475);
+const float AMP[4]  = float[4](1.00, 0.80, 0.62, 0.50);
+void main(){
+  float u = vUv.x, y = vUv.y, t = uTime;
+  vec4 fld = texture(uField, vUv);
+  // ---- chord stones gather the aurora toward their colour
+  float gw = 0.0, pullU = 0.0, eT = 0.0; vec3 gc = vec3(0.0);
+  for (int s = 0; s < 12; s++){
+    vec4 a = uSt0[s]; if (a.z < 0.004) continue;
+    float dx = wd(u - a.x), dm = dx*PER;
+    float w = pow(a.z, 0.85)*exp(-dm*dm/4.5);
+    gw += w; gc += pal(uSt1[s].x)*w; pullU += dx*w*0.30; eT += (a.y + 0.075)*w;
+  }
+  vec3 gcol = gc/max(gw,1e-4); float gwc = clamp(gw,0.0,1.0); float edgeT = eT/max(gw,1e-4);
+  pullU = clamp(pullU, -0.03, 0.03);
+  // ---- the crown: a slow wave of light around the room
+  float pf = uCrown.x + uCrown.y;
+  float ca = fract(pf - u + 1.0), sd = wd(u - pf);                     // ca: distance behind the front; sd: signed, + = ahead of it
+  float reached = 1.0 - smoothstep(uCrown.y - 0.01, uCrown.y + 0.02, ca);
+  float front = exp(-pow((sd > 0.0 ? sd/0.025 : ca/0.05), 2.0)) * smoothstep(0.002, 0.03, uCrown.y);
+  float cw = (front*1.0 + 0.50*exp(-ca*3.0)*reached*smoothstep(0.0, 0.07, ca)) * uCrown.z * uCrown.w;
+  float cgl = uCrown.z * uCrown.w;
+  // ---- curtains
+  vec3 acc = vec3(0.0);
+  for (int l = 0; l < 4; l++){
+    float fl = float(l), depth = fl/3.0;
+    float dir = (mod(fl,2.0) < 1.0) ? 1.0 : -1.0;
+    float tdr = t*(0.012 + 0.004*fl)*dir;
+    float uu = u + pullU*(0.7 + 0.3*depth) - fld.x*(0.55 + 0.7*depth);
+    uu += 0.0035*sin(y*3.1 + t*0.17 + fl*1.9);
+    float N1 = 5.0 + 2.0*fl;
+    float e0 = BASE[l] + 0.10*(pn(vec2(uu*N1 + tdr, t*0.021 + fl*5.3), N1)-0.5)*2.0
+                       + 0.04*(pn(vec2(uu*N1*3.0 + tdr*2.0, t*0.05 + fl*2.1), N1*3.0)-0.5)*2.0
+                       + 0.035*fld.y*sin(t*1.1 + uu*60.0);
+    float e = mix(e0, edgeT, gwc*0.70*(0.5 + 0.5*(1.0-depth)));
+    e -= 0.05*cgl + 0.03*cw;
+    float NR = 150.0 + 55.0*fl;
+    float r1 = pn(vec2(uu*NR + fl*13.7, y*0.9 + t*0.015*(1.0+fl*0.3)), NR);
+    float r2 = pn(vec2(uu*NR*2.0 + 3.1, y*1.7 - t*0.02), NR*2.0);
+    float ray = mix(0.22, 1.6, smoothstep(0.18, 0.88, 0.65*r1 + 0.35*r2));
+    float presence = mix(0.22, 1.0, smoothstep(0.28, 0.72, pn(vec2(uu*3.0 + fl*1.7 + tdr*0.5, t*0.015 + fl), 3.0)));
+    float s = y - e;
+    float rayH = (0.22 + 0.34*pn(vec2(uu*9.0 + fl*3.0 + tdr, t*0.03), 9.0))*(1.0 + 0.45*cgl + 0.35*cw + 0.5*gwc);
+    float low = smoothstep(-0.035, 0.012, s);
+    float edgeG = exp(-pow((s - 0.012)/0.032, 2.0));
+    float upf = exp(-max(s,0.0)/rayH*2.4) * smoothstep(1.03, 0.72, y);
+    float I = low*(0.55*edgeG*(0.55 + 0.45*ray) + 0.52*upf*ray) * presence;
+    float tc = clamp(s/(rayH*2.0), 0.0, 1.0);
+    vec3 c = mix(vec3(0.10,0.95,0.56), vec3(0.06,0.72,0.82), smoothstep(0.0,0.35,tc));
+    c = mix(c, vec3(0.20,0.44,0.95), smoothstep(0.25,0.70,tc));
+    c = mix(c, vec3(0.50,0.30,0.92), smoothstep(0.62,1.0,tc)*0.8);
+    float rose = smoothstep(0.62, 0.95, pn(vec2(uu*4.0 + fl*2.0 + tdr, t*0.02 + fl*9.0), 4.0));
+    c = mix(c, vec3(1.0,0.62,0.80), rose*0.5*smoothstep(0.1,0.6,tc));
+    c = mix(c, vec3(0.70,1.0,0.90), 0.22*edgeG);
+    c = mix(c, vec3(0.50,0.32,0.95), 0.60*smoothstep(0.50,0.85, pn(vec2(uu*2.0 + fl*1.3 + tdr*0.3, t*0.01 + fl*4.0), 2.0))*smoothstep(0.0,0.5,tc));
+    c = mix(c, gcol, 0.85*gwc);                                           // gather toward the stones' hue
+    c = mix(c, vec3(1.0,0.86,0.74), clamp(cw,0.0,1.0)*0.45);              // crown: pale gold
+    I *= 1.0 + 1.0*gwc + 1.0*cw + 0.3*cgl;
+    float glit = pow(pn(vec2(uu*NR*3.0, y*38.0 + t*2.5), NR*3.0), 7.0);
+    I += fld.y*0.20*glit*upf*3.0;                                          // sweeping leaves a shimmer
+    I *= 1.0 + 0.30*fld.y*ray;
+    acc += c*I*AMP[l]*0.15;
+  }
+  // ---- sky, horizon, stars
+  float hz = smoothstep(0.15, 0.30, y);
+  vec3 col = acc*hz;
+  vec3 bg = mix(vec3(0.0016,0.0046,0.0125), vec3(0.0035,0.0120,0.0210), pow(1.0-y,1.7));
+  bg += vec3(0.0016,0.0085,0.0110)*smoothstep(0.62,0.22,y)*(0.6 + 0.4*sin(u*TAU*3.0 + t*0.03));
+  col += bg + vec3(0.004,0.010,0.010)*acc*0.0;
+  float lum = dot(acc, vec3(0.3,0.5,0.2));
+  float rows = 170.0, cols = uStarCols;
+  vec2 g = vec2(u*cols, y*rows), id = floor(g), f = fract(g);
+  float hh = h21(vec2(mod(id.x,cols), id.y) + 7.0);
+  if (hh > 0.984){
+    vec2 pos = vec2(h21(id + 3.1), h21(id + 9.7))*0.6 + 0.2;
+    float dpx = length((f - pos)*vec2(uAspect/cols, 1.0/rows))/uPx;
+    float st = exp(-dpx*dpx/0.55)*(0.35 + 0.65*fract(hh*77.0))*(0.75 + 0.25*sin(t*(0.5 + hh*2.0) + hh*120.0));
+    col += vec3(0.75,0.88,1.0)*st*0.55*smoothstep(0.25,0.40,y)*(1.0 - clamp(lum*6.0,0.0,1.0));
+  }
+  float gnd = smoothstep(0.205, 0.125, y);
+  col = mix(col, vec3(0.0007,0.0014,0.0024), gnd*0.93);
+  col += vec3(0.020,0.058,0.066)*exp(-pow((y - 0.200)/0.0085, 2.0))*(0.30 + 0.45*lum*5.0 + 0.5*gwc + 0.5*cw)*(0.7 + 0.3*sin(u*TAU*9.0 + t*0.2));
+  // faint reflection of the curtains in the dark band
+  col += vec3(0.20,0.55,0.50)*0.022*lum*smoothstep(0.17, 0.05, y)*smoothstep(0.0,0.1,y);
+  col += vec3(1.0,0.84,0.70)*0.06*cw*smoothstep(0.55,1.0,y);               // the crown of light overhead
+  o = vec4(col, 1.0);
+}`;
+
+// ── bloom + composite (+ the crisp stone glyphs and hand marks, drawn at full resolution)
+const BLUR_FS = HEAD + `uniform sampler2D uT; uniform vec2 uDir; in vec2 vUv; out vec4 o;
+void main(){
+  vec4 c = texture(uT, vUv)*0.2270270270;
+  c += texture(uT, vUv+uDir*1.3846153846)*0.3162162162; c += texture(uT, vUv-uDir*1.3846153846)*0.3162162162;
+  c += texture(uT, vUv+uDir*3.2307692308)*0.0702702703; c += texture(uT, vUv-uDir*3.2307692308)*0.0702702703;
+  o = c;
+}`;
+const COMP_FS = HEAD + `
+uniform sampler2D uScene, uB1, uB2, uB3; uniform float uTime, uAspect, uPx;
+uniform vec4 uSt0[12], uSt1[12]; uniform vec4 uHand[16];
+in vec2 vUv; out vec4 o;
+float dither(){ return (fract(52.9829189*fract(dot(gl_FragCoord.xy, vec2(0.06711056,0.00583715)))) - 0.5)/255.0; }
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
+const float R = 0.2/WH;       // stone radius: 0.20 m (0.40 m across)
+vec3 stones(float u, float y){
+  vec3 L = vec3(0.0);
+  for (int s = 0; s < 12; s++){
+    vec4 a = uSt0[s], b = uSt1[s];
+    vec2 p = vec2(wd(u - a.x)*uAspect, y - a.y); float d = length(p);
+    if (d > R*3.6) continue;
+    float e = a.z, dw = a.w, held = b.y;
+    vec3 hc = pal(b.x), wc = mix(hc, vec3(1.0,0.97,0.93), 0.40);
+    float w = max(uPx*1.15, 0.0016);
+    float idle = 0.26 + 0.07*sin(uTime*0.7 + b.w*TAU);
+    float act = max(e, dw*0.55);
+    float ring = exp(-pow((d - R)/w, 2.0));
+    float ang = atan(p.x, p.y);                              // 0 at the top, clockwise positive
+    float gly = 0.0;
+    if (b.z < 0.5){                                          // root: a dot in a small ring
+      gly = exp(-pow(d/(0.17*R), 4.0))*1.2 + exp(-pow((d - 0.46*R)/w, 2.0))*0.7;
+    } else if (b.z < 1.5){                                   // fifth: a diamond
+      float dm = abs(p.x) + abs(p.y);
+      gly = exp(-pow((dm - 0.60*R)/(w*1.3), 2.0))*0.9 + exp(-pow(d/(0.08*R), 2.0))*0.9;
+    } else {                                                 // colour tone: three arcs
+      float m = smoothstep(0.35, 0.65, cos(3.0*ang));
+      gly = exp(-pow((d - 0.52*R)/w, 2.0))*m*1.1 + exp(-pow(d/(0.07*R), 2.0))*0.7;
+    }
+    L += wc*(ring*(idle + 0.9*act) + gly*(idle*0.95 + 0.95*act));
+    L += hc*e*0.10*exp(-d*d/(R*R*1.7));
+    if (dw > 0.01 && held < 0.5){                            // dwell ring: fills clockwise
+      float a01 = (ang < 0.0 ? ang + TAU : ang)/TAU;
+      float on = smoothstep(dw + 0.004, dw - 0.004, a01);
+      L += mix(hc, vec3(1.0), 0.5)*exp(-pow((d - 1.24*R)/(w*1.7), 2.0))*on*1.15;
+      L += mix(hc, vec3(1.0), 0.5)*exp(-pow((d - 1.24*R)/(w*1.7), 2.0))*0.10;
+    }
+    if (held > 0.5){                                         // held: a slow expanding breath
+      float ph = fract(uTime/3.4 + b.w);
+      L += hc*exp(-pow((d - R*(1.0 + ph*1.5))/(w*2.0), 2.0))*pow(1.0 - ph, 1.6)*0.45;
+      L += wc*exp(-pow((d - 1.24*R)/(w*1.3), 2.0))*0.42;
+    }
+  }
+  return L;
+}
+void main(){
+  vec2 uv = vUv;
+  vec3 s = texture(uScene, uv).rgb;
+  vec3 b = texture(uB1, uv).rgb*0.26 + texture(uB2, uv).rgb*0.40 + texture(uB3, uv).rgb*0.60;
+  vec3 col = s + b + stones(uv.x, uv.y);
+  for (int i = 0; i < 16; i++){                              // a soft pale mark under each hand
+    vec4 h = uHand[i]; if (h.z <= 0.0) continue;
+    vec2 p = vec2(wd(uv.x - h.x)*uAspect, uv.y - h.y); float d = length(p);
+    col += vec3(0.95,0.97,1.0)*h.z*(0.38*exp(-d*d/(2.0*0.0075*0.0075)) + 0.05*exp(-d*d/(2.0*0.03*0.03)) + 0.10*exp(-pow((d - 0.034)/(max(uPx,0.0012)*1.4), 2.0)));
+  }
+  float y = abs(uv.y - 0.5)*2.0; col *= 1.0 - 0.28*smoothstep(0.55, 1.05, y);   // vertical only: the room is a seamless loop
+  col = aces(col*1.0);
+  col = pow(col, vec3(1.0/2.2));
+  o = vec4(col + dither(), 1.0);
+}`;
+
+program('field', FS_VERT, FIELD_FS); program('sky', FS_VERT, SKY_FS); program('blur', FS_VERT, BLUR_FS); program('comp', FS_VERT, COMP_FS);
+
+function makeTex(w, h) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  return { t, f, w, h };
+}
+const freeTarget = (r) => { if (r) { gl.deleteTexture(r.t); gl.deleteFramebuffer(r.f); } };
+const bindTex = (unit, tex) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); };
+const full = () => gl.drawArrays(gl.TRIANGLES, 0, 3);
+const sync = () => { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); };
+const emptyVAO = gl.createVertexArray();
+
+// ───────────────────────── layout ─────────────────────────
+const S = {
+  strip: Q.has('strip'), body: Q.has('body'), help: false, demo: !CAPTURE, sound: true,
+  cw: 0, ch: 0, vx: 0, vy: 0, vw: 0, vh: 0, aspect: 1, time: 0, acc: 0, starCols: 1,
+};
+let sky = null, fieldT = null, bl = [];
+function layout() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const iw = window.innerWidth, ih = window.innerHeight;
+  let scale;
+  if (S.strip) scale = Math.min(3840 / iw, Math.max(dpr, 2)); else scale = Math.min(dpr, 2560 / iw);
+  S.cw = Math.round(iw * scale); S.ch = Math.round(ih * scale);
+  canvas.width = S.cw; canvas.height = S.ch;
+  if (S.strip) { S.vw = S.cw; S.vh = Math.round(S.cw / STRIP_ASPECT); S.vx = 0; S.vy = Math.floor((S.ch - S.vh) / 2); }
+  else { S.vw = S.cw; S.vh = S.ch; S.vx = 0; S.vy = 0; }
+  S.aspect = S.vw / S.vh; S.starCols = Math.max(8, Math.round(170 * S.aspect));
+  const strip = document.getElementById('strip');
+  strip.style.display = S.strip ? 'block' : 'none';
+  if (S.strip) {
+    const k = iw / S.cw; strip.style.top = (S.vy * k) + 'px'; strip.style.height = (S.vh * k) + 'px';
+    strip.querySelectorAll('.div,.lab,.seam').forEach((n) => n.remove());
+    WALLS.forEach(([nm, x0, w], i) => {
+      const lab = document.createElement('div'); lab.className = 'lab'; lab.textContent = nm; lab.style.left = ((x0 + w / 2) / STRIP_W * 100) + '%'; strip.appendChild(lab);
+      if (i > 0) { const dv = document.createElement('div'); dv.className = 'div'; dv.style.left = (x0 / STRIP_W * 100) + '%'; strip.appendChild(dv); }
+    });
+    const sm = document.createElement('div'); sm.className = 'seam'; sm.style.left = '0'; sm.textContent = '← P3 continues here (seamless wrap)'; strip.appendChild(sm);
+    const sm2 = document.createElement('div'); sm2.className = 'seam'; sm2.style.right = '0'; sm2.textContent = '7196 × 912 · wraps to P4 →'; strip.appendChild(sm2);
+  }
+}
+function allocate() {
+  freeTarget(sky); freeTarget(fieldT); bl.forEach((p) => p.forEach(freeTarget));
+  const sw = Math.min(S.vw, 2304), sh = Math.max(8, Math.round(sw / S.aspect));
+  sky = makeTex(sw, sh);
+  fieldT = makeTex(640, Math.max(40, Math.round(640 / S.aspect)));
+  bl = [];
+  [2, 4, 8].forEach((d) => { const w = Math.max(16, Math.round(sw / d)), h = Math.max(8, Math.round(sh / d)); bl.push([makeTex(w, h), makeTex(w, h)]); });
+}
+
+// ───────────────────────── music: a Dorian loop, one chord per wall ─────────────────────────
+// P4 Dm9 (i), P1 Fmaj7 (III), P2 Cadd9 (VII), P3 Gadd9 (IV). Every stone is a chord tone; ANY combination is consonant (all notes sit in D Dorian
+// and no two notes within a chord are a semitone apart, so held stones never grind, whatever the visitors do).
+const CHORDS = [
+  { name: 'Dm9',    droneMidi: 38, hue: 0.10, notes: [50, 57, 64] },   // D3 A3 E4
+  { name: 'Fmaj7',  droneMidi: 41, hue: 0.62, notes: [53, 60, 64] },   // F3 C4 E4
+  { name: 'Cadd9',  droneMidi: 36, hue: 0.40, notes: [48, 55, 62] },   // C3 G3 D4
+  { name: 'Gadd9',  droneMidi: 43, hue: 0.92, notes: [55, 62, 69] },   // G3 D4 A4
+];
+const PENT = []; for (let o = 0; o < 3; o++) for (const off of [0, 2, 4, 7, 9]) PENT.push(72 + off + 12 * o);   // C5 .. A7 (C major pentatonic = D Dorian pentatonic)
+const bellMidi = (hm) => PENT[Math.min(PENT.length - 1, Math.floor(clamp((hm - 0.8) / (REACH_M - 0.8), 0, 1) * PENT.length))];
+const panOf = (u) => Math.sin(2 * Math.PI * u) * 0.85;               // 4.1: pan by x around the loop (+ a sub bus)
+const wallOfU = (u) => { const x = wrap01(u) * STRIP_W; for (let i = 3; i >= 0; i--) if (x >= WALLS[i][1]) return i; return 0; };
+
+// ───────────────────────── chord stones ─────────────────────────
+const HIT_R = 0.30, DWELL = 0.5, TAU_FADE = 6.5, ACT_THR = 0.05;       // m, s, s (energy decay constant: audible 10–20 s), wall-active threshold
+const STONE_FR = [0.23, 0.5, 0.77], STONE_HM = [1.20, 1.32, 1.20];     // along the wall / height in metres (children reach 1.4 m)
+const stones = [];
+CHORDS.forEach((c, w) => {
+  const [, x0, wpx] = WALLS[w];
+  for (let k = 0; k < 3; k++) {
+    stones.push({ i: w * 3 + k, wall: w, k, u: (x0 + wpx * STONE_FR[k]) / STRIP_W, v: STONE_HM[k] / WALL_H_M, hm: STONE_HM[k], midi: c.notes[k], f: mtof(c.notes[k]),
+      hue: clamp(c.hue + [-0.05, 0.0, 0.07][k], 0, 1), e: 0, dwell: 0, held: false, grace: 0, lastRel: -1e9, voice: null, seed: rnd() });
+  }
+});
+let heldNow = 0;
+
+// ───────────────────────── sound ─────────────────────────
+const CROWN_TURN = 16;   // seconds for the wave to travel the whole room
+const Sound = (() => {
+  let ctx = null, master, dry, send, subBus, noiseBuf, loopNoise, active = 0, drone = null, wind = null;
+  function impulse(c, seconds, seed) {
+    const sr = c.sampleRate, len = Math.floor(sr * (seconds + 0.02)), pre = Math.floor(sr * 0.024), buf = c.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const r = mulberry(seed * 977 + ch * 131), d = buf.getChannelData(ch); let y = 0;
+      for (let n = pre; n < len; n++) {
+        const t = (n - pre) / sr, env = Math.pow(10, -3 * t / seconds) * Math.min(1, (n - pre) / (sr * 0.03));
+        const cut = Math.max(800, 7500 * Math.exp(-t * 1.0)), a = 1 - Math.exp(-2 * Math.PI * cut / sr);
+        y += a * (r() * 2 - 1 - y); d[n] = y * env;
+      }
+    }
+    return buf;
+  }
+  const T = (p, v, tc) => p.setTargetAtTime(v, ctx.currentTime, tc);
+  const lfo = (rate, amt, target, t) => { const o = ctx.createOscillator(); o.frequency.value = rate; const g = ctx.createGain(); g.gain.value = amt; o.connect(g); g.connect(target); o.start(t || ctx.currentTime); return o; };
+  function bed() {
+    const t = ctx.currentTime;
+    // drone: root, fifth, octave; follows the current chord's root
+    const bus = ctx.createGain(); bus.gain.setValueAtTime(0, t); bus.gain.linearRampToValueAtTime(1, t + 8); bus.connect(master);
+    const ps = ctx.createGain(); ps.gain.value = 0.8; bus.connect(ps); ps.connect(send);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; lp.Q.value = 0.3;
+    const lvl = ctx.createGain(); lvl.gain.value = 0.014;
+    const f0 = mtof(38), parts = [];
+    [[1, 'triangle', 1, -3], [2, 'sine', 0.55, 2], [1.5, 'sine', 0.40, -2], [3, 'sine', 0.12, 4], [1, 'sine', 0.5, 5]].forEach(([r, ty, g, det]) => {
+      const o = ctx.createOscillator(); o.type = ty; o.frequency.value = f0 * r; o.detune.value = det;
+      const og = ctx.createGain(); og.gain.value = g; o.connect(og); og.connect(lp); o.start(t); parts.push([o, r]);
+    });
+    lp.connect(lvl); lvl.connect(bus);
+    lfo(0.045, 120, lp.frequency, t);
+    const so = ctx.createOscillator(); so.type = 'sine'; so.frequency.value = f0 / 2; const sg = ctx.createGain(); sg.gain.value = 0.16; so.connect(sg); sg.connect(subBus); so.start(t);
+    drone = { parts, so, lvl, sg, midi: 38 };
+    // a trace of wind, always there
+    const n1 = ctx.createBufferSource(); n1.buffer = loopNoise; n1.loop = true; n1.playbackRate.value = 0.7;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 0.5;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 250;
+    const g1 = ctx.createGain(); g1.gain.value = 0.0022; n1.connect(bp); bp.connect(hp); hp.connect(g1); g1.connect(bus); n1.start(t, 0.9);
+    lfo(0.037, 380, bp.frequency, t); lfo(0.05, 0.0012, g1.gain, t);
+    wind = { g1, bp };
+  }
+  function init() {
+    if (ctx) { ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    ctx = new AC({ latencyHint: 'interactive' });
+    master = ctx.createGain(); master.gain.value = S.sound ? 0.9 : 0;
+    const lim = ctx.createDynamicsCompressor();   // limiter
+    lim.threshold.value = -12; lim.knee.value = 8; lim.ratio.value = 16; lim.attack.value = 0.003; lim.release.value = 0.22;
+    master.connect(lim); lim.connect(ctx.destination);
+    dry = ctx.createGain(); dry.gain.value = 0.85; dry.connect(master);
+    // the sub channel of the 4.1 room: everything below ~110 Hz, centred
+    subBus = ctx.createGain(); subBus.gain.value = 1;
+    const sl = ctx.createBiquadFilter(); sl.type = 'lowpass'; sl.frequency.value = 110; sl.Q.value = 0.5; subBus.connect(sl); sl.connect(master);
+    send = ctx.createGain(); send.gain.value = 1;
+    const conv = ctx.createConvolver(); conv.buffer = impulse(ctx, 6.2, 9);          // generated convolution reverb, long and dark
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 180;
+    const wet = ctx.createGain(); wet.gain.value = 0.78; send.connect(conv); conv.connect(hp); hp.connect(wet); wet.connect(master);
+    const merger = ctx.createChannelMerger(2);
+    const dl = ctx.createDelay(1.5), dr = ctx.createDelay(1.5); dl.delayTime.value = 0.47; dr.delayTime.value = 0.71;
+    const fb = ctx.createGain(); fb.gain.value = 0.32; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2800;
+    const eg = ctx.createGain(); eg.gain.value = 0.13;
+    send.connect(dl); dl.connect(lp); lp.connect(dr); dr.connect(fb); fb.connect(dl);
+    dl.connect(merger, 0, 0); dr.connect(merger, 0, 1); merger.connect(eg); eg.connect(master);
+    const nb = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.2), ctx.sampleRate), nd = nb.getChannelData(0), r = mulberry(11);
+    for (let i = 0; i < nd.length; i++) nd[i] = r() * 2 - 1; noiseBuf = nb;
+    const lb = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 4), ctx.sampleRate), ld = lb.getChannelData(0), r2 = mulberry(23);
+    for (let i = 0; i < ld.length; i++) ld[i] = r2() * 2 - 1; loopNoise = lb;
+    bed();
+  }
+  function setOn(on) { if (master) master.gain.setTargetAtTime(on ? 0.9 : 0, ctx.currentTime, 0.08); }
+  const live = () => !!ctx && ctx.state === 'running' && S.sound;
+  function droneTo(midi, level, windLevel) {
+    if (!ctx || !drone) return;
+    const t = ctx.currentTime;
+    if (midi !== drone.midi) { drone.midi = midi; const f = mtof(midi); drone.parts.forEach(([o, r]) => o.frequency.setTargetAtTime(f * r, t, 2.6)); drone.so.frequency.setTargetAtTime(f / 2, t, 2.6); }
+    drone.lvl.gain.setTargetAtTime(0.014 * level, t, 1.5);
+    wind.g1.gain.setTargetAtTime(0.0022 + 0.0042 * windLevel, t, 0.6);
+  }
+  // a chord tone held by a stone: two soft oscillators + a slow breathing filter. level 0 = silent. Released stones fade by themselves (the caller follows the energy)
+  function stoneVoice(f, u, isRoot) {
+    const t = ctx.currentTime;
+    const out = ctx.createGain(); out.gain.value = 0;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = f * 4 + 500; lp.Q.value = 0.4;
+    const trem = ctx.createGain(); trem.gain.value = 0.88;
+    const oscs = [];
+    const mk = (type, fr, det, g) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = fr; o.detune.value = det; const gg = ctx.createGain(); gg.gain.value = g; o.connect(gg); gg.connect(lp); o.start(t); oscs.push(o); return o; };
+    mk('sine', f, 0, 1); mk('triangle', f, 5, 0.32); mk('sine', f * 2, -3, 0.2); mk('sine', f * 3, 2, 0.05); mk('sine', f, -7, 0.4);
+    oscs.push(lfo(0.06 + rnd() * 0.05, f * 1.1, lp.frequency, t)); oscs.push(lfo(0.1 + rnd() * 0.06, 0.12, trem.gain, t));
+    lp.connect(trem); trem.connect(out);
+    const pan = ctx.createStereoPanner(); pan.pan.value = panOf(u); out.connect(pan); pan.connect(dry);
+    const sg = ctx.createGain(); sg.gain.value = 0.9; pan.connect(sg); sg.connect(send);
+    let sub = null, subG = null;
+    if (isRoot) { sub = ctx.createOscillator(); sub.type = 'sine'; sub.frequency.value = f / 2; subG = ctx.createGain(); subG.gain.value = 0; sub.connect(subG); subG.connect(subBus); sub.start(t); oscs.push(sub); }
+    return {
+      set(level) { const tt = ctx.currentTime; out.gain.setTargetAtTime(level, tt, 0.35); if (subG) subG.gain.setTargetAtTime(level * 1.6, tt, 0.35); },
+      release() { const tt = ctx.currentTime; out.gain.cancelScheduledValues(tt); out.gain.setTargetAtTime(0, tt, 0.4); if (subG) subG.gain.setTargetAtTime(0, tt, 0.4); setTimeout(() => { try { oscs.forEach((o) => o.stop()); pan.disconnect(); sg.disconnect(); } catch (e) {} }, 3000); },
+    };
+  }
+  // high glass bells: slightly inharmonic partials, a fluttering shimmer an octave up, drenched in reverb
+  function bell(f, u, vel) {
+    if (!live() || active > 16) return;
+    const t0 = ctx.currentTime + 0.004;
+    const out = ctx.createGain(); out.gain.value = 1;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6500; lp.Q.value = 0.3;
+    const pan = ctx.createStereoPanner(); pan.pan.value = panOf(u);
+    out.connect(lp); lp.connect(pan); pan.connect(dry);
+    const sg = ctx.createGain(); sg.gain.value = 1.15; pan.connect(sg); sg.connect(send);
+    const oscs = [], peak = 0.055 * clamp(vel, 0.1, 1.2) / (1 + f / 1800);
+    [[1, 1, 3.4], [2.01, 0.30, 2.0], [2.76, 0.16, 1.4], [5.4, 0.05, 0.7]].forEach(([m, a, d]) => {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f * m; const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(peak * a, t0 + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.004 + d);
+      o.connect(g); g.connect(out); oscs.push([o, t0 + d + 0.1]);
+    });
+    const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 2; o2.detune.value = 4; const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.0001, t0); g2.gain.linearRampToValueAtTime(peak * 0.22, t0 + 0.06); g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 4.2);
+    const lf = ctx.createOscillator(); lf.frequency.value = 5 + rnd() * 2.5; const lg = ctx.createGain(); lg.gain.value = peak * 0.12; lf.connect(lg); lg.connect(g2.gain);
+    o2.connect(g2); g2.connect(out); oscs.push([o2, t0 + 4.4], [lf, t0 + 4.4]);
+    active++; let maxEnd = 0; oscs.forEach(([o, end]) => { o.start(t0); o.stop(end); maxEnd = Math.max(maxEnd, end); });
+    setTimeout(() => { active--; try { out.disconnect(); lp.disconnect(); pan.disconnect(); sg.disconnect(); } catch (e) {} }, (maxEnd - ctx.currentTime + 0.3) * 1000);
+  }
+  // a slowly bowed glass tone that follows a slow hand (glissando); silent when the hand stops
+  function bow(f, u) {
+    const t = ctx.currentTime;
+    const out = ctx.createGain(); out.gain.value = 0;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.7; lp.frequency.value = f * 3;
+    const oscs = [];
+    const mk = (type, fr, det, g) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = fr; o.detune.value = det; const gg = ctx.createGain(); gg.gain.value = g; o.connect(gg); gg.connect(lp); o.start(t); oscs.push(o); return o; };
+    const a = mk('sawtooth', f, -4, 0.3), b = mk('sawtooth', f, 5, 0.3), c = mk('sine', f, 0, 0.7), d = mk('sine', f * 2, 3, 0.18);
+    const vib = ctx.createOscillator(); vib.frequency.value = 4.8 + rnd(); const vg = ctx.createGain(); vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(6, t + 2.2);
+    vib.connect(vg); [a, b, c, d].forEach((o) => vg.connect(o.detune)); vib.start(t); oscs.push(vib);
+    lp.connect(out);
+    const pan = ctx.createStereoPanner(); pan.pan.value = panOf(u); out.connect(pan); pan.connect(dry);
+    const sg = ctx.createGain(); sg.gain.value = 1.0; pan.connect(sg); sg.connect(send);
+    return {
+      set(fr, uu, level) { const tt = ctx.currentTime; [a, b, c].forEach((o) => o.frequency.setTargetAtTime(fr, tt, 0.18)); d.frequency.setTargetAtTime(fr * 2, tt, 0.18); lp.frequency.setTargetAtTime(fr * 3.2 + 300, tt, 0.2); out.gain.setTargetAtTime(level, tt, 0.35); pan.pan.setTargetAtTime(panOf(uu), tt, 0.15); },
+      release() { const tt = ctx.currentTime; out.gain.cancelScheduledValues(tt); out.gain.setTargetAtTime(0, tt, 0.25); setTimeout(() => { try { oscs.forEach((o) => o.stop()); pan.disconnect(); sg.disconnect(); } catch (e) {} }, 2200); },
+    };
+  }
+  // the crown: a deep sub swell, and an open Dsus2 voicing that blooms in each wall's speaker as the wave of light passes it
+  function crown(u0, rich) {
+    if (!live()) return;
+    const t0 = ctx.currentTime + 0.05;
+    const sgn = ctx.createGain(); sgn.gain.setValueAtTime(0, t0); sgn.gain.linearRampToValueAtTime(0.30 * rich, t0 + 6); sgn.gain.setValueAtTime(0.30 * rich, t0 + 9); sgn.gain.linearRampToValueAtTime(0, t0 + 24); sgn.connect(subBus);
+    [[36.71, 1], [73.42, 0.3]].forEach(([f, g]) => { const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f; const gg = ctx.createGain(); gg.gain.value = g; o.connect(gg); gg.connect(sgn); o.start(t0); o.stop(t0 + 25); });
+    const VOIC = [[50, 74], [57, 76], [64, 81], [69, 62]];            // D3 D5 | A3 E5 | E4 A5 | A4 D4
+    VOIC.forEach((notes, w) => {
+      const td = wrap01(WALL_C[w] - u0) * CROWN_TURN;
+      notes.forEach((m, j) => {
+        const f = mtof(m), end = t0 + td + 15;
+        const g = ctx.createGain(); g.gain.setValueAtTime(0, t0); g.gain.setValueAtTime(0, t0 + td);
+        g.gain.linearRampToValueAtTime(0.034 * rich / (1 + j * 0.5), t0 + td + 3.0); g.gain.setTargetAtTime(0, t0 + td + 4.0, 2.6);
+        const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = f * 3 + 600; lp.Q.value = 0.3;
+        [['sine', 1, 0, 1], ['triangle', 1, 5, 0.3], ['sine', 2, -3, 0.16]].forEach(([ty, r, det, a]) => { const o = ctx.createOscillator(); o.type = ty; o.frequency.value = f * r; o.detune.value = det; const og = ctx.createGain(); og.gain.value = a; o.connect(og); og.connect(lp); o.start(t0); o.stop(end + 0.2); });
+        lp.connect(g); const pan = ctx.createStereoPanner(); pan.pan.value = panOf(WALL_C[w]); g.connect(pan); pan.connect(dry);
+        const s2 = ctx.createGain(); s2.gain.value = 1.0; pan.connect(s2); s2.connect(send);
+      });
+    });
+    for (let k = 0; k < 14; k++) setTimeout(() => bell(mtof(PENT[5 + (k * 5) % 10 + (k > 8 ? 3 : 0)]), wrap01(u0 + k / 14), 0.55), (k * CROWN_TURN / 14 * 1000) + 300);
+  }
+  return { init, setOn, droneTo, stoneVoice, bell, bow, crown, live, get on() { return !!ctx && ctx.state === 'running'; } };
+})();
+
+// ───────────────────────── hands ─────────────────────────
+const hands = []; let handSeq = 0, pinSeq = 0;
+function addHand(id, u, v, o = {}) {
+  const h = { id, u: wrap01(u), v: clamp(v, 0.03, 0.97), tu: wrap01(u), tv: clamp(v, 0.03, 0.97), vxm: 0, vym: 0, spdM: 0, born: S.time, alive: true, die: 0,
+    pinned: !!o.pinned, demo: !!o.demo, seed: rnd(), bow: null, zone: false, impAcc: 0, impT: 0, bellAcc: 0, lastBell: -9, quiet: 0 };
+  handSeq++; hands.push(h); return h;
+}
+function releaseHand(h) {
+  if (!h.alive) return; h.alive = false; h.die = S.time;
+  if (h.bow) { h.bow.release(); h.bow = null; }
+}
+function handStep(dt) {
+  for (const h of hands) {
+    if (!h.alive) continue;
+    const u0 = h.u, v0 = h.v;
+    h.u = wrap01(h.u + wrapD(h.tu - h.u) * 0.38); h.v += (h.tv - h.v) * 0.38;
+    h.vxm = lerp(h.vxm, wrapD(h.u - u0) * PERIM_M / dt, 0.25); h.vym = lerp(h.vym, (h.v - v0) * WALL_H_M / dt, 0.25);
+    h.spdM = Math.hypot(h.vxm, h.vym);
+  }
+  for (let i = hands.length - 1; i >= 0; i--) if (!hands[i].alive && S.time - hands[i].die > 1.0) hands.splice(i, 1);
+}
+
+// ───────────────────────── stones: dwell, hold, fade; the crown ─────────────────────────
+const crown = { on: false, t0: -1e9, u0: 0, rich: 1, rearm: true, lastStart: -1e9 };
+function onStoneOn(s) {
+  if (Sound.live()) Sound.bell(s.f * 2, s.u, 0.45);
+  s.heldSince = S.time;
+}
+function stoneStep(dt) {
+  heldNow = 0;
+  for (const s of stones) {
+    let near = null, nd = 1e9;
+    for (const h of hands) {
+      if (!h.alive) continue;
+      const d = Math.hypot(wrapD(h.u - s.u) * PERIM_M, (h.v - s.v) * WALL_H_M);
+      if (d < (s.held ? HIT_R * 1.35 : HIT_R) && d < nd) { nd = d; near = h; }
+    }
+    if (near) {
+      s.grace = 0;
+      if (!s.held) {
+        s.dwell = Math.min(1, s.dwell + dt / DWELL * (near.spdM < 0.5 ? 1 : 0.3));   // a hand sweeping past does not trigger it
+        if (s.dwell >= 1) { s.held = true; onStoneOn(s); }
+      }
+    } else if (s.held) {
+      s.grace += dt;                                                    // forgiving: the hand may wobble off for 0.35 s
+      if (s.grace > 0.35) { s.held = false; s.lastRel = S.time; s.dwell = 0; }
+    } else s.dwell = Math.max(0, s.dwell - dt / 0.4);
+    if (s.held) { s.e += (1 - s.e) * (1 - Math.exp(-dt / 0.9)); heldNow++; } else s.e *= Math.exp(-dt / TAU_FADE);
+    if (s.e < 0.0004) s.e = 0;
+  }
+  // walls "alive": a stone held now OR still inside its fade window (~19 s)
+  const wa = [0, 0, 0, 0]; let latest = null;
+  for (const s of stones) { if (s.e > ACT_THR) wa[s.wall] = 1; if (s.held && (!latest || s.heldSince > latest.heldSince)) latest = s; }
+  const nWalls = wa[0] + wa[1] + wa[2] + wa[3];
+  if (nWalls < 3) crown.rearm = true;
+  if (nWalls >= 3 && !crown.on && ((crown.rearm && S.time - crown.lastStart > 22) || S.time - crown.lastStart > 60)) {
+    let pick = latest; if (!pick) for (const s of stones) if (s.e > ACT_THR && (!pick || s.e > pick.e)) pick = s;
+    startCrown(pick ? pick.u : 0.3, nWalls);
+  }
+  S.walls = wa;
+  if (crown.on && S.time - crown.t0 > 34) crown.on = false;
+}
+function startCrown(u0, nWalls) {
+  const sum = stones.reduce((a, s) => a + s.e, 0);
+  crown.on = true; crown.t0 = S.time; crown.u0 = u0; crown.lastStart = S.time; crown.rearm = false; crown.rich = clamp(0.62 + 0.09 * sum + 0.1 * (nWalls - 3), 0.62, 1.25);
+  Sound.crown(u0, crown.rich);
+}
+function crownState() {
+  if (!crown.on) return [0, 0, 0, 0];
+  const t = S.time - crown.t0;
+  const env = smooth(0, 2.2, t) * Math.exp(-Math.max(0, t - CROWN_TURN) / 5.5);
+  return [crown.u0, clamp(t / CROWN_TURN, 0, 1), env, crown.rich];
+}
+
+// ───────────────────────── sweeping the sky: wind impulses, bells ─────────────────────────
+const imp0 = new Float32Array(MAXI * 4), imp1 = new Float32Array(MAXI * 4); let impHead = 0;
+function addImp(u, v, dir, amp) { imp0.set([u, v, dir, 0], impHead * 4); imp1.set([S.time, amp, 0, 0], impHead * 4); impHead = (impHead + 1) % MAXI; }
+let lastBell = -9;
+function sweepStep(dt) {
+  for (const h of hands) {
+    if (!h.alive) continue;
+    const hm = h.v * WALL_H_M;
+    let ns = false;
+    for (const s of stones) if (Math.hypot(wrapD(h.u - s.u) * PERIM_M, (h.v - s.v) * WALL_H_M) < HIT_R * 1.5) { ns = true; break; }
+    h.zone = !ns && hm >= 0.75 && S.time - h.born > 0.25;
+    const sp = h.spdM;
+    if (h.zone && sp > 0.06) {
+      h.impAcc += sp * dt; h.impT += dt;
+      if (h.impAcc > 0.22 || h.impT > 0.4) { addImp(h.u, h.v, clamp(h.vxm / 0.8, -1, 1), clamp(0.25 + sp / 0.6, 0.25, 1.0)); h.impAcc = 0; h.impT = 0; }
+      h.bellAcc += sp * dt;
+      if (h.bellAcc > 0.55 && sp > 0.12 && S.time - lastBell > 0.14 && S.time - h.lastBell > 0.3) {
+        h.bellAcc = 0; lastBell = S.time; h.lastBell = S.time;
+        let m = bellMidi(hm); const j = PENT.indexOf(m) + (rnd() < 0.3 ? (rnd() < 0.5 ? -1 : 1) : 0); m = PENT[clamp(j, 0, PENT.length - 1)];
+        if (Sound.live()) Sound.bell(mtof(m), h.u, clamp(sp / 0.8, 0.3, 1));
+      }
+    }
+  }
+}
+
+// ───────────────────────── hand tones + meters ─────────────────────────
+const METERS = { v: [0, 0, 0, 0, 0] };
+const mEl = document.getElementById('meters');
+['P4', 'P1', 'P2', 'P3', 'SUB'].forEach((n, i) => { const d = document.createElement('div'); d.className = 'm' + (i === 4 ? ' sub' : ''); d.innerHTML = '<div class="bar"><i></i></div><span>' + n + '</span>'; mEl.appendChild(d); });
+const barEls = [...mEl.querySelectorAll('.bar i')];
+function wallW(u) { const w = WALL_C.map((c) => Math.exp(-Math.pow(wrapD(u - c) / 0.10, 2))); const s = Math.sqrt(w.reduce((a, b) => a + b * b, 0)) || 1; return w.map((x) => x / s); }
+let stepNo = 0, chordLabel = 0;
+function soundStep() {
+  const lv = [0, 0, 0, 0, 0], rootE = [0, 0, 0, 0]; let totE = 0, windL = 0;
+  const live = Sound.live();
+  for (const s of stones) {
+    lv[s.wall] += s.e * 0.5; totE += s.e; rootE[s.wall] += s.e * (s.k === 0 ? 1.0 : 0.7);
+    if (s.k === 0) lv[4] += s.e * 0.25;
+    if (live) {
+      if (s.e > 0.012 && !s.voice) s.voice = Sound.stoneVoice(s.f, s.u, s.k === 0);
+      if (s.voice) { if (s.e <= 0.012) { s.voice.release(); s.voice = null; } else s.voice.set(0.021 * Math.pow(s.e, 1.3)); }
+    }
+  }
+  for (const h of hands) {
+    if (!h.alive) { continue; }
+    const sp = h.spdM, g = h.zone ? smooth(0.03, 0.12, sp) * (1 - smooth(0.30, 0.55, sp)) : 0;
+    windL += h.zone ? clamp(sp / 0.8, 0, 1) : 0;
+    if (g > 0) { const w = wallW(h.u); for (let i = 0; i < 4; i++) lv[i] += w[i] * (0.12 + 0.3 * g); }
+    if (live) {
+      const hm = h.v * WALL_H_M, fraw = 196 * Math.pow(2, clamp((hm - 0.8) / 2.2, 0, 1) * 2.45);
+      const lm = 12 * Math.log2(fraw / 440) + 69; let best = lm, bd = 9; for (const m of [43, 45, 48, 50, 52, 55, 57, 60, 62, 64, 67, 69, 72, 74, 76]) { const d = Math.abs(m - lm); if (d < bd) { bd = d; best = m; } }
+      const fr = mtof(lerp(lm, best, 0.35));
+      if (g > 0.02 && !h.bow) h.bow = Sound.bow(fr, h.u);
+      if (h.bow) { h.bow.set(fr, h.u, 0.011 * g * smooth(0, 1.0, S.time - h.born)); if (g < 0.01) { if (++h.quiet > 90) { h.bow.release(); h.bow = null; h.quiet = 0; } } else h.quiet = 0; }
+    }
+  }
+  // the drone follows the wall whose chord is currently strongest
+  let bw = -1, bmax = 0.1; for (let w = 0; w < 4; w++) if (rootE[w] > bmax) { bmax = rootE[w]; bw = w; }
+  chordLabel = bw < 0 ? chordLabel : bw;
+  if (live) Sound.droneTo(bw < 0 ? 38 : CHORDS[bw].droneMidi, 0.6 + 0.4 * clamp(totE / 2, 0, 1), clamp(windL / 2, 0, 1));
+  const cs = crownState();
+  if (cs[2] > 0) {                                                       // the wave lights each speaker as it passes
+    const front = cs[0] + cs[1];
+    for (let w = 0; w < 4; w++) lv[w] += cs[2] * (0.25 + 0.6 * Math.exp(-Math.pow(wrapD(front - WALL_C[w]) / 0.12, 2)));
+    lv[4] += cs[2] * 0.8;
+  }
+  lv[4] += 0.18;
+  for (let i = 0; i < 5; i++) { METERS.v[i] = lerp(METERS.v[i], clamp(lv[i], 0, 1), 0.12); barEls[i].style.height = (METERS.v[i] * 100) + '%'; }
+}
+
+// ───────────────────────── frame ─────────────────────────
+const st0 = new Float32Array(48), st1 = new Float32Array(48), hv = new Float32Array(64);
+function renderFrame() {
+  stones.forEach((s, i) => { st0.set([s.u, s.v, s.e, s.held ? 1 : s.dwell], i * 4); st1.set([s.hue, s.held ? 1 : 0, s.k, s.seed], i * 4); });
+  hv.fill(0); let nH = 0;
+  for (const h of hands) {
+    if (nH >= 16) break;
+    const a = h.alive ? smooth(0, 0.25, S.time - h.born) : Math.exp(-(S.time - h.die) / 0.25);
+    hv.set([h.u, h.v, a, 0], nH * 4); nH++;
+  }
+  const cs = crownState();
+  gl.disable(gl.BLEND); gl.bindVertexArray(emptyVAO);
+  // ---- wind field
+  let p = programs.field; gl.useProgram(p);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fieldT.f); gl.viewport(0, 0, fieldT.w, fieldT.h);
+  gl.uniform1f(p.u.uTime, S.time); gl.uniform4fv(p.u.uImp0, imp0); gl.uniform4fv(p.u.uImp1, imp1); full();
+  // ---- sky
+  p = programs.sky; gl.useProgram(p);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, sky.f); gl.viewport(0, 0, sky.w, sky.h);
+  gl.uniform1f(p.u.uTime, S.time); gl.uniform1f(p.u.uAspect, S.aspect); gl.uniform1f(p.u.uPx, 1 / sky.h); gl.uniform1f(p.u.uStarCols, S.starCols);
+  gl.uniform4fv(p.u.uSt0, st0); gl.uniform4fv(p.u.uSt1, st1); gl.uniform4f(p.u.uCrown, cs[0], cs[1], cs[2], cs[3]);
+  gl.uniform1i(p.u.uField, 0); bindTex(0, fieldT.t); full();
+  // ---- bloom: three separable blurs at 1/2, 1/4, 1/8
+  p = programs.blur; gl.useProgram(p); gl.uniform1i(p.u.uT, 0);
+  let src = sky, kk = 1.6;
+  for (const [A, B] of bl) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, A.f); gl.viewport(0, 0, A.w, A.h); bindTex(0, src.t); gl.uniform2f(p.u.uDir, kk / src.w, 0); full();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, B.f); gl.viewport(0, 0, B.w, B.h); bindTex(0, A.t); gl.uniform2f(p.u.uDir, 0, 1 / A.h); full();
+    src = B; kk = 1.0;
+  }
+  // ---- composite (+ glyphs, hand marks)
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, S.cw, S.ch); gl.clearColor(0.012, 0.016, 0.022, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.viewport(S.vx, S.vy, S.vw, S.vh); p = programs.comp; gl.useProgram(p);
+  gl.uniform1f(p.u.uTime, S.time); gl.uniform1f(p.u.uAspect, S.aspect); gl.uniform1f(p.u.uPx, 1 / S.vh);
+  gl.uniform4fv(p.u.uSt0, st0); gl.uniform4fv(p.u.uSt1, st1); gl.uniform4fv(p.u.uHand, hv);
+  gl.uniform1i(p.u.uScene, 0); gl.uniform1i(p.u.uB1, 1); gl.uniform1i(p.u.uB2, 2); gl.uniform1i(p.u.uB3, 3);
+  bindTex(0, sky.t); bindTex(1, bl[0][1].t); bindTex(2, bl[1][1].t); bindTex(3, bl[2][1].t); full();
+}
+
+// ───────────────────────── input ─────────────────────────
+let lastInput = CAPTURE ? -1e9 : performance.now();
+function toWorld(e) {
+  const r = canvas.getBoundingClientRect();
+  const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+  if (!S.strip) return { u: px, v: 1 - py, ok: true };
+  const hPx = r.width / STRIP_ASPECT, y0 = (r.height - hPx) / 2, yy = (e.clientY - r.top - y0) / hPx;
+  return { u: px, v: 1 - yy, ok: yy >= 0 && yy <= 1 };
+}
+const held = new Map();
+canvas.addEventListener('pointerdown', (e) => {
+  Sound.init(); document.getElementById('hint').style.opacity = 0; lastInput = performance.now();
+  const w = toWorld(e); if (!w.ok) return;
+  if (e.shiftKey) {                                                     // pin / unpin
+    let hit = null, bd = 1e9;
+    for (const h of hands) { if (!h.alive || !h.pinned) continue; const d = Math.hypot(wrapD(h.u - w.u) * PERIM_M, (h.v - w.v) * WALL_H_M); if (d < bd) { bd = d; hit = h; } }
+    if (hit && bd < 0.45) releaseHand(hit); else addHand('p' + (pinSeq++), w.u, w.v, { pinned: true });
+    return;
+  }
+  canvas.setPointerCapture(e.pointerId);
+  held.set(e.pointerId, addHand('m' + e.pointerId, w.u, w.v));
+});
+canvas.addEventListener('pointermove', (e) => {
+  const h = held.get(e.pointerId); if (!h) return; lastInput = performance.now();
+  const w = toWorld(e); h.tu = wrap01(w.u); h.tv = clamp(w.v, 0.03, 0.97);
+});
+const up = (e) => { const h = held.get(e.pointerId); if (h) { releaseHand(h); held.delete(e.pointerId); } lastInput = performance.now(); };
+canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ───────────────────────── auto-demo: virtual PEOPLE at human scale ─────────────────────────
+// Walking 0.55–0.75 m/s, hands moving <= 0.75 m/s, reach 0.8–2.9 m (the child 0.6–1.4 m: she only plays the stones and the low sky).
+// p0 is a solo visitor: builds a chord with both hands, sweeps the sky with one, then walks quickly across three walls (the crown).
+// p1 and p2 (a child) arrive later; the room fills up and the crown becomes a group event.
+const MS = (m) => m / PERIM_M;
+const sAt = (w, k) => stones[((w % 4 + 4) % 4) * 3 + k];
+const PEOPLE = [0, 1, 2].map((i) => ({ i, wait: [1.2, 42, 80][i], u: [0.2, 0.7, 0.45][i], steps: [], cur: null, sc: i === 2 ? 0.6 : 1, speed: [0.72, 0.6, 0.55][i], hand: [null, null], mode: [null, null], ph: rnd() * 6, first: true }));
+function pickWall(p) { const taken = PEOPLE.filter((o) => o !== p && (o.cur || !o.wait)).map((o) => wallOfU(o.u)); const c = [0, 1, 2, 3].filter((w) => !taken.includes(w)); return c[Math.floor(rnd() * c.length)] ?? 0; }
+function planChord(p, w) {
+  const k = rnd() < 0.5 ? 0 : 1, a = sAt(w, k), b = sAt(w, k + 1), mid = wrap01(a.u + wrapD(b.u - a.u) / 2);
+  return [{ type: 'walk', u: mid }, { type: 'hold', L: a.i, R: b.i, sec: 6 + 3 * rnd() }, { type: 'hold', L: a.i, R: 'sweep', sec: 7 + 4 * rnd() }, { type: 'hold', L: null, R: 'sweep', sec: 3 }];
+}
+function planTour(p, w, d) {
+  const exit = d > 0 ? 2 : 0, enter = d > 0 ? 0 : 2;
+  return [{ type: 'walk', u: sAt(w, exit).u }, { type: 'hold', L: sAt(w, exit).i, R: null, sec: 1.6 },
+    { type: 'walk', u: sAt(w + d, 1).u, arm: rnd() < 0.5 }, { type: 'hold', L: null, R: sAt(w + d, 1).i, sec: 1.4 },
+    { type: 'walk', u: sAt(w + 2 * d, enter).u, arm: rnd() < 0.5 }, { type: 'hold', L: sAt(w + 2 * d, enter).i, R: null, sec: 4 + 2 * rnd() }];
+}
+function planSweep(p) {
+  const d = rnd() < 0.5 ? 1 : -1;
+  return [{ type: 'walk', u: wrap01(p.u + d * MS(6)), arm: true }, { type: 'hold', L: null, R: 'sweep', sec: 4 + 3 * rnd() }];
+}
+function makePlan(p) {
+  if (p.first) {
+    p.first = false;
+    if (p.i === 0) return [...planChord(p, 1), ...planTour(p, 0, 1)];            // solo showcase: a chord on P1, a sky sweep, then a quick tour P4 -> P1 -> P2
+    if (p.i === 1) return planChord(p, pickWall(p));
+    return [{ type: 'walk', u: sAt(pickWall(p), 0).u }, { type: 'hold', L: null, R: null, sec: 0.2 }, ...planChord(p, pickWall(p)).slice(0, 2)];
+  }
+  const r = rnd(), w = pickWall(p);
+  if (p.sc < 1) return r < 0.6 ? planChord(p, w) : planSweep(p);
+  if (r < 0.40) return planChord(p, w);
+  if (r < 0.75) return planTour(p, w, rnd() < 0.5 ? 1 : -1);
+  return planSweep(p);
+}
+function demoMove(h, txm, tym, dt, vmax) {                      // speed-limited hand motion in metres (a hand never teleports)
+  const hx = h.tu * PERIM_M, hy = h.tv * WALL_H_M;
+  let dx = wrapD((txm / PERIM_M) - h.tu) * PERIM_M, dy = tym - hy; const dist = Math.hypot(dx, dy), lim = vmax * dt;
+  if (dist > lim) { dx *= lim / dist; dy *= lim / dist; }
+  h.tu = wrap01(h.tu + dx / PERIM_M); h.tv = clamp((hy + dy) / WALL_H_M, 0.03, 0.97);
+}
+function driveHands(p, dt) {
+  for (let k = 0; k < 2; k++) {
+    const m = p.mode[k];
+    if (m == null) { if (p.hand[k]) { releaseHand(p.hand[k]); p.hand[k] = null; } continue; }
+    if (p.hand[k] && !p.hand[k].alive) p.hand[k] = null;
+    const side = k ? 1 : -1;
+    if (!p.hand[k]) { const h = addHand('d' + p.i + k + '_' + handSeq, p.u + MS(side * 0.35), (0.85 * p.sc) / WALL_H_M, { demo: true }); p.hand[k] = h; }
+    const h = p.hand[k]; let tx, ty;
+    if (m === 'sweep') {
+      const A = 0.85 * (p.sc < 1 ? 0.7 : 1);
+      tx = p.u * PERIM_M + side * 0.2 + A * Math.sin(p.ph * 0.62 + k) + 0.3;
+      ty = (p.sc < 1 ? 1.5 : 2.15) + (p.sc < 1 ? 0.25 : 0.55) * Math.sin(p.ph * 0.37 + 1.0 + k);
+    } else { const s = stones[m]; tx = wrapD(s.u - p.u) * PERIM_M + p.u * PERIM_M; ty = s.hm; }
+    demoMove(h, tx, ty, dt, 0.75);
+  }
+}
+function demoStep(dt, active) {
+  for (const p of PEOPLE) {
+    if (!active) { p.mode = [null, null]; driveHands(p, dt); p.cur = null; p.steps = []; continue; }
+    p.ph += dt;
+    if (p.wait > 0) { p.wait -= dt; continue; }
+    if (!p.cur) { if (!p.steps.length) p.steps = makePlan(p); p.cur = p.steps.shift(); p.cur.t = 0; }
+    const c = p.cur; c.t += dt;
+    if (c.type === 'walk') {
+      p.mode = [null, c.arm ? 'sweep' : null];
+      const d = wrapD(c.u - p.u) * PERIM_M, step = p.speed * dt;
+      if (Math.abs(d) <= step) { p.u = c.u; p.cur = null; } else p.u = wrap01(p.u + Math.sign(d) * MS(step));
+    } else if (c.type === 'hold') {
+      p.mode = [c.L, c.R];
+      if (c.t >= c.sec) p.cur = null;
+    }
+    driveHands(p, dt);
+  }
+}
+
+// ───────────────────────── body-scale overlay (B): a 1.70 m adult, a 1.20 m child, the reach bands, to scale ─────────────────────────
+function buildBody() {
+  const el = document.getElementById('body'); el.innerHTML = '';
+  el.style.display = S.body ? 'block' : 'none'; if (!S.body) return;
+  const iw = window.innerWidth, k = iw / S.cw;
+  el.style.left = (S.vx * k) + 'px'; el.style.top = (S.vy * k) + 'px'; el.style.width = (S.vw * k) + 'px'; el.style.height = (S.vh * k) + 'px';
+  const W = S.aspect * WALL_H_M, H = WALL_H_M;                                    // the overlay is in metres: 1 unit = 1 m
+  const X = (m) => (m / W * 100) + '%', Y = (m) => ((1 - m / H) * 100) + '%';
+  const ink = 'rgba(236,226,206,';
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible" fill="none" stroke-linecap="round" stroke-linejoin="round">`;
+  svg += `<rect x="0" y="${H - 2.0}" width="${W}" height="1.2" fill="${ink}.045)" /><line x1="0" x2="${W}" y1="${H - 2.0}" y2="${H - 2.0}" stroke="${ink}.35)" stroke-dasharray="0.08 0.08" vector-effect="non-scaling-stroke"/><line x1="0" x2="${W}" y1="${H - 0.8}" y2="${H - 0.8}" stroke="${ink}.35)" stroke-dasharray="0.08 0.08" vector-effect="non-scaling-stroke"/>`;
+  svg += `<line x1="0" x2="${W}" y1="${H - 3.0}" y2="${H - 3.0}" stroke="${ink}.25)" stroke-dasharray="0.04 0.12" vector-effect="non-scaling-stroke"/>`;
+  for (let m = 0; m <= 3; m++) svg += `<line x1="0" x2="0.18" y1="${H - m}" y2="${H - m}" stroke="${ink}.5)" vector-effect="non-scaling-stroke"/>`;
+  const person = (cx, hgt, o) => {          // simple standing figure, arms open a little (arm span ~1.6 m for the adult)
+    const s = hgt / 1.7, y = (m) => H - m * s, x = (m) => cx + m * s;
+    return `<g stroke="${ink}${o})" stroke-width="1.5" fill="${ink}.05)">` +
+      `<ellipse cx="${cx}" cy="${y(1.575)}" rx="${0.095 * s}" ry="${0.115 * s}" vector-effect="non-scaling-stroke"/>` +
+      `<path d="M${x(-0.2)} ${y(1.43)} Q${cx} ${y(1.5)} ${x(0.2)} ${y(1.43)} L${x(0.17)} ${y(0.9)} L${x(0.15)} ${y(0.88)} L${x(0.13)} ${y(0.04)} L${x(0.03)} ${y(0.04)} L${cx} ${y(0.85)} L${x(-0.03)} ${y(0.04)} L${x(-0.13)} ${y(0.04)} L${x(-0.15)} ${y(0.88)} L${x(-0.17)} ${y(0.9)} Z" vector-effect="non-scaling-stroke"/>` +
+      `<path d="M${x(-0.2)} ${y(1.42)} L${x(-0.8)} ${y(1.55)} M${x(0.2)} ${y(1.42)} L${x(0.8)} ${y(1.55)}" fill="none" vector-effect="non-scaling-stroke"/>` +
+      `<circle cx="${x(-0.8)}" cy="${y(1.55)}" r="${0.05 * s}" vector-effect="non-scaling-stroke"/><circle cx="${x(0.8)}" cy="${y(1.55)}" r="${0.05 * s}" vector-effect="non-scaling-stroke"/></g>`;
+  };
+  const ax = stones[4].u * W + 1.0, cx = ax + 2.9;
+  svg += person(ax, 1.7, '.55') + person(cx, 1.2, '.4');
+  svg += `<line x1="${ax - 0.8}" x2="${ax + 0.8}" y1="${H - 0.55}" y2="${H - 0.55}" stroke="${ink}.5)" vector-effect="non-scaling-stroke"/>`;
+  svg += `<line x1="${cx + 0.55}" x2="${cx + 0.55}" y1="${H - 0.6}" y2="${H - 1.4}" stroke="${ink}.5)" vector-effect="non-scaling-stroke"/>`;
+  svg += `</svg>`;
+  const lab = (x, y, t, st) => `<div class="bl" style="left:${X(x)};top:${Y(y)};${st || ''}">${t}</div>`;
+  el.innerHTML = svg + lab(0.25, 2.0, '2.0 m', 'transform:translateY(-130%)') + lab(0.25, 0.8, '0.8 m &nbsp;comfortable reach (adult 1.70 m)', 'transform:translateY(20%)') +
+    lab(ax, 1.7, '1.70 m', 'transform:translate(-50%,-190%)') + lab(ax, 0.55, 'both arms ≈ 1.6 m', 'transform:translate(-50%,40%)') +
+    lab(cx, 1.2, '1.20 m child', 'transform:translate(-50%,-190%)') + lab(cx + 0.6, 1.0, 'reach 0.6–1.4 m', 'transform:translate(0,-50%)') +
+    lab(0.25, 1.0, '1 m', 'transform:translateY(-50%);opacity:.6') + lab(0.25, 3.0, '3.0 m &nbsp;top of the sweep scale', 'transform:translateY(-120%);opacity:.6') +
+    lab(0.25, 1.3, 'stones 1.1–1.4 m, ⌀ 0.40 m', 'transform:translateY(-50%);opacity:.8;color:rgb(160,230,210)');
+}
+
+// ───────────────────────── keys ─────────────────────────
+function setStrip(on) { S.strip = on; layout(); allocate(); buildBody(); }
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (k === 'f') setStrip(!S.strip);
+  else if (k === 'h') { S.help = !S.help; document.getElementById('help').style.display = S.help ? 'block' : 'none'; }
+  else if (k === 's') { S.sound = !S.sound; Sound.setOn(S.sound); }
+  else if (k === 'd') S.demo = !S.demo;
+  else if (k === 'b') { S.body = !S.body; buildBody(); }
+  else if (k === 'r') { for (const h of hands) if (h.alive && h.pinned) releaseHand(h); }
+});
+let rz = 0; window.addEventListener('resize', () => { if (CAPTURE) return; clearTimeout(rz); rz = setTimeout(() => { layout(); allocate(); buildBody(); }, 160); });
+
+// ───────────────────────── main loop (fixed 60 Hz) ─────────────────────────
+const STEP = 1 / 60;
+function step() {
+  S.time += STEP; stepNo++;
+  const userHands = hands.some((h) => h.alive && !h.demo);
+  demoStep(STEP, S.demo && !userHands && (performance.now() - lastInput > 4000));
+  handStep(STEP); stoneStep(STEP); sweepStep(STEP);
+  if (stepNo % 2 === 0) soundStep();
+}
+const statEl = document.getElementById('stat'), chordEl = document.getElementById('chordName'); let statT = 0;
+let prev = performance.now();
+function loop(now) {
+  const dt = Math.min(0.1, (now - prev) / 1000); prev = now; S.acc += dt;
+  let n = 0; while (S.acc >= STEP && n < 3) { step(); S.acc -= STEP; n++; }
+  if (S.acc > STEP * 3) S.acc = 0;
+  if (n) renderFrame();
+  if ((statT += dt) > 0.25) {
+    statT = 0; const nh = hands.filter((h) => h.alive).length;
+    statEl.textContent = nh + (nh === 1 ? ' hand' : ' hands') + ' · ' + heldNow + ' / 12 stones' + (crown.on && S.time - crown.t0 < 30 ? ' · crown' : '');
+    chordEl.textContent = 'Dorian loop · ' + CHORDS[chordLabel].name;
+  }
+  requestAnimationFrame(loop);
+}
+setTimeout(() => { document.getElementById('hud').style.opacity = 0.4; }, 6000);
+
+layout(); allocate(); buildBody();
+// capture / test API
+window.__vt = {
+  S, hands, stones, crown,
+  advance(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) step(); sync(); return n; },
+  hold(i, hue) { const s = stones[i]; return addHand('c' + (pinSeq++), s.u, s.v, { pinned: true }); },
+  drop(h) { releaseHand(h); },
+  stroke(u0, h0, u1, h1, dur, keep) {                                      // a hand drawn across the sky (metres of height), at human speed
+    const h = addHand('c' + (pinSeq++), u0, h0 / WALL_H_M, { pinned: !!keep }); const n = Math.round(dur / STEP);
+    for (let i = 1; i <= n; i++) { const a = i / n; h.tu = wrap01(u0 + wrapD(u1 - u0) * a); h.tv = (h0 + (h1 - h0) * a + 0.12 * Math.sin(a * 9)) / WALL_H_M; step(); }
+    if (!keep) releaseHand(h); sync(); return h;
+  },
+  strip(on) { setStrip(on); },
+  body(on) { S.body = on; buildBody(); },
+  sound() { Sound.init(); },
+  show() { renderFrame(); sync(); return canvas.toDataURL('image/png'); },
+  ms() { const t = performance.now(); for (let i = 0; i < 30; i++) { step(); renderFrame(); } sync(); return (performance.now() - t) / 30; },
+};
+window.__ready = true;
+if (!CAPTURE) requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

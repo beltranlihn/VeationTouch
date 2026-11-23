@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Breathe — VEATION Touch proposal</title>
+<style>
+  :root { --bg:#05060a; --ink:#E0E0E0; --ink2:#B8B8B8; --live:#4FC3E8; --warn:#E5B567; }
+  html,body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:var(--ink);
+    font:12px/1.45 Geist,"Segoe UI",system-ui,sans-serif; -webkit-user-select:none; user-select:none; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:crosshair; }
+  #hud { position:fixed; left:16px; top:14px; pointer-events:none; letter-spacing:.14em; text-transform:uppercase; font-size:10px; color:var(--ink2); opacity:.8; transition:opacity .8s; }
+  #hud b { color:var(--ink); font-weight:500; }
+  #pips { display:flex; gap:10px; margin-top:7px; }
+  #pips span { display:flex; align-items:center; gap:5px; opacity:.55; transition:opacity .8s; }
+  #pips span i { width:6px; height:6px; border-radius:50%; border:1px solid var(--ink2); box-sizing:border-box; transition:all .8s; }
+  #pips span.on { opacity:1; }
+  #pips span.on i { background:var(--ink); border-color:var(--ink); box-shadow:0 0 8px rgba(255,255,255,.55); }
+  #hint { position:fixed; left:16px; bottom:14px; pointer-events:none; font-size:11px; color:var(--ink2); opacity:.6; transition:opacity 1.2s; }
+  #strip { position:fixed; left:0; right:0; display:none; pointer-events:none; }
+  #strip .div { position:absolute; top:-10px; bottom:-10px; width:0; border-left:1px solid rgba(229,181,103,.55); }
+  #strip .lab { position:absolute; top:-26px; transform:translateX(-50%); font-size:10px; letter-spacing:.2em; color:var(--warn); }
+  #strip .frame { position:absolute; inset:0; border-top:1px solid rgba(255,255,255,.14); border-bottom:1px solid rgba(255,255,255,.14); }
+  #strip .seam { position:absolute; bottom:-30px; font-size:10px; color:var(--ink2); letter-spacing:.12em; opacity:.8; }
+  #body { position:fixed; left:0; right:0; display:none; pointer-events:none; }
+  #body .band { position:absolute; left:0; right:0; background:rgba(229,181,103,.07); border-top:1px dashed rgba(229,181,103,.6); border-bottom:1px dashed rgba(229,181,103,.6); }
+  #body .stoneband { position:absolute; left:0; right:0; background:rgba(79,195,232,.06); border-top:1px dotted rgba(79,195,232,.5); border-bottom:1px dotted rgba(79,195,232,.5); }
+  #body .t { position:absolute; left:6px; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--warn); opacity:.85; }
+  #body .t.c { color:var(--live); left:auto; right:6px; }
+  #body svg { position:absolute; overflow:visible; }
+  #cues .cue { position:fixed; transform:translateX(-50%); font:300 11px/1 Geist,"Segoe UI",system-ui,sans-serif; letter-spacing:.6em; padding-left:.6em;
+    color:rgba(255,255,255,.88); text-shadow:0 0 16px rgba(255,255,255,.35); pointer-events:none; opacity:0; white-space:nowrap; }
+  #help { position:fixed; right:16px; top:14px; width:310px; padding:14px 16px; background:rgba(17,17,17,.82); border:1px solid #262626; border-radius:6px; display:none; backdrop-filter:blur(8px); }
+  #help h4 { margin:0 0 8px; font-weight:500; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--warn); }
+  #help div { display:flex; justify-content:space-between; gap:12px; padding:2px 0; color:var(--ink2); }
+  #help kbd { font:inherit; color:var(--live); }
+  #err { position:fixed; inset:0; display:none; align-items:center; justify-content:center; color:#E5B567; }
+  body.capture #hud, body.capture #hint { display:none; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="strip"><div class="frame"></div></div>
+<div id="body"></div>
+<div id="cues"></div>
+<div id="hud"><b>Breathe</b> &nbsp;·&nbsp; <span id="lightName">Dawn</span>
+  <div id="pips"><span><i></i>P4</span><span><i></i>P1</span><span><i></i>P2</span><span><i></i>P3</span></div></div>
+<div id="hint">Click to enable sound &nbsp;·&nbsp; hold a stone to wake it &nbsp;·&nbsp; shift+click pins a hand &nbsp;·&nbsp; F room strip &nbsp;·&nbsp; B body scale &nbsp;·&nbsp; H help</div>
+<div id="help">
+  <h4>Controls</h4>
+  <div><span>Click + hold</span><span>rest a hand</span></div>
+  <div><span>Drag</span><span>shimmer + soft chimes</span></div>
+  <div><span>Shift + click</span><span>pin / unpin a hand</span></div>
+  <div><kbd>F</kbd><span>Full window / room strip</span></div>
+  <div><kbd>S</kbd><span>Sound on / off</span></div>
+  <div><kbd>T</kbd><span>Breath text on / off</span></div>
+  <div><kbd>D</kbd><span>Auto-demo on / off</span></div>
+  <div><kbd>B</kbd><span>Body scale (1.70 m, 1.20 m, reach)</span></div>
+  <div><kbd>L</kbd><span>Next light (<kbd>1</kbd>–<kbd>4</kbd> direct)</span></div>
+  <div><kbd>H</kbd><span>This help</span></div>
+  <div style="margin-top:8px;display:block;font-size:11px">Breathe in for 4 s, out for 6 s. Rest a hand on a stone for 0.6 s to wake it; it lives 8 s after the hand leaves.
+  When every wall has an awake stone at the same time, the chord blooms and the room moves to the next light (dawn, day, dusk, night).
+  Stones are 80 cm wide at 1.0 – 1.6 m. A woken stone glows ~30 s after you leave (less in a crowd), so one person can walk the four walls and bloom it alone. The image wraps (P3 continues into P4). With no input for 4 s the auto-demo plays.</div>
+</div>
+<div id="err">WebGL2 is required.</div>
+
+<script>
+(() => {
+'use strict';
+const Q = new URLSearchParams(location.search);
+const CAPTURE = Q.has('capture');
+if (CAPTURE) document.body.classList.add('capture');
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: 'high-performance', preserveDrawingBuffer: CAPTURE });
+const fail = (m) => { const e = document.getElementById('err'); e.textContent = m; e.style.display = 'flex'; throw new Error(m); };
+if (!gl) fail('WebGL2 is required.');
+
+// ───────────────────────── helpers ─────────────────────────
+function mulberry(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const rnd = mulberry(CAPTURE ? Number(Q.get('seed') || 7) : (Date.now() ^ 0x9e3779b9));
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const smooth = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+// ───────────────────────── the room (all from the room profile in the real product) ─────────────────────────
+const STRIP_W = 7196, STRIP_H = 912, STRIP_ASPECT = STRIP_W / STRIP_H;
+const WALL_X = [0, 1912, 3604, 5524, 7196];          // P4 | P1 | P2 | P3
+const WALL_NAMES = ['P4', 'P1', 'P2', 'P3'];
+const WALL_H_M = 3.75, REACH_M = 3.0;
+const reach = (v) => clamp(v * WALL_H_M / REACH_M, 0, 1);
+const WALL_CU = [0, 1, 2, 3].map((k) => (WALL_X[k] + WALL_X[k + 1]) / 2 / STRIP_W);
+const BAND_Y = 2.55;                                  // the breathing horizon: above the stones, inside reach
+const BREATH_IN = 4, BREATH_OUT = 6, BREATH_T = BREATH_IN + BREATH_OUT;
+const DWELL_S = 0.6, STONE_R = 0.40;     // stone radius 0.40 m: an 80 cm target, kids can reach it
+// a woken stone keeps glowing long enough for ONE person to walk to the next wall (~30 s alone, shorter when many hands are active)
+const lingerS = () => clamp(30 - 3.5 * (hands.size - 1), 10, 30);
+
+// stones: x in strip px, centre height in metres (1.0 - 1.6 m: reachable by a 1.2 m child and a 1.7 m adult), wall.
+// Each wall has a pair 1.3 m apart (one hand on each from a single spot: arms cover ~1.6 m) and, on P4/P2, a third further along.
+const STONE_DEF = [
+  [500, 1.25, 0], [816, 1.50, 0], [1500, 1.15, 0],
+  [2550, 1.45, 1], [2866, 1.20, 1],
+  [4100, 1.30, 2], [4416, 1.55, 2], [5000, 1.10, 2],
+  [6100, 1.50, 3], [6416, 1.25, 3],
+];
+const NS = STONE_DEF.length;
+const STONE_OCT = [0, 1, 2, 1, 0, 1, 2, 0, 2, 1];     // chord tones voiced across octaves
+
+// four lights, each with a palette (sRGB hex, low saturation), a chord and a chime scale
+const LIGHTS = [
+  { name: 'Dawn', pal: ['#1a1020', '#6a4456', '#f8dccf', '#f5c9c9', '#fff0e0', '#c98b99'], stars: 0.05, root: 50, chord: [0, 4, 7, 9, 14], pent: [0, 2, 4, 7, 9] },
+  { name: 'Day',  pal: ['#0c1a2b', '#4478a2', '#e2f2fc', '#bfe0f5', '#ffffff', '#6fa3c4'], stars: 0.0,  root: 55, chord: [0, 4, 7, 11, 14], pent: [0, 2, 4, 7, 9] },
+  { name: 'Dusk', pal: ['#140c16', '#5a3050', '#f2bf75', '#f0b57d', '#dcaed6', '#97506a'], stars: 0.25, root: 52, chord: [0, 3, 7, 10, 14], pent: [0, 3, 5, 7, 10] },
+  { name: 'Night', pal: ['#04060d', '#141b3b', '#c9d4ee', '#b7c6ee', '#eef2ff', '#29356b'], stars: 1.0, root: 50, chord: [0, 5, 7, 12, 14], pent: [0, 3, 5, 7, 10] },
+];
+const hexLin = (h) => [1, 3, 5].map((i) => Math.pow(parseInt(h.slice(i, i + 2), 16) / 255, 2.2));
+LIGHTS.forEach((L) => { L.lin = L.pal.map(hexLin); });
+
+// ───────────────────────── shader ─────────────────────────
+function compile(type, src, name) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(`[${name}] ${gl.getShaderInfoLog(s)}`); fail('Shader error in ' + name); }
+  return s;
+}
+const VS = `#version 300 es
+precision highp float;
+out vec2 vUv; void main(){ vec2 p = vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); vUv = p; gl_Position = vec4(p*2.0-1.0, 0.0, 1.0); }`;
+const FS = `#version 300 es
+precision highp float; precision highp int;
+const float H = ${WALL_H_M.toFixed(2)};
+const float BAND = ${BAND_Y.toFixed(2)};
+uniform float uWm, uSc, uTime, uBreath, uStars, uBloomAge;
+uniform vec3 uP[6];
+uniform vec4 uStone[10];   // u, y(m), radius(m), dwell
+uniform vec4 uStoneS[10];  // awake level, held, seed, 0
+uniform vec4 uHand[8]; uniform int uNH;
+uniform vec4 uSh[16];      // u, v, age, amp
+uniform int uNS;
+in vec2 vUv; out vec4 o;
+
+uvec3 pcg3d(uvec3 v){ v = v*1664525u + 1013904223u; v.x += v.y*v.z; v.y += v.z*v.x; v.z += v.x*v.y; v ^= v>>16u; v.x += v.y*v.z; v.y += v.z*v.x; v.z += v.x*v.y; return v; }
+vec3 grad3(ivec3 c){ uvec3 h = pcg3d(uvec3(c)); return vec3(h)*(2.0/4294967295.0) - 1.0; }
+float gnoise(vec3 p){
+  vec3 i = floor(p), f = fract(p); vec3 u = f*f*f*(f*(f*6.0-15.0)+10.0); ivec3 c = ivec3(i);
+  float a = dot(grad3(c), f);
+  float b = dot(grad3(c+ivec3(1,0,0)), f-vec3(1,0,0));
+  float cc= dot(grad3(c+ivec3(0,1,0)), f-vec3(0,1,0));
+  float d = dot(grad3(c+ivec3(1,1,0)), f-vec3(1,1,0));
+  float e = dot(grad3(c+ivec3(0,0,1)), f-vec3(0,0,1));
+  float g = dot(grad3(c+ivec3(1,0,1)), f-vec3(1,0,1));
+  float h = dot(grad3(c+ivec3(0,1,1)), f-vec3(0,1,1));
+  float k = dot(grad3(c+ivec3(1,1,1)), f-vec3(1,1,1));
+  return mix(mix(mix(a,b,u.x), mix(cc,d,u.x), u.y), mix(mix(e,g,u.x), mix(h,k,u.x), u.y), u.z) * 1.6;
+}
+// noise on a cylinder: seamless in x (P3 -> P4)
+vec3 cyl(float ux, float y, float s){ float th = ux*6.2831853; float R = uWm/6.2831853; return vec3(R*cos(th), R*sin(th), y)*s; }
+float hash21(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
+float dither(){ return (fract(52.9829189*fract(dot(gl_FragCoord.xy, vec2(0.06711056,0.00583715)))) - 0.5)/255.0; }
+float sq(float x){ return x*x; }
+
+void main(){
+  vec2 uv = vUv; float t = uTime, b = uBreath, W = uWm, sc = uSc;
+  vec2 P = vec2(uv.x*W, uv.y*H);
+  float dyb = P.y - BAND;
+
+  // ---- the room's light: soft vertical gradient + slow drifting haze (periodic in x)
+  vec3 col = mix(uP[0], uP[1], pow(uv.y, 1.7));
+  vec3 qn = cyl(uv.x, P.y, 0.36) + vec3(0.0, 0.0, t*0.012);
+  float cl = 0.55*gnoise(qn) + 0.30*gnoise(qn*2.1+5.0) + 0.15*gnoise(qn*4.3+9.0);
+  col += uP[5]*(0.06 + 0.05*cl)*exp(-dyb*dyb/2.8)*(0.55+0.45*b);
+  col += uP[5]*exp(-P.y/0.55)*(0.09+0.10*b);                      // floor glow breathes too
+
+  // ---- night stars (silver specks, seamless): only above 1.2 m, quiet twinkle
+  if (uStars > 0.01 && P.y > 1.2) {
+    float cs = 0.16; float nx = floor(W/cs); vec2 g = vec2(uv.x*nx, P.y/cs); vec2 ci = floor(g);
+    ci.x = mod(ci.x, nx);
+    float h1 = hash21(ci), h2 = hash21(ci+17.3), h3 = hash21(ci+41.1);
+    if (h1 > 0.80) {
+      vec2 f = fract(g) - vec2(0.2+0.6*h2, 0.2+0.6*h3);
+      float s = exp(-dot(f,f)*95.0)*(0.35+0.65*(0.5+0.5*sin(t*(0.4+h2)+h3*40.0)));
+      col += uP[4]*s*uStars*(0.10+0.25*h2)*smoothstep(1.2, 2.2, P.y);
+    }
+  }
+
+  // ---- the guide: a luminous horizon that opens on the inhale and closes on the exhale, and an orb that circles the room
+  float hw = mix(0.12, 0.50, b);
+  float prof = exp(-dyb*dyb/(hw*hw));
+  float wideP = exp(-dyb*dyb/(hw*hw*9.0))*0.26;
+  float lineP = exp(-sq(dyb/0.012))*0.5;
+  float nz = gnoise(cyl(uv.x, 0.0, 0.5) + vec3(0.0, 0.0, t*0.04));
+  float bi = (0.45 + 0.55*b)*(1.0 + 0.16*nz);
+  float dxo = uv.x - fract(t/90.0); dxo -= floor(dxo+0.5); dxo *= W;
+  float so = (0.8 + 1.3*b)*sc;
+  float orb = exp(-dxo*dxo/(so*so))*exp(-dyb*dyb/(hw*hw*2.2));
+
+  // ---- stones
+  vec3 sCol = vec3(0.0); float boost = 0.0;
+  float ph10 = fract(t/10.0);
+  for (int i=0;i<10;i++){
+    vec4 s = uStone[i]; vec4 st = uStoneS[i];
+    float dx = uv.x - s.x; dx -= floor(dx+0.5); dx *= W;
+    vec2 d = vec2(dx, P.y - s.y); float r = length(d); float R = s.z; float lv = st.x; float seed = st.z;
+    boost += lv*exp(-dx*dx/sq(1.5*sc));
+    if (r > R*7.0 && uBloomAge < 0.0) continue;
+    float wp = 0.62 + 0.38*b;                                  // waiting stones pulse with the breath
+    float disc = exp(-sq(r/(R*1.05))*1.7);
+    float rim = exp(-sq((r-R)/0.011));
+    float inner = exp(-sq((r-R*0.58)/0.007));
+    sCol += uP[3]*(disc*0.11 + rim*0.40 + inner*0.10)*wp*(1.0-0.55*lv);
+    // dwell ring: fills clockwise from the top while a hand rests
+    if (s.w > 0.001 && lv < 0.6) {
+      float f = fract(atan(d.x, d.y)/6.2831853);
+      float on = 1.0 - smoothstep(s.w-0.012, s.w, f);
+      float rr = R*1.24;
+      sCol += uP[4]*exp(-sq((r-rr)/0.017))*on*0.95;
+      sCol += uP[3]*disc*s.w*0.30;
+    }
+    if (lv > 0.003) {
+      float core = exp(-sq(r/(R*0.85)));
+      float halo = exp(-sq(r/(R*(2.0+1.8*b))));
+      sCol += uP[3]*lv*(core*0.78 + halo*0.30*(0.6+0.4*b)) + uP[4]*lv*core*core*0.35;
+      float ph = fract(ph10 + seed*0.12);                       // rings leave every breath
+      sCol += uP[3]*lv*exp(-sq((r - R*(1.0+ph*3.4))/(0.05+0.06*ph)))*(1.0-ph)*0.30;
+      // a thread of light from the stone up to the horizon: the stone joins the breath
+      float thr = exp(-dx*dx/0.0030)*smoothstep(s.y+R*0.7, s.y+R*1.6, P.y)*(1.0-smoothstep(BAND-1.0, BAND, P.y));
+      sCol += uP[4]*thr*lv*0.20*(0.45+0.55*b);
+    }
+    if (uBloomAge >= 0.0 && lv > 0.03) {                        // the bloom: rings leave every awake stone
+      float spd = 1.7;
+      float r1 = uBloomAge*spd, r2 = max(uBloomAge-0.55, 0.0)*spd;
+      float fade = exp(-uBloomAge*0.45);
+      sCol += uP[2]*lv*fade*(exp(-sq((r-r1)/(0.10+0.04*uBloomAge)))*0.34 + (uBloomAge>0.55 ? exp(-sq((r-r2)/(0.09+0.04*uBloomAge)))*0.18 : 0.0));
+    }
+  }
+  col += sCol;
+  col += uP[2]*(prof*0.46 + wideP*0.7 + lineP*0.8)*bi*(1.0 + 0.45*boost) + uP[4]*orb*0.30*(0.4+0.6*b);
+  if (uBloomAge >= 0.0) {                                       // soft wash across the room
+    float fl = smoothstep(0.0, 0.5, uBloomAge)*exp(-uBloomAge*0.55);
+    col += uP[2]*fl*0.06*(0.35 + 0.65*exp(-dyb*dyb/2.4));
+  }
+
+  // ---- free touches: a faint shimmer (halo, one ring, a few motes)
+  for (int i=0;i<16;i++){
+    if (i >= uNS) break;
+    vec4 s = uSh[i]; float age = s.z, amp = s.w;
+    vec2 d = vec2(uv.x - s.x, 0.0); d.x -= floor(d.x+0.5); d.x *= W; d.y = P.y - s.y*H;
+    float r = length(d); if (r > 1.3) continue;
+    float seed = fract(s.x*91.7 + s.y*37.3);
+    float core = exp(-r*r/0.004)*exp(-age*3.2);
+    float rad = 0.10 + age*0.42;
+    float ring = exp(-sq((r-rad)/(0.03+0.02*age)))*exp(-age*1.5);
+    float sp = 0.0;
+    for (int k=0;k<6;k++){
+      float fk = float(k); float ha = hash21(vec2(fk+seed*13.0, seed*7.0));
+      float ang = ha*6.2831853 + age*0.5*(ha-0.5);
+      float rr = (0.06 + age*0.20)*(0.5 + hash21(vec2(fk, seed*3.1)));
+      vec2 dd = d - vec2(cos(ang), sin(ang))*rr;
+      sp += exp(-dot(dd,dd)/0.00045)*(0.5+0.5*sin(age*9.0 + fk*2.0 + seed*20.0));
+    }
+    sp *= exp(-age*1.1);
+    col += (uP[4]*(core*0.35 + ring*0.22) + uP[3]*sp*0.55)*amp;
+  }
+
+  // ---- hands (a faint presence so people see themselves)
+  for (int i=0;i<8;i++){
+    if (i >= uNH) break;
+    vec4 h = uHand[i];
+    vec2 d = vec2(uv.x - h.x, 0.0); d.x -= floor(d.x+0.5); d.x *= W; d.y = P.y - h.y*H;
+    float r = length(d);
+    col += uP[4]*(exp(-r*r/0.0035)*0.16 + exp(-sq((r-0.13)/0.008))*(0.10+0.14*h.z));
+  }
+
+  float vg = 1.0 - 0.30*smoothstep(0.55, 1.0, abs(uv.y-0.5)*2.0);
+  col = (1.0 - exp(-col*1.0))*vg;
+  o = vec4(pow(max(col, 0.0), vec3(1.0/2.2)) + dither(), 1.0);
+}`;
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS, 'vs')); gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS, 'fs'));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { console.error(gl.getProgramInfoLog(prog)); fail('Link error'); }
+const U = {}; for (let i = 0, n = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS); i < n; i++) { const a = gl.getActiveUniform(prog, i); U[a.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(prog, a.name); }
+
+// ───────────────────────── state ─────────────────────────
+const S = {
+  strip: Q.has('strip'), body: Q.has('body'), help: false, demo: !CAPTURE, sound: true, cues: true,
+  cw: 0, ch: 0, vx: 0, vy: 0, vw: 0, vh: 0, aspect: 1, Wm: 29.6, sc: 1,
+  time: 0, acc: 0, tick: 0,
+  light: 0, prev: 0, fade: 99, bloomT0: -99, bloomLock: false, blooms: 0, touches: 0,
+};
+const stones = STONE_DEF.map(([px, y, wall], i) => ({ i, u: px / STRIP_W, y, wall, dwell: 0, awake: false, until: 0, lv: 0, held: false, seed: (i * 0.6180339) % 1 }));
+const hands = new Map();
+const shimmers = [];
+let lastInput = CAPTURE ? -999 : performance.now();
+
+function layout() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const iw = CAPTURE ? Number(Q.get('w') || 1920) : window.innerWidth, ih = CAPTURE ? Number(Q.get('h') || 1080) : window.innerHeight;
+  const scale = S.strip ? Math.min(3840 / iw, Math.max(dpr, 2)) : Math.min(dpr, 2560 / iw);
+  S.cw = Math.round(iw * scale); S.ch = Math.round(ih * scale);
+  canvas.width = S.cw; canvas.height = S.ch;
+  if (S.strip) { S.vw = S.cw; S.vh = Math.round(S.cw / STRIP_ASPECT); S.vx = 0; S.vy = Math.floor((S.ch - S.vh) / 2); }
+  else { S.vw = S.cw; S.vh = S.ch; S.vx = 0; S.vy = 0; }
+  S.aspect = S.vw / S.vh;
+  S.Wm = WALL_H_M * S.aspect;                    // metres around the room as drawn (the whole 360 in both framings)
+  S.sc = Math.min(1, 0.048 * S.Wm);              // in the window framing the room is squeezed: stones shrink a little to stay round and apart
+  const k = iw / S.cw;
+  bodyOverlay(iw, ih, k);
+  const strip = document.getElementById('strip');
+  strip.style.display = S.strip ? 'block' : 'none';
+  const cues = document.getElementById('cues'); cues.innerHTML = '';
+  const mk = (leftPx, topPx) => { const c = document.createElement('div'); c.className = 'cue'; c.style.left = leftPx + 'px'; c.style.top = topPx + 'px'; cues.appendChild(c); };
+  if (S.strip) {
+    strip.style.top = (S.vy * k) + 'px'; strip.style.height = (S.vh * k) + 'px';
+    strip.querySelectorAll('.div,.lab,.seam').forEach((n) => n.remove());
+    WALL_NAMES.forEach((nm, i) => {
+      const lab = document.createElement('div'); lab.className = 'lab'; lab.textContent = nm; lab.style.left = (WALL_CU[i] * 100) + '%'; strip.appendChild(lab);
+      if (i > 0) { const dv = document.createElement('div'); dv.className = 'div'; dv.style.left = (WALL_X[i] / STRIP_W * 100) + '%'; strip.appendChild(dv); }
+      mk(WALL_CU[i] * iw, S.vy * k + S.vh * k * 0.90);
+    });
+    const sm = document.createElement('div'); sm.className = 'seam'; sm.style.left = '0'; sm.textContent = '← P3 continues here (seamless wrap)'; strip.appendChild(sm);
+    const sm2 = document.createElement('div'); sm2.className = 'seam'; sm2.style.right = '0'; sm2.textContent = '7196 × 912 · wraps to P4 →'; strip.appendChild(sm2);
+  } else mk(iw / 2, ih * 0.93);
+}
+
+// body-scale overlay (key B): drawn to scale, 1 m = vh/3.75 px
+function bodyOverlay(iw, ih, k) {
+  const el = document.getElementById('body'); el.style.display = S.body ? 'block' : 'none'; el.innerHTML = '';
+  if (!S.body) return;
+  const hpx = S.vh * k, top = S.vy * k, pm = hpx / WALL_H_M; el.style.top = top + 'px'; el.style.height = hpx + 'px';
+  const bar = (cls, a, b, label, c) => { const d = document.createElement('div'); d.className = cls; d.style.top = (hpx - b * pm) + 'px'; d.style.height = ((b - a) * pm) + 'px'; el.appendChild(d); const t = document.createElement('div'); t.className = 't' + (c ? ' c' : ''); t.style.top = (hpx - b * pm + 3) + 'px'; t.textContent = label; el.appendChild(t); };
+  bar('band', 0.8, 2.0, 'Adult reach 0.8 - 2.0 m');
+  bar('stoneband', 1.0, 1.6, 'Stone centres 1.0 - 1.6 m', true);
+  const fig = (leftPx, hM, reachM) => {   // 100 x 440 units = 0.5 x 2.2 m, feet at the bottom
+    const sc = hM / 1.70, w = 100 * 0.005 * pm * sc, h = 440 * 0.005 * pm * sc;
+    const sv = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); sv.setAttribute('viewBox', '0 0 100 440'); sv.style.width = w + 'px'; sv.style.height = h + 'px';
+    sv.style.left = (leftPx - w / 2) + 'px'; sv.style.top = (hpx - h) + 'px';
+    sv.innerHTML = '<g fill="rgba(255,255,255,.07)" stroke="rgba(255,255,255,.4)" stroke-width="1.6"><circle cx="50" cy="124" r="22"/><path d="M28 160 Q50 150 72 160 L80 270 L72 270 L68 440 L53 440 L50 300 L47 440 L32 440 L28 270 L20 270 Z"/><path d="M72 162 L96 120 L112 0" fill="none"/></g>';
+    el.appendChild(sv);
+    const lab = document.createElement('div'); lab.className = 't'; lab.style.left = (leftPx + w * 0.6) + 'px'; lab.style.top = (hpx - hM * pm - 14) + 'px'; lab.style.color = 'rgba(255,255,255,.6)'; lab.textContent = hM.toFixed(2) + ' m, reach ' + reachM; el.appendChild(lab);
+  };
+  fig(iw * 0.355, 1.70, '2.2 m'); fig(iw * 0.43, 1.20, '1.4 m'); fig(iw * 0.62, 1.70, '2.2 m');
+}
+
+// ───────────────────────── geometry in metres ─────────────────────────
+const stoneR = () => STONE_R * S.sc;
+function distM(u1, v1, u2, v2) { let dx = u1 - u2; dx -= Math.round(dx); return Math.hypot(dx * S.Wm, (v1 - v2) * WALL_H_M); }
+const stoneAt = (u, v, pad = 1.12) => stones.find((s) => distM(u, v, s.u, s.y / WALL_H_M) < stoneR() * pad);
+
+// ───────────────────────── breath ─────────────────────────
+function breathAt(t) {
+  const tc = ((t % BREATH_T) + BREATH_T) % BREATH_T;
+  return tc < BREATH_IN ? 0.5 - 0.5 * Math.cos(Math.PI * tc / BREATH_IN) : 0.5 + 0.5 * Math.cos(Math.PI * (tc - BREATH_IN) / BREATH_OUT);
+}
+
+// ───────────────────────── sound: 4.1 simulated (pan by x, four wall buses + a sub) ─────────────────────────
+const Sound = (() => {
+  let ctx = null, master, dry, send, loopNoise, active = 0;
+  const bus = [], WALL_PAN = [-0.9, -0.3, 0.3, 0.9];
+  let sub1, sub2, subG, padV = [], breathBP, breathG, voices = [];
+  function impulse(c, seconds, seed) {
+    const sr = c.sampleRate, len = Math.floor(sr * (seconds + 0.02)), pre = Math.floor(sr * 0.016), buf = c.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const r = mulberry(seed * 977 + ch * 131), d = buf.getChannelData(ch); let y = 0;
+      for (let n = pre; n < len; n++) {
+        const t = (n - pre) / sr, env = Math.pow(10, -3 * t / seconds) * Math.min(1, (n - pre) / (sr * 0.012));
+        const cut = Math.max(600, 8000 * Math.exp(-t * 1.3)), a = 1 - Math.exp(-2 * Math.PI * cut / sr);
+        y += a * (r() * 2 - 1 - y); d[n] = y * env;
+      }
+    }
+    return buf;
+  }
+  // which wall speakers carry a source at x (power-normalised, smooth across the corners; wraps)
+  function spatial(u) {
+    const w = WALL_CU.map((c) => { let d = u - c; d -= Math.round(d); return Math.exp(-(d * d) / (2 * 0.085 * 0.085)); });
+    const n = Math.sqrt(w.reduce((a, b) => a + b * b, 0)) || 1; return w.map((x) => x / n);
+  }
+  function route(node, gains, scale = 1) {
+    const out = [];
+    gains.forEach((g, k) => { if (g * scale < 0.02) return; const gn = ctx.createGain(); gn.gain.value = g * scale; node.connect(gn); gn.connect(bus[k]); out.push(gn); });
+    return out;
+  }
+  const ALL = [0.5, 0.5, 0.5, 0.5];
+  function init() {
+    if (ctx) { ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    ctx = new AC({ latencyHint: 'interactive' });
+    master = ctx.createGain(); master.gain.value = S.sound ? 0.9 : 0;
+    const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -13; lim.knee.value = 8; lim.ratio.value = 14; lim.attack.value = 0.003; lim.release.value = 0.2;
+    master.connect(lim); lim.connect(ctx.destination);
+    dry = ctx.createGain(); dry.gain.value = 0.9; dry.connect(master);
+    send = ctx.createGain(); send.gain.value = 1;
+    const conv = ctx.createConvolver(); conv.buffer = impulse(ctx, 5.4, 9);
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 150;
+    const wet = ctx.createGain(); wet.gain.value = 0.75; send.connect(conv); conv.connect(hp); hp.connect(wet); wet.connect(master);
+    for (let k = 0; k < 4; k++) {                    // one bus per wall speaker, placed left to right in the stereo field
+      const g = ctx.createGain(), p = ctx.createStereoPanner(); p.pan.value = WALL_PAN[k]; g.connect(p); p.connect(dry);
+      const sg = ctx.createGain(); sg.gain.value = 0.55; p.connect(sg); sg.connect(send); bus.push(g);
+    }
+    const lb = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 4), ctx.sampleRate), ld = lb.getChannelData(0), r2 = mulberry(23);
+    for (let i = 0; i < ld.length; i++) ld[i] = r2() * 2 - 1; loopNoise = lb;
+    const t = ctx.currentTime;
+    // sub bus (the .1): swells with the inhale, straight to the master (no wall speaker)
+    subG = ctx.createGain(); subG.gain.value = 0;
+    const slp = ctx.createBiquadFilter(); slp.type = 'lowpass'; slp.frequency.value = 120; slp.Q.value = 0.4;
+    sub1 = ctx.createOscillator(); sub1.type = 'sine'; sub2 = ctx.createOscillator(); sub2.type = 'sine';
+    const s2g = ctx.createGain(); s2g.gain.value = 0.35; sub1.connect(slp); sub2.connect(s2g); s2g.connect(slp); slp.connect(subG); subG.connect(master); sub1.start(t); sub2.start(t);
+    // pad: one soft voice per wall, a breathing low-pass; the drone follows the light
+    const lfo = (rate, amt, target) => { const o = ctx.createOscillator(); o.frequency.value = rate; const g = ctx.createGain(); g.gain.value = amt; o.connect(g); g.connect(target); o.start(t); };
+    for (let k = 0; k < 4; k++) {
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 0.3;
+      const og = ctx.createGain(); og.gain.value = 0; og.gain.setTargetAtTime(0.040, t, 3.0);
+      const a = ctx.createOscillator(); a.type = 'sine'; const bb = ctx.createOscillator(); bb.type = 'triangle'; bb.detune.value = 4 + 3 * k; a.detune.value = -3 * k;
+      const bg = ctx.createGain(); bg.gain.value = 0.5; a.connect(lp); bb.connect(bg); bg.connect(lp); lp.connect(og); og.connect(bus[k]); a.start(t); bb.start(t);
+      lfo(0.05 + 0.017 * k, 0.012, og.gain);
+      padV.push({ a, bb, lp });
+    }
+    // the breath itself: a very quiet airy noise that rises and falls with the guide
+    const ns = ctx.createBufferSource(); ns.buffer = loopNoise; ns.loop = true;
+    breathBP = ctx.createBiquadFilter(); breathBP.type = 'bandpass'; breathBP.frequency.value = 700; breathBP.Q.value = 0.8;
+    breathG = ctx.createGain(); breathG.gain.value = 0; ns.connect(breathBP); breathBP.connect(breathG); route(breathG, ALL, 0.9); ns.start(t, 0.7);
+    // one sustained voice per stone (silent until woken)
+    stones.forEach((s) => {
+      const out = ctx.createGain(); out.gain.value = 0;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500; lp.Q.value = 0.3;
+      const o1 = ctx.createOscillator(); o1.type = 'sine'; const o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.detune.value = 5 + 2 * (s.i % 3);
+      const o3 = ctx.createOscillator(); o3.type = 'sine'; o3.detune.value = -4;
+      const g2 = ctx.createGain(); g2.gain.value = 0.35; const g3 = ctx.createGain(); g3.gain.value = 0.22;
+      o1.connect(lp); o2.connect(g2); g2.connect(lp); o3.connect(g3); g3.connect(lp); lp.connect(out);
+      route(out, spatial(s.u), 1);
+      lfo(0.07 + 0.013 * s.i, 3, o1.detune); o1.start(t); o2.start(t); o3.start(t);
+      voices.push({ out, lp, o1, o2, o3 });
+    });
+    setLight(LIGHTS[S.light], 0.02);
+  }
+  const stoneMidi = (i, L) => L.root + L.chord[i % 5] + 12 * STONE_OCT[i];
+  function setLight(L, tau) {
+    if (!ctx) return; const t = ctx.currentTime;
+    sub1.frequency.setTargetAtTime(mtof(L.root - 24), t, tau); sub2.frequency.setTargetAtTime(mtof(L.root - 12), t, tau);
+    const pn = [L.root - 12, L.root - 5, L.root + L.chord[1], L.root + L.chord[2]];
+    padV.forEach((p, k) => { const f = mtof(pn[k] + (k > 1 ? 0 : 0)); p.a.frequency.setTargetAtTime(f, t, tau * 1.6); p.bb.frequency.setTargetAtTime(f, t, tau * 1.6); });
+    voices.forEach((v, i) => { const f = mtof(stoneMidi(i, L)); v.o1.frequency.setTargetAtTime(f, t, tau); v.o2.frequency.setTargetAtTime(f, t, tau); v.o3.frequency.setTargetAtTime(f * 2, t, tau); });
+  }
+  // a soft struck bell: sine partials with their own decays, placed on the walls by `gains`
+  function bell(midi, t0, peak, dec, gains, tilt) {
+    if (!ctx || active > 40) return;
+    const f = mtof(midi);
+    const env = ctx.createGain(); env.gain.setValueAtTime(0.0001, t0); env.gain.linearRampToValueAtTime(peak, t0 + 0.012); env.gain.exponentialRampToValueAtTime(0.0001, t0 + dec);
+    const parts = [[1, 1, 1], [2.0, 0.24, 0.6], [2.76, 0.10 * tilt, 0.38], [4.07, 0.05 * tilt, 0.22]];
+    const oscs = [];
+    parts.forEach(([ra, am, dm]) => {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f * ra * (ra === 1 ? 1 : 1 + (rnd() - 0.5) * 0.004);
+      const g = ctx.createGain(); g.gain.setValueAtTime(am, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + Math.max(0.2, dec * dm));
+      o.connect(g); g.connect(env); o.start(t0); o.stop(t0 + dec + 0.1); oscs.push(o);
+    });
+    route(env, gains, 1); active++;
+    oscs[0].onended = () => { active--; try { env.disconnect(); } catch (e) {} };
+  }
+  const chimeNote = (u, v) => {
+    const L = LIGHTS[S.light], px = u < 0.5 ? 2 * u : 2 - 2 * u, n = L.pent.length * 3, idx = Math.min(n - 1, Math.floor(px * n));
+    return L.root + 12 + 12 * Math.floor(idx / L.pent.length) + L.pent[idx % L.pent.length];
+  };
+  function chime(u, v, vel, soft) {
+    if (!ctx || ctx.state !== 'running' || !S.sound) return;
+    const b = reach(v);
+    bell(chimeNote(u, v), ctx.currentTime + 0.005, 0.040 * clamp(vel, 0.1, 1) * (soft ? 0.7 : 1), (2.2 + 2.2 * (1 - b)) * (soft ? 0.7 : 1), spatial(u), 0.4 + b);
+  }
+  function awaken(st) {                       // the stone's own note, struck once as its voice joins
+    if (!ctx || ctx.state !== 'running' || !S.sound) return;
+    bell(stoneMidi(st.i, LIGHTS[S.light]) + 12, ctx.currentTime + 0.01, 0.07, 6.5, spatial(st.u), 0.6);
+  }
+  function bloom(L) {                         // the chord opens: a slow arpeggio of bells on all four walls, and a deep one
+    if (!ctx || ctx.state !== 'running') return; const t = ctx.currentTime + 0.05;
+    setLight(L, 1.5);
+    [L.root - 12, ...L.chord.map((c, j) => L.root + 12 + c + (j > 2 ? 0 : 0))].forEach((m, j) => {
+      const g = j === 0 ? ALL : WALL_CU.map((_, k) => (k === (j % 4) ? 0.85 : 0.35));
+      bell(m, t + j * 0.17, j === 0 ? 0.10 : 0.075, 7.5, g, 0.9);
+    });
+    subG.gain.cancelScheduledValues(t); subG.gain.setTargetAtTime(0.30, t, 0.25);
+  }
+  function update(b, bloomBoost, prog) {
+    if (!ctx) return; const t = ctx.currentTime;
+    subG.gain.setTargetAtTime(Math.min(0.34, 0.045 + 0.12 * b * b + 0.16 * bloomBoost), t, 0.18);
+    padV.forEach((p) => p.lp.frequency.setTargetAtTime(330 + 560 * b + 500 * bloomBoost + 260 * prog, t, 0.25));
+    breathBP.frequency.setTargetAtTime(520 + 900 * b, t, 0.25);
+    breathG.gain.setTargetAtTime(0.011 * Math.pow(b, 1.3) + 0.0015, t, 0.3);
+    stones.forEach((s, i) => {
+      const v = voices[i];
+      v.out.gain.setTargetAtTime(0.085 * s.lv * (0.78 + 0.22 * b) * (1 + 0.7 * bloomBoost), t, 0.25);
+      v.lp.frequency.setTargetAtTime(420 + 700 * s.lv * (0.5 + 0.5 * b) + 1200 * bloomBoost * s.lv, t, 0.3);
+    });
+  }
+  return {
+    init, chime, awaken, bloom, update, setLight,
+    setOn(on) { if (master) master.gain.setTargetAtTime(on ? 0.9 : 0, ctx.currentTime, 0.08); },
+    get on() { return !!ctx && ctx.state === 'running'; },
+  };
+})();
+
+// ───────────────────────── interaction logic ─────────────────────────
+function shimmer(u, v, amp) { shimmers.push({ u: ((u % 1) + 1) % 1, v, t0: S.time, amp }); if (shimmers.length > 16) shimmers.shift(); S.touches++; }
+function freeTouch(u, v, amp, soft) { shimmer(u, v, amp); Sound.chime(u, v, amp, soft); }
+
+function addHand(id, u, v, o = {}) { const h = { id, u, v, tu: u, tv: v, pin: false, demo: false, k: 0.55, spd: 0, tShim: 0, tChime: 0, ...o }; hands.set(id, h); return h; }
+function handsStep(dt) {
+  for (const h of hands.values()) {
+    const u0 = h.u, v0 = h.v;
+    let du = h.tu - h.u; du -= Math.round(du);
+    h.u = (((h.u + du * h.k) % 1) + 1) % 1; h.v += (h.tv - h.v) * h.k;
+    let dx = h.u - u0; dx -= Math.round(dx);
+    h.spd = lerp(h.spd, Math.hypot(dx * S.Wm, (h.v - v0) * WALL_H_M) / dt, 0.3);
+    // dragging across free space leaves a faint trail of shimmer and the odd soft chime
+    if (!h.pin && !h.demo && h.spd > 0.3 && !stoneAt(h.u, h.v)) {
+      if (S.time - h.tShim > 0.16) { h.tShim = S.time; shimmer(h.u, h.v, 0.42); }
+      if (S.time - h.tChime > 0.5) { h.tChime = S.time; Sound.chime(h.u, h.v, 0.45, true); }
+    }
+  }
+}
+function stonesStep(dt) {
+  const R = stoneR();
+  for (const st of stones) {
+    let held = false;
+    for (const h of hands.values()) { if (distM(h.u, h.v, st.u, st.y / WALL_H_M) < R * 1.12 && (st.awake || h.spd < 0.9)) { held = true; break; } }
+    st.held = held;
+    if (st.awake) {
+      if (held) st.until = S.time + lingerS(); else if (S.time > st.until) { st.awake = false; st.dwell = 0; }
+    } else {
+      st.dwell = held ? st.dwell + dt / DWELL_S : Math.max(0, st.dwell - dt / 0.35);
+      if (st.dwell >= 1) { st.dwell = 1; st.awake = true; st.until = S.time + lingerS(); Sound.awaken(st); }
+    }
+    const target = st.awake ? 1 : 0;
+    st.lv += (target - st.lv) * (1 - Math.exp(-dt / (target > st.lv ? 0.8 : 1.6)));
+  }
+  // the bloom: at least one awake stone on EACH of the four walls at once
+  const walls = [false, false, false, false]; stones.forEach((s) => { if (s.awake) walls[s.wall] = true; });
+  const all = walls.every(Boolean);
+  if (all && !S.bloomLock && S.time - S.bloomT0 > 14) bloom();
+  if (!all) S.bloomLock = false;
+  S.walls = walls;
+}
+function bloom() {
+  S.prev = S.light; S.light = (S.light + 1) % LIGHTS.length; S.fade = 0; S.bloomT0 = S.time; S.bloomLock = true; S.blooms++;
+  stones.forEach((s) => { if (s.awake) s.until = Math.min(s.until, S.time + 12); });   // the bloom lets the stones go: a new round can start
+  Sound.bloom(LIGHTS[S.light]); onLight();
+}
+function setLight(n) { if (n === S.light) return; S.prev = S.light; S.light = n; S.fade = 0; Sound.setLight(LIGHTS[n], 1.5); onLight(); }
+function onLight() { document.getElementById('lightName').textContent = LIGHTS[S.light].name; }
+
+// ───────────────────────── auto-demo: virtual people at human pace (walk <= 1.4 m/s, hand <= 0.8 m/s, no jumps) ─────────────────────────
+// It alternates a SOLO visitor (one person walks the room wall by wall, one breath per wall) and a GROUP (six people, bloom in seconds).
+const WALK = 1.4, HANDV = 0.8;
+const D = { on: false, t: 0, people: [], mode: 'group', tapAt: 0, doneAt: -1 };
+function stoneNear(wall, u) {
+  const c = stones.filter((s) => s.wall === wall); let best = c[0], bd = 99;
+  c.forEach((s) => { let d = s.u - u; d -= Math.round(d); d = Math.abs(d) * S.Wm; if (d < bd) { bd = d; best = s; } }); return best;
+}
+function person(id, seq, delay, hold, u, v) { return { id, seq, i: 0, delay, hold, state: 'wait', timer: 0, u: ((u % 1) + 1) % 1, v, h: null }; }
+function demoPlan() {
+  clearDemoHands(); D.people = []; D.t = 0; D.doneAt = -1; D.tapAt = 3;
+  if (D.mode === 'solo') {
+    const seq = []; let cu = null;
+    [1, 2, 3, 0].forEach((w) => { const c = stones.filter((s) => s.wall === w); const s = cu === null ? c[Math.floor(rnd() * c.length)] : stoneNear(w, cu); seq.push(s); cu = s.u; });
+    D.people.push(person('dp0', seq, 0.5, 4.8, seq[0].u - 1.4 / S.Wm, 0.28));
+  } else {
+    const walls = [0, 1, 2, 3].sort(() => rnd() - 0.5), END = 15;
+    walls.forEach((w, k) => {
+      const c = stones.filter((s) => s.wall === w), s = c[Math.floor(rnd() * c.length)], dl = 0.3 + 1.7 * k;
+      D.people.push(person('dp' + k, [s], dl, END - dl - 2.4, s.u + (rnd() < 0.5 ? -1 : 1) * 1.6 / S.Wm, 0.3));
+      if (c.length > 2 && k < 2) { const s2 = c.find((x) => x !== s && Math.abs(x.u - s.u) * S.Wm > 0.5); D.people.push(person('dq' + k, [s2], dl + 2.2, END - dl - 4.6, s2.u + 1.8 / S.Wm, 0.3)); }
+    });
+  }
+}
+function clearDemoHands() { for (const [id, h] of [...hands]) if (h.demo) hands.delete(id); }
+function moveHand(p, tu, tv, dt) {
+  let du = tu - p.u; du -= Math.round(du); const dx = du * S.Wm, dy = (tv - p.v) * WALL_H_M, dist = Math.hypot(dx, dy);
+  const ease = clamp(dist / 0.8, 0.25, 1);
+  const mx = Math.min(Math.abs(dx), WALK * ease * dt) * Math.sign(dx), my = Math.min(Math.abs(dy), HANDV * ease * dt) * Math.sign(dy);
+  p.u = (((p.u + mx / S.Wm) % 1) + 1) % 1; p.v += my / WALL_H_M; return dist < 0.04;
+}
+function demoStep(dt, active) {
+  if (!active) { if (D.on) { clearDemoHands(); D.on = false; } return; }
+  if (!D.on) { D.on = true; demoPlan(); }
+  D.t += dt; let live = 0;
+  for (const p of D.people) {
+    if (p.state === 'done') continue; live++;
+    if (p.state === 'wait') { if (D.t >= p.delay) { p.state = 'walk'; p.h = addHand(p.id, p.u, p.v, { demo: true, pin: true, k: 1 }); } continue; }
+    const s = p.seq[p.i];
+    if (p.state === 'walk') { if (moveHand(p, s.u, s.y / WALL_H_M, dt)) { p.state = 'hold'; p.timer = 0; } }
+    else { p.timer += dt; if (p.timer >= p.hold) { p.i++; if (p.i >= p.seq.length) { p.state = 'done'; hands.delete(p.id); continue; } p.state = 'walk'; } }
+    p.h.tu = p.u + (p.state === 'hold' ? Math.sin(S.time * 1.3 + s.i) * 0.012 / S.Wm : 0); p.h.tv = p.v + (p.state === 'hold' ? Math.cos(S.time * 1.1 + s.i) * 0.012 / WALL_H_M : 0);
+  }
+  // in the group scene one more person strolls in the open, tapping and stroking the free wall (slowly)
+  if (D.mode === 'group') {
+    const wh = hands.get('dw');
+    if (wh && wh.path) {
+      const P = wh.path; P.t += dt; const k = clamp(P.t / P.dur, 0, 1), e = k * k * (3 - 2 * k);
+      wh.tu = P.u0 + P.du * e; wh.tv = clamp(P.v0 + P.dv * e + Math.sin(k * Math.PI) * P.bend, 0.25, 0.5);
+      if (k >= 1) { hands.delete('dw'); D.tapAt = D.t + 1.5 + rnd() * 2.5; }
+    } else if (D.t >= D.tapAt && D.t < 14) {
+      let u, v, tries = 0; do { u = rnd(); v = 0.3 + 0.2 * rnd(); tries++; } while (stoneAt(u, v, 1.8) && tries < 10);
+      if (rnd() < 0.5) { freeTouch(u, v, 0.8 + 0.4 * rnd(), false); D.tapAt = D.t + 1.2 + rnd() * 2.5; }
+      else {
+        const ang = (rnd() < 0.5 ? 0 : Math.PI) + (rnd() - 0.5) * 0.6, len = 0.7 + 0.9 * rnd();
+        const h = addHand('dw', u, v, { demo: true, k: 0.4 }); h.path = { u0: u, v0: v, du: Math.cos(ang) * len / S.Wm, dv: Math.sin(ang) * len * 0.3 / WALL_H_M, bend: (rnd() - 0.5) * 0.06, t: 0, dur: len / 0.7 };
+        freeTouch(u, v, 0.8, false);
+      }
+    }
+  }
+  if (live === 0) {
+    if (D.doneAt < 0) D.doneAt = D.t;
+    if (D.t - D.doneAt > 3 && stones.every((s) => !s.awake) && !S.bloomLock) { D.mode = D.mode === 'solo' ? 'group' : 'solo'; demoPlan(); }
+  }
+}
+
+// ───────────────────────── input ─────────────────────────
+function toWorld(e) {
+  const r = canvas.getBoundingClientRect();
+  const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+  if (!S.strip) return { u: px, v: 1 - py, ok: true };
+  const hPx = r.width / STRIP_ASPECT, y0 = (r.height - hPx) / 2, yy = (e.clientY - r.top - y0) / hPx;
+  return { u: px, v: 1 - yy, ok: yy >= 0 && yy <= 1 };
+}
+let pinN = 0;
+function userHandCount() { let n = 0; for (const h of hands.values()) if (!h.demo) n++; return n; }
+canvas.addEventListener('pointerdown', (e) => {
+  Sound.init(); document.getElementById('hint').style.opacity = 0; lastInput = performance.now();
+  const w = toWorld(e); if (!w.ok) return; const v = clamp(w.v, 0.02, 0.98);
+  // shift+click pins a hand until it is clicked again; a plain click on a pinned hand also lifts it
+  let near = null, nd = 0.5; for (const h of hands.values()) { if (!h.pin || h.demo) continue; const d = distM(h.u, h.v, w.u, v); if (d < nd) { nd = d; near = h; } }
+  if (near) { hands.delete(near.id); return; }
+  const st = stoneAt(w.u, v);
+  if (e.shiftKey) { const a = st ? st.u : w.u, b = st ? st.y / WALL_H_M : v; addHand('pin' + (pinN++), a, b, { pin: true, k: 0.4 }); return; }
+  canvas.setPointerCapture(e.pointerId);
+  const h = addHand('p' + e.pointerId, w.u, v, { k: 0.5 });
+  if (!st) freeTouch(w.u, v, 1, false);
+});
+canvas.addEventListener('pointermove', (e) => {
+  const h = hands.get('p' + e.pointerId); if (!h) return; lastInput = performance.now();
+  const w = toWorld(e); h.tu = w.u; h.tv = clamp(w.v, 0.02, 0.98);
+});
+const up = (e) => { hands.delete('p' + e.pointerId); lastInput = performance.now(); };
+canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (k === 'f') { S.strip = !S.strip; layout(); }
+  else if (k === 'h') { S.help = !S.help; document.getElementById('help').style.display = S.help ? 'block' : 'none'; }
+  else if (k === 's') { S.sound = !S.sound; Sound.setOn(S.sound); }
+  else if (k === 't') { S.cues = !S.cues; }
+  else if (k === 'b') { S.body = !S.body; layout(); }
+  else if (k === 'd') { S.demo = !S.demo; }
+  else if (k === 'l') { setLight((S.light + 1) % 4); }
+  else if (k >= '1' && k <= '4') { setLight(+k - 1); }
+  else if (k === 'r') { for (const h of [...hands.keys()]) hands.delete(h); stones.forEach((s) => { s.awake = false; s.dwell = 0; }); }
+});
+let rz = 0; window.addEventListener('resize', () => { if (CAPTURE) return; clearTimeout(rz); rz = setTimeout(layout, 160); });
+
+// ───────────────────────── frame ─────────────────────────
+const palArr = new Float32Array(18), stA = new Float32Array(40), stB = new Float32Array(40), hA = new Float32Array(32), shA = new Float32Array(64);
+function render() {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, S.cw, S.ch); gl.clearColor(0.012, 0.014, 0.02, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.viewport(S.vx, S.vy, S.vw, S.vh); gl.useProgram(prog);
+  const m = smooth(S.fade / 6), A = LIGHTS[S.prev], B = LIGHTS[S.light];
+  for (let i = 0; i < 6; i++) for (let c = 0; c < 3; c++) palArr[i * 3 + c] = lerp(A.lin[i][c], B.lin[i][c], m);
+  gl.uniform3fv(U.uP, palArr);
+  gl.uniform1f(U.uStars, lerp(A.stars, B.stars, m));
+  gl.uniform1f(U.uWm, S.Wm); gl.uniform1f(U.uSc, S.sc); gl.uniform1f(U.uTime, S.time); gl.uniform1f(U.uBreath, breathAt(S.time));
+  const age = S.time - S.bloomT0; gl.uniform1f(U.uBloomAge, age < 14 ? age : -1);
+  const R = stoneR();
+  stones.forEach((s, i) => { stA.set([s.u, s.y, R, s.dwell], i * 4); stB.set([s.lv, s.held ? 1 : 0, s.seed, 0], i * 4); });
+  gl.uniform4fv(U.uStone, stA); gl.uniform4fv(U.uStoneS, stB);
+  let n = 0; hA.fill(0); for (const h of hands.values()) { if (n >= 8) break; hA.set([h.u, h.v, h.pin ? 1 : 0, 0], n * 4); n++; }
+  gl.uniform4fv(U.uHand, hA); gl.uniform1i(U.uNH, n);
+  while (shimmers.length && S.time - shimmers[0].t0 > 3.4) shimmers.shift();
+  shA.fill(0); shimmers.forEach((s, i) => shA.set([s.u, s.v, S.time - s.t0, s.amp], i * 4));
+  gl.uniform4fv(U.uSh, shA); gl.uniform1i(U.uNS, shimmers.length);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+const sync = () => { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); };
+
+const cueEls = () => document.querySelectorAll('#cues .cue');
+let cueTxt = '';
+function updateCues() {
+  const tc = ((S.time % BREATH_T) + BREATH_T) % BREATH_T, inh = tc < BREATH_IN;
+  const p = inh ? tc / BREATH_IN : (tc - BREATH_IN) / BREATH_OUT;
+  const a = S.cues ? Math.pow(Math.sin(Math.PI * clamp(p, 0, 1)), 0.8) * 0.8 : 0;
+  const txt = inh ? 'breathe in' : 'breathe out';
+  cueEls().forEach((c) => { if (cueTxt !== txt) c.textContent = txt; c.style.opacity = a.toFixed(3); });
+  cueTxt = txt;
+}
+const pips = document.querySelectorAll('#pips span');
+const STEP = 1 / 60;
+function step() {
+  S.time += STEP; S.fade = Math.min(99, S.fade + STEP);
+  demoStep(STEP, S.demo && userHandCount() === 0 && (performance.now() - lastInput > 4000));
+  handsStep(STEP); stonesStep(STEP);
+  if ((++S.tick % 3) === 0) {
+    const age = S.time - S.bloomT0, boost = age >= 0 && age < 14 ? smooth(age / 0.4) * Math.exp(-age * 0.4) : 0;
+    Sound.update(breathAt(S.time), boost, S.walls ? S.walls.filter(Boolean).length / 4 : 0);
+    updateCues();
+    pips.forEach((p, i) => p.classList.toggle('on', !!(S.walls && S.walls[i])));
+  }
+}
+let prev = performance.now();
+function loop(now) {
+  const dt = Math.min(0.1, (now - prev) / 1000); prev = now; S.acc += dt;
+  let n = 0; while (S.acc >= STEP && n < 3) { step(); S.acc -= STEP; n++; }
+  if (S.acc > STEP * 3) S.acc = 0;
+  if (n) render();
+  requestAnimationFrame(loop);
+}
+setTimeout(() => { document.getElementById('hud').style.opacity = 0.45; }, 6000);
+layout(); onLight(); updateCues();
+
+// capture / test API (used by the headless screenshot script; harmless otherwise)
+window.__vt = {
+  S, stones, hands,
+  advance(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) step(); sync(); return n; },
+  hold(i, id) { const s = stones[i]; addHand(id || 'c' + i, s.u, s.y / WALL_H_M, { pin: true, k: 1 }); },
+  free(id) { hands.delete(id); },
+  tap(u, v, amp) { freeTouch(u, v, amp || 1, false); },
+  show() { render(); sync(); return canvas.toDataURL('image/png'); },
+  ms() { const t = performance.now(); for (let i = 0; i < 30; i++) { step(); render(); } sync(); return (performance.now() - t) / 30; },
+};
+window.__ready = true;
+if (!CAPTURE) requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
