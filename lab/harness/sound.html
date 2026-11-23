@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sound stage — VEATION Touch lab</title>
+<style>
+  :root { --bg:#05070a; }
+  html,body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:#E0E0E0; font:12px/1.45 Geist,"Segoe UI",system-ui,sans-serif; -webkit-user-select:none; user-select:none; }
+  #start { position:fixed; left:0; right:0; top:calc(50% + 70px); text-align:center; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:#B8B8B8; opacity:.8; pointer-events:none; transition:opacity 1s; }
+  #err { position:fixed; left:16px; bottom:40px; color:#E5B567; }
+</style>
+</head>
+<body>
+<div id="start">Click once to start the sound &nbsp;·&nbsp; the room is drawn as the strip: P4 P1 P2 P3</div>
+<div id="err"></div>
+<script type="module">
+// A SOUND piece on the simulated 4.1 room: /sound/<id> runs lab/experiments/<id>/sound.js with the SOUND-API.md host.
+import { connectExperience, startSoundPiece } from '/experiences/runtime.js';
+const id = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop());
+// the dev runtime reads the manifest next to the page: this page lives at /sound/<id>, so point it at the experiment
+const base = document.createElement('base'); base.href = `/experiences/${encodeURIComponent(id)}/index.html`; document.head.prepend(base);
+try {
+  const vt = await connectExperience({ sound: true, id });
+  document.title = `${id} — sound stage`;
+  await startSoundPiece(id, vt);
+  window.__labRoom.stage.onGesture(() => { document.getElementById('start').style.opacity = 0; });
+} catch (e) { document.getElementById('err').textContent = String(e?.message || e); console.error(e); }
+</script>
+</body>
+</html>

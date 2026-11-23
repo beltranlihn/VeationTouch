@@ -1,5 +1,9 @@
 # VEATION Touch — contrato del proyecto (leer siempre)
 
+> **¿Trabajas con Vicente en el laboratorio de experiencias?** Tu contrato es **`lab/CLAUDE.md`**: allí se crean obras y
+> experimentos, **no se modifica el software** (sólo se escribe dentro de `lab/`). Lo que sigue es el contrato del
+> desarrollo del software; léelo para entender el sistema, pero no lo apliques para cambiar código fuera de `lab/`.
+
 Software de tracking táctil con LiDAR 2D para muros interactivos de salas inmersivas, de Alma Digital
 Studio (director creativo: Beltrán; developer: Claude). Recibe N sensores **Slamtec RPLIDAR S2E** por
 Ethernet/UDP, calibra la sala, define zonas y envía toques por **OSC, TUIO, WebSocket y Spout** (y zonas por

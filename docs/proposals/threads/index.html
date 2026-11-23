@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Threads — VEATION Touch proposal</title>
+<style>
+  :root { --bg:#06070a; --ink:#E0E0E0; --ink2:#B8B8B8; --live:#4FC3E8; --warn:#E5B567; }
+  html,body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:var(--ink);
+    font:12px/1.45 Geist,"Segoe UI",system-ui,sans-serif; -webkit-user-select:none; user-select:none; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:crosshair; }
+  #hud { position:fixed; left:16px; top:14px; pointer-events:none; letter-spacing:.14em; text-transform:uppercase; font-size:10px; color:var(--ink2); opacity:.75; transition:opacity .8s; }
+  #hud b { color:var(--ink); font-weight:500; }
+  #hint { position:fixed; left:16px; bottom:14px; pointer-events:none; font-size:11px; color:var(--ink2); opacity:.6; transition:opacity 1.2s; }
+  #meters { position:fixed; right:16px; bottom:14px; display:flex; gap:9px; align-items:flex-end; pointer-events:none; opacity:.55; font-size:9px; letter-spacing:.14em; color:var(--ink2); }
+  #meters .m { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  #meters .bar { width:3px; height:22px; background:#262626; position:relative; overflow:hidden; }
+  #meters .bar i { position:absolute; left:0; right:0; bottom:0; height:0; background:#E0E0E0; }
+  #meters .m.sub .bar i { background:var(--warn); }
+  #body { position:fixed; display:none; pointer-events:none; }
+  #body .bl { position:absolute; font-size:10px; letter-spacing:.1em; color:rgba(236,226,206,.7); white-space:nowrap; }
+  #strip { position:fixed; left:0; right:0; display:none; pointer-events:none; }
+  #strip .div { position:absolute; top:-10px; bottom:-10px; width:0; border-left:1px solid rgba(229,181,103,.55); }
+  #strip .lab { position:absolute; top:-26px; transform:translateX(-50%); font-size:10px; letter-spacing:.2em; color:var(--warn); }
+  #strip .frame { position:absolute; inset:0; border-top:1px solid rgba(255,255,255,.14); border-bottom:1px solid rgba(255,255,255,.14); }
+  #strip .seam { position:absolute; bottom:-30px; font-size:10px; color:var(--ink2); letter-spacing:.12em; opacity:.8; }
+  #help { position:fixed; right:16px; top:14px; width:318px; padding:14px 16px; background:rgba(17,17,17,.82); border:1px solid #262626; border-radius:6px; display:none; backdrop-filter:blur(8px); }
+  #help h4 { margin:0 0 8px; font-weight:500; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--warn); }
+  #help div { display:flex; justify-content:space-between; padding:2px 0; color:var(--ink2); gap:12px; }
+  #help div span:last-child { text-align:right; }
+  #help kbd { font:inherit; color:var(--live); }
+  #err { position:fixed; inset:0; display:none; align-items:center; justify-content:center; color:#E5B567; }
+  body.capture #hud, body.capture #hint, body.capture #meters { display:none; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="body"></div>
+<div id="strip"><div class="frame"></div></div>
+<div id="hud"><b>Threads</b> &nbsp;·&nbsp; <span id="stat">0 hands · 0 threads</span> &nbsp;·&nbsp; <span id="modeName">major pentatonic (just)</span></div>
+<div id="hint">Click to enable sound &nbsp;·&nbsp; hold = a hand &nbsp;·&nbsp; Shift+click pins a hand &nbsp;·&nbsp; F room strip &nbsp;·&nbsp; B body scale &nbsp;·&nbsp; H help</div>
+<div id="meters"></div>
+<div id="help">
+  <h4>Controls</h4>
+  <div><span>Click and hold</span><span>one hand (soft light + tone)</span></div>
+  <div><span>Shift + click</span><span>pin a hand; click it again to remove</span></div>
+  <div><span>Two hands</span><span>a thread, a bowed note</span></div>
+  <div><span>Let go</span><span>pluck, shimmer, dissolve</span></div>
+  <div><kbd>F</kbd><span>Full window / room strip</span></div>
+  <div><kbd>M</kbd><span>Next mode (<span id="modeName2">major pentatonic (just)</span>)</span></div>
+  <div><kbd>B</kbd><span>Body scale: 1.70 m adult, reach band</span></div>
+  <div><kbd>S</kbd><span>Sound on / off</span></div>
+  <div><kbd>R</kbd><span>Remove pinned hands</span></div>
+  <div><kbd>D</kbd><span>Auto-demo on / off</span></div>
+  <div><kbd>H</kbd><span>This help</span></div>
+  <div style="margin-top:8px;font-size:11px;display:block">One person with two hands (up to 1.6 m apart) already makes a high, bell-like thread. Threads across walls (several people) are deeper, wider, and add a fifth. Length = pitch (3 octaves, just intonation, always consonant). A hand alone sings by its x position. Height sets brightness and decay up to 3.0 m; the image is 3.75 m. The room wraps horizontally: P3 continues into P4. With no input for 4 s the auto-demo plays.</div>
+</div>
+<div id="err">WebGL2 with float render targets is required.</div>
+
+<script>
+(() => {
+'use strict';
+const Q = new URLSearchParams(location.search);
+const CAPTURE = Q.has('capture');
+if (CAPTURE) document.body.classList.add('capture');
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: 'high-performance', preserveDrawingBuffer: CAPTURE });
+const fail = (m) => { const e = document.getElementById('err'); e.textContent = m; e.style.display = 'flex'; throw new Error(m); };
+if (!gl) fail('WebGL2 is required.');
+if (!gl.getExtension('EXT_color_buffer_float') && !gl.getExtension('EXT_color_buffer_half_float')) fail('Float render targets are required.');
+
+// ───────────────────────── helpers ─────────────────────────
+function mulberry(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const rnd = mulberry(CAPTURE ? Number(Q.get('seed') || 7) : (Date.now() ^ 0x9e3779b9));
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const wrapD = (d) => d - Math.round(d);              // signed shortest difference on the 0..1 loop
+const wrap01 = (u) => ((u % 1) + 1) % 1;
+
+// ───────────────────────── room constants ─────────────────────────
+const STRIP_W = 7196, STRIP_H = 912, STRIP_ASPECT = STRIP_W / STRIP_H;
+const WALLS = [['P4', 0, 1912], ['P1', 1912, 1692], ['P2', 3604, 1920], ['P3', 5524, 1672]];   // name, x0, width (px of the strip)
+const WALL_C = WALLS.map((w) => (w[1] + w[2] / 2) / STRIP_W);
+const WALL_H_M = 3.75, REACH_M = 3.0;                                  // image height / how high people reach
+const PERIM_M = STRIP_W * WALL_H_M / STRIP_H;                          // 29.6 m of wall around the room
+const reach = (v) => clamp(v * WALL_H_M / REACH_M, 0, 1);             // vertical mappings max out at 3.0 m
+
+// ───────────────────────── GL plumbing ─────────────────────────
+function compile(type, src, name) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(s) || ''; console.error(`[${name}] ${log}`); fail('Shader error in ' + name);
+  }
+  return s;
+}
+const programs = {};
+function program(name, vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs, name + '.vs')); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs, name + '.fs'));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { console.error(name, gl.getProgramInfoLog(p)); fail('Link error in ' + name); }
+  p.u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); p.u[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name); }
+  programs[name] = p; return p;
+}
+const HEAD = `#version 300 es
+precision highp float; precision highp int;
+`;
+// the palette: gold <-> pearl <-> silver-blue (hue 0 .. 0.5 .. 1)
+const PAL = `
+vec3 hueCol(float h){
+  const vec3 G = vec3(1.00,0.78,0.46), P = vec3(0.97,0.95,0.91), B = vec3(0.50,0.69,0.96);
+  h = clamp(h,0.0,1.0);
+  return h < 0.5 ? mix(G, P, smoothstep(0.0,0.5,h)) : mix(P, B, smoothstep(0.5,1.0,h));
+}
+`;
+const FS_VERT = HEAD + `out vec2 vUv; void main(){ vec2 p = vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); vUv = p; gl_Position = vec4(p*2.0-1.0, 0.0, 1.0); }`;
+
+// ── threads: one instance = one filament; 73 samples along a slightly catenary curve, a ribbon with a soft profile
+const THREAD_VS = HEAD + PAL + `
+layout(location=0) in vec4 aAB;   // endpoints (u,v) of A and B
+layout(location=1) in vec4 aS;    // grow, sag (height units), vibration amplitude, intensity
+layout(location=2) in vec4 aT;    // phase, hueA, hueB, bundle spread
+layout(location=3) in vec4 aF;    // filament: signed offset, rand, rand, brightness
+uniform float uAspect, uTime, uOffX, uHalfH;
+out vec2 vL; out vec4 vC;
+const float PI = 3.14159265; const int NS = 72;
+vec2 A, dP, nr; float sagA;
+vec2 curve(float t){
+  vec2 p = A + dP*t;
+  const float k = 1.8;
+  float shp = (cosh(k) - cosh(k*(2.0*t-1.0))) / (cosh(k) - 1.0);   // catenary profile, 0 at the hands, 1 at mid-span
+  p.y -= sagA*shp;
+  float v = 0.0;
+  for (int m=1; m<=3; m++){ float fm = float(m);                      // the first three modes of the string
+    v += aS.z/pow(fm,1.3) * sin(fm*PI*t) * sin(uTime*14.5*fm*(1.0+0.012*fm*fm) + aT.x*fm + aF.y*0.5); }
+  return p + nr*v;
+}
+vec2 full(float t){
+  float env = pow(max(sin(PI*t),0.0), 0.7);
+  float br = sin(6.2831853*(0.5+1.1*aF.y)*t + uTime*(0.18+0.22*aF.z) + aF.x*9.0);   // filaments weave slowly through each other
+  return curve(t) + nr*(aT.w*aF.x*(0.55+0.45*br)*env);
+}
+void main(){
+  int seg = gl_VertexID>>1; float side = float((gl_VertexID&1)*2-1);
+  vec2 a = aAB.xy, b = aAB.zw; vec2 d = b-a; d.x -= floor(d.x+0.5);       // shortest way around the room
+  A = vec2(a.x*uAspect, a.y); dP = vec2(d.x*uAspect, d.y);
+  float len = max(length(dP), 1e-4); nr = vec2(-dP.y, dP.x)/len; sagA = aS.y;
+  float u01 = float(seg)/float(NS); float t = u01*aS.x;
+  float e = 0.5/float(NS)*max(aS.x,0.05);
+  vec2 p = full(t), p0 = full(max(t-e,0.0)), p1 = full(min(t+e,1.0));
+  vec2 tg = normalize(p1-p0+vec2(1e-7)); vec2 n = vec2(-tg.y, tg.x);
+  vec2 P = p + n*side*uHalfH; P.x += uOffX;
+  gl_Position = vec4(P.x/uAspect*2.0-1.0, P.y*2.0-1.0, 0.0, 1.0);
+  float tip = aS.x < 0.999 ? smoothstep(1.0, 0.78, u01) : 1.0;
+  float endg = 0.62 + 0.38*pow(1.0 - sin(PI*t), 2.0);
+  float bead = pow(0.5+0.5*sin(6.2831853*(t*1.7 - uTime*0.08 + aT.x)), 10.0);
+  float shim = 0.84 + 0.16*sin(uTime*2.3 + t*17.0 + aF.y*6.2831853);
+  float I = aS.w * aF.w * tip * endg * shim * (1.0 + 1.3*bead);
+  float h = clamp(mix(aT.y, aT.z, t) + (aF.y-0.5)*0.24, 0.0, 1.0);
+  vec3 col = mix(hueCol(h), vec3(0.98,0.96,0.92), 0.26*(1.0-abs(aF.x)));
+  vL = vec2(side, t); vC = vec4(col, I);
+}`;
+const THREAD_FS = HEAD + `in vec2 vL; in vec4 vC; out vec4 o; void main(){ float a = exp(-vL.x*vL.x*3.4); o = vec4(vC.rgb*vC.a*a, 1.0); }`;
+
+// ── hands: soft light, faint pulse ring, a thin static iris
+const HAND_VS = HEAD + `
+layout(location=0) in vec4 aH;    // u, v, core radius (height units), intensity
+layout(location=1) in vec4 aH2;   // hue, ring progress (<0 none), ring amplitude, seed
+uniform float uAspect, uOffX;
+out vec2 vL; out vec4 vA; out vec4 vB;
+const vec2 C[4] = vec2[4](vec2(-1,-1), vec2(1,-1), vec2(-1,1), vec2(1,1));
+void main(){
+  vec2 c = C[gl_VertexID]; float R = aH.z;
+  vec2 P = vec2(aH.x*uAspect, aH.y) + c*R*7.0; P.x += uOffX;
+  gl_Position = vec4(P.x/uAspect*2.0-1.0, P.y*2.0-1.0, 0.0, 1.0);
+  vL = c*7.0; vA = aH; vB = aH2;
+}`;
+const HAND_FS = HEAD + `${PAL}
+in vec2 vL; in vec4 vA; in vec4 vB; out vec4 o;
+void main(){
+  float d = length(vL);
+  float core = exp(-d*d*1.9);
+  float halo = 0.17*exp(-d*0.75)*smoothstep(7.0, 4.5, d);
+  float ph = vB.y;
+  float ring = ph >= 0.0 ? exp(-pow((d-(1.3+ph*5.0))/0.20, 2.0))*pow(1.0-ph, 1.7)*vB.z : 0.0;
+  float iris = exp(-pow((d-2.15)/0.065, 2.0))*0.20;
+  vec3 col = mix(hueCol(vB.x), vec3(0.99,0.97,0.93), clamp(core,0.0,1.0)*0.75);
+  o = vec4(col*(core*1.5 + halo + ring + iris)*vA.w, 1.0);
+}`;
+
+// ── particles (a dissolving thread, a released hand)
+const PART_VS = HEAD + PAL + `
+layout(location=0) in vec4 aP;    // u, v, alpha, size px
+layout(location=1) in vec4 aP2;   // hue, seed
+uniform float uAspect, uTime;
+out vec4 vC;
+void main(){
+  gl_Position = vec4(aP.x*2.0-1.0, aP.y*2.0-1.0, 0.0, 1.0);
+  gl_PointSize = aP.w;
+  float tw = 0.55 + 0.45*sin(uTime*(3.0+aP2.y*6.0) + aP2.y*50.0);
+  vC = vec4(mix(hueCol(aP2.x), vec3(1.0), 0.35), aP.z*tw);
+}`;
+const PART_FS = HEAD + `in vec4 vC; out vec4 o; void main(){ float d = length(gl_PointCoord-0.5)*2.0; float a = exp(-d*d*3.4)*smoothstep(1.0,0.8,d); o = vec4(vC.rgb*vC.a*a, 1.0); }`;
+
+// ── dust: slow drift, lit a little by the hands that are near it
+const DUST_VS = HEAD + PAL + `
+uniform float uAspect, uTime, uPx; uniform vec4 uHand[8];
+out vec4 vC;
+float h1(float n){ return fract(sin(n*127.1)*43758.5453); }
+void main(){
+  float id = float(gl_VertexID);
+  float x = fract(h1(id) + uTime*(0.0016 + 0.0050*h1(id+3.0)));
+  float y0 = 0.02 + 0.96*h1(id+7.0);
+  float y = fract(y0 + uTime*0.0011*(h1(id+13.0)-0.3)) ; y = 0.02 + 0.96*y + 0.016*sin(uTime*(0.07+0.1*h1(id+9.0)) + h1(id+11.0)*6.2831853);
+  float boost = 0.0;
+  for (int i=0;i<8;i++){ vec4 h = uHand[i]; vec2 d = vec2(wrapDx(x-h.x)*uAspect, y-h.y); boost += h.z*exp(-dot(d,d)/0.05); }
+  float q = h1(id+5.0);
+  float tw = 0.6 + 0.4*sin(uTime*(0.4+1.2*q) + q*20.0);
+  float a = (0.045 + 0.13*q*q) * tw * (1.0 + 4.5*boost);
+  gl_Position = vec4(x*2.0-1.0, y*2.0-1.0, 0.0, 1.0);
+  gl_PointSize = (1.1 + 1.9*h1(id+1.0)*h1(id+2.0)) * uPx * (1.0 + 0.6*boost);
+  vC = vec4(mix(vec3(0.62,0.74,0.92), vec3(1.0,0.90,0.72), clamp(boost*1.2 + 0.25*h1(id+4.0),0.0,1.0)), a);
+}`.replace('void main(){', 'float wrapDx(float d){ return d - floor(d+0.5); }\nvoid main(){');
+const DUST_FS = PART_FS;
+
+// ── bloom + composite
+const BLUR_FS = HEAD + `uniform sampler2D uT; uniform vec2 uDir; in vec2 vUv; out vec4 o;
+void main(){
+  vec4 c = texture(uT, vUv)*0.2270270270;
+  c += texture(uT, vUv+uDir*1.3846153846)*0.3162162162; c += texture(uT, vUv-uDir*1.3846153846)*0.3162162162;
+  c += texture(uT, vUv+uDir*3.2307692308)*0.0702702703; c += texture(uT, vUv-uDir*3.2307692308)*0.0702702703;
+  o = c;
+}`;
+const COMP_FS = HEAD + `
+uniform sampler2D uScene, uB1, uB2, uB3; uniform float uTime;
+in vec2 vUv; out vec4 o;
+float dither(){ return (fract(52.9829189*fract(dot(gl_FragCoord.xy, vec2(0.06711056,0.00583715)))) - 0.5)/255.0; }
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
+// a very quiet dark gradient; the haze lobes are periodic in x so the room has no seam
+vec3 bg(vec2 uv){
+  float t = uTime, u = uv.x, v = uv.y;
+  vec3 c = mix(vec3(0.0050,0.0058,0.0090), vec3(0.0140,0.0155,0.0225), pow(1.0-v, 1.7));
+  float w1 = 0.5+0.5*cos(6.2831853*(u - 0.18 - 0.0012*t) + 1.3*sin(v*3.0 + t*0.03));
+  float w2 = 0.5+0.5*cos(6.2831853*(2.0*u + 0.35 + 0.0010*t) + 2.0*sin(v*2.2 - t*0.04));
+  float w3 = 0.5+0.5*cos(6.2831853*(u - 0.68) + 0.8*sin(v*4.0 + t*0.02));
+  c += vec3(0.0190,0.0125,0.0070)*pow(w1,3.0)*smoothstep(1.0,0.0,v);
+  c += vec3(0.0050,0.0105,0.0190)*pow(w2,3.0)*(0.35+0.65*(1.0-v));
+  c += vec3(0.0100,0.0090,0.0080)*pow(w3,4.0)*smoothstep(0.7,0.0,v)*0.6;
+  return c;
+}
+void main(){
+  vec2 uv = vUv;
+  vec3 s = texture(uScene, uv).rgb;
+  vec3 b = texture(uB1, uv).rgb*0.34 + texture(uB2, uv).rgb*0.52 + texture(uB3, uv).rgb*0.78;
+  vec3 col = bg(uv) + s + b;
+  float y = abs(uv.y-0.5)*2.0; col *= 1.0 - 0.34*smoothstep(0.4,1.05,y);       // vertical only: the room is a seamless loop
+  col = aces(col*1.08);
+  col = pow(col, vec3(1.0/2.2));
+  o = vec4(col + dither(), 1.0);
+}`;
+
+program('thread', THREAD_VS, THREAD_FS); program('hand', HAND_VS, HAND_FS); program('part', PART_VS, PART_FS);
+program('dust', DUST_VS, DUST_FS); program('blur', FS_VERT, BLUR_FS); program('comp', FS_VERT, COMP_FS);
+
+function makeTex(w, h) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  return { t, f, w, h };
+}
+const freeTarget = (r) => { if (r) { gl.deleteTexture(r.t); gl.deleteFramebuffer(r.f); } };
+const bindTex = (unit, tex) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); };
+const full = () => gl.drawArrays(gl.TRIANGLES, 0, 3);
+const sync = () => { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); };
+
+// instanced / dynamic buffers
+const MAXT = 14, FIL = 13, THREAD_FLOATS = 16;
+function dynVAO(bytes, attrs, divisor) {
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, bytes, gl.DYNAMIC_DRAW);
+  const stride = attrs.length * 16;
+  attrs.forEach((_, i) => { gl.enableVertexAttribArray(i); gl.vertexAttribPointer(i, 4, gl.FLOAT, false, stride, i * 16); gl.vertexAttribDivisor(i, divisor); });
+  gl.bindVertexArray(null); return { vao, buf };
+}
+const thrB = dynVAO(MAXT * FIL * THREAD_FLOATS * 4, [0, 1, 2, 3], 1);
+const handB = dynVAO(16 * 8 * 4, [0, 1], 1);
+const PMAX = 7000;
+const partB = dynVAO(PMAX * 8 * 4, [0, 1], 0);
+const emptyVAO = gl.createVertexArray();
+
+// ───────────────────────── layout ─────────────────────────
+const S = {
+  strip: Q.has('strip'), body: Q.has('body'), help: false, demo: !CAPTURE, sound: true, mode: 0,
+  cw: 0, ch: 0, vx: 0, vy: 0, vw: 0, vh: 0, aspect: 1, time: 0, acc: 0, pxK: 1, dustN: 600,
+};
+let scene = null, bl = [];
+function layout() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const iw = window.innerWidth, ih = window.innerHeight;
+  let scale;
+  if (S.strip) scale = Math.min(3840 / iw, Math.max(dpr, 2)); else scale = Math.min(dpr, 2560 / iw);
+  S.cw = Math.round(iw * scale); S.ch = Math.round(ih * scale);
+  canvas.width = S.cw; canvas.height = S.ch;
+  if (S.strip) { S.vw = S.cw; S.vh = Math.round(S.cw / STRIP_ASPECT); S.vx = 0; S.vy = Math.floor((S.ch - S.vh) / 2); }
+  else { S.vw = S.cw; S.vh = S.ch; S.vx = 0; S.vy = 0; }
+  S.aspect = S.vw / S.vh; S.pxK = S.cw / 1920; S.dustN = clamp(Math.round(300 * S.aspect + 120), 400, 2400);
+  const strip = document.getElementById('strip');
+  strip.style.display = S.strip ? 'block' : 'none';
+  if (S.strip) {
+    const k = iw / S.cw; strip.style.top = (S.vy * k) + 'px'; strip.style.height = (S.vh * k) + 'px';
+    strip.querySelectorAll('.div,.lab,.seam').forEach((n) => n.remove());
+    WALLS.forEach(([nm, x0, w], i) => {
+      const lab = document.createElement('div'); lab.className = 'lab'; lab.textContent = nm; lab.style.left = ((x0 + w / 2) / STRIP_W * 100) + '%'; strip.appendChild(lab);
+      if (i > 0) { const dv = document.createElement('div'); dv.className = 'div'; dv.style.left = (x0 / STRIP_W * 100) + '%'; strip.appendChild(dv); }
+    });
+    const sm = document.createElement('div'); sm.className = 'seam'; sm.style.left = '0'; sm.textContent = '← P3 continues here (seamless wrap)'; strip.appendChild(sm);
+    const sm2 = document.createElement('div'); sm2.className = 'seam'; sm2.style.right = '0'; sm2.textContent = '7196 × 912 · wraps to P4 →'; strip.appendChild(sm2);
+  }
+}
+function allocate() {
+  freeTarget(scene); bl.forEach(freeTarget);
+  scene = makeTex(S.vw, S.vh);
+  bl = [];
+  [2, 4, 8].forEach((d) => { const w = Math.max(16, Math.round(S.vw / d)), h = Math.max(8, Math.round(S.vh / d)); bl.push([makeTex(w, h), makeTex(w, h)]); });
+}
+
+// ───────────────────────── music: modes in just intonation (always consonant) ─────────────────────────
+const ROOT = 146.83;   // D3
+const MODES = [
+  { name: 'major pentatonic (just)', r: [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3] },
+  { name: 'minor pentatonic (just)', r: [1, 6 / 5, 4 / 3, 3 / 2, 9 / 5] },
+  { name: 'open fifths (suspended)', r: [1, 9 / 8, 4 / 3, 3 / 2, 16 / 9] },
+];
+let FREQS = [];
+function buildFreqs() { FREQS = []; for (let k = 0; k <= 3; k++) for (const r of MODES[S.mode].r) FREQS.push(ROOT * Math.pow(2, k) * r); FREQS.push(ROOT * 16); }
+buildFreqs();
+function nearestIdx(f) { let bi = 0, bd = 1e9; const l = Math.log2(f); for (let i = 0; i < FREQS.length; i++) { const d = Math.abs(Math.log2(FREQS[i]) - l); if (d < bd) { bd = d; bi = i; } } return bi; }
+// a longer thread is a longer string: lower. 0.3 m .. 14.8 m (half the room). One person's thread (<= 1.6 m) rings high; a room-wide one is deep -> 3 octaves, snapped to the mode
+function lengthToFreq(Lm) { const x = clamp(Math.log(Lm / 0.3) / Math.log(14.8 / 0.3), 0, 1); return ROOT * Math.pow(2, 3 * (1 - x)); }
+function handFreq(u) { const p = u < 0.5 ? 2 * u : 2 - 2 * u; const idx = Math.min(9, Math.floor(p * 10)); return FREQS[idx] * 2; }   // palindromic: no jump at the P3 -> P4 seam
+const wallOf = (u) => { const x = wrap01(u) * STRIP_W; for (let i = 3; i >= 0; i--) if (x >= WALLS[i][1]) return i; return 0; };
+const panOf = (u) => Math.sin(2 * Math.PI * u) * 0.85;
+
+// ───────────────────────── sound ─────────────────────────
+const Sound = (() => {
+  let ctx = null, master, dry, send, subBus, noiseBuf, loopNoise, active = 0;
+  function impulse(c, seconds, seed) {
+    const sr = c.sampleRate, len = Math.floor(sr * (seconds + 0.02)), pre = Math.floor(sr * 0.022), buf = c.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const r = mulberry(seed * 977 + ch * 131), d = buf.getChannelData(ch); let y = 0;
+      for (let n = pre; n < len; n++) {
+        const t = (n - pre) / sr, env = Math.pow(10, -3 * t / seconds) * Math.min(1, (n - pre) / (sr * 0.02));
+        const cut = Math.max(900, 8000 * Math.exp(-t * 1.2)), a = 1 - Math.exp(-2 * Math.PI * cut / sr);
+        y += a * (r() * 2 - 1 - y); d[n] = y * env;
+      }
+    }
+    return buf;
+  }
+  function pad() {
+    const t = ctx.currentTime;
+    const bus = ctx.createGain(); bus.gain.setValueAtTime(0, t); bus.gain.linearRampToValueAtTime(1, t + 7); bus.connect(master);
+    const ps = ctx.createGain(); ps.gain.value = 0.7; bus.connect(ps); ps.connect(send);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 520; lp.Q.value = 0.3;
+    const trem = ctx.createGain(); trem.gain.value = 0.75; const dg = ctx.createGain(); dg.gain.value = 0.034;
+    // root, fifth, octave, twelfth: consonant with every mode; slow beating from tiny detunes
+    [[73.42, 'triangle', 1, -3], [110.13, 'sine', 0.8, 2], [146.83, 'sine', 0.55, -2], [146.83, 'sine', 0.40, 5], [220.2, 'sine', 0.26, 0], [293.66, 'sine', 0.10, 3]].forEach(([f, ty, g, det]) => {
+      const o = ctx.createOscillator(); o.type = ty; o.frequency.value = f; o.detune.value = det;
+      const og = ctx.createGain(); og.gain.value = g; o.connect(og); og.connect(lp); o.start(t);
+    });
+    lp.connect(trem); trem.connect(dg); dg.connect(bus);
+    const lfo = (rate, amt, target) => { const o = ctx.createOscillator(); o.frequency.value = rate; const g = ctx.createGain(); g.gain.value = amt; o.connect(g); g.connect(target); o.start(t); };
+    lfo(0.05, 160, lp.frequency); lfo(0.09, 0.22, trem.gain);
+    // sub: a D1 sine that breathes
+    const so = ctx.createOscillator(); so.type = 'sine'; so.frequency.value = 36.71; const sg = ctx.createGain(); sg.gain.value = 0.34; so.connect(sg); sg.connect(subBus); so.start(t);
+    lfo(0.045, 0.12, sg.gain);
+    // air: very quiet, far away
+    const n1 = ctx.createBufferSource(); n1.buffer = loopNoise; n1.loop = true; n1.playbackRate.value = 0.8;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 0.7;
+    const g1 = ctx.createGain(); g1.gain.value = 0.0040; n1.connect(bp); bp.connect(g1); g1.connect(bus); n1.start(t, 0.7);
+    lfo(0.04, 900, bp.frequency); lfo(0.06, 0.002, g1.gain);
+  }
+  function init() {
+    if (ctx) { ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    ctx = new AC({ latencyHint: 'interactive' });
+    master = ctx.createGain(); master.gain.value = S.sound ? 0.9 : 0;
+    const lim = ctx.createDynamicsCompressor();   // limiter
+    lim.threshold.value = -12; lim.knee.value = 8; lim.ratio.value = 16; lim.attack.value = 0.003; lim.release.value = 0.2;
+    master.connect(lim); lim.connect(ctx.destination);
+    dry = ctx.createGain(); dry.gain.value = 0.85; dry.connect(master);
+    // the sub channel of the 4.1 room: everything below ~110 Hz, centred
+    subBus = ctx.createGain(); subBus.gain.value = 1;
+    const sl = ctx.createBiquadFilter(); sl.type = 'lowpass'; sl.frequency.value = 110; sl.Q.value = 0.5; subBus.connect(sl); sl.connect(master);
+    send = ctx.createGain(); send.gain.value = 1;
+    const conv = ctx.createConvolver(); conv.buffer = impulse(ctx, 5.4, 9);          // generated convolution reverb
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 200;
+    const wet = ctx.createGain(); wet.gain.value = 0.72; send.connect(conv); conv.connect(hp); hp.connect(wet); wet.connect(master);
+    const merger = ctx.createChannelMerger(2);
+    const dl = ctx.createDelay(1.5), dr = ctx.createDelay(1.5); dl.delayTime.value = 0.41; dr.delayTime.value = 0.63;
+    const fb = ctx.createGain(); fb.gain.value = 0.34; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200;
+    const eg = ctx.createGain(); eg.gain.value = 0.15;
+    send.connect(dl); dl.connect(lp); lp.connect(dr); dr.connect(fb); fb.connect(dl);
+    dl.connect(merger, 0, 0); dr.connect(merger, 0, 1); merger.connect(eg); eg.connect(master);
+    const nb = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.2), ctx.sampleRate), nd = nb.getChannelData(0), r = mulberry(11);
+    for (let i = 0; i < nd.length; i++) nd[i] = r() * 2 - 1; noiseBuf = nb;
+    const lb = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 4), ctx.sampleRate), ld = lb.getChannelData(0), r2 = mulberry(23);
+    for (let i = 0; i < ld.length; i++) ld[i] = r2() * 2 - 1; loopNoise = lb;
+    pad();
+  }
+  const T = (p, v, tc) => p.setTargetAtTime(v, ctx.currentTime, tc);
+  function setOn(on) { if (master) master.gain.setTargetAtTime(on ? 0.9 : 0, ctx.currentTime, 0.08); }
+  const live = () => !!ctx && ctx.state === 'running' && S.sound;
+
+  // a slow bowed string: two detuned saws + sub-octave sine, vibrato that arrives late, a drifting bow-pressure filter, a trace of bow hiss
+  function bow(f, u, b, cross) {
+    const t = ctx.currentTime;
+    const out = ctx.createGain(); out.gain.value = 0;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.8; lp.frequency.value = f * 3;
+    const oscs = [];
+    const mk = (type, fr, det, g) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = fr; o.detune.value = det; const gg = ctx.createGain(); gg.gain.value = g; o.connect(gg); gg.connect(lp); o.start(t); oscs.push(o); return { o, gg }; };
+    const a = mk('sawtooth', f, -3, 0.46), c = mk('sawtooth', f, 4, 0.46), s = mk('sine', f * 0.5, 0, 0.5), h = mk('triangle', f * 2, 2, 0.10);
+    if (cross) { const fo = mk('sine', f * 1.5, 2, 0.30); const fo2 = mk('sine', f * 3, -3, 0.08); }
+    const vib = ctx.createOscillator(); vib.frequency.value = 4.4 + rnd() * 1.2; const vg = ctx.createGain(); vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(5.5, t + 2.4);
+    vib.connect(vg); [a.o, c.o, h.o].forEach((o) => vg.connect(o.detune)); vib.start(t); oscs.push(vib);
+    const bl = ctx.createOscillator(); bl.frequency.value = 0.14 + rnd() * 0.12; const blg = ctx.createGain(); blg.gain.value = f * 0.55; bl.connect(blg); blg.connect(lp.frequency); bl.start(t); oscs.push(bl);
+    const ns = ctx.createBufferSource(); ns.buffer = loopNoise; ns.loop = true;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * 3; bp.Q.value = 2.5;
+    const ng = ctx.createGain(); ng.gain.value = 0; ns.connect(bp); bp.connect(ng); ng.connect(out); ns.start(t, rnd() * 3);
+    lp.connect(out);
+    const pan = ctx.createStereoPanner(); pan.pan.value = panOf(u); out.connect(pan); pan.connect(dry);
+    const sg = ctx.createGain(); sg.gain.value = 0.55; pan.connect(sg); sg.connect(send);
+    const sub = ctx.createGain(); sub.gain.value = 0.22; s.gg.connect(sub); sub.connect(subBus);
+    return {
+      set(fr, uu, level, bright, hiss) {
+        const k = 0.05;
+        a.o.frequency.setTargetAtTime(fr, ctx.currentTime, k); c.o.frequency.setTargetAtTime(fr, ctx.currentTime, k);
+        s.o.frequency.setTargetAtTime(fr * 0.5, ctx.currentTime, k); h.o.frequency.setTargetAtTime(fr * 2, ctx.currentTime, k);
+        T(lp.frequency, fr * (2.0 + 5.5 * bright) + 260, 0.12); bp.frequency.setTargetAtTime(fr * 3, ctx.currentTime, 0.1);
+        T(out.gain, level, 0.5); T(ng.gain, hiss * 0.05, 0.2); T(pan.pan, panOf(uu), 0.12);
+      },
+      release() {
+        const tt = ctx.currentTime; out.gain.cancelScheduledValues(tt); out.gain.setTargetAtTime(0, tt, 0.05);
+        setTimeout(() => { try { oscs.forEach((o) => o.stop()); ns.stop(); pan.disconnect(); sg.disconnect(); sub.disconnect(); } catch (e) {} }, 700);
+      },
+    };
+  }
+  // the soft solo tone of a hand
+  function tone(f, u) {
+    const t = ctx.currentTime;
+    const out = ctx.createGain(); out.gain.value = 0;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600; lp.Q.value = 0.3;
+    const oscs = [];
+    const mk = (fr, g, det) => { const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = fr; o.detune.value = det; const gg = ctx.createGain(); gg.gain.value = g; o.connect(gg); gg.connect(lp); o.start(t); oscs.push(o); return o; };
+    const o1 = mk(f, 1, 0), o2 = mk(f * 2, 0.26, 3), o3 = mk(f * 3, 0.07, -4);
+    lp.connect(out); const pan = ctx.createStereoPanner(); pan.pan.value = panOf(u); out.connect(pan); pan.connect(dry);
+    const sg = ctx.createGain(); sg.gain.value = 0.8; pan.connect(sg); sg.connect(send);
+    return {
+      set(fr, uu, level) { const tt = ctx.currentTime; o1.frequency.setTargetAtTime(fr, tt, 0.12); o2.frequency.setTargetAtTime(fr * 2, tt, 0.12); o3.frequency.setTargetAtTime(fr * 3, tt, 0.12); T(out.gain, level, 0.28); T(pan.pan, panOf(uu), 0.15); },
+      release() { const tt = ctx.currentTime; out.gain.cancelScheduledValues(tt); out.gain.setTargetAtTime(0, tt, 0.35); setTimeout(() => { try { oscs.forEach((o) => o.stop()); pan.disconnect(); sg.disconnect(); } catch (e) {} }, 3000); },
+    };
+  }
+  // the pluck: a bright harmonic string (partials 1..8, each with its own decay) + a shimmer of octave/twelfth that flutters and fades
+  function pluck(f, u, vel, b, cross) {
+    if (!live() || active > 9) return;
+    const t0 = ctx.currentTime + 0.004;
+    const out = ctx.createGain(); out.gain.value = 1;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200 + 9000 * Math.pow(b, 1.1); lp.Q.value = 0.4;
+    const pan = ctx.createStereoPanner(); pan.pan.value = panOf(u);
+    out.connect(lp); lp.connect(pan); pan.connect(dry);
+    const sg = ctx.createGain(); sg.gain.value = 0.85; pan.connect(sg); sg.connect(send);
+    const oscs = [], dec = (2.4 + 2.4 * (1 - b * 0.5)) * (cross ? 1.35 : 1);
+    const peak = 0.12 * clamp(vel, 0.1, 1.2);
+    for (let n = 1; n <= 8; n++) {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f * n * (1 + 0.00018 * n * n);
+      const g = ctx.createGain(); const a = peak / Math.pow(n, 1.05) * (n > 4 ? (0.35 + 0.65 * b) : 1);
+      const d = dec / (1 + 0.45 * (n - 1));
+      g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(a, t0 + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.003 + d);
+      o.connect(g); g.connect(out); oscs.push([o, t0 + 0.003 + d + 0.1]);
+    }
+    for (const [mult, amp, det] of (cross ? [[2, 0.5, 4], [3, 0.38, -5], [4, 0.26, 3], [6, 0.16, 2]] : [[2, 0.5, 4], [3, 0.32, -5], [4, 0.2, 3]])) {                    // shimmer
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f * mult; o.detune.value = det;
+      const g = ctx.createGain(); const base = peak * amp * (0.6 + 0.6 * b);
+      g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(base, t0 + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 4.2);
+      const lf = ctx.createOscillator(); lf.frequency.value = 5.2 + rnd() * 2.2; const lg = ctx.createGain(); lg.gain.value = base * 0.55; lf.connect(lg); lg.connect(g.gain);
+      o.connect(g); g.connect(out); const sh = ctx.createGain(); sh.gain.value = 1.2; g.connect(sh); sh.connect(send);
+      oscs.push([o, t0 + 4.4], [lf, t0 + 4.4]);
+    }
+    const ns = ctx.createBufferSource(); ns.buffer = noiseBuf;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3200 + 3000 * b; bp.Q.value = 1.6;
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(0.0001, t0); ng.gain.linearRampToValueAtTime(0.05 * vel, t0 + 0.002); ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.03);
+    ns.connect(bp); bp.connect(ng); ng.connect(out); ns.start(t0, rnd() * 0.1, 0.05);
+    const so = ctx.createOscillator(); so.type = 'sine'; so.frequency.value = f * 0.5; const sgn = ctx.createGain();
+    sgn.gain.setValueAtTime(0.0001, t0); sgn.gain.linearRampToValueAtTime(0.10 * vel, t0 + 0.01); sgn.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.4); so.connect(sgn); sgn.connect(subBus); oscs.push([so, t0 + 1.5]);
+    active++; let maxEnd = 0;
+    oscs.forEach(([o, end]) => { o.start(t0); o.stop(end); maxEnd = Math.max(maxEnd, end); });
+    setTimeout(() => { active--; try { out.disconnect(); lp.disconnect(); pan.disconnect(); sg.disconnect(); } catch (e) {} }, (maxEnd - ctx.currentTime + 0.3) * 1000);
+  }
+  return { init, setOn, bow, tone, pluck, live, get on() { return !!ctx && ctx.state === 'running'; } };
+})();
+
+// ───────────────────────── hands ─────────────────────────
+const hands = []; let handSeq = 0, pinSeq = 0;
+function addHand(id, u, v, o = {}) {
+  const h = { id, u: wrap01(u), v: clamp(v, 0.03, 0.97), tu: wrap01(u), tv: clamp(v, 0.03, 0.97), vx: 0, vy: 0, spd: 0, born: S.time, alive: true, die: 0,
+    pinned: !!o.pinned, demo: !!o.demo, hue: o.hue != null ? o.hue : ((0.12 + handSeq * 0.382) % 1), seed: rnd(), voice: null, deg: 0, glow: 0 };
+  handSeq++; hands.push(h); lastHandGrid = null; return h;
+}
+let lastHandGrid = null;
+function releaseHand(h) {
+  if (!h.alive) return; h.alive = false; h.die = S.time;
+  for (const th of threads) if (th.state === 'held' && (th.a === h || th.b === h)) freeThread(th);
+  if (h.voice) { h.voice.release(); h.voice = null; }
+  for (let i = 0; i < 9; i++) emit(h.u, h.v, (rnd() - 0.5) * 0.05, (rnd() - 0.2) * 0.04, 1.4 + rnd() * 1.6, 1.6 + rnd() * 2.0, h.hue);
+}
+function handStep(dt) {
+  for (const h of hands) {
+    if (!h.alive) continue;
+    const u0 = h.u, v0 = h.v;
+    h.u = wrap01(h.u + wrapD(h.tu - h.u) * 0.38); h.v += (h.tv - h.v) * 0.38;
+    h.vx = lerp(h.vx, wrapD(h.u - u0) * S.aspect / dt, 0.3); h.vy = lerp(h.vy, (h.v - v0) / dt, 0.3);
+    h.spd = Math.hypot(h.vx, h.vy);
+  }
+  for (let i = hands.length - 1; i >= 0; i--) if (!hands[i].alive && S.time - hands[i].die > 1.8) hands.splice(i, 1);
+}
+
+// ───────────────────────── threads ─────────────────────────
+const threads = [];
+const degreeOf = (h) => { let n = 0; for (const t of threads) if (t.state === 'held' && (t.a === h || t.b === h)) n++; return n; };
+function ensureThreads() {
+  const el = hands.filter((h) => h.alive && S.time - h.born > 0.30);
+  if (el.length < 2) return;
+  let held = 0; for (const t of threads) if (t.state === 'held') held++;
+  const pairs = [];
+  for (let i = 0; i < el.length; i++) for (let j = i + 1; j < el.length; j++) {
+    if (threads.some((t) => t.state === 'held' && ((t.a === el[i] && t.b === el[j]) || (t.a === el[j] && t.b === el[i])))) continue;
+    pairs.push([Math.abs(wrapD(el[i].u - el[j].u)) * PERIM_M + Math.abs(el[i].v - el[j].v) * WALL_H_M, el[i], el[j]]);
+  }
+  pairs.sort((x, y) => x[0] - y[0]);
+  for (const [, a, b] of pairs) {
+    if (held >= MAXT) break;
+    if (degreeOf(a) >= 3 || degreeOf(b) >= 3) continue;
+    makeThread(a, b); held++;
+  }
+}
+function makeThread(a, b) {
+  const fil = [];
+  for (let i = 0; i < FIL; i++) {
+    const x = ((i + 0.5) / FIL * 2 - 1), r1 = clamp(x * (0.75 + 0.35 * rnd()) + (rnd() - 0.5) * 0.12, -1, 1);
+    fil.push([r1, rnd(), rnd(), (0.28 + 0.72 * (1 - Math.abs(r1) * 0.8)) * (0.72 + 0.28 * rnd())]);
+  }
+  const th = { a, b, state: 'held', born: S.time, grow: 0, sag: 0, slack: 0.22, vib: 0.004, intens: 0, spread: 0.0085 + rnd() * 0.002, phase: rnd() * 6.28, fil,
+    au: a.u, av: a.v, bu: b.u, bv: b.v, len: 0, prevLen: 0, deg: -1, freq: ROOT * 2, voice: null, ft: 0, freeAt: 0, energy: 0, emitAcc: 0 };
+  threads.push(th); return th;
+}
+function geom(th) {   // chord in height units + midpoint
+  const du = wrapD(th.bu - th.au); th.dxP = du * S.aspect; th.dyP = th.bv - th.av;
+  th.lenP = Math.hypot(th.dxP, th.dyP);
+  th.lenM = Math.hypot(du * PERIM_M, th.dyP * WALL_H_M);
+  th.mu = wrap01(th.au + du / 2); th.mv = (th.av + th.bv) / 2;
+  th.cross = wallOf(th.au) !== wallOf(th.bu);
+}
+function sagOf(th) { return Math.min(th.slack * (0.09 + th.lenP * 0.16), 0.85 * Math.min(th.av, th.bv) + 0.035); }
+function freeThread(th) {
+  th.state = 'free'; th.freeAt = S.time; th.ft = 0;
+  geom(th);
+  if (th.voice) { th.voice.release(); th.voice = null; }
+  Sound.pluck(th.freq, th.mu, (0.4 + 0.6 * th.grow) * clamp(th.intens, 0.2, 1), reach(th.mv), th.cross);
+  for (let i = 0; i < 26; i++) { const t = (i + rnd()) / 26; const p = threadPoint(th, t); emit(p[0], p[1], (rnd() - 0.5) * 0.06, (rnd() - 0.3) * 0.05, 1.2 + rnd() * 1.6, 1.8 + rnd() * 2.4, lerp(th.a.hue, th.b.hue, t)); }
+}
+function threadPoint(th, t) {   // (u, v) of the centre line at parameter t
+  const k = 1.8, shp = (Math.cosh(k) - Math.cosh(k * (2 * t - 1))) / (Math.cosh(k) - 1);
+  const x = th.au * S.aspect + th.dxP * t, y = th.av + th.dyP * t - sagOf(th) * shp * Math.min(1, th.grow);
+  return [wrap01(x / S.aspect), clamp(y, 0.01, 0.99)];
+}
+function threadStep(dt) {
+  for (let i = threads.length - 1; i >= 0; i--) {
+    const th = threads[i];
+    if (th.state === 'held') {
+      th.au = th.a.u; th.av = th.a.v; th.bu = th.b.u; th.bv = th.b.v; geom(th);
+      const age = S.time - th.born;
+      th.grow = 1 - Math.pow(1 - clamp(age / 1.6, 0, 1), 3);
+      const lenRate = (th.lenM - th.prevLen) / dt; th.prevLen = th.lenM; if (age < dt * 1.5) th.prevLen = th.lenM;
+      const target = 0.20 + 0.07 * Math.sin(S.time * 0.21 + th.phase) + clamp(-lenRate * 0.05, -0.1, 0.5);
+      th.slack += (target - th.slack) * 0.07;
+      const sp = th.a.spd + th.b.spd;
+      th.vib = lerp(th.vib, 0.0030 + 0.010 * clamp(sp, 0, 2) + 0.0012 * Math.sin(S.time * 0.9 + th.phase), 0.05);
+      th.intens = lerp(th.intens, 0.55 + 0.45 * reach(th.mv) * 0.5 + 0.35, 0.06) * clamp(age / 0.35, 0, 1) + th.intens * 0 ;
+      th.intens = clamp(th.intens, 0, 1.2);
+      th.spread = lerp(th.spread, 0.0095, 0.02);
+      // pitch from length, snapped to the mode, with a little hysteresis so it doesn't flutter between degrees
+      const raw = lengthToFreq(th.lenM), cand = nearestIdx(raw);
+      if (th.deg < 0) th.deg = cand;
+      else if (cand !== th.deg && Math.abs(Math.log2(raw / FREQS[th.deg])) > Math.abs(Math.log2(raw / FREQS[cand])) + 0.035) th.deg = cand;
+      th.freq = FREQS[th.deg];
+      th.energy = th.intens * th.grow;
+      if (!th.voice && Sound.live()) th.voice = Sound.bow(th.freq, th.mu, reach(th.mv), th.cross);
+      if (th.voice && (stepNo % 3 === 0)) th.voice.set(th.freq, th.mu, 0.050 * th.grow * clamp(th.intens, 0.2, 1), reach(th.mv), clamp(sp * 0.7, 0, 1) + 0.2 * Math.abs(lenRate) / 3);
+    } else {
+      th.ft = S.time - th.freeAt; const ft = th.ft;
+      th.vib = 0.042 * Math.exp(-ft / 0.85) + 0.0015;
+      const s0 = 0.24;
+      th.slack = s0 + (0.9 - s0) * (1 - Math.exp(-ft / 1.5));
+      th.spread = 0.0095 * (1 + 2.6 * (1 - Math.exp(-ft / 1.4)));
+      th.intens = (1 + 1.5 * Math.exp(-ft / 0.12)) * (1 - smooth(0.45, 2.7, ft));
+      th.energy = th.intens * 0.6;
+      // the line gives way to particles: strongest while it still has body
+      if (ft > 0.12 && ft < 2.5) {
+        th.emitAcc += dt * (70 * (1 - smooth(1.2, 2.5, ft)) + 25) ;
+        while (th.emitAcc >= 1) { th.emitAcc -= 1; const t = rnd(); const p = threadPoint(th, t);
+          emit(p[0], p[1], (rnd() - 0.5) * 0.05, 0.004 + rnd() * 0.022, 1.8 + rnd() * 3.0, 1.4 + rnd() * 2.6, lerp(th.a.hue, th.b.hue, t)); }
+      }
+      if (ft > 2.9) threads.splice(i, 1);
+    }
+  }
+}
+
+// ───────────────────────── particles ─────────────────────────
+const Pt = { n: 0, u: new Float32Array(PMAX), v: new Float32Array(PMAX), vx: new Float32Array(PMAX), vy: new Float32Array(PMAX), age: new Float32Array(PMAX), life: new Float32Array(PMAX), size: new Float32Array(PMAX), hue: new Float32Array(PMAX), seed: new Float32Array(PMAX) };
+function emit(u, v, vx, vy, life, size, hue) {
+  if (Pt.n >= PMAX) return; const i = Pt.n++;
+  Pt.u[i] = u; Pt.v[i] = v; Pt.vx[i] = vx; Pt.vy[i] = vy; Pt.age[i] = 0; Pt.life[i] = life; Pt.size[i] = size; Pt.hue[i] = hue; Pt.seed[i] = rnd();
+}
+function particleStep(dt) {
+  for (let i = 0; i < Pt.n; i++) {
+    Pt.age[i] += dt;
+    if (Pt.age[i] >= Pt.life[i]) { const l = --Pt.n; for (const k of ['u', 'v', 'vx', 'vy', 'age', 'life', 'size', 'hue', 'seed']) Pt[k][i] = Pt[k][l]; i--; continue; }
+    const s = Pt.seed[i];
+    Pt.vx[i] += Math.sin(S.time * 0.6 + Pt.v[i] * 8 + s * 6.28) * 0.0030 * dt * 60 * dt; Pt.vy[i] += (Math.cos(S.time * 0.5 + Pt.u[i] * 9 + s * 6.28) * 0.0024 + 0.0012) * dt;
+    Pt.vx[i] *= 0.996; Pt.vy[i] *= 0.996;
+    Pt.u[i] = wrap01(Pt.u[i] + Pt.vx[i] * dt / S.aspect); Pt.v[i] += Pt.vy[i] * dt;
+  }
+}
+
+// ───────────────────────── frame ─────────────────────────
+const thrArr = new Float32Array(MAXT * FIL * THREAD_FLOATS), handArr = new Float32Array(16 * 8), partArr = new Float32Array(PMAX * 8), hv = new Float32Array(32);
+function renderFrame() {
+  const px = S.pxK;
+  // ---- build instance data
+  let nT = 0;
+  for (const th of threads) {
+    if (nT + FIL > MAXT * FIL) break; geom(th);
+    const sag = sagOf(th) * 1;
+    for (const f of th.fil) {
+      thrArr.set([th.au, th.av, th.bu, th.bv, th.grow, sag, th.vib, th.intens * 0.052 * (th.cross ? 1.28 : 1), th.phase, th.a.hue, th.b.hue, th.spread * clamp(0.55 + th.lenP * 1.2, 0.55, 1.3) * (th.cross ? 1.35 : 1), f[0], f[1], f[2], f[3]], nT * 16); nT++;
+    }
+  }
+  let nH = 0; hv.fill(0); let hi = 0;
+  for (const h of hands) {
+    if (nH >= 16) break;
+    const age = S.time - h.born; const dying = !h.alive;
+    const dg = degreeOf(h);
+    const fadeIn = dying ? Math.exp(-(S.time - h.die) / 0.38) : smooth(0, 0.3, age);
+    const pulse = ((S.time - h.born) / 2.7 + h.seed) % 1;
+    const ringAmp = (dg === 0 ? 0.55 : 0.2) * fadeIn;
+    const R = 0.0165 * (1 + 0.10 * Math.sin(S.time * 2.1 + h.seed * 6.28) + 0.05 * clamp(h.spd, 0, 3)) * (dying ? 1 + 1.2 * (1 - fadeIn) : 1);
+    handArr.set([h.u, h.v, R, 0.9 * fadeIn * (dg > 0 ? 1.0 : 0.82), h.hue, ringAmp > 0.01 ? pulse : -1, ringAmp, h.seed], nH * 8); nH++;
+    if (h.alive && hi < 8) { hv[hi * 4] = h.u; hv[hi * 4 + 1] = h.v; hv[hi * 4 + 2] = 0.8 * fadeIn; hi++; }
+  }
+  for (const th of threads) if (hi < 8) { geom(th); hv.set([th.mu, th.mv, 0.5 * clamp(th.intens, 0, 1.5), 0], hi * 4); hi++; }
+  let nP = 0;
+  for (let i = 0; i < Pt.n; i++) {
+    const k = Pt.age[i] / Pt.life[i], a = Math.pow(1 - k, 1.5) * Math.min(1, Pt.age[i] / 0.12) * (0.55 + 0.9 * Math.exp(-Pt.age[i] / 0.5));
+    partArr.set([Pt.u[i], Pt.v[i], a * 0.55, Pt.size[i] * px * 1.25, Pt.hue[i], Pt.seed[i], 0, 0], nP * 8); nP++;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, thrB.buf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, thrArr, 0, nT * 16);
+  gl.bindBuffer(gl.ARRAY_BUFFER, handB.buf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, handArr, 0, nH * 8);
+  gl.bindBuffer(gl.ARRAY_BUFFER, partB.buf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, partArr, 0, nP * 8);
+
+  // ---- scene (additive light on black), wrapped copies at both seams
+  gl.bindFramebuffer(gl.FRAMEBUFFER, scene.f); gl.viewport(0, 0, scene.w, scene.h);
+  gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+  let p = programs.dust; gl.useProgram(p); gl.bindVertexArray(emptyVAO);
+  gl.uniform1f(p.u.uAspect, S.aspect); gl.uniform1f(p.u.uTime, S.time); gl.uniform1f(p.u.uPx, px); gl.uniform4fv(p.u.uHand, hv);
+  gl.drawArrays(gl.POINTS, 0, S.dustN);
+  const offs = [0, -S.aspect, S.aspect];
+  p = programs.thread; gl.useProgram(p); gl.bindVertexArray(thrB.vao);
+  gl.uniform1f(p.u.uAspect, S.aspect); gl.uniform1f(p.u.uTime, S.time); gl.uniform1f(p.u.uHalfH, 2.2 * 1.0 * px / S.vh);
+  if (nT) for (const o of offs) { gl.uniform1f(p.u.uOffX, o); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 146, nT); }
+  p = programs.hand; gl.useProgram(p); gl.bindVertexArray(handB.vao); gl.uniform1f(p.u.uAspect, S.aspect);
+  if (nH) for (const o of offs) { gl.uniform1f(p.u.uOffX, o); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nH); }
+  p = programs.part; gl.useProgram(p); gl.bindVertexArray(partB.vao); gl.uniform1f(p.u.uAspect, S.aspect); gl.uniform1f(p.u.uTime, S.time);
+  if (nP) gl.drawArrays(gl.POINTS, 0, nP);
+  gl.bindVertexArray(null); gl.disable(gl.BLEND);
+
+  // ---- bloom: three separable blurs at 1/2, 1/4, 1/8
+  p = programs.blur; gl.useProgram(p); gl.uniform1i(p.u.uT, 0);
+  let src = scene, kk = 1.6;
+  for (const [A, B] of bl) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, A.f); gl.viewport(0, 0, A.w, A.h); bindTex(0, src.t); gl.uniform2f(p.u.uDir, kk / src.w, 0); full();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, B.f); gl.viewport(0, 0, B.w, B.h); bindTex(0, A.t); gl.uniform2f(p.u.uDir, 0, 1 / A.h); full();
+    src = B; kk = 1.0;
+  }
+  // ---- composite
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, S.cw, S.ch); gl.clearColor(0.016, 0.017, 0.022, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.viewport(S.vx, S.vy, S.vw, S.vh); p = programs.comp; gl.useProgram(p);
+  gl.uniform1f(p.u.uTime, S.time);
+  gl.uniform1i(p.u.uScene, 0); gl.uniform1i(p.u.uB1, 1); gl.uniform1i(p.u.uB2, 2); gl.uniform1i(p.u.uB3, 3);
+  bindTex(0, scene.t); bindTex(1, bl[0][1].t); bindTex(2, bl[1][1].t); bindTex(3, bl[2][1].t); full();
+}
+
+// ───────────────────────── hand tones + meters ─────────────────────────
+const METERS = { v: [0, 0, 0, 0, 0] };
+const mEl = document.getElementById('meters');
+['P4', 'P1', 'P2', 'P3', 'SUB'].forEach((n, i) => { const d = document.createElement('div'); d.className = 'm' + (i === 4 ? ' sub' : ''); d.innerHTML = '<div class="bar"><i></i></div><span>' + n + '</span>'; mEl.appendChild(d); });
+const barEls = [...mEl.querySelectorAll('.bar i')];
+function wallW(u) { const w = WALL_C.map((c) => Math.exp(-Math.pow(wrapD(u - c) / 0.10, 2))); const s = Math.sqrt(w.reduce((a, b) => a + b * b, 0)) || 1; return w.map((x) => x / s); }
+function soundStep() {
+  const lv = [0, 0, 0, 0, 0];
+  const add = (u, e) => { const w = wallW(u); for (let i = 0; i < 4; i++) lv[i] += w[i] * e; };
+  for (const h of hands) {
+    if (!h.alive) continue; const dg = degreeOf(h), e = (dg ? 0.3 : 1.0) * smooth(0, 0.6, S.time - h.born);
+    add(h.u, 0.35 * e);
+    if (!h.voice && Sound.live()) h.voice = Sound.tone(handFreq(h.u), h.u);
+    if (h.voice && stepNo % 3 === 1) {
+      const alone = dg === 0, pulse = 0.78 + 0.22 * Math.sin((S.time - h.born) / 2.7 * 6.2832 + h.seed * 6.28);
+      h.voice.set(handFreq(h.u) * (reach(h.v) > 0.7 ? 2 : 1), h.u, (alone ? 0.030 : 0.0085) * pulse * smooth(0, 0.6, S.time - h.born));
+    }
+  }
+  let sub = 0.28;
+  for (const th of threads) { add(th.state === 'held' ? th.au : th.au, th.energy * 0.5); add(th.bu, th.energy * 0.5); sub += th.energy * 0.12; }
+  lv[4] = sub;
+  for (let i = 0; i < 5; i++) { METERS.v[i] = lerp(METERS.v[i], clamp(lv[i], 0, 1), 0.12); barEls[i].style.height = (METERS.v[i] * 100) + '%'; }
+}
+
+// ───────────────────────── input ─────────────────────────
+let lastInput = CAPTURE ? -1e9 : performance.now();
+function toWorld(e) {
+  const r = canvas.getBoundingClientRect();
+  const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+  if (!S.strip) return { u: px, v: 1 - py, ok: true };
+  const hPx = r.width / STRIP_ASPECT, y0 = (r.height - hPx) / 2, yy = (e.clientY - r.top - y0) / hPx;
+  return { u: px, v: 1 - yy, ok: yy >= 0 && yy <= 1 };
+}
+const held = new Map();
+canvas.addEventListener('pointerdown', (e) => {
+  Sound.init(); document.getElementById('hint').style.opacity = 0; lastInput = performance.now();
+  const w = toWorld(e); if (!w.ok) return;
+  if (e.shiftKey) {                                                     // pin / unpin
+    const r = canvas.getBoundingClientRect(); const k = r.width / S.aspect;   // css px per height unit
+    let hit = null, bd = 1e9;
+    for (const h of hands) { if (!h.alive || !h.pinned) continue; const d = Math.hypot(wrapD(h.u - w.u) * S.aspect * k, (h.v - w.v) * k); if (d < bd) { bd = d; hit = h; } }
+    if (hit && bd < 70) releaseHand(hit); else addHand('p' + (pinSeq++), w.u, w.v, { pinned: true });
+    return;
+  }
+  canvas.setPointerCapture(e.pointerId);
+  held.set(e.pointerId, addHand('m' + e.pointerId, w.u, w.v));
+});
+canvas.addEventListener('pointermove', (e) => {
+  const h = held.get(e.pointerId); if (!h) return; lastInput = performance.now();
+  const w = toWorld(e); h.tu = wrap01(w.u); h.tv = clamp(w.v, 0.03, 0.97);
+});
+const up = (e) => { const h = held.get(e.pointerId); if (h) { releaseHand(h); held.delete(e.pointerId); } lastInput = performance.now(); };
+canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ───────────────────────── auto-demo: virtual PEOPLE at human scale ─────────────────────────
+// A person stands at a spot, raises two hands (0.9–1.9 m high, 0.5–1.6 m apart), holds 6–14 s, lets go, walks (~0.55 m/s) to another spot.
+// One person alone already makes a thread; more people arrive later and make cross-wall threads.
+const uOf = (m) => m / PERIM_M, vOf = (m) => m / WALL_H_M;
+const persons = [0, 1, 2].map((i) => ({ i, state: 'away', wait: [0.4, 10, 27][i], u: [WALL_C[1], WALL_C[3], WALL_C[2]][i], tgt: 0, hold: 0, hands: [null, null], cd: [0, 0], hy: [1.3, 1.5], spread: 1, sc: i === 2 ? 0.7 : 1, hue: [0.14, 0.86, 0.5][i], trail: false, ph: 0, vel: 0 }));
+function personHand(p, k, du) {
+  const h = addHand('d' + p.i + k + '_' + handSeq, wrap01(p.u + du), vOf(p.hy[k] * p.sc), { demo: true, hue: clamp(p.hue + (k ? 0.05 : -0.05), 0, 1) });
+  p.hands[k] = h; return h;
+}
+function demoStep(dt, active) {
+  for (const p of persons) {
+    if (!active) { p.hands.forEach((h, k) => { if (h) { releaseHand(h); p.hands[k] = null; } }); p.state = 'away'; continue; }
+    const alive = (k) => p.hands[k] && p.hands[k].alive;
+    if (p.state === 'away') {
+      p.wait -= dt; if (p.wait > 0) continue;
+      const others = persons.filter((o) => o !== p && o.state !== 'away');
+      let best = null;
+      for (let tries = 0; tries < 10; tries++) { const u = rnd(); if (others.every((o) => Math.abs(wrapD(u - o.u)) * PERIM_M > 2.6)) { best = u; break; } }
+      p.u = best != null ? best : rnd();
+      p.spread = 0.5 + 1.1 * rnd(); p.hy = [0.95 + 0.9 * rnd(), 0.95 + 0.9 * rnd()]; p.hold = (p.i === 0 ? 9 : 6) + 7 * rnd(); p.cd = [0, 0.7 + 0.5 * rnd()]; p.vel = (rnd() - 0.5) * 0.5; p.ph = rnd() * 6; p.state = 'touch'; p.trail = false;
+    }
+    if (p.state === 'touch') {
+      p.hold -= dt; p.ph += dt;
+      p.u = wrap01(p.u + uOf(p.vel) * dt);                                       // a slow shuffle along the wall (<= 0.25 m/s)
+      const sp = p.spread + 0.28 * Math.sin(p.ph * 0.35);
+      for (let k = 0; k < 2; k++) {
+        const du = uOf((k ? 0.5 : -0.5) * sp), ym = (p.hy[k] + 0.12 * Math.sin(p.ph * 0.5 + k * 1.7)) * p.sc;
+        if (!alive(k)) { p.cd[k] -= dt; if (p.cd[k] <= 0 && p.hold > 0.5) personHand(p, k, du); continue; }
+        p.hands[k].tu = wrap01(p.u + du); p.hands[k].tv = vOf(ym);
+      }
+      if (p.hold <= 0) {
+        p.trail = rnd() < 0.35;                                                   // sometimes one hand trails along the wall while walking
+        const rel = [0, 1]; if (p.trail) rel.pop();
+        rel.forEach((k) => { if (alive(k)) { const h = p.hands[k]; setTimeout(() => releaseHand(h), k * 450); p.hands[k] = null; } });
+        let t; do { t = rnd(); } while (Math.abs(wrapD(t - p.u)) * PERIM_M < 2.5);
+        p.tgt = t; p.state = 'walk';
+      }
+      continue;
+    }
+    if (p.state === 'walk') {
+      const d = wrapD(p.tgt - p.u), step = uOf(0.55) * dt;
+      if (Math.abs(d) <= step) { p.u = p.tgt; p.state = 'touch'; p.hold = 6 + 7 * rnd(); p.cd = [0.6, 0.9]; p.spread = 0.5 + 1.1 * rnd(); continue; }
+      p.u = wrap01(p.u + Math.sign(d) * step);
+      if (p.trail && alive(1)) { p.hands[1].tu = wrap01(p.u + uOf(0.5 * p.spread)); }
+      else if (p.trail) p.trail = false;
+    }
+  }
+}
+
+// ───────────────────────── body-scale overlay (B): a 1.70 m adult, a 1.20 m child, the reach bands, to scale ─────────────────────────
+function buildBody() {
+  const el = document.getElementById('body'); el.innerHTML = '';
+  el.style.display = S.body ? 'block' : 'none'; if (!S.body) return;
+  const iw = window.innerWidth, k = iw / S.cw;
+  el.style.left = (S.vx * k) + 'px'; el.style.top = (S.vy * k) + 'px'; el.style.width = (S.vw * k) + 'px'; el.style.height = (S.vh * k) + 'px';
+  const W = S.aspect * WALL_H_M, H = WALL_H_M;                                    // the overlay is in metres: 1 unit = 1 m
+  const X = (m) => (m / W * 100) + '%', Y = (m) => ((1 - m / H) * 100) + '%';
+  const ink = 'rgba(236,226,206,';
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible" fill="none" stroke-linecap="round" stroke-linejoin="round">`;
+  svg += `<rect x="0" y="${H - 2.0}" width="${W}" height="1.2" fill="${ink}.045)" /><line x1="0" x2="${W}" y1="${H - 2.0}" y2="${H - 2.0}" stroke="${ink}.35)" stroke-dasharray="0.08 0.08" vector-effect="non-scaling-stroke"/><line x1="0" x2="${W}" y1="${H - 0.8}" y2="${H - 0.8}" stroke="${ink}.35)" stroke-dasharray="0.08 0.08" vector-effect="non-scaling-stroke"/>`;
+  for (let m = 0; m <= 3; m++) svg += `<line x1="0" x2="0.18" y1="${H - m}" y2="${H - m}" stroke="${ink}.5)" vector-effect="non-scaling-stroke"/>`;
+  const person = (cx, hgt, o) => {          // simple standing figure, arms open a little (arm span ~1.6 m for the adult)
+    const s = hgt / 1.7, y = (m) => H - m * s, x = (m) => cx + m * s;
+    return `<g stroke="${ink}${o})" stroke-width="1.5" fill="${ink}.05)">` +
+      `<ellipse cx="${cx}" cy="${y(1.575)}" rx="${0.095 * s}" ry="${0.115 * s}" vector-effect="non-scaling-stroke"/>` +
+      `<path d="M${x(-0.2)} ${y(1.43)} Q${cx} ${y(1.5)} ${x(0.2)} ${y(1.43)} L${x(0.17)} ${y(0.9)} L${x(0.15)} ${y(0.88)} L${x(0.13)} ${y(0.04)} L${x(0.03)} ${y(0.04)} L${cx} ${y(0.85)} L${x(-0.03)} ${y(0.04)} L${x(-0.13)} ${y(0.04)} L${x(-0.15)} ${y(0.88)} L${x(-0.17)} ${y(0.9)} Z" vector-effect="non-scaling-stroke"/>` +
+      `<path d="M${x(-0.2)} ${y(1.42)} L${x(-0.8)} ${y(1.55)} M${x(0.2)} ${y(1.42)} L${x(0.8)} ${y(1.55)}" fill="none" vector-effect="non-scaling-stroke"/>` +
+      `<circle cx="${x(-0.8)}" cy="${y(1.55)}" r="${0.05 * s}" vector-effect="non-scaling-stroke"/><circle cx="${x(0.8)}" cy="${y(1.55)}" r="${0.05 * s}" vector-effect="non-scaling-stroke"/></g>`;
+  };
+  const ax = WALL_C[1] * W, cx = ax + 2.2;
+  svg += person(ax, 1.7, '.55') + person(cx, 1.2, '.4');
+  svg += `<g stroke="${ink}.5)"><line x1="${ax - 0.8}" x2="${ax + 0.8}" y1="${H - 0.55}" y2="${H - 0.55}" vector-effect="non-scaling-stroke"/><line x1="${ax - 0.8}" x2="${ax - 0.8}" y1="${H - 0.5}" y2="${H - 0.6}" vector-effect="non-scaling-stroke"/><line x1="${ax + 0.8}" x2="${ax + 0.8}" y1="${H - 0.5}" y2="${H - 0.6}" vector-effect="non-scaling-stroke"/>`;
+  svg += `<line x1="${cx + 0.55}" x2="${cx + 0.55}" y1="${H - 0.6}" y2="${H - 1.4}" vector-effect="non-scaling-stroke"/></g></svg>`;
+  const lab = (x, y, t, st) => `<div class="bl" style="left:${X(x)};top:${Y(y)};${st || ''}">${t}</div>`;
+  el.innerHTML = svg + lab(0.25, 2.0, '2.0 m', 'transform:translateY(-130%)') + lab(0.25, 0.8, '0.8 m &nbsp;comfortable reach (adult 1.70 m)', 'transform:translateY(20%)') +
+    lab(ax, 1.7, '1.70 m', 'transform:translate(-50%,-190%)') + lab(ax, 0.55, 'both arms ≈ 1.6 m', 'transform:translate(-50%,40%)') +
+    lab(cx, 1.2, '1.20 m child', 'transform:translate(-50%,-190%)') + lab(cx + 0.6, 1.0, 'reach 0.6–1.4 m', 'transform:translate(0,-50%)') +
+    lab(0.25, 1.0, '1 m', 'transform:translateY(-50%);opacity:.6') + lab(0.25, 3.0, '3.0 m', 'transform:translateY(-120%);opacity:.6');
+}
+
+// ───────────────────────── keys ─────────────────────────
+function setMode(m) { S.mode = m; buildFreqs(); document.getElementById('modeName').textContent = MODES[m].name; document.getElementById('modeName2').textContent = MODES[m].name; }
+function setStrip(on) { S.strip = on; layout(); allocate(); buildBody(); }
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (k === 'f') setStrip(!S.strip);
+  else if (k === 'h') { S.help = !S.help; document.getElementById('help').style.display = S.help ? 'block' : 'none'; }
+  else if (k === 'm') setMode((S.mode + 1) % MODES.length);
+  else if (k === 's') { S.sound = !S.sound; Sound.setOn(S.sound); }
+  else if (k === 'd') S.demo = !S.demo;
+  else if (k === 'b') { S.body = !S.body; buildBody(); }
+  else if (k === 'r') { for (const h of hands) if (h.alive && h.pinned) releaseHand(h); }
+});
+let rz = 0; window.addEventListener('resize', () => { if (CAPTURE) return; clearTimeout(rz); rz = setTimeout(() => { layout(); allocate(); buildBody(); }, 160); });
+
+// ───────────────────────── main loop (fixed 60 Hz) ─────────────────────────
+const STEP = 1 / 60; let stepNo = 0;
+function step() {
+  S.time += STEP; stepNo++;
+  const userHands = hands.some((h) => h.alive && !h.demo);
+  demoStep(STEP, S.demo && !userHands && (performance.now() - lastInput > 4000));
+  handStep(STEP); ensureThreads(); threadStep(STEP); particleStep(STEP);
+  if (stepNo % 2 === 0) soundStep();
+}
+const statEl = document.getElementById('stat'); let statT = 0;
+let prev = performance.now();
+function loop(now) {
+  const dt = Math.min(0.1, (now - prev) / 1000); prev = now; S.acc += dt;
+  let n = 0; while (S.acc >= STEP && n < 3) { step(); S.acc -= STEP; n++; }
+  if (S.acc > STEP * 3) S.acc = 0;
+  if (n) renderFrame();
+  if ((statT += dt) > 0.25) { statT = 0; const nh = hands.filter((h) => h.alive).length, nt = threads.filter((t) => t.state === 'held').length; statEl.textContent = nh + (nh === 1 ? ' hand' : ' hands') + ' · ' + nt + (nt === 1 ? ' thread' : ' threads'); }
+  requestAnimationFrame(loop);
+}
+setTimeout(() => { document.getElementById('hud').style.opacity = 0.4; }, 6000);
+
+layout(); allocate(); setMode(0); buildBody();
+// capture / test API
+window.__vt = {
+  S, hands, threads,
+  advance(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) step(); sync(); return n; },
+  pin(u, v, hue) { return addHand('c' + (pinSeq++), u, v, { pinned: true, hue }); },
+  drop(h) { releaseHand(h); },
+  strip(on) { setStrip(on); },
+  body(on) { S.body = on; buildBody(); },
+  show() { renderFrame(); sync(); return canvas.toDataURL('image/png'); },
+  ms() { const t = performance.now(); for (let i = 0; i < 30; i++) { step(); renderFrame(); } sync(); return (performance.now() - t) / 30; },
+};
+window.__ready = true;
+if (!CAPTURE) requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,3 @@
+# the lab engine data (profiles, logs, shows): local, never committed
+.data/
+*.log

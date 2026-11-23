@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Water / ripples — VEATION Touch proposal</title>
+<style>
+  :root { --bg:#05080c; --ink:#E0E0E0; --ink2:#B8B8B8; --live:#4FC3E8; --warn:#E5B567; }
+  html,body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:var(--ink);
+    font:12px/1.45 Geist,"Segoe UI",system-ui,sans-serif; -webkit-user-select:none; user-select:none; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:crosshair; }
+  #hud { position:fixed; left:16px; top:14px; pointer-events:none; letter-spacing:.14em; text-transform:uppercase; font-size:10px; color:var(--ink2); opacity:.75; transition:opacity .8s; }
+  #hud b { color:var(--ink); font-weight:500; }
+  #hint { position:fixed; left:16px; bottom:14px; pointer-events:none; font-size:11px; color:var(--ink2); opacity:.6; transition:opacity 1.2s; }
+  #strip { position:fixed; left:0; right:0; display:none; pointer-events:none; }
+  #strip .div { position:absolute; top:-10px; bottom:-10px; width:0; border-left:1px solid rgba(229,181,103,.55); }
+  #strip .lab { position:absolute; top:-26px; transform:translateX(-50%); font-size:10px; letter-spacing:.2em; color:var(--warn); }
+  #strip .frame { position:absolute; inset:0; border-top:1px solid rgba(255,255,255,.14); border-bottom:1px solid rgba(255,255,255,.14); }
+  #strip .seam { position:absolute; bottom:-30px; font-size:10px; color:var(--ink2); letter-spacing:.12em; opacity:.8; }
+  #help { position:fixed; right:16px; top:14px; width:290px; padding:14px 16px; background:rgba(17,17,17,.82); border:1px solid #262626; border-radius:6px; display:none; backdrop-filter:blur(8px); }
+  #help h4 { margin:0 0 8px; font-weight:500; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--warn); }
+  #help div { display:flex; justify-content:space-between; padding:2px 0; color:var(--ink2); }
+  #help kbd { font:inherit; color:var(--live); }
+  #err { position:fixed; inset:0; display:none; align-items:center; justify-content:center; color:#E5B567; }
+  body.capture #hud, body.capture #hint { display:none; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="strip"><div class="frame"></div></div>
+<div id="hud"><b>Water / ripples</b> &nbsp;·&nbsp; <span id="lookName">Caustics</span></div>
+<div id="hint">Click to enable sound &nbsp;·&nbsp; 1 2 3 looks &nbsp;·&nbsp; F room strip &nbsp;·&nbsp; H help</div>
+<div id="help">
+  <h4>Controls</h4>
+  <div><span>Touch / click</span><span>ripple + note</span></div>
+  <div><span>Drag</span><span>trail of small ripples</span></div>
+  <div><kbd>1</kbd><span>Caustics</span></div>
+  <div><kbd>2</kbd><span>Cymatic lines</span></div>
+  <div><kbd>3</kbd><span>Deep liquid</span></div>
+  <div><kbd>F</kbd><span>Full window / room strip</span></div>
+  <div><kbd>M</kbd><span>Next scale (<span id="scaleName">minor pentatonic</span>)</span></div>
+  <div><kbd>S</kbd><span>Sound on / off</span></div>
+  <div><kbd>R</kbd><span>Calm the surface</span></div>
+  <div><kbd>D</kbd><span>Auto-demo on / off</span></div>
+  <div><kbd>H</kbd><span>This help</span></div>
+  <div style="margin-top:8px;font-size:11px">x = pitch (4 octaves), y = brightness &amp; decay.<br>The surface wraps horizontally (P3 continues into P4). With no input for 4 s the auto-demo plays.</div>
+</div>
+<div id="err">WebGL2 with float render targets is required.</div>
+
+<script>
+(() => {
+'use strict';
+const Q = new URLSearchParams(location.search);
+const CAPTURE = Q.has('capture');
+if (CAPTURE) document.body.classList.add('capture');
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: 'high-performance', preserveDrawingBuffer: CAPTURE });
+const fail = (m) => { const e = document.getElementById('err'); e.textContent = m; e.style.display = 'flex'; throw new Error(m); };
+if (!gl) fail('WebGL2 is required.');
+const extF = gl.getExtension('EXT_color_buffer_float');
+const extH = gl.getExtension('EXT_color_buffer_half_float');
+if (!extF && !extH) fail('Float render targets are required.');
+const STATE_F32 = !!extF;
+
+// ───────────────────────── small helpers ─────────────────────────
+function mulberry(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const rnd = mulberry(CAPTURE ? Number(Q.get('seed') || 7) : (Date.now() ^ 0x9e3779b9));
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function compile(type, src, name) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(s) || '';
+    const lines = src.split('\n'); const m = /ERROR: \d+:(\d+)/.exec(log);
+    const ctx = m ? lines.slice(Math.max(0, +m[1] - 3), +m[1] + 1).join('\n') : '';
+    console.error(`[${name}] ${log}\n${ctx}`); fail('Shader error in ' + name);
+  }
+  return s;
+}
+const programs = {};
+function program(name, vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs, name + '.vs'));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs, name + '.fs'));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { console.error(name, gl.getProgramInfoLog(p)); fail('Link error in ' + name); }
+  p.u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); const nm = info.name.replace(/\[0\]$/, ''); p.u[nm] = gl.getUniformLocation(p, info.name); }
+  programs[name] = p; return p;
+}
+
+// ───────────────────────── GLSL: shared chunks ─────────────────────────
+const HEAD = `#version 300 es
+precision highp float; precision highp int; precision highp sampler2D;
+`;
+const NOISE = `
+uniform float uAspect;   // domain width / height (world unit: 1 = domain height)
+uniform float uTime;
+uvec3 pcg3d(uvec3 v){ v = v*1664525u + 1013904223u; v.x += v.y*v.z; v.y += v.z*v.x; v.z += v.x*v.y; v ^= v>>16u; v.x += v.y*v.z; v.y += v.z*v.x; v.z += v.x*v.y; return v; }
+vec3 grad3(ivec3 c){ uvec3 h = pcg3d(uvec3(c)); return vec3(h)*(2.0/4294967295.0) - 1.0; }
+float gnoise(vec3 p){
+  vec3 i = floor(p), f = fract(p); vec3 u = f*f*f*(f*(f*6.0-15.0)+10.0); ivec3 c = ivec3(i);
+  float a = dot(grad3(c),               f);
+  float b = dot(grad3(c+ivec3(1,0,0)),  f-vec3(1,0,0));
+  float cc= dot(grad3(c+ivec3(0,1,0)),  f-vec3(0,1,0));
+  float d = dot(grad3(c+ivec3(1,1,0)),  f-vec3(1,1,0));
+  float e = dot(grad3(c+ivec3(0,0,1)),  f-vec3(0,0,1));
+  float g = dot(grad3(c+ivec3(1,0,1)),  f-vec3(1,0,1));
+  float h = dot(grad3(c+ivec3(0,1,1)),  f-vec3(0,1,1));
+  float k = dot(grad3(c+ivec3(1,1,1)),  f-vec3(1,1,1));
+  return mix(mix(mix(a,b,u.x), mix(cc,d,u.x), u.y), mix(mix(e,g,u.x), mix(h,k,u.x), u.y), u.z) * 1.6;
+}
+// a point of the horizontally periodic domain on a cylinder: noise sampled here wraps seamlessly in x
+vec3 cylP(vec2 uv, float s){ float th = uv.x*6.2831853; float R = uAspect/6.2831853; return vec3(R*cos(th), R*sin(th), uv.y)*s; }
+`;
+const FS_VERT = HEAD.replace('precision highp float; precision highp int; precision highp sampler2D;', 'precision highp float;') + `
+out vec2 vUv; void main(){ vec2 p = vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); vUv = p; gl_Position = vec4(p*2.0-1.0, 0.0, 1.0); }`;
+
+// ───────────────────────── GLSL: ambient "breathing" (low-res, baked: H, dH/dx, dH/dy, laplacian) ─────────────────────────
+const AMB_FS = HEAD + NOISE + `
+uniform float uAmp; uniform vec2 uTex; // texel counts of the ambient target
+in vec2 vUv; out vec4 o;
+uniform vec4 uW[6];   // kx, ky, omega, amplitude: long slow wave trains (kx is a multiple of 2*pi/aspect: seamless in x)
+uniform vec2 uWp[6];  // phase, group drift
+uniform float uBreeze;
+float field(vec2 uv){
+  float t = uTime; vec2 x = vec2(uv.x*uAspect, uv.y);
+  float h = 0.0;
+  for (int i=0;i<6;i++){
+    float ph = uW[i].x*x.x + uW[i].y*x.y - uW[i].z*t + uWp[i].x;
+    // each train swells and fades slowly, unevenly across the room
+    float grp = clamp(0.65 + 0.7*gnoise(cylP(uv, 1.6) + vec3(float(i)*3.7, 0.0, t*uWp[i].y)), 0.08, 1.3);
+    h += uW[i].w*grp*(sin(ph) + 0.22*sin(2.0*ph + 1.3));
+  }
+  // breeze: fine drifting noise on top
+  vec3 pp = cylP(uv, 7.0) + vec3(t*0.05, -t*0.04, t*0.08); float n = 0.0, a = 0.5;
+  for (int i=0;i<3;i++){ n += a*gnoise(pp); pp = pp*2.1 + vec3(7.3); a *= 0.5; }
+  h += uBreeze*n*(0.75 + 0.25*sin(t*0.4));
+  return h;
+}
+void main(){
+  vec2 uv = vUv; vec2 e = 1.0/uTex;               // one texel in uv
+  float H0 = field(uv);
+  float Hx1 = field(uv+vec2(e.x,0.0)), Hx0 = field(uv-vec2(e.x,0.0));
+  float Hy1 = field(uv+vec2(0.0,e.y)), Hy0 = field(uv-vec2(0.0,e.y));
+  float cell = 1.0/uTex.y;                         // world size of a texel (height = 1)
+  float gx = (Hx1-Hx0)*0.5/cell, gy = (Hy1-Hy0)*0.5/cell;
+  float lap = (Hx1+Hx0+Hy1+Hy0-4.0*H0)/(cell*cell);
+  o = vec4(H0, gx, gy, lap)*uAmp;
+}`;
+
+// ───────────────────────── GLSL: the medium (static: speed and damping vary slowly, rings bend) ─────────────────────────
+const MED_FS = HEAD + NOISE + `
+in vec2 vUv; out vec4 o;
+void main(){
+  vec3 p = cylP(vUv, 1.0);
+  float n1 = gnoise(p*1.7+vec3(3.1,1.0,2.0)) + 0.5*gnoise(p*3.6+vec3(9.0,4.0,1.0));
+  float n2 = gnoise(p*2.3+vec3(17.0,8.0,3.0));
+  o = vec4(clamp(1.0+0.15*n1, 0.8, 1.2), clamp(1.0+0.7*n2, 0.35, 2.0), 0.0, 1.0);
+}`;
+
+// ───────────────────────── GLSL: the wave equation ─────────────────────────
+// State: R = height h (world units, domain height = 1), G = velocity.  h'' = c(x)^2 lap(h) - k0 h  (+ damping, edge sponge).
+// 9-point isotropic Laplacian (rings stay round); wrap in x via modulo, reflecting walls in y.
+const SIM_FS = HEAD + NOISE + `
+uniform sampler2D uS; uniform sampler2D uM;
+uniform ivec2 uSize; uniform float uC2, uDamp, uK0;
+uniform int uN; uniform vec4 uSpA[8]; uniform vec4 uSpB[8];
+uniform int uNM; uniform vec4 uMvA[4]; uniform vec4 uMvB[4]; uniform vec3 uMvK; uniform float uMvSig, uPh;
+out vec4 o;
+ivec2 Wp(ivec2 p){ p.x = ((p.x % uSize.x) + uSize.x) % uSize.x; p.y = clamp(p.y, 0, uSize.y-1); return p; }
+float Hh(ivec2 p){ return texelFetch(uS, Wp(p), 0).r; }
+// one touch: concentric packet whose wavelength, envelope, irregularity and patchiness are all per-touch random
+float ripple(vec2 uv, vec4 A, vec4 B){
+  vec2 d = uv - A.xy; d.x -= floor(d.x+0.5); d.x *= uAspect;
+  float r0 = length(d);
+  if (r0 > B.x*3.4) return 0.0;
+  if (r0 < 1e-6) d = vec2(1e-6, 0.0);
+  vec2 cs = normalize(d); float sd = B.z;
+  float wob = gnoise(vec3(cs*1.7, sd)) + 0.55*gnoise(vec3(cs*3.6, sd+17.0));
+  float ell = 1.0 + 0.14*gnoise(vec3(cs*0.9, sd+41.0));
+  float r = r0 * (1.0 + B.y*wob) * ell;
+  float k = 6.2831853 / A.w;
+  float ph = k*r*(1.0 - 0.10*clamp(r/B.x, 0.0, 2.0)) + B.w;      // slight chirp: rings open outward
+  float env = exp(-(r*r)/(B.x*B.x));
+  float patchy = 1.0 + 0.30*gnoise(vec3(d*11.0, sd+7.0));
+  return A.z * env * cos(ph) * patchy;
+}
+void main(){
+  ivec2 ij = ivec2(gl_FragCoord.xy);
+  vec2 uv = (vec2(ij)+0.5)/vec2(uSize);
+  vec4 s = texelFetch(uS, ij, 0); vec4 m = texelFetch(uM, ij, 0);
+  float h0 = s.x;
+  float l=Hh(ij+ivec2(-1,0)), r=Hh(ij+ivec2(1,0)), u=Hh(ij+ivec2(0,1)), d=Hh(ij+ivec2(0,-1));
+  float ul=Hh(ij+ivec2(-1,1)), ur=Hh(ij+ivec2(1,1)), dl=Hh(ij+ivec2(-1,-1)), dr=Hh(ij+ivec2(1,-1));
+  float lap = (4.0*(l+r+u+d) + (ul+ur+dl+dr) - 20.0*h0)/6.0;
+  float edge = min(uv.y, 1.0-uv.y);
+  float sponge = 0.010*pow(1.0-smoothstep(0.0, 0.07, edge), 2.0);
+  float v = (s.y + uC2*m.r*lap - uK0*h0) * (1.0 - uDamp*m.g - sponge);
+  // a hand in the water: one continuous source that follows the pointer along its path (segment p0->p1).
+  // dipole push (bow wave ahead, trough behind) proportional to speed + a gentle oscillating monopole (rest ripple)
+  for (int i=0;i<4;i++){ if (i>=uNM) break;
+    vec2 p0 = uMvA[i].xy, p1 = uMvA[i].zw;
+    vec2 sg = p1-p0; sg.x -= floor(sg.x+0.5); sg.x *= uAspect;
+    vec2 dd = uv-p0; dd.x -= floor(dd.x+0.5); dd.x *= uAspect;
+    float L2 = dot(sg,sg); float tt = L2>1e-10 ? clamp(dot(dd,sg)/L2,0.0,1.0) : 0.0;
+    vec2 q = dd - sg*tt; float g = exp(-dot(q,q)/(uMvSig*uMvSig));
+    float spd = uMvB[i].x; vec2 dir = uMvB[i].yz;
+    float wob = 0.75 + 0.25*gnoise(vec3(dd*9.0, uPh*0.05));
+    v += g*( (uMvK.x + uMvK.y*spd)*sin(uPh)*wob + uMvK.z*spd*dot(q,dir)/uMvSig );
+  }
+  float hn = h0 + v;
+  for (int i=0;i<8;i++){ if (i>=uN) break; hn += ripple(uv, uSpA[i], uSpB[i]); }
+  o = vec4(hn, v, 0.0, 1.0);
+}`;
+
+// ───────────────────────── GLSL: derived field (height + slope + laplacian, filterable) ─────────────────────────
+const DER_FS = HEAD + `
+uniform sampler2D uS; uniform sampler2D uAmb; uniform ivec2 uSize; uniform float uSimH;
+in vec2 vUv; out vec4 o;
+ivec2 Wp(ivec2 p){ p.x = ((p.x % uSize.x) + uSize.x) % uSize.x; p.y = clamp(p.y, 0, uSize.y-1); return p; }
+float Hh(ivec2 p){ return texelFetch(uS, Wp(p), 0).r; }
+void main(){
+  ivec2 ij = ivec2(gl_FragCoord.xy);
+  float h0=Hh(ij), l=Hh(ij+ivec2(-1,0)), r=Hh(ij+ivec2(1,0)), u=Hh(ij+ivec2(0,1)), d=Hh(ij+ivec2(0,-1));
+  vec4 a = texture(uAmb, vUv);
+  float gx = (r-l)*0.5*uSimH, gy = (u-d)*0.5*uSimH, lap = (l+r+u+d-4.0*h0)*uSimH*uSimH;
+  o = vec4(h0 + a.x, gx + a.y, gy + a.z, lap + a.w);
+}`;
+
+// ───────────────────────── GLSL: caustic photon mesh ─────────────────────────
+// Every triangle of a grid over the surface is refracted down to the floor; the light it carries is conserved:
+// intensity = (area of the triangle at rest) / (area of the refracted triangle).  Where the surface focuses the light,
+// triangles shrink and thin bright filaments appear; where it spreads, they fade.  3 passes (R,G,B) with a slightly
+// different index of refraction give the faint colour fringes of real caustics.
+const CAUS_VS = HEAD + `
+uniform sampler2D uD; uniform ivec2 uGrid; uniform vec2 uView; uniform float uDepth, uEta, uGain;
+uniform vec2 uLight; uniform int uColStart, uCols; uniform float uOffX;
+flat out float vI;
+const ivec2 T[6] = ivec2[6](ivec2(0,0), ivec2(1,0), ivec2(0,1), ivec2(1,0), ivec2(1,1), ivec2(0,1));
+vec2 refr(ivec2 c){
+  vec2 uv = vec2(c)/vec2(uGrid);
+  vec4 d = texture(uD, uv);
+  vec3 n = normalize(vec3(-d.yz, 1.0));
+  vec3 I = normalize(vec3(uLight, -1.0));
+  vec3 R = refract(I, n, uEta);
+  return uv*uView + R.xy/(-R.z)*uDepth;
+}
+void main(){
+  int id = gl_VertexID; int quad = id/6, k = id - quad*6;
+  ivec2 q = ivec2(quad % uCols + uColStart, quad / uCols);
+  int tri = k/3, b = tri*3;
+  vec2 A = refr(q+T[b]), B = refr(q+T[b+1]), C = refr(q+T[b+2]);
+  vec2 P = (k==b) ? A : ((k==b+1) ? B : C);
+  vec2 cell = uView/vec2(uGrid);
+  float newA = 0.5*abs((B.x-A.x)*(C.y-A.y)-(B.y-A.y)*(C.x-A.x));
+  float oldA = 0.5*cell.x*cell.y;
+  vI = min(oldA/max(newA, 1e-4*oldA), 24.0) * uGain;
+  P.x += uOffX;
+  gl_Position = vec4(P/uView*2.0-1.0, 0.0, 1.0);
+}`;
+const CAUS_FS = HEAD + `flat in float vI; out vec4 o; void main(){ o = vec4(vI); }`;
+
+// ───────────────────────── GLSL: display (three looks) ─────────────────────────
+const DISP_COMMON = HEAD + NOISE + `
+uniform sampler2D uD; uniform sampler2D uC; uniform vec2 uView; uniform float uSimH;
+uniform vec4 uGlow[8]; uniform int uNG; uniform float uIdle;
+in vec2 vUv; out vec4 o;
+float dither(){ return (fract(52.9829189*fract(dot(gl_FragCoord.xy, vec2(0.06711056,0.00583715)))) - 0.5)/255.0; }
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
+vec3 encode(vec3 c){ return pow(max(c,0.0), vec3(1.0/2.2)); }
+float vig(vec2 uv){ float y = abs(uv.y-0.5)*2.0; return 1.0 - 0.38*smoothstep(0.35,1.05,y); }   // vertical only: the room is a seamless loop
+// five blues around the room: navy, steel, teal/aqua, glacier cyan, indigo -> back to navy (wraps seamlessly at x = 0/1)
+vec3 pal(float x){
+  const vec3 C[5] = vec3[5](vec3(0.16,0.34,0.74), vec3(0.38,0.64,0.90), vec3(0.14,0.82,0.84), vec3(0.74,0.95,1.00), vec3(0.40,0.42,0.94));
+  x = fract(x + 0.015*sin(uTime*0.05))*5.0; int i = int(floor(x)); float f = smoothstep(0.0,1.0,fract(x));
+  return mix(C[i%5], C[(i+1)%5], f);
+}
+// ---- the riverbed: sand, stones and pebbles, seen THROUGH the surface (looked up at the refracted position) and lit by
+// the caustic texture of the same surface. periodic in x. returns (height 0..1, stone mask)
+vec2 bedHS(vec2 buv){
+  vec3 p = cylP(buv, 3.2);
+  float h = 0.5 + 0.5*(0.55*gnoise(p) + 0.28*gnoise(p*2.1+5.0) + 0.14*gnoise(p*4.3+9.0));
+  float dune = 0.5 + 0.5*sin(26.0*(h*0.9 + buv.y*0.6) + 4.0*gnoise(cylP(buv, 6.0)));
+  float st = smoothstep(0.34, 0.62, gnoise(cylP(buv, 12.0))) ;
+  float pb = smoothstep(0.38, 0.72, gnoise(cylP(buv, 36.0)));
+  float grain = 0.5 + 0.5*gnoise(cylP(buv, 130.0));
+  return vec2(clamp(0.82*h + 0.07*dune + 0.28*st + 0.10*pb + 0.03*grain - 0.1, 0.0, 1.0), clamp(st*0.9 + pb*0.5, 0.0, 1.0));
+}
+vec3 bedColor(vec2 uv, vec4 d, vec3 pt, vec3 light, float ambL){
+  vec2 buv = uv - 0.035*d.yz*vec2(1.0/uAspect, 1.0);        // refraction: the bed wobbles with the surface slope
+  vec2 hs = bedHS(buv);
+  vec2 ex = vec2(0.0022/uAspect, 0.0), ey = vec2(0.0, 0.0022);
+  float hx = bedHS(buv+ex).x - bedHS(buv-ex).x, hy = bedHS(buv+ey).x - bedHS(buv-ey).x;
+  vec3 nb = normalize(vec3(-hx*5.0, -hy*5.0, 1.0));
+  float shade = 0.55 + 0.9*max(dot(nb, normalize(vec3(-0.4, 0.5, 0.75))), 0.0);
+  vec3 sand  = mix(vec3(0.020,0.050,0.100), vec3(0.080,0.155,0.245), smoothstep(0.0, 0.8, hs.x)) * mix(vec3(1.0), pt*1.25, 0.55);
+  vec3 stone = vec3(0.020,0.036,0.072) * mix(vec3(1.0), pt*1.2, 0.4);
+  vec3 alb = mix(sand, stone, hs.y*0.75);
+  float ao = 0.40 + 0.60*smoothstep(0.0, 0.55, hs.x);                    // darker in depressions
+  float depthFall = exp(-0.9*(0.55*(1.0-hs.x) + 0.35*(1.0-uv.y)));        // light falls off with depth
+  return alb*ao*shade*(ambL + light)*depthFall;
+}
+float asinhf(float x){ return log(x + sqrt(x*x+1.0)); }
+// a soft flash + expanding ring where a touch landed
+vec2 touchGlow(vec2 uv){
+  float core = 0.0, ring = 0.0;
+  for (int i=0;i<8;i++){ if (i>=uNG) break; vec4 g = uGlow[i]; float age = g.z; if (age>3.5) continue;
+    vec2 d = uv-g.xy; d.x -= floor(d.x+0.5); d.x *= uAspect; float r = length(d);
+    core += exp(-r*r/(0.00035+age*0.0016))*exp(-age*4.0);
+    ring += exp(-pow((r-age*0.15)/(0.006+0.006*age),2.0))*exp(-age*1.6)*0.5; }
+  return vec2(core, ring);
+}
+float lineAA(float m, float halfPx){   // thin anti-aliased iso-line at integer m, fades to its mean coverage when too dense to resolve
+  float fw = max(fwidth(m), 1e-6);
+  float dist = abs(fract(m+0.5)-0.5)/fw;
+  float l = clamp(halfPx + 0.5 - dist, 0.0, 1.0);
+  float mean = clamp(2.0*halfPx*fw, 0.0, 1.0);
+  return mix(l, mean, smoothstep(0.30, 0.65, fw));
+}
+`;
+
+// Look 1 — Caustics: a riverbed seen through the moving water; all light comes from the same surface
+const LOOK1_FS = DISP_COMMON + `
+void main(){
+  vec2 uv = vUv;
+  vec4 d = texture(uD, uv);
+  vec3 pt = pal(uv.x);
+  vec3 C  = texture(uC, uv).rgb;
+  vec3 Cs = textureLod(uC, uv, 1.2).rgb;
+  vec3 Cm = textureLod(uC, uv, 2.5).rgb;
+  vec3 Ch = textureLod(uC, uv, 4.5).rgb;
+  vec3 soft  = pow(Cs, vec3(2.2));                       // the broad ambient caustics of the resting swell
+  vec3 sharp = pow(max(C-1.10,0.0), vec3(1.30));
+  vec3 halo  = max(Cm-1.05,0.0)*0.55 + max(Ch-1.02,0.0)*0.5;
+  vec3 light = (soft*0.11 + sharp*0.40 + halo*0.30)*pt*1.15;
+  vec3 col = bedColor(uv, d, pt, light, 0.30);
+  // a little glow of the light itself above the bed
+  col += (sharp*0.05 + halo*0.05)*pt;
+  vec3 n = normalize(vec3(-d.yz, 1.0));
+  float glint = pow(max(dot(reflect(vec3(0.0,0.0,-1.0), n), normalize(vec3(-0.3,0.4,0.85))),0.0), 120.0);
+  col += glint*pt*0.06;
+  vec2 g = touchGlow(uv); col += (g.x*0.20 + g.y*0.12)*pt;
+  col = aces(col*1.5)*vig(uv);
+  o = vec4(encode(col)+dither(), 1.0);
+}`;
+
+// Look 2 — Cymatic lines: iso-contours of the height field, compressed (asinh) so every ripple, however faint, gets lines
+const LOOK2_FS = DISP_COMMON + `
+void main(){
+  vec2 uv = vUv;
+  vec4 d = texture(uD, uv);
+  float H = d.x;
+  vec2 s = d.yz; float sl = length(s);
+  float m = asinhf(H/0.0007)*3.6;                       // minor lines
+  float M = m/6.0;                                       // major lines (every 6th)
+  float lm = lineAA(m, 0.50);
+  float lM = lineAA(M, 0.62);
+  // nodal line (H = 0): Chladni's sand collects here; draw it brighter and a little wider
+  float fwH = max(fwidth(H), 1e-9);
+  float nodal = 1.0 - clamp(abs(H)/fwH - 0.9, 0.0, 1.0);
+  float nodalFade = 1.0 - smoothstep(0.35, 0.8, fwH/0.0007*0.04);
+  // local energy: lines glow where the surface is really moving
+  float e = smoothstep(0.05, 0.75, sl);
+  vec3 silver = vec3(0.80,0.87,0.93), cyan = pal(uv.x);
+  vec3 lc = mix(silver, cyan, 0.30 + 0.60*smoothstep(0.0, 0.6, sl));
+  float glowM = exp(-pow(abs(fract(M+0.5)-0.5)/max(fwidth(M),1e-6)/3.0, 2.0)) * (1.0-smoothstep(0.2,0.6,fwidth(M)));
+  vec3 bg = vec3(0.0045,0.0075,0.0115) + vec3(0.002,0.006,0.010)*smoothstep(-0.5,0.5,uv.y-0.5+0.15*sin(uv.x*6.2831853));
+  // faint sheen from the slope so the lines sit on a surface, not on a void
+  vec3 n = normalize(vec3(-s*0.8, 1.0)); float sheen = max(dot(n, normalize(vec3(-0.35,0.45,0.82))), 0.0);
+  bg += vec3(0.010,0.030,0.050)*pow(sheen, 10.0)*e;
+  vec3 col = bg;
+  col += lc * lm * (0.012 + 0.50*e);
+  col += lc * lM * (0.025 + 0.80*e);
+  col += cyan * glowM * 0.012 * e;
+  col += vec3(0.9,0.97,1.0) * nodal * nodalFade * (0.02 + 0.16*e);
+  vec2 g = touchGlow(uv); col += (g.x*0.25 + g.y*0.25)*cyan;
+  col = aces(col*1.15)*vig(uv);
+  o = vec4(encode(col)+dither(), 1.0);
+}`;
+
+// Look 3 — Deep liquid: glossy 3-D shaded surface, fresnel, environment lights, thin contour lines, caustic shimmer below
+const LOOK3_FS = DISP_COMMON + `
+vec3 envMap(vec3 r){
+  float up = clamp(r.z, 0.0, 1.0);
+  vec3 col = mix(vec3(0.012,0.034,0.066), vec3(0.020,0.085,0.140), pow(1.0-up, 2.0));
+  col += vec3(0.10,0.30,0.45)*0.25*exp(-dot(r.xy-vec2(0.06,0.04), r.xy-vec2(0.06,0.04))*5.0);       // broad low glow
+  vec2 a = (r.xy - vec2(-0.40, 0.30))*vec2(1.0, 2.3);
+  col += vec3(0.80,0.94,1.0)*0.55*exp(-dot(a,a)*14.0);                                                  // big cool soft box
+  vec2 b = (r.xy - vec2(0.46,-0.22))*vec2(2.7, 1.0);
+  col += vec3(0.14,0.60,0.80)*1.1*exp(-dot(b,b)*16.0);                                                 // teal fill
+  col += vec3(0.9,0.96,1.0)*0.9*exp(-pow((r.y+0.66)*13.0,2.0))*smoothstep(-0.8,-0.25,r.x)*smoothstep(0.9,0.3,r.x); // thin strip light
+  col += vec3(1.0)*0.3*exp(-dot(r.xy-vec2(-0.20,0.16), r.xy-vec2(-0.20,0.16))*420.0);                 // sun point
+  return col;
+}
+void main(){
+  vec2 uv = vUv;
+  vec4 d = texture(uD, uv);
+  vec2 s = d.yz; float H = d.x; float lap = d.w;
+  vec3 pt = pal(uv.x);
+  vec3 n = normalize(vec3(-s*1.15, 1.0));
+  vec3 V = normalize(vec3((uv-0.5)*vec2(0.10,0.16)*vec2(-1.0,-1.0), 1.0));   // gentle perspective: the camera is above, slightly in front
+  float cosT = clamp(dot(n, V), 0.0, 1.0);
+  float F = 0.05 + 0.95*pow(1.0-cosT, 3.0);
+  vec3 R = reflect(-V, n);
+  vec3 refl = envMap(R);
+  refl *= mix(vec3(1.0), 0.55 + 0.9*pt, 0.5);
+  refl = refl/(1.0 + 1.8*refl);          // soft shoulder: no hard white sparkles
+  // below the surface: deep blue body, crests scatter a little light, caustics shimmer on the floor
+  vec3 C  = texture(uC, uv).rgb;
+  vec3 Cm = textureLod(uC, uv, 2.5).rgb;
+  vec3 deep = bedColor(uv, d, pt, (pow(Cm.g,2.2)*0.045 + pow(max(C.g-1.1,0.0),1.3)*0.14)*pt, 0.17);
+  float crest = smoothstep(0.0, 1.0, -lap*0.0035);
+  vec3 sss = vec3(0.002,0.026,0.045)*crest*mix(vec3(1.0), pt*1.3, 0.5);
+  vec3 shimmer = vec3(0.0);
+  vec3 under = deep + sss + shimmer;
+  // fine contour lines, subtle, lit by the same softbox so they feel etched into the surface
+  float m = asinhf(H/0.00045)*2.6;
+  float ln = lineAA(m, 0.45) * (1.0 - smoothstep(0.35,0.7,fwidth(m)));
+  float lit = 0.35 + 0.65*clamp(dot(n, normalize(vec3(-0.45,0.5,0.75))), 0.0, 1.0);
+  vec3 lines = ln * mix(vec3(0.55,0.82,1.0), pt, 0.5) * 0.07 * lit * smoothstep(0.05, 0.5, length(s));
+  vec3 col = under*(1.0-0.5*F) + refl*(0.030 + 0.60*F) + lines;
+  col += vec3(0.8,0.95,1.0)*pow(max(dot(R, normalize(vec3(-0.24,0.20,0.95))),0.0), 500.0)*0.05;
+  vec2 g = touchGlow(uv); col += (g.x*0.12 + g.y*0.10)*pt;
+  col = aces(col*1.05)*vig(uv);
+  o = vec4(encode(col)+dither(), 1.0);
+}`;
+
+// ───────────────────────── GPU resources ─────────────────────────
+const LOOKS = [
+  { id: 1, name: 'Caustics' }, { id: 2, name: 'Cymatic lines' }, { id: 3, name: 'Deep liquid' },
+];
+program('amb', FS_VERT, AMB_FS); program('med', FS_VERT, MED_FS); program('sim', FS_VERT, SIM_FS);
+program('der', FS_VERT, DER_FS); program('caus', CAUS_VS, CAUS_FS);
+program('look1', FS_VERT, LOOK1_FS); program('look2', FS_VERT, LOOK2_FS); program('look3', FS_VERT, LOOK3_FS);
+
+function makeTex(w, h, internal, fmt, type, filter, wrapS = gl.REPEAT) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, fmt, type, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter === gl.NEAREST ? gl.NEAREST : gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapS); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  return { t, f, w, h };
+}
+const freeTarget = (r) => { if (r) { gl.deleteTexture(r.t); gl.deleteFramebuffer(r.f); } };
+const bindTex = (unit, tex) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); };
+const full = () => gl.drawArrays(gl.TRIANGLES, 0, 3);
+const sync = () => { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); };
+
+// ───────────────────────── layout and (re)allocation ─────────────────────────
+const STRIP_ASPECT = 7196 / 912;
+const S = {
+  look: Number(Q.get('look') || 1), strip: Q.has('strip'), help: false, demo: true, sound: true,
+  cw: 0, ch: 0, vx: 0, vy: 0, vw: 0, vh: 0, simW: 0, simH: 0, aspect: 1,
+  simLevel: 0, speed: 0.20, sk: 1, ph: 0, omega: 0.2, movers: [], amb: 1, time: 0, acc: 0, cur: 0,
+};
+const SIM_LEVELS = { full: [720, 576, 432], strip: [456, 372, 288] };
+let sim = null, med = null, derT = null, ambT = null, caus = null;
+let cells = { gx: 0, gy: 0 };
+
+function layout() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const iw = window.innerWidth, ih = window.innerHeight;
+  let scale = dpr;
+  if (S.strip) scale = Math.min(3840 / iw, Math.max(dpr, 2)); else scale = Math.min(dpr, 2560 / iw);
+  S.cw = Math.round(iw * scale); S.ch = Math.round(ih * scale);
+  canvas.width = S.cw; canvas.height = S.ch;
+  if (S.strip) {
+    S.vw = S.cw; S.vh = Math.round(S.cw / STRIP_ASPECT); S.vx = 0; S.vy = Math.floor((S.ch - S.vh) / 2);
+  } else { S.vw = S.cw; S.vh = S.ch; S.vx = 0; S.vy = 0; }
+  S.aspect = S.vw / S.vh;
+  const strip = document.getElementById('strip');
+  strip.style.display = S.strip ? 'block' : 'none';
+  if (S.strip) {
+    const k = iw / S.cw; strip.style.top = (S.vy * k) + 'px'; strip.style.height = (S.vh * k) + 'px';
+    strip.querySelectorAll('.div,.lab,.seam').forEach((n) => n.remove());
+    const names = ['P4', 'P1', 'P2', 'P3'];
+    names.forEach((nm, i) => {
+      const x = (i + 0.5) / 4 * 100; const lab = document.createElement('div'); lab.className = 'lab'; lab.textContent = nm; lab.style.left = x + '%'; strip.appendChild(lab);
+      if (i > 0) { const dv = document.createElement('div'); dv.className = 'div'; dv.style.left = (i / 4 * 100) + '%'; strip.appendChild(dv); }
+    });
+    const sm = document.createElement('div'); sm.className = 'seam'; sm.style.left = '0'; sm.textContent = '← P3 continues here (seamless wrap)'; strip.appendChild(sm);
+    const sm2 = document.createElement('div'); sm2.className = 'seam'; sm2.style.right = '0'; sm2.textContent = '7196 × 912 · wraps to P4 →'; strip.appendChild(sm2);
+  }
+}
+
+function allocate() {
+  [sim && sim.a, sim && sim.b, med, derT, ambT, caus].forEach(freeTarget);
+  const levels = S.strip ? SIM_LEVELS.strip : SIM_LEVELS.full;
+  S.simH = levels[Math.min(S.simLevel, levels.length - 1)];
+  S.simW = Math.min(4096, Math.round(S.simH * S.aspect));
+  const st = STATE_F32 ? [gl.RGBA32F, gl.FLOAT] : [gl.RGBA16F, gl.HALF_FLOAT];
+  sim = { a: makeTex(S.simW, S.simH, st[0], gl.RGBA, st[1], gl.NEAREST), b: makeTex(S.simW, S.simH, st[0], gl.RGBA, st[1], gl.NEAREST) };
+  [sim.a, sim.b].forEach((r) => { gl.bindFramebuffer(gl.FRAMEBUFFER, r.f); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); });
+  S.cur = 0;
+  med = makeTex(S.simW, S.simH, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.NEAREST);
+  derT = makeTex(S.simW, S.simH, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR);
+  ambT = makeTex(Math.max(64, S.simW >> 2), Math.max(32, S.simH >> 2), gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR);
+  caus = makeTex(S.vw, S.vh, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR_MIPMAP_LINEAR);
+  const cellPx = S.simLevel === 0 ? 2.4 : 3.2;
+  cells.gx = Math.round(S.vw / cellPx); cells.gy = Math.round(S.vh / cellPx);
+  // bake the medium once
+  gl.bindFramebuffer(gl.FRAMEBUFFER, med.f); gl.viewport(0, 0, med.w, med.h);
+  gl.useProgram(programs.med); gl.uniform1f(programs.med.u.uAspect, S.aspect); full();
+  // sim speed: texels per 1/60 s frame, split in substeps that respect the stability limit
+  const speedTex = S.speed * S.simH / 60;
+  S.sub = Math.max(1, Math.ceil(speedTex / 0.66)); const c = speedTex / S.sub; S.c2 = c * c;
+  S.sk = S.strip ? 1.7 : 1;
+  { // the resting swell: six long slow low wave trains (wavelength 7..22 % of the height), k_x quantised so they wrap in x
+    const r = mulberry(99), lam = [0.22, 0.16, 0.12, 0.09, 0.14, 0.075], slope = [0.040, 0.060, 0.055, 0.065, 0.050, 0.060];
+    S.wA = new Float32Array(24); S.wB = new Float32Array(12);
+    for (let i = 0; i < 6; i++) {
+      const th = i * 1.05 + r() * 0.5, L = lam[i] * S.sk;
+      let kx = 2 * Math.PI * Math.cos(th) / L; kx = 2 * Math.PI * Math.round(kx * S.aspect / (2 * Math.PI)) / S.aspect;
+      const ky = 2 * Math.PI * Math.sin(th) / L, k = Math.hypot(kx, ky), c = 0.05 + 0.04 * r();
+      S.wA.set([kx, ky, c * k, slope[i] / k], i * 4); S.wB.set([r() * 6.28, 0.04 + 0.05 * r()], i * 2);
+    }
+  } S.omega = Math.sqrt(S.c2) * 2 * Math.PI / (0.032 * S.sk * S.simH);
+  S.damp = 0.0042 / S.sub; S.k0 = 1.5e-4 / (S.sub * S.sub);
+  S.splatQ.length = 0; S.glows.length = 0;
+}
+S.splatQ = []; S.glows = [];
+
+// ───────────────────────── frame passes ─────────────────────────
+function passAmbient() {
+  const p = programs.amb;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, ambT.f); gl.viewport(0, 0, ambT.w, ambT.h); gl.useProgram(p);
+  gl.uniform1f(p.u.uAspect, S.aspect); gl.uniform1f(p.u.uTime, S.time); gl.uniform1f(p.u.uAmp, S.amb); gl.uniform2f(p.u.uTex, ambT.w, ambT.h);
+  gl.uniform4fv(p.u.uW, S.wA); gl.uniform2fv(p.u.uWp, S.wB); gl.uniform1f(p.u.uBreeze, 0.00040 * S.sk); full();
+}
+const spA = new Float32Array(32), spB = new Float32Array(32), mvA = new Float32Array(16), mvB = new Float32Array(16);
+function simFrame() {
+  const p = programs.sim; gl.useProgram(p); gl.viewport(0, 0, S.simW, S.simH);
+  gl.uniform1f(p.u.uAspect, S.aspect); gl.uniform2i(p.u.uSize, S.simW, S.simH);
+  gl.uniform1f(p.u.uC2, S.c2); gl.uniform1f(p.u.uDamp, S.damp); gl.uniform1f(p.u.uK0, S.k0);
+  gl.uniform1i(p.u.uS, 0); gl.uniform1i(p.u.uM, 1); bindTex(1, med.t);
+  const n = Math.min(8, S.splatQ.length);
+  for (let i = 0; i < n; i++) { const s = S.splatQ.shift(); spA.set([s.x, s.y, s.amp, s.lam], i * 4); spB.set([s.sig, s.irr, s.seed, s.ph], i * 4); }
+  gl.uniform4fv(p.u.uSpA, spA); gl.uniform4fv(p.u.uSpB, spB);
+  const nm = Math.min(4, S.movers.length); mvA.fill(0); mvB.fill(0);
+  for (let i = 0; i < nm; i++) { const m = S.movers[i], sp = m.spd; mvA.set([m.u0, m.v0, m.u, m.v], i * 4); mvB.set([sp, sp > 1e-3 ? m.vx / sp : 0, sp > 1e-3 ? m.vy / sp : 0, 1], i * 4); }
+  gl.uniform1i(p.u.uNM, nm); gl.uniform4fv(p.u.uMvA, mvA); gl.uniform4fv(p.u.uMvB, mvB);
+  gl.uniform3f(p.u.uMvK, 0.00030 * S.sk / S.sub, 0.00055 * S.sk / S.sub, 0.0016 * S.sk / S.sub); gl.uniform1f(p.u.uMvSig, 0.014 * S.sk);
+  for (let i = 0; i < S.sub; i++) {
+    S.ph += S.omega; gl.uniform1f(p.u.uPh, S.ph);
+    gl.uniform1i(p.u.uN, i === 0 ? n : 0);
+    const src = S.cur ? sim.b : sim.a, dst = S.cur ? sim.a : sim.b;
+    bindTex(0, src.t); gl.bindFramebuffer(gl.FRAMEBUFFER, dst.f); full(); S.cur ^= 1;
+  }
+}
+function passDerived() {
+  const p = programs.der, src = S.cur ? sim.b : sim.a;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, derT.f); gl.viewport(0, 0, derT.w, derT.h); gl.useProgram(p);
+  gl.uniform1i(p.u.uS, 0); gl.uniform1i(p.u.uAmb, 1); bindTex(0, src.t); bindTex(1, ambT.t);
+  gl.uniform2i(p.u.uSize, S.simW, S.simH); gl.uniform1f(p.u.uSimH, S.simH); full();
+}
+const ETA = [1 / 1.3285, 1 / 1.334, 1 / 1.3405];
+function passCaustics() {
+  const p = programs.caus;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, caus.f); gl.viewport(0, 0, caus.w, caus.h);
+  gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.useProgram(p);
+  gl.uniform1i(p.u.uD, 0); bindTex(0, derT.t);
+  gl.uniform2i(p.u.uGrid, cells.gx, cells.gy); gl.uniform2f(p.u.uView, caus.w, caus.h);
+  gl.uniform1f(p.u.uDepth, 0.18 * caus.h); gl.uniform1f(p.u.uGain, 0.9);
+  const t = S.time; gl.uniform2f(p.u.uLight, 0.10 * Math.sin(t * 0.071), 0.07 * Math.cos(t * 0.053));
+  const edge = Math.ceil(cells.gx * 0.10);
+  for (let c = 0; c < 1; c++) {
+    gl.uniform1f(p.u.uEta, ETA[1]);
+    gl.uniform1i(p.u.uColStart, 0); gl.uniform1i(p.u.uCols, cells.gx); gl.uniform1f(p.u.uOffX, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 6 * cells.gx * cells.gy);
+    gl.uniform1i(p.u.uColStart, cells.gx - edge); gl.uniform1i(p.u.uCols, edge); gl.uniform1f(p.u.uOffX, -caus.w);   // wrap: the right edge also lands on the left
+    gl.drawArrays(gl.TRIANGLES, 0, 6 * edge * cells.gy);
+    gl.uniform1i(p.u.uColStart, 0); gl.uniform1i(p.u.uCols, edge); gl.uniform1f(p.u.uOffX, caus.w);                     // and the left edge on the right
+    gl.drawArrays(gl.TRIANGLES, 0, 6 * edge * cells.gy);
+  }
+  gl.colorMask(true, true, true, true); gl.disable(gl.BLEND);
+  bindTex(0, caus.t); gl.generateMipmap(gl.TEXTURE_2D);
+}
+const glowArr = new Float32Array(32);
+function passDisplay() {
+  const p = programs['look' + S.look];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, S.cw, S.ch); gl.disable(gl.SCISSOR_TEST); gl.clearColor(0.02, 0.028, 0.036, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.viewport(S.vx, S.vy, S.vw, S.vh); gl.useProgram(p);
+  gl.uniform1f(p.u.uAspect, S.aspect); gl.uniform1f(p.u.uTime, S.time); gl.uniform2f(p.u.uView, S.vw, S.vh); gl.uniform1f(p.u.uSimH, S.simH);
+  gl.uniform1i(p.u.uD, 0); gl.uniform1i(p.u.uC, 1); bindTex(0, derT.t); bindTex(1, caus.t);
+  let n = 0; for (const g of S.glows) { if (n >= 8) break; glowArr.set([g.x, g.y, S.time - g.t0, g.seed], n * 4); n++; }
+  gl.uniform4fv(p.u.uGlow, glowArr); gl.uniform1i(p.u.uNG, n); full();
+}
+function renderFrame() {
+  passAmbient(); passDerived();
+  if (S.look !== 2) passCaustics();
+  passDisplay();
+}
+
+// ───────────────────────── touches: ripple + note, always together ─────────────────────────
+function touch(u, v, strength, kind) {
+  u = ((u % 1) + 1) % 1; v = clamp(v, 0.02, 0.98);
+  const trail = kind === 'trail';
+  const pitch = u < 0.5 ? 2 * u : 2 - 2 * u;                 // palindromic: the same pitch at both ends of the seam
+  const bright = v;
+  const r1 = rnd(), r2 = rnd(), r3 = rnd(), r4 = rnd();
+  const lam = lerp(0.062, 0.027, Math.pow(pitch, 0.8)) * (0.78 + 0.55 * r1) * S.sk;   // lower note → longer wave
+  const aspectComp = S.simH / 720;
+  const amp = (0.0046 + 0.0034 * r2) * strength * Math.pow(lam / 0.04, 0.7) * (S.strip ? 1.3 : 1);
+  const sig = lam * (0.85 + 1.35 * r3);
+  S.touches = (S.touches || 0) + 1;
+  S.splatQ.push({ x: u, y: v, amp, lam: Math.max(lam, 11 / S.simH), sig, irr: 0.05 + 0.20 * r4 * r4, seed: rnd() * 400, ph: (rnd() - 0.5) * 1.3 });
+  S.glows.push({ x: u, y: v, t0: S.time, seed: r1 }); if (S.glows.length > 12) S.glows.shift();
+  Sound.play(u, v, strength * (trail ? 0.38 : 1), trail);
+}
+
+// ───────────────────────── sound ─────────────────────────
+const SCALES = [
+  { name: 'minor pentatonic', st: [0, 3, 5, 7, 10] }, { name: 'major pentatonic', st: [0, 2, 4, 7, 9] },
+  { name: 'hirajoshi', st: [0, 2, 3, 7, 8] }, { name: 'dorian pentatonic', st: [0, 2, 5, 7, 10] },
+];
+// Vertical mapping in metres: the image is WALL_H_M high (3.75 m = 912 px in the strip); timbre/brightness/decay run from the floor to REACH_M and stay at max above it.
+// (final experience: take both from the room profile)
+const WALL_H_M = 3.75, REACH_M = 3.0;
+const reach = (v) => clamp(v * WALL_H_M / REACH_M, 0, 1);
+const Sound = (() => {
+  let ctx = null, master, dry, send, noiseBuf, loopNoise, active = 0, scale = 0;
+  const dv = new Map();
+  const ROOT = 50, OCT = 4; // D3 up four octaves
+  function impulse(c, seconds, seed) {
+    const sr = c.sampleRate, len = Math.floor(sr * (seconds + 0.02)), pre = Math.floor(sr * 0.016), buf = c.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const r = mulberry(seed * 977 + ch * 131), d = buf.getChannelData(ch); let y = 0;
+      for (let n = pre; n < len; n++) {
+        const t = (n - pre) / sr, env = Math.pow(10, -3 * t / seconds) * Math.min(1, (n - pre) / (sr * 0.012));
+        const cut = Math.max(700, 9000 * Math.exp(-t * 1.5)), a = 1 - Math.exp(-2 * Math.PI * cut / sr);
+        y += a * (r() * 2 - 1 - y); d[n] = y * env;
+      }
+    }
+    return buf;
+  }
+  function pad() {
+    const t = ctx.currentTime;
+    const bus = ctx.createGain(); bus.gain.setValueAtTime(0, t); bus.gain.linearRampToValueAtTime(1, t + 6); bus.connect(master);
+    const ps = ctx.createGain(); ps.gain.value = 0.5; bus.connect(ps); ps.connect(send);
+    // soft drone: D fifth octave, slow filter + slow breathing
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 480; lp.Q.value = 0.3;
+    const trem = ctx.createGain(); trem.gain.value = 0.75; const dg = ctx.createGain(); dg.gain.value = 0.040;
+    [[73.42, 'triangle', 1], [110.0, 'sine', 0.8], [146.83, 'sine', 0.55], [220.4, 'sine', 0.3]].forEach(([f, ty, g], i) => {
+      const o = ctx.createOscillator(); o.type = ty; o.frequency.value = f; o.detune.value = (i - 1.5) * 5;
+      const og = ctx.createGain(); og.gain.value = g; o.connect(og); og.connect(lp); o.start(t);
+    });
+    lp.connect(trem); trem.connect(dg); dg.connect(bus);
+    const lfo = (rate, amt, target) => { const o = ctx.createOscillator(); o.frequency.value = rate; const g = ctx.createGain(); g.gain.value = amt; o.connect(g); g.connect(target); o.start(t); };
+    lfo(0.06, 150, lp.frequency); lfo(0.11, 0.2, trem.gain);
+    // slow filtered noise: water moving far away
+    const n1 = ctx.createBufferSource(); n1.buffer = loopNoise; n1.loop = true;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 760; bp.Q.value = 0.6;
+    const g1 = ctx.createGain(); g1.gain.value = 0.020; n1.connect(bp); bp.connect(g1); g1.connect(bus); n1.start(t);
+    lfo(0.045, 380, bp.frequency); lfo(0.07, 0.008, g1.gain);
+    const n2 = ctx.createBufferSource(); n2.buffer = loopNoise; n2.loop = true; n2.playbackRate.value = 0.7;
+    const lp2 = ctx.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 260;
+    const g2 = ctx.createGain(); g2.gain.value = 0.026; n2.connect(lp2); lp2.connect(g2); g2.connect(bus); n2.start(t, 1.3);
+    lfo(0.083, 0.011, g2.gain);
+  }
+  function init() {
+    if (ctx) { ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    ctx = new AC({ latencyHint: 'interactive' });
+    master = ctx.createGain(); master.gain.value = S.sound ? 0.9 : 0;
+    const lim = ctx.createDynamicsCompressor(); // gentle limiter
+    lim.threshold.value = -13; lim.knee.value = 8; lim.ratio.value = 14; lim.attack.value = 0.003; lim.release.value = 0.16;
+    master.connect(lim); lim.connect(ctx.destination);
+    dry = ctx.createGain(); dry.gain.value = 0.85; dry.connect(master);
+    send = ctx.createGain(); send.gain.value = 1;
+    const conv = ctx.createConvolver(); conv.buffer = impulse(ctx, 3.6, 5);
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 220;
+    const wet = ctx.createGain(); wet.gain.value = 0.62; send.connect(conv); conv.connect(hp); hp.connect(wet); wet.connect(master);
+    const merger = ctx.createChannelMerger(2);
+    const dl = ctx.createDelay(1.5), dr = ctx.createDelay(1.5); dl.delayTime.value = 0.34; dr.delayTime.value = 0.51;
+    const fb = ctx.createGain(); fb.gain.value = 0.30; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600;
+    const eg = ctx.createGain(); eg.gain.value = 0.16;
+    send.connect(dl); dl.connect(lp); lp.connect(dr); dr.connect(fb); fb.connect(dl);
+    dl.connect(merger, 0, 0); dr.connect(merger, 0, 1); merger.connect(eg); eg.connect(master);
+    const nb = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.2), ctx.sampleRate), nd = nb.getChannelData(0), r = mulberry(11);
+    for (let i = 0; i < nd.length; i++) nd[i] = r() * 2 - 1; noiseBuf = nb;
+    const lb = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 4), ctx.sampleRate), ld = lb.getChannelData(0), r2 = mulberry(23);
+    for (let i = 0; i < ld.length; i++) ld[i] = r2() * 2 - 1; loopNoise = lb;
+    pad();
+  }
+  function setOn(on) { if (master) master.gain.setTargetAtTime(on ? 0.9 : 0, ctx.currentTime, 0.08); }
+  function freqAt(x, fixed) {
+    const px = x < 0.5 ? 2 * x : 2 - 2 * x;               // palindromic mapping: no jump at the P3 -> P4 seam
+    const st = SCALES[scale].st, n = st.length * OCT, idx = Math.min(n, Math.floor(px * (n + 1)));
+    const midi = ROOT + 12 * Math.floor(idx / st.length) + (idx === n ? 0 : st[idx % st.length]);
+    const cents = fixed ? 0 : (rnd() - 0.5) * 8;
+    return 440 * Math.pow(2, (midi - 69 + cents / 100) / 12);
+  }
+  // ---- the hand in the water: one continuous voice per held touch (never retriggered) ----
+  function makeDrag() {
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = loopNoise; src.loop = true;
+    const soft = ctx.createBiquadFilter(); soft.type = 'lowpass'; soft.frequency.value = 3200;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 600; bp.Q.value = 1;
+    const ng = ctx.createGain(); ng.gain.value = 0; src.connect(soft); soft.connect(bp); bp.connect(ng);
+    const tone = ctx.createOscillator(); tone.type = 'sine'; tone.frequency.value = 300;
+    const tone2 = ctx.createOscillator(); tone2.type = 'sine'; tone2.frequency.value = 600; tone2.detune.value = 7;
+    const t2g = ctx.createGain(); t2g.gain.value = 0.3; tone2.connect(t2g);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1200; lp.Q.value = 0.3;
+    const tg = ctx.createGain(); tg.gain.value = 0; tone.connect(lp); t2g.connect(lp); lp.connect(tg);
+    const pan = ctx.createStereoPanner(); ng.connect(pan); tg.connect(pan); pan.connect(dry);
+    const sg = ctx.createGain(); sg.gain.value = 0.55; pan.connect(sg); sg.connect(send);
+    src.start(t, rnd() * 3); tone.start(t); tone2.start(t);
+    return { src, bp, ng, tone, tone2, lp, tg, pan, sg, soft, t2g };
+  }
+  function drag(id, u, v, spd) {
+    if (!ctx || ctx.state !== 'running' || !S.sound) return;
+    const sp = clamp(spd / 1.2, 0, 1);
+    let o = dv.get(id);
+    if (!o) { if (sp < 0.06) return; o = makeDrag(); dv.set(id, o); }
+    const t = ctx.currentTime, b = reach(v);
+    o.bp.frequency.setTargetAtTime(420 + 2200 * Math.pow(b, 1.1) * (0.35 + 0.65 * sp) + 600 * sp, t, 0.06);
+    o.bp.Q.setTargetAtTime(0.7 + 1.4 * (1 - sp), t, 0.08);
+    o.ng.gain.setTargetAtTime(0.075 * Math.pow(sp, 1.2), t, 0.07);
+    o.tone.frequency.setTargetAtTime(freqAt(u, true) * (b > 0.55 ? 2 : 1), t, 0.14);
+    o.tone2.frequency.setTargetAtTime(freqAt(u, true) * (b > 0.55 ? 4 : 2), t, 0.14);
+    o.tg.gain.setTargetAtTime(0.026 * Math.pow(sp, 0.9), t, 0.10);
+    o.lp.frequency.setTargetAtTime(700 + 3200 * sp, t, 0.1);
+    o.pan.pan.setTargetAtTime(Math.sin(2 * Math.PI * u) * 0.8, t, 0.1);
+  }
+  function dragEnd(id) {
+    const o = dv.get(id); if (!o || !ctx) return; dv.delete(id);
+    const t = ctx.currentTime; o.ng.gain.setTargetAtTime(0, t, 0.18); o.tg.gain.setTargetAtTime(0, t, 0.2);
+    setTimeout(() => { try { o.src.stop(); o.tone.stop(); o.tone2.stop(); o.pan.disconnect(); o.sg.disconnect(); } catch (e) {} }, 2200);
+  }
+  function play(x, y, vel, soft) {
+    if (!ctx || ctx.state !== 'running' || !S.sound || active > 34) return;
+    const t0 = ctx.currentTime + 0.004, f = freqAt(x), b = reach(y);
+    const r1 = rnd(), r2 = rnd(), r3 = rnd();
+    const dec = (0.9 + 3.0 * Math.pow(1 - b, 1.3)) * (0.8 + 0.45 * r1) * (soft ? 0.55 : 1);
+    const att = 0.006 + 0.012 * r2;
+    const peak = 0.17 * clamp(vel, 0.05, 1.2) * (0.75 + 0.25 * (1 - b));
+    const out = ctx.createGain(); out.gain.setValueAtTime(0.0001, t0);
+    out.gain.linearRampToValueAtTime(peak, t0 + att); out.gain.exponentialRampToValueAtTime(0.0001, t0 + att + dec);
+    const lpf = ctx.createBiquadFilter(); lpf.type = 'lowpass'; lpf.frequency.value = 1400 + 10500 * Math.pow(b, 1.2); lpf.Q.value = 0.4;
+    const pan = ctx.createStereoPanner(); pan.pan.value = Math.sin(2 * Math.PI * x) * 0.8;
+    out.connect(lpf); lpf.connect(pan); pan.connect(dry);
+    const sg = ctx.createGain(); sg.gain.value = 0.2 + 0.5 * (1 - b) + (soft ? 0.1 : 0); pan.connect(sg); sg.connect(send);
+    const stopAt = t0 + att + dec + 0.15;
+    const drop = 1.5 + 1.1 * r3, tdrop = 0.03 + 0.04 * r1;
+    const car = ctx.createOscillator(); car.type = 'sine';
+    car.frequency.setValueAtTime(f * drop, t0); car.frequency.exponentialRampToValueAtTime(f, t0 + tdrop);
+    const mod = ctx.createOscillator(); mod.type = 'sine';
+    const ratios = [1, 2, 3.01, 3.5, 4.2]; mod.frequency.value = f * ratios[Math.floor(rnd() * (b > 0.5 ? 5 : 3))];
+    const mg = ctx.createGain(); const idx = (0.35 + 2.4 * b * (0.4 + r2)) * f;
+    mg.gain.setValueAtTime(idx, t0); mg.gain.exponentialRampToValueAtTime(Math.max(idx * 0.02, 0.01), t0 + 0.05 + 0.25 * dec * 0.3);
+    mod.connect(mg); mg.connect(car.frequency);
+    const cg = ctx.createGain(); cg.gain.value = 1; car.connect(cg); cg.connect(out);
+    const parts = [[2.76 + (rnd() - 0.5) * 0.08, 0.30 * (0.35 + b), 0.45], [5.40 + (rnd() - 0.5) * 0.2, 0.13 * b, 0.20], [0.5, 0.26 * (1 - b), 0.9], [1.005, 0.35, 0.8]];
+    const oscs = [car, mod];
+    parts.forEach(([ra, am, dm]) => {
+      if (am < 0.012) return;
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(f * ra * (ra === 0.5 ? 1 : drop * 0.5 + 0.5), t0); o.frequency.exponentialRampToValueAtTime(f * ra, t0 + tdrop * 1.2);
+      const g = ctx.createGain(); g.gain.setValueAtTime(am, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + att + dec * dm);
+      o.connect(g); g.connect(out); oscs.push(o);
+    });
+    const ns = ctx.createBufferSource(); ns.buffer = noiseBuf;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1600 + 4200 * (0.3 + 0.7 * b) * (0.7 + 0.6 * r3); bp.Q.value = 2.2;
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(0.0001, t0); ng.gain.linearRampToValueAtTime(0.16 * (0.4 + b), t0 + 0.002); ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.045);
+    ns.connect(bp); bp.connect(ng); ng.connect(out);
+    active++; oscs.forEach((o) => { o.start(t0); o.stop(stopAt); }); ns.start(t0, rnd() * 0.1, 0.06);
+    car.onended = () => { active--; try { out.disconnect(); lpf.disconnect(); pan.disconnect(); sg.disconnect(); } catch (e) {} };
+  }
+  return {
+    init, play, drag, dragEnd, setOn, nextScale() { scale = (scale + 1) % SCALES.length; document.getElementById('scaleName').textContent = SCALES[scale].name; return SCALES[scale].name; },
+    get on() { return !!ctx && ctx.state === 'running'; },
+  };
+})();
+
+// ───────────────────────── input: a held touch is ONE moving source (a hand in the water) ─────────────────────────
+let lastInput = CAPTURE ? -999 : performance.now();
+const movers = new Map();
+function addMover(id, u, v) { const m = { id, u, v, u0: u, v0: v, tu: u, tv: v, vx: 0, vy: 0, spd: 0 }; movers.set(id, m); return m; }
+function removeMover(id) { if (movers.delete(id)) Sound.dragEnd(id); }
+function moverStep() {
+  const arr = [];
+  for (const m of movers.values()) {
+    m.u0 = m.u; m.v0 = m.v;
+    let du = m.tu - m.u; du -= Math.round(du);
+    m.u += du * 0.6; m.v += (m.tv - m.v) * 0.6;
+    let dx = m.u - m.u0; dx -= Math.round(dx);
+    m.vx = lerp(m.vx, dx * S.aspect / STEP, 0.35); m.vy = lerp(m.vy, (m.v - m.v0) / STEP, 0.35);
+    m.spd = Math.hypot(m.vx, m.vy);
+    Sound.drag(m.id, ((m.u % 1) + 1) % 1, m.v, m.spd);
+    if (arr.length < 4) arr.push(m);
+  }
+  S.movers = arr;
+}
+function toWorld(e) {
+  const r = canvas.getBoundingClientRect();
+  const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+  if (!S.strip) return { u: px, v: 1 - py, ok: true };
+  const hPx = r.width / STRIP_ASPECT, y0 = (r.height - hPx) / 2, yy = (e.clientY - r.top - y0) / hPx;
+  return { u: px, v: 1 - yy, ok: yy >= 0 && yy <= 1 };
+}
+canvas.addEventListener('pointerdown', (e) => {
+  Sound.init(); document.getElementById('hint').style.opacity = 0; lastInput = performance.now();
+  const w = toWorld(e); if (!w.ok) return; canvas.setPointerCapture(e.pointerId);
+  touch(w.u, w.v, 1, 'tap'); addMover('p' + e.pointerId, w.u, clamp(w.v, 0.02, 0.98));
+});
+canvas.addEventListener('pointermove', (e) => {
+  const m = movers.get('p' + e.pointerId); if (!m) return; lastInput = performance.now();
+  const w = toWorld(e); m.tu = w.u; m.tv = clamp(w.v, 0.02, 0.98);
+});
+const up = (e) => { removeMover('p' + e.pointerId); lastInput = performance.now(); };
+canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+
+// ───────────────────────── auto-demo: 2–3 virtual hands (taps, and strokes that are moving sources) ─────────────────────────
+const hands = [0, 1, 2].map((i) => ({ id: 'h' + i, wait: 0.05 + i * 0.28, path: null }));
+function demoStep(dt, active) {
+  for (const h of hands) {
+    if (!active) { if (h.path) { removeMover(h.id); h.path = null; } continue; }
+    if (h.path) {
+      const P = h.path; P.t += dt; const k = clamp(P.t / P.dur, 0, 1), e = k * k * (3 - 2 * k);
+      const bend = Math.sin(k * Math.PI) * P.bend;
+      const m = movers.get(h.id);
+      if (m) { m.tu = P.u0 + P.du * e - Math.sin(P.ang) * bend / S.aspect; m.tv = clamp(P.v0 + P.dv * e + Math.cos(P.ang) * bend, 0.06, 0.94); }
+      if (k >= 1) { removeMover(h.id); h.path = null; h.wait = 0.25 + rnd() * 0.9; }
+      continue;
+    }
+    h.wait -= dt; if (h.wait > 0) continue;
+    const r = rnd(), u = rnd(), v = 0.14 + 0.72 * rnd();
+    if (r < 0.50) { touch(u, v, 0.8 + 0.5 * rnd(), 'tap'); h.wait = 0.28 + rnd() * 0.95; }
+    else if (r < 0.82) {
+      const ang = rnd() * Math.PI * 2, len = 0.22 + 0.40 * rnd();
+      touch(u, v, 0.9, 'tap'); addMover(h.id, u, v);
+      h.path = { u0: u, v0: v, du: Math.cos(ang) * len / S.aspect, dv: Math.sin(ang) * len * 0.8, ang, bend: (rnd() - 0.5) * 0.18, t: 0, dur: 0.6 + 0.8 * rnd() };
+    } else { touch(u, v, 0.9, 'tap'); touch(u + (rnd() - 0.5) * 0.05 / S.aspect * 3, v + (rnd() - 0.5) * 0.1, 0.7, 'tap'); h.wait = 0.6 + rnd() * 1.0; }
+  }
+}
+
+// ───────────────────────── keys ─────────────────────────
+const lookName = document.getElementById('lookName');
+function setLook(n) { S.look = n; lookName.textContent = LOOKS[n - 1].name; }
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (k === '1' || k === '2' || k === '3') setLook(+k);
+  else if (k === 'f') { S.strip = !S.strip; layout(); allocate(); }
+  else if (k === 'h') { S.help = !S.help; document.getElementById('help').style.display = S.help ? 'block' : 'none'; }
+  else if (k === 'm') { Sound.nextScale(); }
+  else if (k === 's') { S.sound = !S.sound; Sound.setOn(S.sound); }
+  else if (k === 'd') { S.demo = !S.demo; }
+  else if (k === 'r') { allocate(); }
+});
+let rz = 0; window.addEventListener('resize', () => { if (CAPTURE) return; clearTimeout(rz); rz = setTimeout(() => { layout(); allocate(); }, 160); });
+
+// ───────────────────────── main loop (fixed 60 Hz simulation) ─────────────────────────
+const STEP = 1 / 60;
+function step(render) {
+  S.time += STEP;
+  demoStep(STEP, S.demo && (performance.now() - lastInput > 4000));
+  moverStep();
+  simFrame();
+}
+let prev = performance.now(), ema = 16.7, slow = 0;
+function loop(now) {
+  const dt = Math.min(0.1, (now - prev) / 1000); prev = now; S.acc += dt;
+  let n = 0; while (S.acc >= STEP && n < 3) { step(); S.acc -= STEP; n++; }
+  if (S.acc > STEP * 3) S.acc = 0;
+  if (n) renderFrame();
+  ema = lerp(ema, dt * 1000, 0.05);
+  if (ema > 21 && ++slow > 120 && S.simLevel < 2) { S.simLevel++; slow = 0; ema = 16.7; allocate(); } else if (ema <= 21) slow = 0;
+  requestAnimationFrame(loop);
+}
+// idle: the hint fades once the demo has been running a while; HUD dims
+setTimeout(() => { document.getElementById('hud').style.opacity = 0.4; }, 6000);
+
+layout(); allocate(); setLook(clamp(S.look, 1, 3));
+// capture / test API (used by the headless screenshot script; harmless otherwise)
+window.__vt = {
+  S,
+  advance(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) step(); sync(); return n; },
+  stroke(u0, v0, u1, v1, sec) { const m = addMover('cap', u0, v0); const n = Math.round(sec / STEP); for (let i = 1; i <= n; i++) { const k = i / n; m.tu = u0 + (u1 - u0) * k; m.tv = v0 + (v1 - v0) * k; step(); } sync(); return n; },
+  show(look) { setLook(look); renderFrame(); sync(); return canvas.toDataURL('image/png'); },
+  ms() { const t = performance.now(); for (let i = 0; i < 30; i++) { step(); renderFrame(); } sync(); return (performance.now() - t) / 30; },
+};
+window.__ready = true;
+if (!CAPTURE) requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
