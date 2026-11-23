@@ -1,0 +1,12 @@
+{
+  "id": "lab-template-sound",
+  "name": "Lab template — Soft bells",
+  "description": "A runtime-ready sound piece to copy: every touch strikes one soft bell on its own wall (height picks the note), a held hand lets it swell, lifting it leaves a long tail. A quiet pad plays on every wall.",
+  "kind": "sound",
+  "entry": "sound.js",
+  "params": [
+    { "key": "volume", "label": "Bells volume", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.85 },
+    { "key": "pad", "label": "Pad volume", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "tail", "label": "Release", "type": "number", "min": 0.5, "max": 12, "step": 0.1, "default": 5, "unit": "s" }
+  ]
+}

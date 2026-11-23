@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VEATION Touch lab</title>
+<style>
+  :root { --bg:#111111; --s1:#1B1B1B; --s2:#262626; --ink:#E0E0E0; --ink2:#B8B8B8; --live:#4FC3E8; --warn:#E5B567; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--ink); font:13px/1.5 Geist,"Segoe UI",system-ui,sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:44px 24px 80px; }
+  h1 { font-weight:500; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ink2); margin:0 0 6px; }
+  h2 { font-weight:300; font-size:28px; margin:0 0 6px; letter-spacing:.01em; }
+  p.sub { color:var(--ink2); margin:0 0 34px; max-width:640px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
+  .card { background:var(--s1); border:1px solid var(--s2); border-radius:6px; overflow:hidden; display:flex; flex-direction:column; }
+  .card .pv { aspect-ratio:7196/912; background:#0b0d10; border-bottom:1px solid var(--s2); background-size:cover; background-position:center; }
+  .card .b { padding:12px 14px 14px; display:flex; flex-direction:column; gap:6px; flex:1; }
+  .card .t { font-size:15px; }
+  .meta { font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink2); }
+  .meta b { font-weight:500; color:var(--warn); }
+  .links { margin-top:auto; padding-top:8px; display:flex; gap:14px; }
+  a { color:var(--live); text-decoration:none; font-size:12px; }
+  a:hover { text-decoration:underline; }
+  .tpl { opacity:.7; }
+  .keys { margin-top:40px; color:var(--ink2); font-size:12px; }
+  .keys kbd { color:var(--live); font:inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>VEATION Touch · Alma Digital Studio</h1>
+  <h2>Experience lab</h2>
+  <p class="sub">Interactive experiments for the XR Lab room: four walls, one 7196 × 912 strip, LiDAR hands, sound over 4.1. Runtime-ready experiments run here exactly as they will in the app.</p>
+  <div class="grid" id="grid"></div>
+  <p class="keys"><kbd>F</kbd> room overlay · <kbd>B</kbd> body scale · <kbd>H</kbd> help · <kbd>D</kbd> virtual hands · <kbd>G</kbd> group · <kbd>L</kbd> LiDAR feel · <kbd>S</kbd> sound · <kbd>P</kbd> parameters · Shift+click pins a hand</p>
+</main>
+<script>
+fetch('/api/experiments').then((r) => r.json()).then((list) => {
+  const g = document.getElementById('grid');
+  if (!list.length) g.textContent = 'No experiments yet.';
+  for (const e of list) {
+    const c = document.createElement('div'); c.className = 'card' + (e.template ? ' tpl' : '');
+    const base = e.stage === 'prototype' ? `/experiments/${e.folder}/` : `/experiences/${e.folder}/`;
+    const open = e.stage === 'sound' ? `/sound/${e.folder}` : e.stage === 'empty' ? null : base + 'index.html';
+    c.innerHTML = `<div class="pv" style="${e.preview ? `background-image:url(/experiments/${e.folder}/preview.png)` : ''}"></div>
+      <div class="b"><div class="t"></div><div class="meta"></div><div class="links"></div></div>`;
+    c.querySelector('.t').textContent = e.name;
+    c.querySelector('.meta').innerHTML = `${e.stage} · <b></b>${e.author ? ' · ' + e.author.replace(/[<>&]/g, '') : ''}`;
+    c.querySelector('.meta b').textContent = e.status;
+    const L = c.querySelector('.links');
+    if (open) L.innerHTML = `<a href="${open}">Open</a>`;
+    if (e.stage === 'runtime') L.innerHTML += ` <a href="${base}index.html?scale=1">Full size</a>`;
+    L.innerHTML += ` <a href="/experiments/${e.folder}/NOTES.md">Notes</a>`;
+    g.appendChild(c);
+  }
+});
+</script>
+</body>
+</html>

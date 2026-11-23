@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prototype template — Blooms</title>
+<style>
+  :root { --bg:#05070b; }
+  html,body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:#E0E0E0; font:12px/1.45 Geist,"Segoe UI",system-ui,sans-serif; -webkit-user-select:none; user-select:none; }
+  canvas#c { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:crosshair; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<!-- the lab kit: mouse = touch, Shift+click pins a hand, F room strip, B body scale, H help, D virtual hands, G group, S sound, a simulated 4.1 room.
+     A classic script: this page works from a double click (file://) as long as it stays inside the repo (lab/experiments/<id>/). -->
+<script src="../../harness/kit.js"></script>
+<script>
+// Prototype template — Blooms. A standalone browser prototype in one file (the proposals' conventions):
+//   click / drag = a hand · Shift+click pins a hand · F room strip · B body scale · H help · S sound · D virtual hands at human speed
+// A tap blooms a soft light and strikes a bell on ITS wall; a drag leaves a thread of small blooms. Copy this file and change it.
+(() => {
+'use strict';
+const K = LabKit, ROOM = K.ROOM, { clamp, mulberry } = K.util;
+const canvas = document.getElementById('c'), g = canvas.getContext('2d');
+let dpr = 1;
+const fit = () => { dpr = Math.min(2, devicePixelRatio || 1); canvas.width = Math.round(innerWidth * dpr); canvas.height = Math.round(innerHeight * dpr); };
+addEventListener('resize', fit); fit();
+
+const stage = K.createStage({ title: 'Blooms', hint: 'Click to enable sound &nbsp;·&nbsp; drag = a hand' });
+const rnd = mulberry(7);
+
+// ------------------------------------------------------------------------------------------------ sound: a bell per touch, on its wall
+let room = null; // the simulated 4.1 room, created at the first click (browsers want a gesture)
+stage.onGesture(() => { room = K.createRoomAudio(); stage.addMeters(room.levels); room.resume(); room.setOn(stage.soundOn); });
+const SCALE = [0, 3, 5, 7, 10], ROOT = 50;
+const midiHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+function bell(h, gain) {
+  if (!room || !stage.soundOn) return;
+  const c = room.ctx, t = c.currentTime;
+  // height in METRES -> a note: floor 0.3 m .. reach 2.0 m over two octaves of a pentatonic scale
+  const k = clamp((h.ym - 0.3) / 1.7, 0, 1), steps = Math.round(k * (SCALE.length * 2 - 1));
+  const hz = midiHz(ROOT + Math.floor(steps / SCALE.length) * 12 + SCALE[steps % SCALE.length]);
+  const input = room.audio.wallInput(h.wallId, h.u), env = c.createGain();
+  env.connect(input.node);
+  [[1, 1], [2, 0.3], [3.01, 0.1]].forEach(([m, a]) => { const o = c.createOscillator(), og = c.createGain(); o.frequency.value = hz * m; og.gain.value = a; o.connect(og); og.connect(env); o.start(t); o.stop(t + 4); });
+  env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(0.05 * gain, t + 0.006); env.gain.setTargetAtTime(0, t + 0.006, 0.7);
+  setTimeout(() => input.disconnect(), 4500);
+}
+
+// ------------------------------------------------------------------------------------------------ blooms
+const blooms = [];
+const hue = (s) => 200 + 50 * Math.sin(s * 6.2832 * 2);                    // a quiet range, round the room
+stage.on('down', (h) => { blooms.push({ s: h.s, t: h.t, age: 0, life: 5, r: 0.5, hue: hue(h.s), a: 0.9 }); bell(h, 1); });
+const lastB = new Map();
+stage.on('move', (h) => {
+  const l = lastB.get(h.key), d = l ? Math.hypot(((h.s - l.s + 1.5) % 1 - 0.5) * ROOM.perimeter, (h.t - l.t) * ROOM.wallHeight) : 1e9;
+  if (d > 0.22) { lastB.set(h.key, { s: h.s, t: h.t }); blooms.push({ s: h.s, t: h.t, age: 0, life: 3.2, r: 0.22, hue: hue(h.s), a: 0.45 }); }
+});
+stage.on('up', (h) => lastB.delete(h.key));
+
+function drawBloom(r, b) {
+  const k = b.age / b.life, ease = 1 - Math.pow(1 - k, 3);
+  const rad = (b.r * (0.4 + 0.9 * ease) / ROOM.wallHeight) * r.h * dpr;      // radius in METRES -> px
+  const x = (r.x + b.s * r.w) * dpr, y = (r.y + b.t * r.h) * dpr, alpha = b.a * Math.pow(1 - k, 1.6);
+  for (const dx of [-r.w * dpr, 0, r.w * dpr]) {                              // the room is a circle: a bloom near the seam shows on both ends
+    const gr = g.createRadialGradient(x + dx, y, 0, x + dx, y, rad);
+    gr.addColorStop(0, `hsla(${b.hue},70%,86%,${alpha})`); gr.addColorStop(0.35, `hsla(${b.hue},70%,60%,${alpha * 0.35})`); gr.addColorStop(1, `hsla(${b.hue},70%,50%,0)`);
+    g.fillStyle = gr; g.fillRect(x + dx - rad, y - rad, rad * 2, rad * 2);
+  }
+}
+
+let prev = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - prev) / 1000); prev = now;
+  stage.step(dt);
+  const r = stage.rect();
+  g.globalCompositeOperation = 'source-over'; g.fillStyle = 'rgba(5,7,11,0.16)'; g.fillRect(0, 0, canvas.width, canvas.height); // the fade is the trail
+  g.globalCompositeOperation = 'lighter';
+  for (let i = blooms.length - 1; i >= 0; i--) { const b = blooms[i]; b.age += dt; if (b.age >= b.life) { blooms.splice(i, 1); continue; } drawBloom(r, b); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__proto = { stage, blooms }; // (for the lab's checks)
+})();
+</script>
+</body>
+</html>
