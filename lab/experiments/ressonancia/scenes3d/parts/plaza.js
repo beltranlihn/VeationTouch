@@ -703,11 +703,12 @@ export function create(ctx) {
   // so a dark lamp, an absent hand or a cold fire costs nothing (was: every loop over every slot, every pixel, four walls).
   const lampVecC = Array.from({ length: NL }, () => new THREE.Vector4(0, -50, 0, 0)), uLampsC = uniformArray(lampVecC, 'vec4');
   const uNL = uniform(0, 'int'), uNHL = uniform(0, 'int'), uNFI = uniform(0, 'int');
-  const LOOP = (n) => ({ start: 0, end: n, type: 'int', condition: '<' });
+  const LOOP = (n) => n;   // Loop(uniformInt, …) as festa / atmos do (the object form failed: «Uniform null»)
   const LC = vec3(1.0, 0.6, 0.3);
-  const NSP = 4, spotP = Array.from({ length: NSP }, () => new THREE.Vector4(0, -50, 0, 0)), spotD = Array.from({ length: NSP }, () => new THREE.Vector4(0, -1, 0, 0.95));
+  const NSP = 8, spotP = Array.from({ length: NSP }, () => new THREE.Vector4(0, -50, 0, 0)), spotD = Array.from({ length: NSP }, () => new THREE.Vector4(0, -1, 0, 0.95));
   const uSpotP = uniformArray(spotP, 'vec4'), uSpotD = uniformArray(spotD, 'vec4'), uFest = uniform(0);
-  const SPC = vec3(...palLin('cal-fanal'));                           // the stage light: warm lime
+  const uSpotC = uniform(new THREE.Vector3(...palLin('cal-fanal'))), SPC = uSpotC;   // the stage light: warm lime (tronc) · warmer fire-lime (pinya)
+  const uNSP = uniform(0, 'int');
   // VFX 25-11 (free touch, D3): every hand on a wall opens a warm pool of lamp light 0.8 m behind it — on the paving (≥ 1 m), the near
   // stone and in the air — growing in ~0.4 s, staying a few seconds after the hand goes. Not in the Brasa (there the hand lights fire).
   const NHL = 6, hlVec = Array.from({ length: NHL }, () => new THREE.Vector4(0, -50, 0, 0)), uHL = uniformArray(hlVec, 'vec4');
@@ -855,7 +856,7 @@ export function create(ctx) {
     const f0 = mix(vec3(0.04), albedo, metal);
     const kd = albedo.mul(float(1).sub(metal)).mul(1 / Math.PI);
     If(uFest.greaterThan(0.001), () => {
-      Loop(NSP, ({ i }) => {                                          // VFX 25-11: the festival's stage spots
+      Loop(LOOP(uNSP), ({ i }) => {                                   // VFX 25-11: the festival's stage spots (compacted)
         const L = uSpotP.element(i), Dd = uSpotD.element(i);
         const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv), Ld = Lv.mul(d2.inverseSqrt());
         const cone = smoothstep(Dd.w, Dd.w.add(0.035), dot(Ld.negate(), Dd.xyz));
@@ -1236,17 +1237,27 @@ export function create(ctx) {
   // aim the spots at the towers' foot: tronc3d.towerD (2.3 m beyond the wall since M3), read when it is there
   let spotTD = -1;
   const _sf = new THREE.Vector3(), _ss = new THREE.Vector3(), _sd = new THREE.Vector3(), _yN = new THREE.Vector3(0, -1, 0);
-  function placeSpots(td) {
-    if (td === spotTD) return; spotTD = td;
+  // two looks (director 25-11: four stages in the same square must read different):
+  //   'tronc' — the tower in CROSSED spotlights: two narrow beams per wall from high left and right, crossing over the tower
+  //   'pinya' — the festival crowd: one broad warm wash per wall, lower and from the front side, a wide pool on the paving
+  let spotMode = '';
+  const PINYA_C = palLin('cal-foc').map((c, i) => c * 0.75 + palLin('fanal')[i] * 0.25), TRONC_C = palLin('cal-fanal');
+  function placeSpots(td, mode = 'tronc') {
+    const key = td + mode; if (key === spotTD) return; spotTD = key; spotMode = mode;
+    const nw = room.walls.length, cross = mode === 'tronc', n = cross ? Math.min(NSP, nw * 2) : Math.min(NSP, nw);
+    const A = (cross ? 11 : 21) * Math.PI / 180;
     for (let i = 0; i < NSP; i++) {
-      const w = room.walls[i % room.walls.length];
-      _sf.copy(w.centre).addScaledVector(w.normal, -td); _sf.y = 1.4;
-      _ss.copy(_sf).addScaledVector(w.right, i % 2 ? 4.5 : -4.5).addScaledVector(w.normal, -4.0); _ss.y = 12.5;
+      const c = shafts.children[i];
+      if (i >= n) { spotP[i].w = 0; c.visible = false; continue; }
+      const w = room.walls[i % nw], side = cross ? (i < nw ? -1 : 1) : (i % 2 ? 1 : -1);
+      _sf.copy(w.centre).addScaledVector(w.normal, -td); _sf.y = cross ? 3.2 : 0.6;                       // tronc: the beams cross over the tower
+      _ss.copy(_sf).addScaledVector(w.right, side * (cross ? 5.0 : 3.0)).addScaledVector(w.normal, cross ? -4.0 : -1.0); _ss.y = cross ? 13.0 : 9.0;
       _sd.copy(_sf).sub(_ss).normalize();
-      spotP[i].set(_ss.x, _ss.y, _ss.z, SPOT_K); spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(SPOT_A));
-      const len = _ss.distanceTo(_sf) * 1.25, rad = len * Math.tan(SPOT_A), c = shafts.children[i];
-      c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad, len, rad);
+      spotP[i].set(_ss.x, _ss.y, _ss.z, cross ? SPOT_K : SPOT_K * 0.75); spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
+      const len = _ss.distanceTo(_sf) * (cross ? 1.9 : 1.15), rad = len * Math.tan(A);
+      c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad, len, rad);
     }
+    uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C);
   }
   placeSpots(2.3);
   // VFX 25-11: the Brasa's fires light the square. setFires(list, posOf(item) → Vector3, kOf(item) → 0..~1.2); the first NFI count
@@ -1341,7 +1352,7 @@ export function create(ctx) {
     if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, input.state?.progress ?? 0)); object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 1 - 0.6 * pg; uStars.value *= 0.4 * (1 - pg); blueProg = pg; } else blueProg = 0;   // the lamps go out as the tower comes down
     uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low';
     stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
-    if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3);
+    if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'pinya' || (!input.state && pr.festMode === 'pinya') ? 'pinya' : 'tronc');
     if (festK > 0) {                                                  // the festival night: the square's own night, richer and deeper
       uWin.value = Math.max(uWin.value, festK * 0.9); uFog.value = Math.max(uFog.value, 0.016); uWet.value = Math.max(uWet.value, 0.8);
       moon.intensity = Math.max(moon.intensity, 0.32 * festK); hemi.intensity = Math.max(hemi.intensity, 0.3 * festK); uSky.value = Math.max(uSky.value, festK);
@@ -1398,5 +1409,7 @@ export function create(ctx) {
   function setParams() { /* parameters are read live in update() */ }
   function dispose() { for (const g of geos) g.dispose(); for (const m of [stoneMat, detailMat, glassMat, mirrorMat, floorMat, skyMat]) m.dispose(); }
   if (typeof window !== 'undefined') window.__plaza = { lamps: NL, verts, meshes: object.children.length, lit: () => lamps.filter((L) => L.t0 <= prevT).length, byHand: () => lampsLitByHand };   // lab checks only
-  return { object, update, setParams, dispose, captureEnv, setFires };
+  // part.spots (for Modelado's lighting): pos[i] = (x, y, z, intensity), dir[i] = (x, y, z, cos of the cone), count(), on() 0..1, mode()
+  const spots = { pos: spotP, dir: spotD, count: () => uNSP.value, on: () => uFest.value, mode: () => spotMode, color: uSpotC.value };
+  return { object, update, setParams, dispose, captureEnv, setFires, spots };
 }

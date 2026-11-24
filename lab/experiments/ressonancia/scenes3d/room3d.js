@@ -480,7 +480,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     if (c.bottom) bg.to.bottom = [...c.bottom]; if (c.top) bg.to.top = [...c.top]; bg.to.horizon = [...(c.horizon || c.top || bg.to.horizon)];
     if (c.gain != null) bg.gain.value = c.gain;
     bg.name = typeof what === 'string' ? what : 'custom';
-    if (typeof what === 'string' && c.grade !== false) { setGrade(what, { now: c.now }); setAir(what); airSweep(scene); porx.to = PORX_ON.has(what) ? 1 : 0; }
+    if (typeof what === 'string' && c.grade !== false) { setGrade(what, { now: c.now }); setAir(what); airSweep(scene); porx.to = PORX_ON.has(what) ? 1 : 0; field.to = FIELD_ON.has(what) ? 1 : 0; }
     if (c.now) for (const key of ['bottom', 'horizon', 'top']) bg[key].value.fromArray(bg.to[key]);
   }
   function stepBackground(dt) {
@@ -728,7 +728,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // chapter's shadow token), the one matter, lit by whatever light the world has and by the hands. We look at the square THROUGH it.
   // Present in intro, brasa, pinya, tronc, baixada (setBackground sets it); room.setPorxada(0..1) overrides. It comes and goes by a
   // dissolve of fragments (screen-door), the work's language. In the scene root: the same frame in both worlds of a transition.
-  const PORX_ON = new Set(['intro', 'brasa', 'pinya', 'tronc', 'baixada']);
+  const PORX_ON = new Set(['intro', 'brasa', 'tronc', 'baixada']);   // (pinya is the abstract field: no porch)
   const porx = { k: uniform(0), to: 0, group: new THREE.Group() };
   porx.group.name = 'room:porxada';
   {
@@ -756,6 +756,56 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     porx.group.visible = false; scene.add(porx.group);
   }
   function setPorxada(k = 1) { porx.to = Math.max(0, Math.min(1, k)); }
+
+  // ---- THE FIELD (director 25-11: Pinya is an ABSTRACT world — «a gathering of light in the night»): a dark polished ground that goes on
+  // to a low warm glow on the horizon far away, haze in layers (the room's air), and where hands have been (room.heat: the people
+  // who came to the wall) warm pools of light lie on the ground just behind the wall, staying ~a minute. Palette pinya (cal-foc,
+  // terracota, ombra; faixa). No plaza, no porch. Shown by setBackground for FIELD_ON; it dissolves in / out like the porch.
+  const FIELD_ON = new Set(['pinya']);
+  const field = { k: uniform(0), to: 0, group: new THREE.Group() };
+  field.group.name = 'room:field';
+  {
+    const dith = () => fract(sin(dot(floor(screenCoordinate.xy.div(2)), vec2(12.9898, 78.233))).mul(43758.5453));
+    // the ground: dark, glossy, reflecting the room's environment; the pools are emissive
+    const gm = new THREE.MeshStandardNodeMaterial({ metalness: 0, roughness: 0.22 });
+    const OMB = vec3(...palLin('ombra')), CALF = vec3(...palLin('cal-foc')), TERR = vec3(...palLin('terracota')), FAIX = vec3(...palLin('faixa'));
+    gm.colorNode = Fn(() => { If(dith().greaterThan(field.k), () => { Discard(); }); return OMB.mul(0.22); })();
+    const pw = positionWorld;
+    gm.roughnessNode = clamp(mx_noise_float(vec3(pw.x.mul(0.25), 1.3, pw.z.mul(0.25))).mul(0.12).add(0.24), 0.14, 0.5);
+    if (envMap) { gm.envMap = envMap; gm.envMapIntensity = 0.55; }
+    gm.emissiveNode = Fn(() => {
+      // the pool behind each place where hands were: the print at hand height along that direction, lying 0.3–2.2 m behind the wall
+      const d = vec3(pw.x.sub(eye.x), 0, pw.z.sub(eye.z)), dist = length(d);
+      const hp = heatAtWorld(vec3(pw.x, eye.y, pw.z));                   // the wall straight in front of this ground point, at eye height
+      const hb = heatAtWorld(vec3(pw.x, eye.y - 0.45, pw.z));
+      const H = max(hp.x, hb.x).mul(0.8).add(max(hp.y, hb.y).mul(0.6));
+      // how far behind the wall: the wall distance in this direction ≈ the nearest wall plane (rectangle room)
+      let wd = float(1e3);
+      for (const w of walls) { const den = d.x.mul(-w.normal.x).add(d.z.mul(-w.normal.z)).div(max(dist, 1e-3)); const dd = -((w.pa.x - eye.x) * w.normal.x + (w.pa.z - eye.z) * w.normal.z); wd = min(wd, select(den.greaterThan(0.05), float(dd).div(den), float(1e3))); }
+      const behind = dist.sub(wd), band = exp(behind.sub(1.1).div(0.9).pow(2).negate());
+      const flick = mx_noise_float(vec3(pw.x.mul(1.3), time.mul(0.4), pw.z.mul(1.3))).mul(0.15).add(0.9);
+      return mix(TERR, CALF, clamp(H, 0, 1)).mul(H.mul(band).mul(flick).mul(1.6)).add(FAIX.mul(H.mul(band).mul(0.15)));
+    })();
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(70, 120).rotateX(-Math.PI / 2), gm); ground.position.y = 0.002; ground.receiveShadow = true;
+    field.group.add(ground);
+    // the low warm glow on the horizon, far away: an open cylinder at 46 m, additive, brighter at the ground line, breathing, uneven round
+    const hm = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, fog: false });
+    hm.colorNode = Fn(() => {
+      const y = positionLocal.y, a = atan(positionLocal.z, positionLocal.x);
+      const uneven = mx_noise_float(vec3(cos(a).mul(2.2), sin(a).mul(2.2), time.mul(0.03))).mul(0.5).add(0.6);
+      const v = exp(y.div(-1.6)).mul(smoothstep(-0.2, 0.3, y));
+      return mix(TERR, CALF, exp(y.div(-0.5))).mul(v).mul(uneven).mul(0.16).mul(field.k);
+    })();
+    const glow = new THREE.Mesh(new THREE.CylinderGeometry(46, 46, 9, 96, 1, true).translate(0, 4.5, 0), hm); glow.renderOrder = -500; glow.frustumCulled = false;
+    field.group.add(glow);
+    field.group.position.set(eye.x, 0, eye.z);
+    field.group.visible = false; scene.add(field.group);
+  }
+  function stepField(dt) {
+    const v = field.k.value + (field.to - field.k.value) * (1 - Math.exp(-dt * 1.1));
+    field.k.value = Math.abs(v - field.to) < 0.003 ? field.to : v; field.group.visible = field.k.value > 0.003;
+  }
+
   function stepPorx(dt) {
     const v = porx.k.value + (porx.to - porx.k.value) * (1 - Math.exp(-dt * 1.2));
     porx.k.value = Math.abs(v - porx.to) < 0.003 ? porx.to : v; porx.group.visible = porx.k.value > 0.003;
@@ -871,7 +921,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // with 'in' before the incoming one (show / hide each world's objects); it is not called otherwise.
   function render(dt = 1 / 60, pass = null) {
     t += dt; time.value = t % 1000; tiles.time.value = t % 1000;
-    stepFlash(dt); stepBackground(dt); stepGrade(dt); stepAir(dt); stepPorx(dt); frameNo++;
+    stepFlash(dt); stepBackground(dt); stepGrade(dt); stepAir(dt); stepPorx(dt); stepField(dt); frameNo++;
     try { stepHeat(dt); } catch (err) { if (!heatErr) { heatErr = true; console.info('room3d: the hands\' print is off (' + err.message + ')'); } }
     if (!swept0) { swept0 = true; airSweep(scene); }   // whatever was added before the room existed or without scene.add
     if (ENV.pending) bakeEnvironment();
@@ -912,5 +962,5 @@ export async function createRoom3D(vt, canvas, opt = {}) {
 
   return { THREE, renderer, scene, overlay, clearColor, walls, eye, hands, wallPoint, render, setBloom,
     // T-048 (SIS): the shared system — see PARTS.md «What the room gives since T-048»
-    quality: QUALITY, PALETTE, PAL, GRADE, setBackground, background: bg, setGrade, grade: gTo, gradeU: G, setAir, air: A, airSweep, sky: skyAt, matter, contactShadows, keyShadow, ground, setPorxada, porxada: porx, heat: heatTex, heatAt, heatAtWorld, stamp, wallS, PER: PERIM, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
+    quality: QUALITY, PALETTE, PAL, GRADE, setBackground, background: bg, setGrade, grade: gTo, gradeU: G, setAir, air: A, airSweep, sky: skyAt, matter, contactShadows, keyShadow, ground, setPorxada, porxada: porx, field: { set: (k) => { field.to = Math.max(0, Math.min(1, k)); }, uniforms: field }, heat: heatTex, heatAt, heatAtWorld, stamp, wallS, PER: PERIM, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
 }
