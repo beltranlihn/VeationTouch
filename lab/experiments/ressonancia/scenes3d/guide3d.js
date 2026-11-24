@@ -1,235 +1,428 @@
-// Ressonància — the guide in 3D (the whole work's host, res-obra3d): where the hands go and what the walls say.
+// Ressonància — the guide in 3D (the whole work's host, res-obra3d): where the hands go and what the walls say. T-027 (ARTE-2 §5–6).
 //
 //   const guide = createGuide({ THREE, TSL, room });   room.scene.add(guide.object);
-//   guide.update(dt, { state, hands, time, on, castell });   // every frame; state = the score's state; on = the "guide" parameter
+//   guide.update(dt, { state, hands, time, on, acta, hold, pace });   // every frame; state = the score's state; on = the "guide" parameter
 //
-// Targets: a ring (60 cm) with a hand icon, centred at 1.25 m on the wall plane (2 cm behind it, so it is exact for every visitor),
-// a soft dark disc under it so it reads over any universe, the pulse ring closing on it in Tronc, a progress arc round it. Wait: one
-// per wall; Pinya: 1–3 per wall (state.buttons); Tronc: one per castell wall, two (both sides) once state.balance; Pom: the light's
-// wall bright, the next one half; Baixada: one per castell wall.
-// Text: the chapter card (~2.15 m) and the instruction line (~1.92 m) on canvas textures, on the walls (from Tronc on, only the
-// castell's walls), cross-fading when the words change, each on a soft dark plate. The wording is res-obra's (lines(), CARDS).
-// Nothing is allocated per frame: every mesh is made once; a texture is redrawn only when its words change.
+// Targets are OBJECTS: a floating ring of iridescent glass on the wall plane (centred at 1.25 m), the hand drawn in light inside it,
+// a soft dark disc under it so it reads over any universe. A hand approaching lights it and turns it (answer < 100 ms); holding fills
+// its progress with ceramic tiles that fly in and lock one by one (trencadís); when the progress is complete the tiles and the glass
+// burst into fragments. Tronc: the pulse is a ring of light closing on the glass (it flashes when it lands). Pom: the ring stays still
+// and breathes. The ring assembles from its own segments when it comes (and breaks when it goes); in the wait it assembles as the
+// public's play reveals it (state.reveal, 0..1 — missing = 1) and fills with state.start.
+// Positions and rules as before: wait one per wall; Pinya 1–3 per wall (state.buttons); Tronc one per castell wall, two (both sides)
+// once state.balance; Pom the light's wall bright, the next one half; Baixada one per castell wall.
+// Words (typo3d.js): the chapter card like a film title (small roman numeral, big serif name, the value in italic on a hairline) at
+// ~2.15 m, and the instruction (Geist) at ~1.92 m, on the walls (from Tronc on, only the castell's walls); old words break before new
+// ones assemble; the instruction dims once the group is already doing it. Everything in Spanish; casteller words in Catalan.
+// Nothing is allocated per frame: every mesh is made once; words are laid out only when they change.
 import { FLOOR_NAMES, CLIMBERS } from '../score.js';
+import { typo, OVER } from './typo3d.js';
 
-export const CARDS = { brasa: ['I · Brasa', 'Awakening'], pinya: ['II · Pinya', 'Strength · Força'], tronc: ['III · Tronc', 'Balance · Equilibri'], pom: ['IV · Pom de dalt', 'Courage · Valor'] };
-const FONT = 'Geist, "Segoe UI", system-ui, -apple-system, sans-serif';
-const HAND_Y = 1.25, R = 0.3, MAXT = 16, HALF = R * 3.1;        // target radius (m), quads 2·HALF wide (the pulse starts at 3 R)
+// [numeral, name, value]
+export const CARDS = { brasa: ['I', 'Brasa', 'El despertar'], pinya: ['II', 'Pinya', 'Fuerza'], tronc: ['III', 'Tronc', 'Equilibrio'], pom: ['IV', 'Pom de dalt', 'Valor'] };
+const HAND_Y = 1.25, R = 0.23, MAXT = 16, HALF = R * 3.4, NSEG = 24, NTILE = 20, TUBE = 0.015;   // ARTE §7: torus r 0.23 m; section 3 cm (ARTE round 3)
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate));
 
-/** The words for now: { card: [title, small] } or { line: [title, small] } or {} — as res-obra/experience.js › lines(). */
-export function lines(S, acta) {
+// T-043 (PLAN-INTERACCION.md): each interactive block teaches ONE verb. state.learned[verb] (ENT, T-038) says the group has it;
+// until the score publishes it, the guide keeps a stand-in (15 s of play with hands on the wall).
+export const VERBS = { brasa: 'tocar', pinya: 'sostener', tronc: 'subir', pom: 'quietos', aleta: 'alzar', baixada: 'bajar' };
+// the ghost hands' gesture for each verb ('base': the Tronc's wobble, hands down to the tower's foot)
+export const GESTURES = { tocar: 'tap', sostener: 'still', subir: 'rise', quietos: 'still', alzar: 'raise', bajar: 'lower', base: 'lower' };
+export const CARD_S = 4;                       // the chapter card stays 4 s (the play goes on under it)
+const verbOf = (S) => (S.block === 'pom' && S.phase === 'aleta' ? VERBS.aleta : VERBS[S.block]);
+/** The words for now: { card: [numeral, name, value] } or { line: [invitation, label] } or {}. No counters anywhere; an invitation
+ *  has ≤ 3 words and leaves once the verb is learned; the real floor and climber names stay as the label. */
+export function lines(S, acta, learned = false) {
   const b = S.block;
-  if (S.phase === 'title' && CARDS[b]) return { card: CARDS[b] };
-  if (b === 'wait') return { line: ['Place your hands on the wall', 'to begin'] };
-  if (b === 'brasa') return S.phase === 'reward' ? {} : { line: S.touched < Math.min(8, S.people) && S.waves === 0 ? ['Touch the wall', ''] : ['Now, all together', `${Math.min(3, S.waves)} of 3`] };
-  if (b === 'pinya') { let full = 0; for (const f of S.fill) if (f >= 1) full++; return S.phase === 'reward' ? { line: ['The circle is closed', ''] } : { line: ['Hold the circles', `${Math.min(full, S.needWalls)} of ${S.needWalls} walls`] }; }
-  if (b === 'tronc') return S.phase === 'reward' ? {} : { line: [S.balance ? 'Keep it straight: hold both sides' : 'Press on the beat', S.floors ? `${FLOOR_NAMES[S.floors - 1]} · floor ${S.floors}` : ''] };
-  if (b === 'pom') return { line: ['Hold still', CLIMBERS[S.climber] || ''] };
-  if (b === 'crown') return S.t > 3 && S.t < 14 ? { card: ['Crowned', acta?.castell || ''] } : {};
-  if (b === 'festa') return S.t < 7 ? { card: ['The square is yours', ''] } : {};
-  if (b === 'baixada') return { line: ['Stay. Bring it down', 'floor by floor'] };
-  if (b === 'fall') return S.t > 2 ? { card: ['It fell', 'The embers remain'] } : {};
+  if (S.phase === 'title' && CARDS[b]) return S.tp < CARD_S ? { card: CARDS[b] } : {};
+  if (b === 'wait') return { line: (S.reveal ?? 1) >= 1 ? ['Sostened el anillo para empezar', ''] : ['Tocad. Jugad con la sala.', ''] };   // strings agreed with ENT (voice)
+  if (b === 'brasa') return S.phase === 'reward' ? {} : !learned ? { line: ['Tocad el muro', ''] } : S.waves < 3 ? { line: ['Ahora, juntos', ''] } : {};
+  if (b === 'pinya') return S.phase === 'reward' ? {} : { line: ['Buscad un círculo y sostenedlo', ''] };   // as before (its step comes later), without the counter
+  if (b === 'tronc') {
+    if (S.phase === 'reward') return {};
+    const fl = S.floors ? FLOOR_NAMES[S.floors - 1] : '';
+    if (S.wobble > 0) return { line: ['Sujetad la base', fl] };          // the tower trembles: hands to its foot
+    return { line: [learned ? '' : 'Levantad', fl] };
+  }
+  if (b === 'pom') return S.phase === 'aleta' ? {} : { line: [learned ? '' : 'Quietos', CLIMBERS[S.climber] || ''] };   // l'aleta: no words
+  if (b === 'crown') return S.t > 3 && S.t < 14 ? { card: ['V', 'Coronado', acta?.castell || "L'aleta"] } : {};
+  if (b === 'festa') return S.t < 7 ? { card: ['', 'La plaza es vuestra', ''] } : {};
+  if (b === 'baixada') return { line: [learned ? '' : 'Bajadlo despacio', S.floors ? FLOOR_NAMES[S.floors - 1] : ''] };   // the floors' names going down
+  if (b === 'fall') return S.t > 2 ? { card: ['', 'Ha caído', 'Quedan las brasas'] } : {};
   return {};
 }
+// ink: bone #F2EEE6 at 92 %, kept under the bloom's threshold (no neon halo; the luxury is the thin-film sweep and the tiles)
+const INK = [0.76, 0.73, 0.68];
+// the card: the numeral first (0.2 s ahead), the name (caps ≈ 0.31 m), the hairline drawn from the centre out, the value rising
+// from behind its baseline
+function cardItems(C) {
+  const it = [];
+  if (C[0]) it.push({ text: C[0], font: 'sans', size: 0.1, y: 0.4, track: 0.5, alpha: 0.6, color: INK, edge: 0.47 });
+  it.push({ text: C[1], font: 'serif', size: C[1].length > 14 ? 0.38 : 0.46, y: 0.04, track: 0.01, color: INK, delay: 0.2 });
+  if (C[2]) it.push({ text: C[2], font: 'italic', size: 0.17, y: -0.3, track: 0.015, rules: 0.5, alpha: 0.85, color: INK, rise: true, delay: 0.35 });
+  return it;
+}
+// the instruction: ONE centred piece (caps ≈ 0.10 m, ≤ 28 characters), the second idea under it as a label in small caps
+const lineItems = (L) => {
+  const it = [];
+  if (L[0]) it.push({ text: L[0], font: 'sans', size: 0.15, y: L[1] ? 0.07 : 0, track: 0.02, alpha: 0.88, color: INK, edge: 0.5 });
+  if (L[1]) it.push({ text: L[1], font: 'sans', size: 0.082, y: -0.15, track: 0.16, alpha: 0.6, color: INK, upper: true, edge: 0.47, delay: 0.15 });
+  return it;
+};
+
+// chapter palettes for the progress tiles and the glass's tint (ARTE-2 §3)
+const PALETTES = {
+  wait: [[1.0, 0.45, 0.18], [0.75, 0.78, 0.82], [1.0, 0.7, 0.35]],
+  pinya: [[0.2, 0.85, 0.8], [1.0, 0.45, 0.38], [0.85, 0.95, 0.92]],
+  tronc: [[0.85, 0.38, 0.2], [0.18, 0.4, 0.85], [0.95, 0.9, 0.8]],
+  pom: [[1.0, 0.82, 0.45], [0.92, 0.94, 1.0], [1.0, 0.7, 0.3]],
+  baixada: [[1.0, 0.62, 0.75], [0.7, 0.6, 1.0], [0.5, 0.95, 0.85]],
+};
 
 export function createGuide({ THREE, TSL, room }) {
-  const { uniform, uv, vec2, vec3, vec4, float, smoothstep, exp, length, atan, fract, step, texture, select, clamp: tclamp, max } = TSL;
+  const { pmremTexture, refract, cross, uniform, uv, vec2, vec3, float, smoothstep, exp, length, step, texture, select, clamp: tclamp, max, min, cos, sin, abs, pow, dot, normalize, reflect, attribute, positionGeometry, positionLocal, normalWorld, positionWorld, cameraPosition, mix, fract } = TSL;
   const object = new THREE.Group(); object.name = 'guide';
   const NW = room.walls.length;
   const basis = room.walls.map((w) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, new THREE.Vector3(0, 1, 0), w.normal)));
-  // premultiplied "over": the plate darkens what is behind, the light adds (out = src.rgb + dst·(1 − src.a))
-  const over = { transparent: true, depthWrite: false, depthTest: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor, side: THREE.DoubleSide, fog: false };
+  const uTime = uniform(0);
+  const PAL = [uniform(new THREE.Color(1, 0.5, 0.2)), uniform(new THREE.Color(0.8, 0.8, 0.8)), uniform(new THREE.Color(1, 0.7, 0.35))];
+  const palNow = PALETTES.wait.map((c) => c.slice());
 
-  // ------------------------------------------------------------------ the hand icon (drawn once)
-  const hcv = document.createElement('canvas'); hcv.width = hcv.height = 256;
+  // ------------------------------------------------------------------ the trencadís hand (the work's icon): palm + five fingers =
+  // six glass tiles with grout between them. One texture, three channels: R = the tiles, G = which tile (0..5, to light them one after
+  // another), B = how deep inside its tile a pixel is (0 at the edge … 1 at the heart: they light from the inside out). 256 px, once.
+  const HN = 256, hcv = document.createElement('canvas'); hcv.width = hcv.height = HN;
   {
-    const g = hcv.getContext('2d'), rr = (x, y, w, h, r) => { g.beginPath(); g.roundRect(x, y, w, h, r); g.fill(); };
-    g.fillStyle = '#fff'; rr(84, 118, 96, 96, 30);
-    [[84, 72, 62], [108, 52, 82], [132, 58, 76], [156, 78, 58]].forEach(([x, y, h]) => rr(x, y, 21, h + 20, 10.5));
-    g.save(); g.translate(86, 168); g.rotate(-0.95); rr(-10, -62, 22, 70, 11); g.restore();
+    const k = HN / 512;
+    // round-tipped fingers fanned out, the thumb opening to the side, a rounded palm: every tile is a soft shape, so its lit heart is
+    // round too (ARTE round 4). Each tile: [centre x, y, draw(g) in 512-px design space]
+    const capsule = (bx, by, len, w, a) => { const ex = bx + Math.sin(a) * len, ey = by - Math.cos(a) * len; return [(bx + ex) / 2, (by + ey) / 2, (g) => { g.save(); g.translate(bx, by); g.rotate(a); g.beginPath(); g.moveTo(-w / 2, 0); g.lineTo(-w / 2, -len + w / 2); g.arc(0, -len + w / 2, w / 2, Math.PI, 0); g.lineTo(w / 2, 0); g.arc(0, 0, w / 2, 0, Math.PI); g.closePath(); g.fill(); g.restore(); }]; };
+    const TILES = [
+      [262, 372, (g) => { g.beginPath(); g.roundRect(182, 286, 160, 176, [70, 70, 80, 80]); g.fill(); }],   // palm
+      capsule(196, 336, 120, 36, -1.0),                                                                    // thumb
+      capsule(214, 268, 142, 33, -0.2),                                                                    // index
+      capsule(256, 262, 160, 34, -0.05),                                                                   // middle
+      capsule(298, 268, 146, 32, 0.1),                                                                     // ring
+      capsule(332, 286, 108, 28, 0.27),                                                                    // little
+    ];
+    const mk = () => { const c = document.createElement('canvas'); c.width = c.height = HN; return c.getContext('2d', { willReadFrequently: true }); };
+    const gm = mk(), gi = mk(), gd = mk();
+    const tile = (g, T, sc) => { const [cx, cy, draw] = T; g.save(); g.scale(k, k); g.translate(cx, cy); g.scale(sc, sc); g.translate(-cx, -cy); draw(g); g.restore(); };
+    gd.globalCompositeOperation = 'lighter';
+    TILES.forEach((T, t) => {
+      gm.fillStyle = '#fff'; tile(gm, T, 0.93);                                                    // a little inset: the grout
+      gi.fillStyle = `rgb(${Math.round((t / 5) * 255)},0,0)`; tile(gi, T, 0.93);
+      gd.fillStyle = 'rgba(255,255,255,0.1)'; for (let j = 0; j < 10; j++) tile(gd, T, 0.93 * (1 - j * 0.095));
+    });
+    const M = gm.getImageData(0, 0, HN, HN).data, I = gi.getImageData(0, 0, HN, HN).data, D = gd.getImageData(0, 0, HN, HN).data;
+    const out = hcv.getContext('2d'), img = out.createImageData(HN, HN);
+    for (let j = 0; j < HN * HN * 4; j += 4) { img.data[j] = M[j + 3]; img.data[j + 1] = I[j]; img.data[j + 2] = D[j + 3]; img.data[j + 3] = 255; }
+    out.putImageData(img, 0, 0);
   }
   const handTex = new THREE.CanvasTexture(hcv); handTex.colorSpace = THREE.NoColorSpace; handTex.wrapS = handTex.wrapT = THREE.ClampToEdgeWrapping;
 
-  // ------------------------------------------------------------------ targets: a pool of quads, each with its own uniforms
-  const tgeo = new THREE.PlaneGeometry(HALF * 2, HALF * 2);
+  // ------------------------------------------------------------------ shared geometry
+  // the glass ring: a torus cut in NSEG segments (each vertex knows its segment's direction and a hash: it assembles and bursts by segments)
+  const ringGeo = (() => {
+    const g = new THREE.TorusGeometry(R, TUBE, 18, NSEG * 6).toNonIndexed();
+    const p = g.getAttribute('position'), n = p.count, seg = new Float32Array(n * 3);
+    for (let i = 0; i < n; i += 3) {
+      const cx = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, cy = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3;
+      const k = Math.floor(((Math.atan2(cy, cx) / (Math.PI * 2) + 1) % 1) * NSEG), a = ((k + 0.5) / NSEG) * Math.PI * 2;
+      const h = ((Math.sin(k * 12.9898 + 4.1) * 43758.5453) % 1 + 1) % 1;
+      for (let j = 0; j < 3; j++) { seg[(i + j) * 3] = Math.cos(a); seg[(i + j) * 3 + 1] = Math.sin(a); seg[(i + j) * 3 + 2] = h; }
+    }
+    g.setAttribute('aSeg', new THREE.Float32BufferAttribute(seg, 3));
+    return g;
+  })();
+  const discGeo = new THREE.PlaneGeometry(HALF * 2, HALF * 2);
+  const tileGeo = (() => {
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1], 2));
+    const a = new Float32Array(NTILE * 4);
+    for (let i = 0; i < NTILE; i++) { const h = (k) => ((Math.sin((i + 1) * (12.9898 + k * 7.3) + k) * 43758.5453) % 1 + 1) % 1; a[i * 4] = i; a[i * 4 + 1] = h(1); a[i * 4 + 2] = h(2); a[i * 4 + 3] = h(3); }
+    g.setAttribute('aI', new THREE.InstancedBufferAttribute(a, 4));
+    g.instanceCount = NTILE;
+    return g;
+  })();
+
+  // ------------------------------------------------------------------ targets: a pool, each with its own uniforms
+  const ease3 = (k) => float(1).sub(float(1).sub(k).mul(float(1).sub(k)).mul(float(1).sub(k)));
   const targets = [];
   for (let i = 0; i < MAXT; i++) {
-    const U = { vis: uniform(0), held: uniform(0), beat: uniform(0), arc: uniform(0), icon: uniform(1), soft: uniform(0) };
-    const d = uv().sub(0.5).mul(HALF * 2), r = length(d), lw = float(0.018);   // ~2 cm: the ring reads from across the room (3–6 m)
-    const ring = smoothstep(lw, 0, r.sub(R).abs()).mul(U.held.mul(0.5).add(0.5));
-    const fill = exp(r.mul(r).negate().div(0.6 * R * R)).mul(U.held).mul(0.18);
-    const bR = U.beat.mul(R);
-    const beat = select(U.beat.greaterThan(0), smoothstep(lw, 0, r.sub(bR).abs()).mul(float(1).sub(smoothstep(1, 3, U.beat))).mul(0.85), float(0));
-    const ang = fract(atan(d.x, d.y).div(6.2831853).add(1));
-    const arc = smoothstep(lw.mul(1.8), 0, r.sub(R + 0.04).abs()).mul(step(ang, U.arc)).mul(step(0.002, U.arc));
-    const huv = d.div(R * 1.5).mul(0.5).add(0.5);
-    const inside = step(0, huv.x).mul(step(huv.x, 1)).mul(step(0, huv.y)).mul(step(huv.y, 1));
-    const hand = texture(handTex, tclamp(huv, vec2(0), vec2(1))).a.mul(inside).mul(U.icon);
-    // soft (Pinya, Tronc, baixada: the figures stand right behind the button): the halo, the fill, the icon and the dark disc drop
-    // to ~30 %; the thin stroke and its progress stay
-    const keep = float(1).sub(U.soft.mul(0.7));
-    const light = ring.mul(0.9).add(fill.mul(keep)).add(beat).add(arc.mul(1.3)).add(hand.mul(0.42).mul(keep)).mul(U.vis);
-    const shade = float(1).sub(smoothstep(R * 0.9, R * 1.7, r)).mul(0.6).mul(keep).mul(U.vis);
-    const m = new THREE.MeshBasicNodeMaterial(over);
-    m.colorNode = vec3(1.0, 0.9, 0.74).mul(light).mul(1.25); m.opacityNode = max(shade, 0);   // alpha through opacityNode: a vec4 colorNode's alpha did not reach the blend
-    const mesh = new THREE.Mesh(tgeo, m); mesh.renderOrder = 20; mesh.visible = false;
-    object.add(mesh);
-    targets.push({ mesh, U, held: 0 });
+    const U = { asm: uniform(0), held: uniform(0), hot: uniform(0), beat: uniform(0), arc: uniform(0), burst: uniform(0), soft: uniform(0), still: uniform(0), icon: uniform(1), seed: uniform(i * 0.137) };
+    const group = new THREE.Group(); group.visible = false;
+
+    // --- the dark disc, the hand in light, the held glow, the pulse ring
+    {
+      const d = uv().sub(0.5).mul(HALF * 2), r = length(d), lw = float(0.016);
+      const keep = float(1).sub(U.soft.mul(0.65));
+      const vis = smoothstep(0.2, 0.9, U.asm).mul(float(1).sub(U.burst.mul(0.6)));
+      const fill = exp(r.mul(r).negate().div(0.5 * R * R)).mul(U.held.mul(0.16).add(U.hot.mul(0.06)));
+      const bR = U.beat.mul(R);
+      const beat = select(U.beat.greaterThan(0), smoothstep(lw, 0, r.sub(bR).abs()).mul(float(1).sub(smoothstep(1, 3, U.beat))).mul(0.9), float(0));
+      const huv = d.div(R * 1.02).mul(0.5).add(0.5).add(vec2(0, -0.04));   // the hand inside the ring
+      const inside = step(0, huv.x).mul(step(huv.x, 1)).mul(step(0, huv.y)).mul(step(huv.y, 1));
+      const hs = texture(handTex, tclamp(huv, vec2(0), vec2(1))), tileM = hs.r.mul(inside), tileId = hs.g.mul(5), depth = hs.b;
+      // each tile lights from its heart outwards, one after another (palm first), as a hand comes and holds; at rest a soft glow
+      const L = U.held.mul(0.75).add(U.hot.mul(0.35)).add(0.18).mul(1.6).sub(tileId.mul(0.08));
+      const lit = smoothstep(float(1).sub(L), float(1.25).sub(L), depth);
+      const edgeG = smoothstep(0.35, 0.0, depth).mul(tileM);                                       // the glass's edge catches light
+      const hand = tileM.mul(lit.mul(0.85).add(0.12)).add(edgeG.mul(0.35)).mul(U.icon);
+      // the disc inside the glass: dark glass #0E1016 at 55 % (ARTE round 3), the trencadís hand lit inside it
+      const inDisc = float(1).sub(smoothstep(R * 0.97, R * 1.02, r));
+      const frost = vec3(0.0044, 0.0052, 0.0075).mul(inDisc);
+      const light = fill.mul(keep).add(beat).add(hand.mul(keep.mul(0.5).add(0.5))).mul(vis);
+      const shade = inDisc.mul(0.55).add(float(1).sub(smoothstep(R, R * 1.5, r)).mul(0.12)).mul(vis);
+      const m = new THREE.MeshBasicNodeMaterial(OVER);
+      m.colorNode = vec3(0.82, 0.79, 0.74).mul(light).add(frost.mul(vis)); m.opacityNode = max(shade, 0);
+      const mesh = new THREE.Mesh(discGeo, m); mesh.renderOrder = 19; group.add(mesh);
+    }
+    // --- the glass ring
+    const ring = new THREE.Group(); group.add(ring);
+    {
+      const S3 = attribute('aSeg', 'vec3'), dir = vec3(S3.x, S3.y, 0), h = S3.z;
+      const kin = tclamp(U.asm.mul(1.7).sub(h.mul(0.7)), 0, 1), e = ease3(kin), ie = float(1).sub(e);
+      const bk = tclamp(U.burst.mul(1.5).sub(h.mul(0.5)), 0, 1);
+      const off = dir.mul(ie.mul(h.mul(0.35).add(0.18))).add(vec3(0, ie.mul(h.sub(0.5)).mul(0.3), ie.mul(h.mul(0.3).add(0.15))))
+        .add(dir.mul(bk.mul(h.mul(0.5).add(0.25)))).add(vec3(0, bk.mul(bk).mul(0.25), bk.mul(0.2)));
+      const breathe = float(1).add(sin(uTime.mul(0.9).add(U.seed.mul(9.0))).mul(0.025).mul(U.still));
+      const m = new THREE.MeshBasicNodeMaterial({ ...OVER, side: THREE.FrontSide });
+      m.positionNode = positionLocal.mul(breathe).add(off);
+      // glass with thickness: the environment reflected (Fresnel) and seen refracted through the tube, a little darker and tinted;
+      // a soft thin-film iridescence only at the grazing rim; it brightens when a hand comes, holds, or the pulse lands
+      const N = normalize(normalWorld), V = normalize(cameraPosition.sub(positionWorld));
+      const ndv = abs(dot(N, V)), g1 = float(1).sub(ndv), F = g1.mul(g1).mul(g1).mul(g1).mul(g1).mul(0.96).add(0.04);
+      const Rf = reflect(V.negate(), N), Tf = refract(V.negate(), N, float(1 / 1.45));
+      const env = (dir, rough) => (room.envMap ? pmremTexture(room.envMap, dir, float(rough)).rgb : mix(vec3(0.02, 0.025, 0.05), vec3(0.5, 0.42, 0.36), smoothstep(-0.2, 0.9, dir.y)));
+      const glow = U.held.mul(1.0).add(U.hot.mul(0.4)).add(smoothstep(1.35, 1.0, U.beat).mul(step(0.5, U.beat)).mul(0.8))
+        .add(sin(uTime.mul(0.9).add(U.seed.mul(9.0))).mul(0.5).add(0.5).mul(0.3).mul(U.still)).add(bk.mul(1.2));
+      const rim = smoothstep(0.55, 0.95, g1);
+      // ONE sharp reflection that travels slowly round the ring, and at rest a soft pulse of the rim every 2.4 s
+      const side = normalize(cross(V, vec3(0, 1, 0)).add(vec3(0.0001, 0, 0)));
+      const Lw = normalize(V.mul(0.7).add(vec3(0, 0.75, 0)).add(side.mul(sin(uTime.mul(0.35).add(U.seed.mul(17.0))).mul(0.7))));
+      const hl = pow(max(dot(N, normalize(V.add(Lw))), 0), 220.0).mul(2.6);
+      const restPulse = exp(fract(uTime.div(2.4)).mul(-4.0)).mul(0.5).mul(float(1).sub(step(0.5, U.beat))).mul(float(1).sub(U.held));
+      const film = vec3(0.5).add(vec3(0.5).mul(cos(vec3(0.0, 0.33, 0.67).add(g1.mul(1.2)).add(h.mul(0.15)).add(uTime.mul(0.05)).mul(6.2831853))));
+      const refl = env(Rf, 0.04).mul(4.4), refr = env(Tf, 0.25).mul(vec3(0.75, 0.85, 0.95)).mul(0.9);
+      const vis = step(0.001, kin).mul(float(1).sub(smoothstep(0.6, 1.0, bk))).mul(float(1).sub(U.soft.mul(0.2)));
+      const warm = vec3(1.0, 0.86, 0.66).mul(glow).mul(float(0.12).add(rim.mul(0.5)));
+      const col = mix(refr, refl, F).add(film.mul(rim).mul(0.3)).add(warm).add(vec3(hl)).add(vec3(1.0, 0.92, 0.82).mul(rim).mul(restPulse)).add(PAL[0].mul(glow).mul(0.06));
+      m.colorNode = col.mul(vis).mul(e.mul(0.7).add(0.3)); m.opacityNode = F.mul(0.5).add(0.45).add(rim.mul(0.15)).add(hl.mul(0.3)).min(1.0).mul(vis);
+      const mesh = new THREE.Mesh(ringGeo, m); mesh.renderOrder = 21; mesh.frustumCulled = false; ring.add(mesh);
+    }
+    // --- the progress: ceramic tiles locking into a ring just outside the glass
+    {
+      const I = attribute('aI', 'vec4'), idx = I.x, r1 = I.y, r2 = I.z, r3 = I.w;
+      const ang = float(Math.PI / 2).sub(idx.add(0.5).div(NTILE).mul(Math.PI * 2));
+      const cr = cos(ang), sr = sin(ang), rad = float(R + TUBE + 0.04);
+      // a tile comes in while its share of the progress fills and waits just off its slot (e ≤ 0.82); it SNAPS home when the share is full
+      const lock = tclamp(U.arc.mul(NTILE).sub(idx), 0, 1), snapped = step(0.999, lock), e = mix(ease3(tclamp(lock.mul(1.25), 0, 1)).mul(0.82), float(1), snapped), ie = float(1).sub(e);
+      const bk = tclamp(U.burst.mul(1.5).sub(r1.mul(0.5)), 0, 1);
+      const w = rad.mul(Math.PI * 2 / NTILE * 0.8).mul(r1.mul(0.12).add(0.92)), hh = float(0.04).mul(r2.mul(0.25).add(0.88));
+      const pg = positionGeometry;
+      const jit = vec2(sin(r3.mul(40.0).add(pg.x.mul(7.0)).add(pg.y.mul(13.0))), cos(r2.mul(31.0).add(pg.x.mul(11.0)).add(pg.y.mul(5.0)))).mul(0.07);
+      const since = U.arc.mul(NTILE).sub(idx).sub(1.0), pop = exp(max(since, 0).mul(-9.0)).mul(snapped);
+      const loc0 = pg.xy.add(jit).mul(vec2(w, hh)).mul(pop.mul(0.18).add(1.0));
+      const spin = ie.mul(r2.sub(0.5).mul(7.0)).add(bk.mul(r3.sub(0.5).mul(10.0))).add(ang.sub(Math.PI / 2));
+      const loc = vec2(loc0.x.mul(cos(spin)).sub(loc0.y.mul(sin(spin))), loc0.x.mul(sin(spin)).add(loc0.y.mul(cos(spin)))).mul(float(1).sub(bk.mul(0.6)));
+      const slot = vec2(cr, sr).mul(rad), tng = vec2(sr.negate(), cr);
+      const p2 = slot.mul(float(1).add(ie.mul(r1.add(0.8))).add(bk.mul(r2.mul(1.5).add(1.0)))).add(tng.mul(ie.mul(r3.sub(0.5)).mul(0.5))).add(vec2(0, bk.mul(bk).mul(0.35)));
+      const z = ie.mul(r2.mul(0.3).add(0.15)).add(bk.mul(r3).mul(0.3));
+      const m = new THREE.MeshBasicNodeMaterial(OVER);
+      m.positionNode = vec3(p2.add(loc), z);
+      const pal = select(r1.lessThan(0.34), PAL[0], select(r1.lessThan(0.67), PAL[1], PAL[2])).mul(r2.mul(0.5).add(0.7));
+      const flash = pop.mul(1.6).add(exp(max(since, 0).mul(-1.2)).mul(snapped).mul(0.35));
+      const q = uv(), edge = min(min(q.x, float(1).sub(q.x)), min(q.y, float(1).sub(q.y)));
+      const glaze = smoothstep(0.0, 0.16, edge).mul(0.45).add(0.55).add(smoothstep(0.55, 1.0, q.y).mul(0.3));
+      const vis = step(0.001, lock).mul(float(1).sub(smoothstep(0.55, 1.0, bk))).mul(smoothstep(0.3, 0.9, U.asm)).mul(snapped.mul(0.45).add(0.55));
+      m.colorNode = pal.mul(glaze).mul(0.85).add(vec3(1.0, 0.9, 0.75).mul(flash)).mul(vis);
+      m.opacityNode = vis.mul(0.95);
+      const mesh = new THREE.Mesh(tileGeo, m); mesh.renderOrder = 22; mesh.frustumCulled = false; group.add(mesh);
+    }
+    object.add(group);
+    targets.push({ group, ring, U, held: 0, hot: 0, asm: 0, arcPrev: 0, burst: 0, turn: 0, tilt: 0, used: false });
   }
 
-  // ------------------------------------------------------------------ text: two layers (card, line), each two canvases cross-fading
-  const PX = 300;                                                     // texture px per metre (the room: ~261)
-  function makeLayer(wM, hM, y, renderOrder, xOff = 0, align = 'center') {
-    const bufs = [0, 1].map(() => {
-      const cv = document.createElement('canvas'); cv.width = Math.round(wM * PX); cv.height = Math.round(hM * PX);
-      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; tex.premultiplyAlpha = false;
-      const meshes = room.walls.map((w, wi) => {
-        const U = { a: uniform(0) };
-        const s = texture(tex, uv());
-        const m = new THREE.MeshBasicNodeMaterial(over);
-        m.colorNode = s.rgb.mul(s.a).mul(1.05).mul(U.a); m.opacityNode = s.a.mul(U.a);   // just under the bloom threshold: a glowing word lifts the dark it sits on
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(wM, hM), m);
-        mesh.position.copy(w.centre).addScaledVector(w.right, xOff).setY(y).addScaledVector(w.normal, -0.02);
-        mesh.quaternion.copy(basis[wi]); mesh.renderOrder = renderOrder; mesh.visible = false;
-        object.add(mesh);
-        return { mesh, U };
-      });
-      return { cv, g: cv.getContext('2d'), tex, meshes, key: '', a: 0 };
-    });
-    return { bufs, cur: 0, want: '', wantLines: null, wallA: new Float32Array(NW), wM, hM, align };
-  }
-const scratch = (() => { const cv = document.createElement('canvas'); cv.width = Math.round(5.6 * PX); cv.height = Math.round(1.0 * PX); return { cv, g: cv.getContext('2d') }; })();
-  const card = makeLayer(5.6, 1.0, 2.15, 22), line = makeLayer(5.0, 0.72, 1.92, 21);
-  // Tronc with both sides: the instruction split to either side of the tower (it stands at the wall's centre), each half over its button
-  const SPLIT_GAP = 0.32, SPLIT_W = 3.0;
-  const lineL = makeLayer(SPLIT_W, 0.72, 1.92, 21, -(SPLIT_GAP + SPLIT_W / 2), 'right'), lineR = makeLayer(SPLIT_W, 0.72, 1.92, 21, SPLIT_GAP + SPLIT_W / 2, 'left');
-
-  function draw(buf, L, kind, align = 'center') {          // L = [title, small]; a soft dark plate, then the words
-    const { cv, g } = buf, W = cv.width, H = cv.height;
-    g.clearRect(0, 0, W, H);
-    if (!L) return;
-    const big = kind === 'card' ? 0.24 : 0.15, small = kind === 'card' ? 0.1 : 0.09, track1 = kind === 'card' ? 0.2 : 0.16, track2 = kind === 'card' ? 0.08 : 0.05;
-    const dy = kind === 'card' ? 0.36 : 0.24, alpha2 = kind === 'card' ? 0.85 : 0.88, plate = kind === 'card' ? 0.8 : 0.8;    // dark enough to read over the brightest universe (the festa's sand)
-    const items = [{ text: L[0].toUpperCase(), size: big, track: track1, y: L[1] ? dy * 0.42 : 0, alpha: 1, weight: 400 }];
-    if (L[1]) items.push({ text: L[1], size: small, track: track2, y: -dy * 0.58, alpha: alpha2, weight: 400 });
-    // measure, to size the plate
-    let maxW = 0;
-    for (const it of items) {
-      let size = it.size * PX * 1.38; g.font = `${it.weight} ${size}px ${FONT}`;
-      const chars = [...it.text], tr = it.track * size;
-      let tw = chars.reduce((a, ch) => a + g.measureText(ch).width + tr, -tr);
-      if (tw > W * 0.86) { const k = (W * 0.86) / tw; size *= k; tw *= k; }
-      it.px = size; it.tw = tw; it.chars = chars; maxW = Math.max(maxW, tw);
-    }
-    // the plate: an elongated soft dark ellipse (radial gradient, scaled)
-    const margin = 0.06 * PX, xOf = (tw) => (align === 'right' ? W - margin - tw : align === 'left' ? margin : (W - tw) / 2);
-    const pw = Math.min(W, maxW + 0.7 * PX), ph = H, pcx = align === 'right' ? W - margin - maxW / 2 : align === 'left' ? margin + maxW / 2 : W / 2;
-    g.save(); g.translate(pcx, H / 2); g.scale(pw / 2, ph / 2);
-    const gr = g.createRadialGradient(0, 0, 0, 0, 0, 1);
-    gr.addColorStop(0, `rgba(0,0,0,${plate})`); gr.addColorStop(0.6, `rgba(0,0,0,${plate * 0.92})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.fill(); g.restore();
-    g.textBaseline = 'middle';
-    // a halo that hugs the letters: the same words in black, blurred, under the light ones (a local darkening, never a box). The black
-    // words are drawn once into a scratch canvas and blurred as ONE image (a shadow per glyph cost tens of ms per change)
-    const sg = scratch.g; sg.clearRect(0, 0, W, H); sg.textBaseline = 'middle'; sg.fillStyle = '#000';
-    const glyphs = (ctx) => { for (const it of items) { ctx.font = `${it.weight} ${it.px}px ${FONT}`; let x = xOf(it.tw); const y = H / 2 - it.y * PX, tr = it.track * it.px; for (const ch of it.chars) { ctx.fillText(ch, x, y); x += ctx.measureText(ch).width + tr; } } };
-    glyphs(sg);
-    const blur = items[0].px;
-    g.save(); g.shadowColor = 'rgba(0,0,0,1)';
-    g.shadowBlur = blur * 0.7; g.drawImage(scratch.cv, 0, 0);
-    g.shadowBlur = blur * 0.3; g.drawImage(scratch.cv, 0, 0);
-    g.restore();
-    for (const it of items) {
-      g.font = `${it.weight} ${it.px}px ${FONT}`; g.fillStyle = `rgba(255,240,222,${it.alpha})`;
-      let x = xOf(it.tw); const y = H / 2 - it.y * PX, tr = it.track * it.px;
-      for (const ch of it.chars) { g.fillText(ch, x, y); x += g.measureText(ch).width + tr; }
-    }
-  }
-  // set what a layer should say (null = nothing); called every frame, cheap when nothing changed
-  function want(layer, L, kind) {
-    const key = L ? L[0] + '|' + (L[1] || '') : '';
-    if (key === layer.want) return;
-    layer.want = key; layer.wantLines = L;
-  }
-  function stepLayer(layer, kind, dt, wallMask, fadeIn, fadeOut, gain = 1, hold = false) {
-    const A = layer.bufs[layer.cur], B = layer.bufs[1 - layer.cur];
-    if (layer.want !== A.key) {
-      // the current one goes; when it is (almost) gone, or empty, the new words come in on the other buffer
-      if (B.key !== layer.want) { draw(B, layer.wantLines, kind, layer.align); B.tex.needsUpdate = true; B.key = layer.want; B.a = 0; }
-      layer.cur = 1 - layer.cur;
-    }
-    const cur = layer.bufs[layer.cur], old = layer.bufs[1 - layer.cur];
-    old.a = Math.max(0, old.a - dt / fadeOut);
-    // one text at a time: the new words come in only once the old ones are gone (two cards never sit on each other)
-    cur.a = cur.key ? (old.a < 0.04 && !hold ? Math.min(1, cur.a + dt / fadeIn) : cur.a) : Math.max(0, cur.a - dt / fadeOut);
-    for (let w = 0; w < NW; w++) layer.wallA[w] = ease(layer.wallA[w], wallMask(w) ? 1 : 0, dt, 3);
-    for (const buf of layer.bufs) {
-      const k = buf.a * buf.a * (3 - 2 * buf.a) * gain;
-      for (let w = 0; w < NW; w++) { const v = k * layer.wallA[w]; buf.meshes[w].U.a.value = v; buf.meshes[w].mesh.visible = v > 0.002; }
-    }
-  }
+  // ------------------------------------------------------------------ the words
+  const card = typo.slot({ placements: typo.onWalls(room, 2.1), renderOrder: 24, outDur: 0.5, plate: 0.5 });
+  // the instruction: one centred piece, its first line's caps at ~2.05 m, the label under it (always between 1.75 and 2.15 m)
+  const line = typo.slot({ placements: typo.onWalls(room, 1.98), renderOrder: 23, outDur: 0.5, plate: 0.45, spread: 2.4 });
+  object.add(card.object, line.object);
 
   // ------------------------------------------------------------------ per frame
-  let guideA = 0, guideKey = '', nT = 0;
-  const _p = new THREE.Vector3();
+  let guideA = 0, guideKey = '', nT = 0, softNow = 0, stillNow = 0, time0 = 0, revealNow = 1;
   const near = (hands, wi, off) => { for (const h of hands) if (h.wall === wi && Math.abs((h.u - 0.5) * room.walls[wi].width - off) < 0.55 && Math.abs(h.pos.y - HAND_Y) < 0.75) return true; return false; };
-  let softNow = 0;
-  function put(wi, off, vis, held, beat, arc, dt, time) {
+  function put(wi, off, vis, held, hot, beat, arc, dt) {
     if (nT >= MAXT) return;
-    const T = targets[nT++], w = room.walls[wi];
-    T.held = ease(T.held, held ? 1 : 0, dt, held ? 12 : 3);
-    _p.copy(w.centre).addScaledVector(w.right, off).setY(HAND_Y).addScaledVector(w.normal, -0.02);
-    T.mesh.position.copy(_p); T.mesh.quaternion.copy(basis[wi]);
-    T.U.vis.value = vis * guideA; T.U.held.value = T.held; T.U.beat.value = beat; T.U.arc.value = arc;
-    T.U.icon.value = (1 - T.held * 0.75) * (0.82 + 0.18 * Math.sin(time * 1.6 + nT));
-    T.U.soft.value = softNow;
-    T.mesh.visible = vis * guideA > 0.004;
+    const T = targets[nT++], w = room.walls[wi], U = T.U;
+    T.held = ease(T.held, held ? 1 : 0, dt, held ? 14 : 3);
+    T.hot = ease(T.hot, hot || held ? 1 : 0, dt, hot ? 16 : 2.5);
+    vis *= 1 - learnedK;
+    T.asm = ease(T.asm, vis * guideA * revealNow, dt, 2.2);
+    if (vis * guideA * revealNow > T.asm && T.asm > 0.97) T.asm = vis * guideA * revealNow;
+    // the burst: the progress has just completed
+    if (arc >= 0.999 && T.arcPrev < 0.999 && T.burst === 0) T.burst = 0.001;
+    if (T.burst > 0 && T.burst < 1) T.burst = Math.min(1, T.burst + dt / 1.4);
+    if (arc < 0.95) T.burst = 0;
+    T.arcPrev = arc;
+    T.group.position.copy(w.centre).addScaledVector(w.right, off).setY(HAND_Y).addScaledVector(w.normal, -0.04);
+    T.group.quaternion.copy(basis[wi]);
+    // it turns when a hand comes (not in the Pom: there it stays still and breathes)
+    const turnTo = stillNow ? 0 : T.hot * (0.42 * Math.sin(time0 * 1.7 + nT)) + 0.06 * Math.sin(time0 * 0.37 + nT * 1.3);
+    const tiltTo = stillNow ? 0 : T.hot * 0.22 * Math.cos(time0 * 1.3 + nT) + 0.04 * Math.cos(time0 * 0.29 + nT);
+    T.turn = ease(T.turn, turnTo, dt, 10); T.tilt = ease(T.tilt, tiltTo, dt, 10);
+    T.ring.rotation.set(T.tilt, T.turn, 0);
+    U.asm.value = T.asm; U.held.value = T.held; U.hot.value = T.hot; U.beat.value = beat; U.arc.value = arc; U.burst.value = T.burst;
+    U.soft.value = softNow; U.still.value = stillNow;
+    U.icon.value = (1 - T.held * 0.6) * (0.82 + 0.18 * Math.sin(time0 * 1.6 + nT));
+    T.group.visible = T.asm > 0.004;
+    T.used = true;
+  }
+  // ------------------------------------------------------------------ ghost hands (T-043): hands of light on the wall plane that
+  // perform the gesture beside the real hands. Two per wall (the second only for 'gather'). guide.ghost(wall, gesture, strength) sets
+  // what a wall's ghost does (strength 0..1 eases in/out); the guide drives it itself from the state (see update) and a part or the
+  // host may call it too (its call holds for 0.5 s over the guide's own). Gestures: 'tap' (press in), 'gather' (two hands sliding to
+  // the centre), 'rise' (up 45 cm), 'lower' (down 45 cm), 'still' (held, breathing), 'raise' (one hand up 80 cm, slowly).
+  const GHOST = 0.34, gq = new THREE.PlaneGeometry(GHOST, GHOST);
+  const ghosts = room.walls.map((w, wi) => {
+    const mk = () => {
+      const a = uniform(0), hs = texture(handTex, uv()), mask = hs.r, depth = hs.b;
+      const m = new THREE.MeshBasicNodeMaterial(OVER);
+      m.colorNode = vec3(0.82, 0.8, 0.76).mul(mask.mul(depth.mul(0.7).add(0.3))).mul(a); m.opacityNode = mask.mul(0.3).mul(a);
+      const mesh = new THREE.Mesh(gq, m); mesh.renderOrder = 23; mesh.visible = false; mesh.quaternion.copy(basis[wi]); object.add(mesh);
+      return { mesh, a };
+    };
+    return { want: 'still', wantS: 0, gesture: 'still', s: 0, ph: Math.random(), extAt: -1e9, anchor: 0, h: [mk(), mk()] };
+  });
+  function ghost(wall, gesture, strength = 1) { const G = ghosts[wall]; if (!G) return; G.want = gesture; G.wantS = clamp(strength, 0, 1); G.extAt = time0; }
+  const sstep = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  function stepGhosts(dt) {
+    for (let wi = 0; wi < NW; wi++) {
+      const G = ghosts[wi], w = room.walls[wi];
+      if (G.want !== G.gesture) { G.s = ease(G.s, 0, dt, 6); if (G.s < 0.02) { G.gesture = G.want; G.ph = 0; } } else G.s = ease(G.s, G.wantS, dt, 2);
+      const T = G.gesture === 'raise' ? 6 : 3.2; G.ph = (G.ph + dt / T) % 1;
+      const ph = G.ph, env = sstep(ph / 0.15) * (1 - sstep((ph - 0.8) / 0.2)), e = sstep((ph - 0.15) / 0.5);
+      for (let k = 0; k < 2; k++) {
+        const H = G.h[k];
+        let x = G.anchor, y = HAND_Y, sc = 1, a = env;
+        if (G.gesture === 'tap') { sc = 1 - 0.14 * Math.sin(Math.PI * clamp((ph - 0.3) / 0.2, 0, 1)); a = 1 - sstep((ph - 0.85) / 0.15) * 0.3; }
+        else if (G.gesture === 'rise') y = 1.1 + 0.45 * e;
+        else if (G.gesture === 'lower') y = 1.55 - 0.45 * e;
+        else if (G.gesture === 'base') y = 1.3 - 0.5 * e;             // down to the tower's foot (< 0.95 m)
+        else if (G.gesture === 'raise') y = 1.2 + 0.8 * e;
+        else if (G.gesture === 'still') { a = 0.75 + 0.25 * Math.sin(time0 * 0.8 + wi); }
+        else if (G.gesture === 'gather') { x = (k ? 1 : -1) * (0.9 - 0.72 * e); }
+        if (k === 1 && G.gesture !== 'gather') a = 0;
+        const v = a * G.s;
+        H.a.value = v; H.mesh.visible = v > 0.003;
+        if (H.mesh.visible) { H.mesh.position.copy(w.centre).addScaledVector(w.right, x).setY(y).addScaledVector(w.normal, -0.03); H.mesh.scale.setScalar(sc); }
+      }
+    }
+  }
+  // the learned stand-in (until state.learned exists): 15 s of play with hands on the wall
+  const SCORE_KEYS = new Set(['pinya', 'tronc', 'pom', 'aleta', 'baixada']);
+  let learnBlock = '', learnT = 0, learnedNow = false, learnedK = 0, playT = 0;
+  function learning(S, dt) {
+    const lb = S.block + (S.phase === 'aleta' ? ':aleta' : ''); if (lb !== learnBlock) { learnBlock = lb; learnT = 0; playT = 0; }
+    const verb = verbOf(S);
+    if (S.phase === 'play' || S.phase === 'aleta') { playT += dt; if (S.hands > 0) learnT += dt; }
+    // the score's keys are the block names (ENT T-042: learned.pinya / tronc / pom / aleta / baixada); the Brasa has none: a timer
+    const L = S.learned && typeof S.learned === 'object' ? S.learned : null, key = S.block === 'pom' && S.phase === 'aleta' ? 'aleta' : S.block;
+    learnedNow = !!verb && (SCORE_KEYS.has(key) && L ? !!L[key] : learnT >= 15);
+    return verb;
   }
   let structureOnly = false; const inS = [];
+  // the new chapter's words enter on a wall once the host's tile wave has passed it (+0.3 s, in typo3d's slot). room.tileFront(wall)
+  // is INT/RND-F's (T-028); until it exists (or when it does not answer a number) every wall is open at once.
+  // ASSUMED contract (to confirm against PARTS.md when it lands): tileFront(w) >= 1 once the front has passed wall w.
+  const waveGate = (w) => { if (typeof room.tileFront !== 'function') return true; const f = room.tileFront(w); return !(typeof f === 'number') || f >= 1; };
   function update(dt, { state: S, hands = [], time = 0, on = true, acta = null, hold = false, pace = 1 }) {
-    const dtT = dt * Math.max(1, pace);   // the words' fades follow the score's clock: at a fast rehearsal pace a card still reaches full   // hold: the host's own words are still on the walls (the intro's title)
+    const dtT = dt * Math.max(1, pace);   // the words' motion follows the score's clock: at a fast rehearsal pace a card still lands
+    time0 = time; uTime.value = time; typo.setTime(time);
     const b = S.block, playing = S.phase !== 'title';
     const key = b + '|' + (b === 'tronc' ? +S.balance : 0) + '|' + S.buttons;
-    const wantT = on && playing && (b === 'wait' || b === 'pinya' || b === 'tronc' || b === 'pom' || b === 'baixada') && !(b === 'tronc' && S.phase === 'reward');
-    if (key !== guideKey) { guideA = ease(guideA, 0, dt, 8); if (guideA < 0.03) { guideKey = key; for (const T of targets) T.held = 0; } } else guideA = ease(guideA, wantT ? 1 : 0, dt, 3);
+    const wantT = on && playing && (b === 'wait' || b === 'pinya' || b === 'tronc' || b === 'pom' || b === 'baixada') && !(b === 'tronc' && S.phase === 'reward') && S.phase !== 'aleta';   // l'aleta: no ring, only the ghost hands rising
+    if (key !== guideKey) { guideA = ease(guideA, 0, dt, 5); let gone = true; for (const T of targets) if (T.used && T.asm > 0.04) gone = false; if (guideA < 0.03 && gone) { guideKey = key; for (const T of targets) { T.held = 0; T.burst = 0; T.arcPrev = 0; } } } else guideA = ease(guideA, wantT ? 1 : 0, dt, 3);
     const gb = guideKey.slice(0, guideKey.indexOf('|'));
+    const verb = learning(S, dt);
+    // the teaching ladder: the ring teaches when a block starts and DISSOLVES into the universe's own target once the verb is learned
+    // Pinya: the palm figure is the target from the start; the ring is only a brief teaching hint (the card and 6 s of play)
+    learnedK = ease(learnedK, gb !== 'wait' && (learnedNow || (gb === 'pinya' && S.phase !== 'title' && playT > 6)) ? 1 : 0, dt, 2.5);
+    revealNow = gb === 'wait' ? clamp(S.reveal ?? 1, 0, 1) : 1;
+    // the chapter's palette for the tiles and the glass
+    const pal = PALETTES[gb] || PALETTES.wait;
+    for (let k = 0; k < 3; k++) { for (let c = 0; c < 3; c++) palNow[k][c] = ease(palNow[k][c], pal[k][c], dt, 2); PAL[k].value.setRGB(palNow[k][0], palNow[k][1], palNow[k][2]); }
     nT = 0;
+    for (const T of targets) T.used = false;
     softNow = gb === 'pinya' || gb === 'tronc' || gb === 'baixada' ? 1 : 0;
+    stillNow = gb === 'pom' ? 1 : 0;
     const walls = S.walls || [];
     for (let w = 0; w < NW; w++) {
       const sw = !!walls[w];
-      if (gb === 'wait') put(w, 0, 1, S.count[w] > 0, 0, S.start, dt, time);
-      else if (gb === 'pinya') { const offs = S.buttons >= 3 ? 3 : S.buttons === 2 ? 2 : 1; for (let k = 0; k < offs; k++) { const o = offs === 3 ? (k - 1) * 1.1 : offs === 2 ? (k ? 0.7 : -0.7) : 0; put(w, o, 1, near(hands, w, o), 0, S.fill[w], dt, time); } }
-      else if (gb === 'tronc' && sw) { const beat = 1 + (1 - S.beat) * 2; if (S.balance) { put(w, -0.65, 1, S.left[w] && near(hands, w, -0.65), beat, S.floorProgress, dt, time); put(w, 0.65, 1, S.right[w] && near(hands, w, 0.65), beat, S.floorProgress, dt, time); } else put(w, 0, 1, S.count[w] > 0, beat, S.floorProgress, dt, time); }
-      else if (gb === 'pom' && sw) put(w, 0, w === S.lightWall ? 1 : w === S.nextWall ? 0.8 : 0.4, S.count[w] > 0, 0, w === S.lightWall ? S.climb : 0, dt, time);
-      else if (gb === 'baixada' && sw) put(w, 0, 1, S.count[w] > 0, 0, 0, dt, time);
+      if (gb === 'wait') put(w, 0, 1, S.count[w] > 0 && revealNow >= 1, near(hands, w, 0), 0, S.start || 0, dt);
+      else if (gb === 'pinya') { const offs = S.buttons >= 3 ? 3 : S.buttons === 2 ? 2 : 1; for (let k = 0; k < offs; k++) { const o = offs === 3 ? (k - 1) * 1.1 : offs === 2 ? (k ? 0.7 : -0.7) : 0; const nh = near(hands, w, o); put(w, o, 1, nh, nh, 0, S.fill[w], dt); } }
+      else if (gb === 'tronc' && sw) { const beat = 1 + (1 - S.beat) * 2; if (S.balance) { put(w, -0.65, 1, S.left[w] && near(hands, w, -0.65), near(hands, w, -0.65), beat, S.floorProgress, dt); put(w, 0.65, 1, S.right[w] && near(hands, w, 0.65), near(hands, w, 0.65), beat, S.floorProgress, dt); } else put(w, 0, 1, S.count[w] > 0, near(hands, w, 0), beat, S.floorProgress, dt); }
+      else if (gb === 'pom' && sw) put(w, 0, w === S.lightWall ? 1 : w === S.nextWall ? 0.8 : 0.4, S.count[w] > 0, near(hands, w, 0), 0, w === S.lightWall ? S.climb : 0, dt);
+      else if (gb === 'baixada' && sw) put(w, 0, 1, S.count[w] > 0, near(hands, w, 0), 0, 0, dt);
     }
-    for (let i = nT; i < MAXT; i++) { targets[i].mesh.visible = false; targets[i].held = 0; }
+    // the ghost hands: teaching at the start of the block (in the ring, or beside a real hand), then help that grows while the group has
+    // not got it (state.assist when the score gives it), gone once learned. L'aleta: hands rising slowly under the enxaneta, always.
+    if (verb && on) {
+      const teach = S.phase === 'title' || playT < 10;
+      const assist = S.assist ?? (0.25 + 0.45 * clamp((playT - 20) / 20, 0, 1));
+      const aleta = verb === 'alzar', wob = b === 'tronc' && S.wobble > 0;
+      const sG = aleta || wob ? 0.85 : learnedNow ? 0 : teach ? 1 : assist;
+      for (let w = 0; w < NW; w++) {
+        if (time0 - ghosts[w].extAt < 0.5) continue;                 // a part / the host asked for this wall
+        const mine = !(b === 'tronc' || b === 'pom' || b === 'baixada') || !S.structure || !!walls[w];
+        let anchor = 0;                                              // beside the first real hand on the wall (towards the centre)
+        for (const h of hands) if (h.wall === w) { const xm = (h.u - 0.5) * room.walls[w].width; anchor = xm + (xm > 0 ? -0.45 : 0.45); break; }
+        ghosts[w].anchor = ease(ghosts[w].anchor, anchor, dt, 2);
+        const g = wob ? (w === S.wobbleWall ? 'base' : null) : GESTURES[verb];
+        ghosts[w].want = g || ghosts[w].want; ghosts[w].wantS = mine && g ? sG : 0;
+        if (aleta || wob) ghosts[w].anchor = 0;                  // under the enxaneta / at the tower's foot: the wall's centre
+      }
+    } else for (let w = 0; w < NW; w++) if (time0 - ghosts[w].extAt >= 0.5) ghosts[w].wantS = 0;
+    stepGhosts(dt);
+    // the targets not placed this frame break where they were
+    for (let i = nT; i < MAXT; i++) { const T = targets[i]; T.asm = ease(T.asm, 0, dt, 4); T.U.asm.value = T.asm; T.group.visible = T.asm > 0.004; T.held = 0; }
 
     // the words; from the Tronc on, the instructions belong to the walls that carry the castell
-    const g = on ? lines(S, acta) : {};
+    const g = on ? lines(S, acta, learnedNow) : {};
     structureOnly = (b === 'tronc' || b === 'pom' || b === 'baixada') && S.structure > 0 && S.structure < NW;
     for (let w = 0; w < NW; w++) inS[w] = !!walls[w];
-    const split = b === 'tronc' && S.balance && g.line;
-    want(card, g.card || null, 'card'); want(line, split ? null : g.line || null, 'line');
-    want(lineL, split ? ['Keep it straight', ''] : null, 'line'); want(lineR, split ? ['Hold both sides', g.line[1]] : null, 'line');
-    stepLayer(card, 'card', dtT, () => true, 1.2, 0.8, 1, hold);
-    // the wait's words thin out as the hands start the pass (gone when it starts), instead of lingering into the intro
-    const startK = b === 'wait' ? 1 - Math.min(1, S.start || 0) * Math.min(1, S.start || 0) : 1;
-    // and the instruction waits for the chapter's title to have gone ("III · TRONC" never sits on "PRESS ON THE BEAT")
-    const cardUp = card.bufs[0].a > 0.04 || card.bufs[1].a > 0.04;
-    const halfUp = lineL.bufs[0].a > 0.04 || lineL.bufs[1].a > 0.04;
-    stepLayer(line, 'line', dtT, (w) => !structureOnly || inS[w], 0.6, 0.4, startK, cardUp || halfUp);
-    const lineUp = line.bufs[0].a > 0.04 || line.bufs[1].a > 0.04;   // the whole line leaves before its halves come (and back)
-    stepLayer(lineL, 'line', dtT, (w) => !structureOnly || inS[w], 0.6, 0.4, 1, cardUp || lineUp);
-    stepLayer(lineR, 'line', dtT, (w) => !structureOnly || inS[w], 0.6, 0.4, 1, cardUp || lineUp);
+    card.want(g.card ? 'c|' + g.card.join('|') : '', g.card ? cardItems(g.card) : null);
+    const L = g.line && (g.line[0] || g.line[1]) ? g.line : null;   // (an empty invitation with a label: the floor's / climber's name alone)
+    line.want(L ? 'l|' + L.join('|') : '', L ? lineItems(L) : null);
+    // readability (audit 24-11): the dark plates under the words are stronger where the world behind is busy (Tronc, Pom: 60 %)
+    const plateK = b === 'tronc' || b === 'pom' ? 0.6 : null;
+    for (const t of card.texts) t.U.plate.value = plateK ?? 0.5;
+    for (const t of line.texts) t.U.plate.value = plateK ?? 0.45;
+    card.step(dtT, { hold, gate: waveGate });
+    // the wait's words come with the button (reveal) and thin out as the hands start the pass
+    const st = b === 'wait' ? Math.min(1, S.start || 0) : 0;
+    let gain = b === 'wait' ? 1 - st * st : 1;   // the invitation to play before the reveal, the ring's line after it
+    // and the instruction dims once the group is already doing it
+    let doing = 0;
+    if (b === 'pinya' && S.phase === 'play') { let h = 0; for (let w = 0; w < NW; w++) if (S.count[w] > 0) h++; doing = clamp(h / Math.max(1, S.needWalls), 0, 1); }
+    else if (b === 'tronc' && S.phase === 'play') { let need = 0, ok = 0; for (let w = 0; w < NW; w++) if (walls[w]) { need++; if (S.balance ? S.left[w] && S.right[w] : S.count[w] > 0) ok++; } doing = need ? ok / need : 0; }
+    else if (b === 'pom') doing = S.lightWall >= 0 && S.count[S.lightWall] > 0 && !S.restless ? 1 : 0;
+    else if (b === 'baixada') { let need = 0, ok = 0; for (let w = 0; w < NW; w++) if (walls[w]) { need++; if (S.count[w] > 0) ok++; } doing = need ? ok / need : 0; }
+    gain *= 1 - 0.55 * doing;
+    const cardUp = card.up;
+    const mask = (w) => !structureOnly || inS[w];
+    // the wait: the instruction is the lintel inscription of ENT-F's doorway (keystone ~1.95 m): one line centred at 2.12 m. It moves
+    // only while no words are up (never slides in view)
+    if (!line.up) line.object.position.y = b === 'wait' ? 2.12 - 1.98 : 0;
+    line.step(dtT, { gain, hold: hold || cardUp, mask, gate: waveGate });
   }
   function dispose() {
-    tgeo.dispose(); handTex.dispose();
-    for (const T of targets) T.mesh.material.dispose();
-    for (const L of [card, line, lineL, lineR]) for (const b of L.bufs) { b.tex.dispose(); for (const m of b.meshes) { m.mesh.geometry.dispose(); m.mesh.material.dispose(); } }
+    ringGeo.dispose(); discGeo.dispose(); tileGeo.dispose(); handTex.dispose(); gq.dispose(); for (const G of ghosts) for (const H of G.h) H.mesh.material.dispose();
+    for (const T of targets) T.group.traverse((o) => { if (o.material) o.material.dispose(); });
+    for (const s of [card, line]) s.dispose();
   }
-  return { object, update, dispose, targets, layers: { card, line } };
+  return { object, update, dispose, ghost, targets, layers: { card, line }, get learned() { return learnedNow; } };
 }

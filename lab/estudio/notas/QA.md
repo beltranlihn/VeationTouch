@@ -1,6 +1,7 @@
 # Cuaderno de QA
 
 ## Dónde quedé
+15:36 — PAUSA tras pasos 6–7 (notas › Pasos 6–7). Pendiente: zonas tranquilas, duración real, tirones (INT).
 04:55 — humo final y repeticiones a ritmo 1 hechos, todo PASA; QA parado hasta la congelación (06:15).
 04:40 — ventana de GPU 04:30–04:39 hecha y devuelta; cola visual vacía; queda el humo final de las 06:00 (`review_smoke.js`).
 00:18 — parado por límite de uso. Cola pendiente: ver «Cola pendiente al cerrar» más abajo.
@@ -640,3 +641,246 @@ el fundido a ×8. A ritmo 1:
 ## Traspasos a otros roles
 - **[ARREGLADO 23:04, re-comprobado]** **Director (room3d, T-000a)**: el bloom de `room3d.js` no da la vuelta a la costura: un halo junto a P3|P4 se corta (brasa3d: salto 44 de luma con bloom, 7 sin bloom; `caps/brasa/seamwave_1*_seam.png`). Afecta a todas las piezas. Re-check: misma captura con y sin `bloom:0`, el salto debe quedar ≤ 12.
 - Todos: para medir fps, `bench.sh` con turno y con `others=0`; los fps del rAF de la ventana oculta no valen (topados y contaminables).
+
+
+## Ola «Arte 2» (24-11) — veredictos
+Capturas y sondas: `/private/tmp/claude-501/-Users-vicentemanzano-Desktop-INTERACTIVE-EXPERIENCES/0aac3285-443e-4d3b-aece-2f1b4c394a37/scratchpad/qa/caps/t032/` (y `t028/`, `t026/`). Sondas nuevas en `qa/`:
+`t032_phys.js` (lean → piezas sueltas/perdidas por segundo), `t032_ret.js` (vuelta a casa tras enderezar), `t032_hand.js` (frames de la mano
+al primer impacto), `t032_rise.js` (velocidad/aceleración de la subida de sala), `t032_obra.js` (estado de tronc3d dentro de la obra).
+`review_smoke.js` ahora espera a `__obra` (review.html tarda más en cargar desde el selector de GUI).
+
+### T-032 tronc3d (función; el arte se juzga tras la pasada de 3D-FE ~16:30) — **FALLA** (13:15, re-comprobado sobre la pasada de arte), un solo arreglo
+- **Errores**: 0 en WebGPU y WebGL2 en 10 estados del estudio (def, pisos 2/9, lean 1 weak 2, reward, arrive 0,5, leave 0,5) y en la obra
+  (`review.html?from=tronc`, 6 personas, ambos backends: wait → tronc/title → tronc/play, 9 manos). A las 12:58 hubo un
+  `TypeError … 'getAttribute'` en el estudio: era el archivo a medio escribir (12:58:43); a las 12:59 limpio. No cuenta.
+- **Física (lean 1, weak 2, 4 torres)**: inclinación con muelle 1° → 9,4° (sobrepasa 7°, oscila 6–7,4°), piezas libres 11 → 282 en 3,5 s,
+  rebotan y se pierden (`phys_auto.json`; WebGL2 igual, `phys_webgl2.json`). Control: en calma 0 libres. Se lee como «cae». ✓
+- **BUG — lo perdido no vuelve nunca** (`ret.json`): tras 3 s de lean 1 y 9 s recta (tilt ≤ 0,4°), libres 288 → 1 pero **perdidas 164 → 164**.
+  Causa: en `update`, la rama `else` de las piezas `st === 2` («lost in the void») hace `continue` **antes** del bloque «everything not home
+  goes home» (`if ((pc.st === 2 || …) && t.straightT > 2 …)`), así que una pieza perdida nunca pasa a `st = 3`. En la obra, cada vez que el
+  grupo inclina, la torre queda vaciada para siempre. **Arreglo (3D-FE)**: evaluar la vuelta dentro de la rama de perdidas antes del
+  `continue` (o mover el bloque arriba). Re-check: `t032_ret.js` → perdidas → 0 a los ~4 s de enderezar.
+- **Mano**: impacto `{wall 1, u 0,5, force 0,4}` y 11 piezas sueltas en el **primer** `update` tras posar la mano (10 ms WebGPU, 16 ms
+  WebGL2) → < 100 ms ✓ (`hand_*.json`). `impacts` sirve para el sonido de ola 2.
+- **Movimiento de sala**: sólo vertical (sin giro): vmax medida 0,23 m/s (tope del código 0,35), aceleración ≤ 0,28 m/s² en ventanas de 0,1 s,
+  sin saltos (`rise.json`). En la obra la subida arranca (0 → 0,16 m) con los pisos. ✓
+- **Notas para la pasada de arte** (vistas en `sheet1.png`, 10 estados): la torre vive en la mitad alta del muro y a 4+ pisos se corta por
+  arriba (pisos 2 y 4: base a ~1 m, cima fuera de cuadro); a 9 pisos sólo se ve la aguja y los cuerpos beige — conviene que la subida deje
+  el piso en formación a ~2–2,5 m y la torre entera dentro del muro más a menudo. Los paneles grandes de primer plano (los planos beige de
+  P4/P1) se leen como tarjetas grises, no como trencadís: darles esmalte/color. Paleta: terracota + cromo + esmalte se cumple; el fondo
+  conserva la franja ámbar horizontal (atmos), que es el «ámbar en todo» que ARTE-2 quiere quitar (INT). Arrive 0,5 lee como fragmentación ✓.
+- **Re-comprobación sobre la pasada de arte (13:01)**: mismos resultados; 0 errores en 10 estados del estudio (`caps/t032b/`) y en la obra
+  (`index.html` jump tronc medium, WebGPU y WebGL2); el bug sigue: `caps/t032b/ret.json` perdidas 1 → 181 y 181 a los 9 s rectas.
+
+### T-032 · arte tras la pasada (13:15, `caps/t032b/sheet.png`: def · f2 · f5 · f9 · lean · reward · arrive 0,5 · leave 0,5 · 2 manos · WebGL2 f5 · obra)
+Lo que ya cumple: **materia física de verdad** (esfera de cromo que refleja, ladrillo, trencadís de esmalte, vidrio con película fina, humo
+turquesa en la base); paleta terracota/esmalte/cromo con contraluz turquesa (sigue el guion §3); arrive/leave se leen como fragmentación;
+WebGL2 idéntico. Es claramente más «3D» que ayer. Notas para la 2.ª pasada (20:30), en orden:
+1. **La torre casi nunca se ve entera**: con 4–6 pisos la mitad alta del muro tiene 2–3 pisos cortados por arriba y la mitad baja está vacía;
+   con 9 pisos sólo la aguja. La ref. 2 vale por ver el ensamblaje vertical completo. Propuesta: que la subida deje el piso en formación a
+   ~2,5–3 m (no fuera de cuadro) y que en el premio la parte baje/aleje la torre para verla entera una vez (el «plano de cartel»).
+2. **Lean**: en la captura a +9 s la inclinación apenas se ve (torres casi rectas, piezas sueltas flotando); el gesto debe leerse a simple
+   vista: más ángulo visible (o sostener 7° sin volver tan rápido) y que lo que cae caiga **por delante** de la torre, hacia la sala.
+3. **Franja cálida horizontal** a media altura en los 4 muros (la «línea cálida del horizonte»): es la línea ámbar de toda la obra;
+   adelgazarla o pasarla a terracota apagado, o quitarla en Tronc.
+4. **Capa lejana** débil: los escombros a 26–70 m casi no se ven; subirles contraste o polvo de brasa para que haya fondo.
+5. En la obra la base de piedra y el humo se comen la banda de la guía 0,9–1,6 m (lo dice 3D-FE): bajar su luz bajo la guía.
+
+### T-028 INT transiciones por teselas (función) — **FALLA** (13:25), un arreglo bloqueante + 2 comprobaciones
+Sondas nuevas: `qa/tr_luma.js` (luma de toda la tira tras cada render, 1 s antes y 4,6 s después de un salto), `qa/tr_nat.js` (lo mismo en un
+cambio de bloque **natural** en `review.html` con clic y ritmo 14), `qa/eye_rate.js` (rig de cada parte por nombre: °/s, m/s, saltos).
+Capturas `qa/caps/t028/sheet.png` (11 cruces a +1,7 s, WebGPU, y 3 en WebGL2).
+- **Errores**: 0 en los 11 cruces (WebGPU) y 3 en WebGL2, y en review. (A las 13:18 dos cargas dieron `SyntaxError: Unexpected reserved word`:
+  experience.js a medio escribir; a la siguiente, limpio.)
+- **BLOQUEANTE — en WebGPU la imagen saliente desaparece en el corte**: brasa/reward → pinya natural (`caps/t028/nat_gpu2.json`, repetido 3 veces):
+  luma de la tira **45,6 → 0,7 en un solo frame** al cambiar de bloque, ~1,4 s casi negro (1,2–1,7) y luego entra pinya (12 → 37 a +1,6–2 s).
+  Es un corte a negro y una aparición, no «la imagen se rompe en teselas y deja ver la siguiente». **Control** `tiles:false`: 46 → 15 (las
+  partes se van a su manera, no a negro) ⇒ es el pase de teselas. **WebGL2** natural: 40 → 35 a tr 0,09 (`nat_gl2.json`): la saliente SÍ se ve ⇒
+  específico de WebGPU (¿`stripOut` vacía o sin resolver en el primer frame del cambio y siguientes?). La propia evidencia de INT lo muestra:
+  `int/t028/sheet-tp.png` fila +0,7 s, negra salvo los hilos. Re-check: `tr_nat.js` → la luma no debe caer > 40 % en el corte.
+- **Costura P3|P4 en plena transición**: salto a través 0,02–6,2 frente a 0,2–6,8 dentro de cada muro (11 cruces) ✓.
+- **Ojo global** (`caps/t028/eye.txt`): tronc→pom ≤ 2,0°/s y ≤ 0,87 m/s ✓ (≤ 6°/s). **Pero** a +2,35 s el rig de `atmos` y `tronc3d` salta 37° y
+  16 m/s en un frame, y baixada→acta `plaza/tronc3d/baixada3d` saltan 5,9 m a +2,78 s: si esas partes aún se ven en ese instante es una sacudida;
+  INT: confirmar que el salto ocurre cuando su imagen ya está tapada (o reponer el rig sólo con la parte apagada). brasa→pinya y crown→festa
+  dieron 0°/s (¿el giro de pinya/festa que dice la nota está desactivado en el salto?).
+- **Tirones**: sin turno de GPU no valen; con la GPU compartida (5 ventanas ajenas) vi huecos de 290–420 ms en el corte brasa→pinya y uno de
+  **1251 ms** en tronc→pom (salto). Pido turno para medir limpio con `hitch.js` (tiles 1 frente a tiles 0) y el coste del doble render.
+- **Hilo conductor**: se ve (el punto por muro), pero es un foco blanco muy grande y quemado (sale saturado en todos los cruces): bajarle
+  tamaño/brillo para que sea un objeto, no un halo.
+
+### T-026 ENT umbral3d + regla del botón (función; arte tras 16:30) — **PASA** (13:30) con 1 nota
+- **Errores**: 0 en WebGPU y WebGL2 en el estudio (idle, 4 manos, reveal 0,5/1, start 0,6, arrive/leave 0,5) y en la obra (`jump: wait`,
+  2 manos): umbral3d solo + «Tocad. Jugad con la sala.» (español) ✓. `caps/t026/sheet.png`.
+- **Regla `reveal`** (simulación propia e independiente con `score.js` real a 60 Hz, `qa/reveal_sim.mjs` → `caps/reveal_sim.txt`):
+  nadie 600 s → 0 ✓; un blip de LiDAR cada 30 s, 600 s → 0 ✓; 2 personas a 0,6 toques/s → **27,7–29,9 s** (5 semillas) ✓; 2 tranquilas
+  (0,25/s) → 52,7 ✓; 2 sosteniendo sin tocar → 46,5 ✓; 2 frenéticas (3/s cada una) → 18,5 (un poco < 20, aceptable); 1 persona → 59,6 (tocando)
+  / 96,5 (sosteniendo); 6 → 18,5; 15 → 18,2. Inicio: sólo con reveal 1 y mano en el centro: 2 en el centro → intro a +4 s del revelado ✓.
+  `score.js` y `ressonancia-sound/score.js` idénticos ✓.
+- **Mano**: reacción en el **primer** `update` (pulso + reveal) en ambos backends ✓ (`caps/t026_hand_*.json`). Movimiento de sala 1,2°/s ✓.
+- **Nota (física)**: 6 aterrizajes en P1/P2 a 1,2–1,8 m dejaron sólo **1 tesela caída** (`falling 0, resting 1, chips 0`): «a menudo las descuelga»
+  se queda en «rara vez». Para que tocar dé ganas de volver a tocar, que un aterrizaje sobre una tesela la descuelgue casi siempre (≥ 1 de 2)
+  y que alguna se rompa en esquirlas a la vista. Arte (para 16:30): la cortina llena toda la banda de la guía (media 35) y hay focos azules/
+  blancos quemados; el anillo revelado se lee pero pequeño frente a tanto ruido: despejar un círculo de ~0,8 m alrededor del botón al revelar.
+
+### T-032 re-entrega (13:25) — función **PASA** · arte: notas abiertas (13:35)
+- **Arreglo comprobado**: `caps/t032b/ret2_*.json` — tras 3 s de lean 1: perdidas 456–473 → **0** a los 4,5 s de enderezar (WebGPU y WebGL2) ✓.
+  Ojo: ahora una inclinación máxima suelta ~900 piezas libres en 3 s (antes 280): está bien como drama, pero que no vacíe la torre con
+  lean moderado (comprobar lean 0,5 en la 2.ª pasada).
+- **Errores**: a las 13:24 `THREE.TSL: ReferenceError: rR is not defined (tronc3d.js:481)` en WebGPU (archivo a medio escribir); con el de
+  13:25:06, 0 errores WebGPU/WebGL2 en estudio (def, f9, lean, reward) y obra (`jump: tronc`, 2 manos). `caps/t032c/sheet.png`.
+- **Arte (pasada ARTE)**: materia muy buena (cromo con reflejo legible, cerámica, rosetón de vidrio de colores, gente de puntos turquesa).
+  Notas: (1) ahora la torre está tan cerca que cada muro ve **un piso** (la esfera llena el muro); el ensamblaje vertical sólo se ve
+  entero en el premio, y ahí es diminuto y casi negro (banda media 6,8): que el retroceso del premio deje la torre a ~⅔ de la altura del
+  muro con su luz. (2) En el estado por defecto el piso brillante cae en la banda de la guía (media **72**, p99 241; ayer pedíamos ≤ ~40):
+  riesgo para la lectura del texto de GUI; bajar la luz entre 0,9 y 1,6 m o subir el piso. (3) Lean: la inclinación sigue sin leerse en una
+  captura (la nube turquesa domina); que el piso se vea torcido. (4) La franja cálida horizontal de fondo sigue en los 4 muros.
+
+### Lote 13:40 — T-027 · T-029 · T-030 · T-031 (función + notas)
+Sondas: `qa/part_probe.js` (movimiento de sala por nodo del `object` de la parte, °/s y m/s; 4 aterrizajes de mano y contadores físicos),
+`qa/latency.js` (como siempre), capturas `qa/caps/a2_<parte>/sheet.png` (def · 3 manos · estado activo · WebGL2 · obra con 3 manos),
+`qa/caps/t027/crops.png`, `qa/caps/gui_crops.png` (recortes a tamaño real). Latencias en `qa/caps/latency_arte2.txt`.
+**Trampa nueva**: leer el canvas WebGPU desde un `setTimeout` (fuera del frame) da negro: `obra_luma.js` no vale; medir siempre
+envolviendo `room.render` (como `tr_luma.js`/`latency.js`). Y RND-F estaba editando room3d.js: a las 13:3x una carga dio
+`TSL: atan is not defined (room3d.js:130)` + `HDRLoader is not defined`, y una captura de pom en la obra salió negra sin errores; con el
+room3d de 13:34:43 todo vuelve a verse.
+
+**T-029 brasa3d — PASA función.** 0 errores WebGPU/WebGL2 (estudio y obra). Mano 1 frame (18 ms WebGPU, 21 WebGL2). Física: 4 aterrizajes →
+42 impactos y teselas que pasan de colgadas a caer y yacer (`tiles` 64 → 18 colgadas, 37 en el suelo); WebGL2 igual. Sala: giro 1,2°/s ✓.
+Paleta rojo/naranja sobre cromo líquido ✓; la cartela «Brasa / El despertar» se lee. Notas: (1) la mitad alta de los muros es negra (las
+columnas de cromo son siluetas sin reflejo): falta la capa lejana y algo que el cromo refleje arriba; (2) con manos los cuerpos de fuego suben
+la banda de la guía a 77–105 (obra P1): bajar su brillo entre 0,9 y 1,6 m o alejarlos del centro del muro.
+
+**T-030 pinya3d — PASA función, con la exigencia 2 floja.** 0 errores WebGPU/WebGL2 (estudio y obra). Mano 1 frame (33/16 ms). Sala:
+≤ 2,6°/s con fill 1 + closed ✓. Paleta turquesa y coral, cuerpos de puntos ✓ (adiós al maniquí). **Física**: 4 aterrizajes dieron sólo
+0–3 impactos y las 8 teselas por muro son cubitos que casi no se ven (`caps/probe_pinya3d.json`). Lo que se ve al tocar es luz coral, no
+masa. Para cumplir «impactante»: algo con peso que la mano suelte y caiga a la vista (p. ej. teselas grandes de cerámica en los hombros
+de la primera fila que caen y ruedan por el suelo, o las fibras que se tensan y se rompen soltando fragmentos). En la 2.ª pasada lo juzgo
+como FALLA si sigue igual.
+
+**T-031 pom3d — PASA función.** 0 errores WebGPU/WebGL2 (estudio y obra). Mano 1–2 frames (22/42 ms). Física: 4 aterrizajes → 36 caídas y
+3 floraciones (pétalos/teselas cañón abajo) ✓. Sala: subida con giro ≤ 3,0°/s, aceleración ≤ 1,2 m/s² (`__pom3d`, ciclo 12 s) ✓; la subida
+llega a 4 m/s (es la escena que gusta a Vicente; sin tirones). Ciudad de líneas blanca y jardines de oro ✓; cartela «Pom de dalt / Valor»
+nítida. **Nota fuerte**: en la cima (`height: 1`) la «neblina dorada» lava toda la imagen a un beige plano (banda 77–98 en los 4 muros) y
+las líneas desaparecen: es lo contrario de «blanco línea sobre negro». Reducirla a un velo bajo (≤ 30 % de la altura) o a un degradado
+que deje el negro arriba.
+
+**T-027 GUI — PASA función.** Todas las cadenas visibles en español (guide3d `lines`, introtext, actatext; catalán sólo en las palabras
+castelleras y los valores pequeños); fuente Instrument Serif/Geist local; letra nítida a tamaño real (`caps/gui_crops.png`, `caps/t027/crops.png`);
+0 errores. Notas: (1) espera: «Tocad. Jugad con la sala.» queda **delante del trencadís nuevo de umbral3d** y una tesela colgante tapa
+letras («con ▮a sala»); pedir a ENT-F un hueco sin teselas en el rectángulo del texto (o GUI: más halo oscuro). (2) Pinya: el anillo de
+progreso es una corona discontinua de teselas sobre la multitud y se pierde (no se ve la mano dibujada a +1,5 s): darle un disco oscuro
+detrás algo más opaco. (3) review.html: la tarjeta de inicio está en inglés (ya pasado a GUI).
+
+### T-028 re-check del corte (13:42) — **corte a negro ARREGLADO**; veredicto final pendiente de tirones (turno 15:40) y del aspecto nuevo de RND-F
+`tr_nat.js`, brasa/reward → pinya natural, ritmo 14: WebGPU 42,2 → **35,3** (dos corridas) y WebGL2 42,5 → 36,5; mínimo tras el corte 35,3 (caída ≤ 16 %,
+criterio ≤ 40 %) ✓. `caps/t028/fix_*.json`. Huecos de frame 350–680 ms en el corte con la GPU compartida: no valen como medida, se miden en la ventana.
+
+### Lote 13:55 — T-030 (2.ª física) · T-031 (cima) · T-034 intro · T-035 baixada3d · T-036 fall3d (estudio)
+Capturas: `qa/caps/pinya2/`, `pom2/`, `t034/`, `bx/`, `f36/` (cada una con `sheet.png`). Sondas: `part_probe.js`, `latency.js`, `t035_phys.js`.
+- **T-030 pinya3d (2.ª pasada física) — PASA.** Con 4 manos a +0,7 s y +1,5 s caen a la vista platos de cerámica/cromo biselados (turquesa,
+  rosa, blanco) desde los pechos hacia el suelo, rebotan y ruedan; WebGL2 igual; 0 errores. Ya hay masa al tocar. Nota: la banda de la guía
+  sube a 45–69 en los muros tocados (destello de la mano); vigilar que no tape la instrucción.
+- **T-031 pom3d (cima = `progress: 1`) — PASA.** Corrijo mi nota: `height` era el ojo, no la cima. En progress 1 la cima es la placa de
+  circuito del Eixample con patios de oro bajo un cielo de constelaciones, negro arriba (banda 26–40); progress 0,5 con torres de líneas y
+  azoteas en flor. WebGL2 idéntico; 0 errores. Retiro la «nota fuerte» de la neblina.
+- **T-034 intro (INT) — PASA función.** 0 errores WebGPU/WebGL2 (obra, `jump: intro` y `score.state.t` 30/43/45,5/46,5/48). Guion de color
+  cumplido: fachadas azul noche, farolas cálidas, rosetón; castell que sube. Notas: (1) a t 48 la rotura sólo se ve en P4 y se lee como
+  **paneles rectangulares con contorno cian/rosa flotando** — justo lo que el criterio quiere evitar; que las losas lleven la imagen de la
+  plaza (no marcos vacíos) y se rompan en los 4 muros (o que viaje de P4 a P3 a la vista). (2) Los halos de las farolas son globos blancos
+  quemados y suben la banda de la guía a 42–54: bajar su bloom. (Medido saltando el reloj del score, no en un pase natural: re-mirar en el
+  pase de las 18:00.)
+- **T-035 baixada3d v2 — PASA función.** 0 errores WebGPU/WebGL2 (estudio y obra). Mano 1 frame (22/44 ms) pero el cambio junto a la mano es
+  pequeño (+3 de luma). Física (`__baixada3d`, 4 manos): cayendo 7→16, recogidas 5, rotas 3–5, flores 2 ✓; `fall: true` deshace la torre
+  de vidrio. Sala: baja ≤ 1,1 m/s, 0°/s ✓. En la obra a +10 s: amanecer + «Acompañadlo / piso a piso» con botones legibles. Paleta pastel
+  (rosa, lila) ✓. Notas: (1) todo el muro es una bruma rosa con un sol enorme quemado en P1 (banda 44–67): falta negro/contraste y la
+  aguamarina del guion; (2) las flores (2 en 4 toques) son pequeñas y blancas: que florezcan más grandes y en color donde la mano recoge.
+  (3) Una vez vi, tras saltar a baixada y 9 s sin manos, la frase del acta sobre el trencadís de umbral3d (`caps/bx/obra_strip.png`): no lo
+  reproduje; INT, mirar qué mundo se ve en el acta tras una caída por abandono.
+- **T-036 fall3d (estudio) — PASA función.** 0 errores WebGPU/WebGL2 (intent +3,5/+7,5 s, carregat +5,5 s). Intent: la torre-ensamblaje
+  (cerámica, cromo, balcones) se parte y vuela en trozos naranja/turquesa; carregat se hunde en esquirlas. P3 negro (walls 3, como pide el
+  parámetro). Falta la captura en la obra (pendiente de INT/3D-PI).
+
+### Ventana GPU 14:18–14:26 (adelantada) — todas `others=0`; registro `qa/caps/window6.txt`, `qa/bench.log`, `qa/hitch.log`
+Control: `_example` 1,6 ms frente a intro high t 33,5 **26,3 ms** (×16; la intro ya era 25,4 tras T-011): el instrumento se mueve.
+| Pieza (estudio, escala 1, WebGPU) | ms | fps-eq |
+|---|---|---|
+| umbral3d (0 manos / 15) | 9,0 / 10,1 | 111 / 99 |
+| tronc3d (9 pisos) | 12,6 | 79 |
+| festa3d resonancia 1 (0 / 15 manos) | 12,1 / 14,3 | 83 / 70 |
+| baixada3d | 10,1 | 99 |
+| pom3d progress 1 | 16,0 | 62 (antes 10,5) |
+| **brasa3d** | **24,7** | **40** (antes 10–11: ×2,3) |
+| pinya3d fill 1 | 11,7 | 85 (antes 6,1) |
+| Obra (jump, 8 s) | medium | high (MSAA 2) | high TAA |
+|---|---|---|---|
+| wait | 8,5 → 118 | 9,9 → 101 | 10,6 → 94 |
+| intro | 13,3 → 75 | 18,4 → 54 | 17,4 → 57 |
+| **brasa** | **24,8 → 40** | **29,7 → 34** | — |
+| pinya | 12,0 → 83 | 20,8 → 48 | — |
+| tronc | 10,3 → 97 | 11,3 → 88 | 11,3 → 88 |
+| pom | 8,4 → 119 | 20,1 → 50 | — |
+| festa | 10,9 → 92 | 13,5 → 74 | 12,5 → 80 |
+| baixada | 15,3 → 65 | 18,4 → 54 | — |
+- **Presupuesto (media ≥ 45)**: todo cumple salvo **brasa 40** (24,8 ms; también sola 24,7 ⇒ es brasa3d, no el anfitrión): para 3D-BR (cromo/reflejo
+  de T-029). En alta: brasa 34, pinya 48, pom 50, el resto ≥ 54.
+- **TAA frente a MSAA 2 en alta**: mismo coste o algo menos (wait +0,7 ms, tronc =, intro −1,0, festa −1,0): **asumible**; INT puede activarla.
+- **Tirones** (rAF, 7196×912, media, 7 s tras el salto): teselas ON brasa→pinya 67, tronc→pom 87, pom→crown 71, wait→intro 41 ms; OFF 56 / 73 / 57 / 70.
+  Las teselas añaden ≤ 14 ms al peor hueco; el tirón (56–73 ms sin teselas) es de la parte que llega en frío, no del pase. Criterio
+  «> 30 ms» no se cumple en ninguno de los dos casos: un frame de 3–5 en cada cruce (antes de hoy: 19–29 en frío). Para INT/partes:
+  precompilar (`renderer.compileAsync`) las partes del bloque siguiente durante el bloque actual.
+- **El segundo negro del salto**: `tr_luma.js` saltando tronc→pom y brasa→pinya justo tras cargar: 4,1 → 0,8 a +0,5 s y 0,6 hasta +1,2 s, luego
+  entra el mundo nuevo. Como la imagen de partida aún estaba llegando (pre 2–3), no prueba un fallo; en el cambio natural (13:42) ya no hay negro.
+  Dudoso, no bloqueante: lo re-miro en el pase de las 18:00.
+
+### Lote 14:40 — notas cortas (sin sondas nuevas, por orden del director). Capturas `qa/caps/w3/<umb|tro|fes|bx3|fall|tiles>/sheet.png`, `w3/sheetB.png`
+- **T-026 umbral3d (reescritura de entrada) — PASA función.** 0 errores WebGPU/WebGL2 (estudio y obra); 111 fps-eq (99 con 15 manos). Mosaico de
+  trencadís que llena la sala, 4 arcos-portal, al revelar se colorea y aparece el anillo blanco legible en el arco; con manos se desprenden
+  piezas. Notas: muy brillante y lleno (banda 36–97; P4 97 con reveal 1); la frase «Tocad. Jugad con la sala.» es pequeña sobre fondo cargado;
+  la paleta del guion para la espera (negro + hilo de brasa) ya no aplica: confirmarlo con Vicente.
+- **T-032 tronc3d (TRO-F, ahora 3D-FE) — PASA función.** 0 errores WebGPU/WebGL2; 79 fps-eq (9 pisos), obra 97 media / 88 alta. Por fin la
+  torre-ensamblaje se ve entera y vertical (ref. 2): collage de cromo, cerámica, balcones, paneles; lean se ve torcido; premio a oscuras. Notas:
+  en la obra (+11 s, 4 manos) las torres casi no se ven (sólo un trozo arriba en P4/P1, resto negro) detrás de «Tocad al ritmo del tambor»;
+  no re-probé `t032_ret.js` sobre este código (pendiente en la tarde).
+- **T-033 festa3d (FES-F, ahora 3D-BR) — PASA función.** 0 errores WebGPU/WebGL2 (estudio y obra); 83 fps-eq (70 con 15 manos), obra 92/74.
+  Cromo líquido dorado que ondula con la mano, esferas, resonancia 1 en panal de oro, coronación en filigrana de oro. Nota: cada muro tiene
+  una **mancha oscura en forma de píldora** (la zona tranquila del texto) con borde visible: difuminarla, hoy se lee como un agujero.
+- **T-035 baixada3d v3 — función sin cambios respecto a v2 (PASA)**; 99 fps-eq, obra 65 media / 54 alta. Sin manos el score pasa a la caída
+  carregat a los ~5 s (regla de abandono, correcto). La silueta de INT no la pude aislar en captura (pendiente tarde).
+- **T-036 fall3d en la obra — PENDIENTE, sospecha.** Con `jump: fall` (intent, sin castell previo) a +7 s sólo se ve noche y bruma: la torre
+  no aparece (fall3d sin fuente al saltar directamente; quizá normal). Por el camino natural baixada → carregat (`w3/fall/carr7`, +2,3 s de fall,
+  0 errores) falta mirarla. Visto dos veces: tras la caída, **el acta se dibuja sobre el mundo de umbral3d** (`w3/bx3/gl`, `w3/fall/gl`):
+  INT, el acta debería ser negro + línea de color; revisar qué mundo queda encendido en `acta`.
+- **T-037 RND-F (teselas nuevas)** — capturas a mitad de cruce en `w3/tiles/` (bp +1,2/+2,2, tp +1,5/+2,5, festa→baixada +1,8, WebGL2 tp);
+  0 errores; costura ≤ 7 (fb 7,3 en la tira de festa, igual que dentro de muro). Sin revisar a ojo aún: pendiente en la tarde, junto al tirón.
+
+### Pase integrado (15:05–15:15) tras el plan de interacción — hoja `qa/caps/pass/sheet_6_auto.png` (y `sheet_2_auto.png`), registro `qa/caps/pass/log.txt`
+- **Errores**: review.html con autopiloto, 11 bloques × (6 personas WebGPU, 2 personas WebGPU, 6 personas WebGL2) = 33 tramos de 7 s: **0 errores** ✓.
+- **Verbos (pruebas de ENT re-ejecutadas por QA, `scratchpad/ent/t038/*.mjs` sobre el `score.js` vivo; saben fallar)**: Tronc quietas 1 piso a 60 s
+  frente a 6 subiendo; un lado alto → lean 1,0 ✓ · Bajada quietas baja a 39 s (red) frente a 3,2 s bajando; soltar → carregat ✓ · L'aleta quietas
+  8 s ancho 0,15 frente a 1,8 s ancho 0,65 ✓ · Pom: temblor ±3 cm a 10 Hz 0 % inquieto (antes 25 %), movimiento real 98 % ✓ · **Pinya: separadas
+  se cierra igual a los 70,7 s** (juntas a 50 s): el plan dice «separadas no se cierra»; hay una red de tiempo. Decidir si se acepta (nota).
+  En la obra con 6 personas `learned` llega a pinya y baixada; con 2 sólo baixada en 7 s.
+- **Textos**: la guía ya no cuenta nada (`guide3d.lines`: «Levantad», «Quietos», «Bajadlo despacio», «Sujetad la base», nombres de piso);
+  manos fantasma visibles en brasa y pinya ✓. Restos con números: el acta («N manos · N s de quietud») y «2 de 7» (es el nombre del castell, vale).
+  El acta contradice «ningún texto con números en un pase completo»: decidir. La espera dice «Sostened el anillo para empezar» (5 palabras > 3).
+- **El anillo se disuelve con `learned`**: coherente en las capturas (pinya aprendido sin anillo; tronc sin aprender con anillo), sin sonda propia.
+- **Zonas tranquilas ≤ 89**: no medido en este pase (sin sondas); la última medida de umbral3d con reveal 1 dio **97** en P4 (14:40): por encima.
+- **Duración**: réplica de ENT del pase (`full.mjs`) 534–540 s = **8:54–9:00** (2/6/15 personas), por debajo de 9:30; la barra de review estima ≈ 9:40
+  (incluye espera/intro). No mido un pase real de 10 min (límite 15 s del arnés): pendiente de confirmar qué cuenta para el objetivo.
+- **Antes negro, ahora bien**: la caída en la obra muestra la torre rompiéndose bajo «Ha caído / Quedan las brasas» (T-036 ✓ en la obra) y el acta
+  es negra con «2 de 7 / descarregat» (ya no sale el umbral detrás) ✓.
+- **fps-eq brasa en media** (tras el recorte de 3D-BR, `others=0`, control `_example` 1,7 ms): estudio 19,6 ms → **51**; obra media 20,3 ms → **49** ✓ (antes 40).
+- **Tirones** (teselas ON, media, 7196×912): brasa→pinya 60, tronc→pom 77, pom→crown 67, wait→intro 77 ms (antes 67/87/71/41): la precompilación
+  apenas cambia el peor hueco; sigue > 30 ms (un frame de 4–5 en cada cruce). Para INT.
+
+### Pasos 6–7 (15:35): llamada de Brasa y eco/llamada/florecimiento de Festa — hoja `qa/caps/pass/call_sheet.png`, `call_log.txt`, `qa/caps/call_sim.txt`
+- **0 errores** en review (from brasa ritmo 4 y from festa ritmo 8; 2 y 6 personas; WebGPU y WebGL2: 8 tramos).
+- **Partitura (simulación propia `qa/call_sim.mjs`, sabe fallar)**: Brasa golpeando en el TOK → ola GRANDE y llamadas 1→2→3 (29,3 / 34,8 / 40,3 s);
+  a destiempo (+1,6 s) o sin golpes → ola pequeña y la llamada 1 se repite más lenta, nunca pasa a la 2 ✓ (2 y 6 personas). Festa: el
+  florecimiento llega **siempre** a los 67,9 s con tamaño 0,2 (nadie) / 0,5 (sólo ecos devueltos) / 1,0 (llamadas al unísono + ecos) ✓; los frentes
+  devueltos rebotan (echoHits 7–12) ✓.
+- **En la obra (piloto)**: Brasa llega a la llamada a +6,6–7,6 s y acierta la 1.ª (ola grande, pasa a la 2) en 3 de 4 tramos; Festa: ecos devueltos
+  6–37 y llamadas 1→4 en 8 s; el florecimiento no cae dentro de mis 8 s (sí en la simulación).
+- **No visto en un fotograma**: el anillo que aterriza en el TOK y los frentes cruzando a la pared de enfrente no se distinguen en la hoja (la placa
+  de oro está muy cargada: los frentes no destacan sobre el mandala). Nota: Brasa sigue diciendo «Tocad el muro» después de la primera ola
+  grande (`learned.brasa` no se pone con el piloto).

@@ -1,11 +1,14 @@
 [
   { "key": "fill", "label": "Pinya: fill (all walls)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
   { "key": "closed", "label": "Pinya: circle closed", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
-  { "key": "dry", "label": "Pinya: clay dries and cracks", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
+  { "key": "dry", "label": "Pinya: tesserae (reward)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
   { "key": "arrive", "label": "Pinya: arrive", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 1 },
   { "key": "leave", "label": "Pinya: leave", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
-  { "key": "glow", "label": "Pinya: glow under the skin", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
-  { "key": "light", "label": "Pinya: light on the bodies", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "glow", "label": "Pinya: coral heat", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "light", "label": "Pinya: light on the points", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
   { "key": "breath", "label": "Pinya: breath", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
-  { "key": "press", "label": "Pinya: figures come to press the hands", "type": "bool", "default": true }
+  { "key": "density", "label": "Pinya: point density", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 1 },
+  { "key": "move", "label": "Pinya: room movement", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 1 },
+  { "key": "fibres", "label": "Pinya: fibres reach the hands", "type": "bool", "default": true },
+  { "key": "cubes", "label": "Pinya: data cubes fall", "type": "bool", "default": true }
 ]

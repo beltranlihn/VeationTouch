@@ -267,7 +267,7 @@ export function create({ THREE, TSL, room, params }) {
   object.name = 'castell';
 
   // shared uniforms
-  const uTime = uniform(0), uTop = uniform(10), uGain = uniform(1), uSize = uniform(0.03), uSpan = uniform(20);
+  const uTint = uniform(new THREE.Vector3(1, 1, 1)), uTime = uniform(0), uTop = uniform(10), uGain = uniform(1), uSize = uniform(0.03), uSpan = uniform(20);
 
   // ---- the geometry (one, shared by the four castells)
   let geo = null, geoOcc = null, top = 10, structKey = '';
@@ -370,7 +370,7 @@ export function create({ THREE, TSL, room, params }) {
     // light: warm gold at the base, pearl above, white at the top; a key light from above and in front; the far side dimmer
     const h = clamp(posB.y.div(uTop), 0, 1);
     const gold = vec3(1.0, 0.56, 0.26), pearl = vec3(1.0, 0.8, 0.62), white = vec3(1.0, 0.9, 0.8);
-    let col = mix(mix(gold, pearl, smoothstep(0.0, 0.45, h)), white, smoothstep(0.6, 1.0, h));
+    let col = mix(mix(gold, pearl, smoothstep(0.0, 0.45, h)), white, smoothstep(0.6, 1.0, h)).mul(uTint);   // params.tint: the host's colour script (T-028)
     const L = normalize(vec3(0.25, 0.8, 0.55));
     const lam = max(dot(nrm, L), 0).mul(0.55).add(0.45);
     // seen from the eye: the far side of each body almost gone, the silhouette bright (pearl, x-ray), the far side of the castell dimmer
@@ -459,6 +459,7 @@ export function create({ THREE, TSL, room, params }) {
     if (prm !== P) Object.assign(P, prm);
     uTime.value = input.time ?? 0;
     uGain.value = P.light ?? 1;
+    if (Array.isArray(P.tint)) uTint.value.fromArray(P.tint); else uTint.value.set(1, 1, 1);
     uSize.value = P.size ?? 0.03;
     const t = input.t ?? 0, hands = input.hands || [];
     const k = 1 - Math.exp(-dt * 2.5);

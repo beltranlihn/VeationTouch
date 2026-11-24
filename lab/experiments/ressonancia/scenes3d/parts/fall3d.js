@@ -1,257 +1,369 @@
-// Ressonància — 3D part "fall3d": the castell falls (contract: ../PARTS.md; GUION.md › Pom de dalt «si falla» = intent, La bajada «si
-// todos sueltan» = carregat). A pre-designed sequence of 15 s, dignified, then darkness for the acta.
+// Ressonància — 3D part «fall3d»: the castell falls (contract: ../PARTS.md; GUION.md › Pom de dalt «si falla» = intent, La bajada
+// «si todos sueltan» = carregat). T-036 (ola «Arte 2»): the fall re-made for the new world. Previous version (castell.js particles):
+// fall3d.ARTE2.js.bak.
 //
-// The handover (no visible jump): fall3d draws THE CASTELL ITSELF — the particles of castell.js, from its own geometry, at its own
-// places (each tower's group matrix, mirroring and tilt included), at the build each tower had when the fall began, with the castell's
-// own light (gold below, pearl above, the silhouette bright, the far side dim, the depth occluder). At t = 0 it is the castell; the
-// host hides castell.js and shows this. Which castell: ctx.parts.castell when the host has it (res-obra3d); otherwise (the study) a
-// private instance of castell.js that is never added to the scene, only read.
-//
-// intent (DECISIONES 23:52): after Pom no castell is on screen; in the black, the castell the GROUP built (tronc tiers = floors − 2,
-// 4–7, from state.stats.maxFloors / acta.floors, on the structure's walls) assembles from fragments in the first 1.5 s, then the
-// script below runs in what is left of `duration`. carregat: the castell on screen falls (no assembly).
-//
-// The script (s; input.state.t in the block 'fall', or a clock started by the 'fall' event; params.duration (default 15) rescales it,
-// e.g. INT passes the score's TIMES.fall = 12)
-//   0–1.6   stillness: the light holds; a tremor grows, barely visible.
-//   1.6–2.4 the crack: a thin bright fissure runs across the tower where it gives (intent: high, where the upper half will go; carregat:
-//           low, across the pinya's shoulders), seen on the face turned to the room; it glows on, dimmer, until the tower comes apart.
-//   3–9     the collapse, in the work's language of fragments: intent — the upper half leans to one side and the tower comes apart from
-//           the top down, the high particles thrown out in an arc; carregat — the base lets go and the tower sinks vertically into
-//           itself. Every particle falls with gravity (a short streak), touches the stone, barely bounces, cools gold -> ember -> dark.
-//   9–13    rest: the last embers go out one by one; slow dust rises and thins.
-//   13–15   silence and darkness: black at 15 s, ready for the acta.
-// arrive / leave: a fade. Study params: outcome, tiers / kind (the private castell), duration, arrive, leave, light, size, shift
-// (slides the private castells along their wall, for seam checks), and the host's t ("Run the clock" off = a frozen instant).
-
-function rng(seed) { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+// The castell is now the assemblage tower of tronc3d (3D-FE). fall3d DIRECTS its fall and adds what makes it physical and final:
+//   · which tower: carregat (from the bajada) — the tower on screen (ctx.parts.tronc3d, when the host shows it): fall3d calls its
+//     collapse({ mode, duration }) at once. intent (after the Pom, no tower on screen) and the study — a PRIVATE tronc3d (never the
+//     host's), built with the group's floors on the structure's walls, assembles from its fragments in the first 1.5 s (tronc3d's own
+//     arrival), then collapses in what is left of the fall.
+//   · tronc3d's script (rescaled): tremor · the crack (a flash at the floor that gives) · intent: the upper half leans and comes apart
+//     from the top down; carregat: the floors let go from the bottom up and it sinks into itself · everything fades to black.
+//   · on top, fall3d's own matter: every floor that lets go throws big SHARDS of glazed ceramic (irregular broken plates, terracotta
+//     body, clearcoat glaze on the room's environment) that fall with gravity, spin, and land on what still stands (intent: the top of
+//     the last standing floor) or on the square (carregat, when the plaza is there) — a hard landing BREAKS a shard into 3 small
+//     tesserae that bounce and settle; every landing raises DUST (soft, warm grey, rising slowly, thinning). Each piece cools from a hot
+//     gold edge to dark. Sound: 'ceramic' 'floor' / 'break' (ENT › Ola 2).
+//   · the end: dust and shards thin out, and from duration − 3 s everything goes to black, slowly: ready for the acta.
+// Study (?part=fall3d): params outcome, duration, floors, walls, arrive, leave, light; the host's t is the fall's clock (Run the clock).
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
+const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+function rng(seed) { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+// the tronc's palette (art bible §2, linear): terracotta and glaze
+const GLZ = [[0.55, 0.20, 0.08], [0.64, 0.28, 0.12], [0.03, 0.10, 0.48], [0.04, 0.32, 0.34], [0.78, 0.52, 0.07], [0.85, 0.82, 0.72], [0.42, 0.14, 0.06]];
+const TOWER_D = 6.5;   // tronc3d: the towers stand 6.5 m beyond their walls
+const OWN_TURN = 0.56;
 
 export function create(ctx) {
   const { THREE, TSL, room } = ctx;
   const P = ctx.params || {};
-  const {
-    uniform, attribute, varying, positionGeometry, uv, vec2, vec3, vec4, float, sin, cos, exp, mix, clamp, smoothstep, max, min, abs,
-    sqrt, dot, normalize, length, select, step, modelViewMatrix, cameraProjectionMatrix,
-  } = TSL;
-  const object = new THREE.Group();
-  object.name = 'fall3d';
-  const NW = room.walls.length;
-  const U = { asm: uniform(1), t: uniform(0), vis: uniform(1), out: uniform(0), time: uniform(0), top: uniform(9), gain: uniform(1.75), size: uniform(0.03) };
+  const { attribute, uniform, varying, vec3, vec4, float, vec2: vec2c, exp, dot, mix, smoothstep, select, modelViewMatrix, cameraProjectionMatrix, positionGeometry, uv } = TSL;
+  const object = new THREE.Group(); object.name = 'fall3d';
+  const walls = room.walls, NW = walls.length;
+  const uEnd = uniform(1), uTime = uniform(0), uGain = uniform(1);
+  const R = rng(1926);
 
-  // ------------------------------------------------------------------------------------------------ the castell to read
-  // carregat: the castell on screen (ctx.parts.castell, at the build it has); intent (after Pom, where no castell is on screen) and the
-  // study: a private castell.js, built with the GROUP's floors, never added to the scene, only read
-  let own = null, ownP = null;
-  ownP = { build: 1, kind: P.kind || 'tres', tiers: Number(P.tiers) || 5, distance: 6.5, fit: false, light: 1, density: 1, size: 0.03 };
-  import('./castell.js').then((m) => { own = m.create({ THREE, TSL, room, params: ownP }); own.object.updateMatrixWorld(true); });
-  function source(intent) {
-    const c = ctx.parts?.castell;
-    if (!intent && c && c.castells) return c;
-    return own;
+  // ------------------------------------------------------------------------------------------------ the private tower (intent, study)
+  let own = null;
+  const ownP = { floors: 7, floorProgress: 0, cycle: 0, lean: 0, weak: 0, reward: false, walls: NW, rise: 1, arrive: 0, leave: 0, gain: 1, collapse: 'off', collapseDur: 10.5 };
+  const ownIn = { time: 0, t: 0, dt: 0, progress: 0, hands: [], downs: [], ups: [], params: ownP, arrive: 0, leave: 0 };
+  import('./tronc3d.js').then((m) => {
+    const keep = typeof window !== 'undefined' ? window.__tronc3d : undefined;   // the host's debug handle stays the host's
+    own = m.create({ THREE, TSL, room, params: ownP, parts: {} });
+    if (typeof window !== 'undefined' && keep) window.__tronc3d = keep;
+    own.object.visible = false; own.object.rotation.y = OWN_TURN; object.add(own.object);
+  }).catch(() => { own = null; });
+
+  // ------------------------------------------------------------------------------------------------ shards (glazed ceramic, physical)
+  function shardGeo(seed) {
+    const r = rng(seed), n = 4 + Math.floor(r() * 3), sh = new THREE.Shape();
+    for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2 + (r() - 0.5) * 0.9, rad = 0.32 + r() * 0.2; const x = Math.cos(a) * rad, y = Math.sin(a) * rad * (0.7 + r() * 0.4); if (i) sh.lineTo(x, y); else sh.moveTo(x, y); }
+    const g = new THREE.ExtrudeGeometry(sh, { depth: 0.08, bevelEnabled: true, bevelThickness: 0.015, bevelSize: 0.015, bevelSegments: 1 });
+    g.translate(0, 0, -0.04); g.computeVertexNormals();
+    return g;
   }
-
-  // ------------------------------------------------------------------------------------------------ the castell's particles, falling
-  const smt = (x) => x.mul(x).mul(x.mul(x.mul(6).sub(15)).add(10));
-  const ember = (T) => { const t = max(T, 0.0), r = smoothstep(0.02, 0.5, t), g = smoothstep(0.35, 1.2, t).mul(0.6).mul(r), b = smoothstep(0.9, 1.8, t).mul(0.9).mul(g); return vec3(r, g, b).mul(t); };
-  function makeMaterial(C, occ) {
-    const B = attribute('aB', 'vec4'), A = attribute('aA', 'vec4'), Nn = attribute('aN', 'vec4'), Pp = attribute('aP', 'vec4'), Rr = attribute('aR', 'vec4');
-    const posB = B.xyz, energy = B.w, posA = A.xyz, r0 = A.w, nrm = Nn.xyz, r4 = Nn.w;
-    const start = Pp.x, dur = Pp.y, phase = Pp.z, climb = Pp.w, r1 = Rr.x, r2 = Rr.y, r3 = Rr.z, pinya = Rr.w, t = U.t;
-    // the castell as castell.js shows it at this build (same formulas: condensing, climbing, breathing)
-    const u = clamp(C.build.sub(start).div(dur), 0, 1);
-    const up = clamp(u.sub(r0.mul(0.45)).div(0.55), 0, 1), e0 = smt(up);
-    const dir = normalize(vec3(r1.sub(0.5), r2.mul(0.7).sub(0.25), r3.sub(0.5)).add(vec3(0, 0.0001, 0)));
-    const sc = posB.add(dir.mul(r0.mul(2.6).add(0.8)));
-    const ang = float(1).sub(e0).mul(r1.mul(1.4).add(0.6)), ca = cos(ang), sa = sin(ang);
-    const pCond = mix(vec3(sc.x.mul(ca).sub(sc.z.mul(sa)), sc.y, sc.x.mul(sa).add(sc.z.mul(ca))), posB, e0);
-    const uc = clamp(u.sub(r0.mul(0.1)).div(0.9), 0, 1), ec = smt(uc), pose = smoothstep(0.55, 1.0, uc);
-    const radial = normalize(vec3(posB.x, 0, posB.z).add(vec3(0.0001, 0, 0)));
-    const pClimb = mix(posA, posB, pose).add(radial.mul(float(1).sub(ec).mul(0.35))).sub(vec3(0, float(1).sub(ec).mul(climb), 0));
-    const isClimb = climb.greaterThan(0.01);
-    const br = sin(U.time.mul(float(6.283).div(phase.mul(0.35).add(3.4))).add(phase).add(C.phase)).mul(float(1).sub(smoothstep(0.0, 1.5, t)));  // the breathing stops
-    const pB = select(isClimb, pClimb, pCond).add(nrm.mul(br.mul(0.007)));
-    // intent: in the black, the group's castell assembles from fragments (asm 0 -> 1, each particle on its own delay, spiralling in)
-    const ka = clamp(U.asm.sub(r0.mul(0.55)).div(0.45), 0, 1), ke = smt(ka);
-    const angA = float(1).sub(ke).mul(r1.mul(1.6).add(0.8)), cA = cos(angA), sA = sin(angA);
-    const scA = posB.add(dir.mul(r0.mul(3.2).add(1.2))).add(vec3(0, float(1).sub(r2).mul(1.5), 0));
-    const p0 = mix(vec3(scA.x.mul(cA).sub(scA.z.mul(sA)), scA.y, scA.x.mul(sA).add(scA.z.mul(cA))), pB, ke);
-    const h = clamp(posB.y.div(U.top), 0, 1);
-    const gold = vec3(1.0, 0.56, 0.26), pearl = vec3(1.0, 0.8, 0.62), white = vec3(1.0, 0.9, 0.8);
-    let col = mix(mix(gold, pearl, smoothstep(0.0, 0.45, h)), white, smoothstep(0.6, 1.0, h));
-    const lam = max(dot(nrm, normalize(vec3(0.25, 0.8, 0.55))), 0).mul(0.55).add(0.45);
-    const vd = normalize(C.eye.sub(posB)), ndv = dot(nrm, vd);
-    const rim = float(1).sub(ndv.abs()), front = smoothstep(-0.25, 0.35, ndv);
-    const shell = front.mul(rim.mul(rim).mul(1.5).add(0.3)).add(0.05);
-    const ve = normalize(vec3(C.eye.x, 0, C.eye.z)), depth = smoothstep(-2.2, 1.6, dot(vec3(posB.x, 0, posB.z), ve));
-    col = col.mul(mix(vec3(1.04, 0.96, 0.98), vec3(0.9, 0.97, 1.08), rim.mul(rim)));
-    const aura = occ ? float(0) : step(0.985, r4);
-    let E = energy.mul(lam).mul(shell).mul(depth.mul(0.6).add(0.4)).mul(br.mul(0.12).add(0.88)).mul(sin(U.time.mul(r1.mul(2.0).add(0.7)).add(r2.mul(40))).mul(0.12).add(0.88));
-    E = E.mul(select(isClimb, smoothstep(0.0, 0.12, uc), smoothstep(0.0, 0.3, up).mul(e0.mul(0.6).add(0.4)))).mul(smoothstep(0.0, 0.12, ka).mul(ke.mul(0.2).add(0.8)));   // gathering: at the castell's own light almost at once
-    // ---- the fall (castell-local: y up, +x = the topple side; the group's matrix carries it to the world, mirrored and tilted)
-    const yN = clamp(posB.y.div(U.top), 0, 1), isI = U.out.lessThan(0.5);
-    const tRel = select(isI, float(3.0).add(float(1).sub(yN).mul(3.4)).add(r1.mul(0.5)).add(pinya.greaterThan(0.5).select(0.6, 0.0)), float(2.8).add(yN.mul(4.2)).add(r1.mul(0.7)));   // carregat: it sinks tier by tier from the base, ~5 s
-    const trem = vec3(sin(U.time.mul(23.0).add(r1.mul(60.0))), sin(U.time.mul(19.0).add(r2.mul(60.0))), sin(U.time.mul(29.0).add(r3.mul(60.0)))).mul(smoothstep(0.3, 1.6, t).mul(0.005).add(smoothstep(1.8, 3.0, t).mul(0.016)));
-    const above = max(posB.y.sub(U.top.mul(0.5)), 0);
-    const restP = p0.add(trem).add(select(isI, vec3(above.mul(above).mul(0.06).mul(smoothstep(2.3, 4.6, t)), 0, 0), vec3(0, smoothstep(2.2, 3.4, t).mul(-0.12).mul(yN.add(0.3)).sub(max(t.sub(2.8), 0).mul(0.35).mul(smoothstep(0.0, 0.3, yN))), 0)));
-    const v0 = select(isI,
-      vec3(yN.mul(2.6).add(0.4).mul(r2.mul(0.6).add(0.7)), r1.mul(1.2), 0).add(radial.mul(r3.mul(0.9).add(0.3))),
-      radial.mul(r2.mul(0.9).add(0.25)).add(vec3(r3.sub(0.5).mul(0.4), r1.mul(0.3), 0)));
-    const tau = max(t.sub(tRel), 0), gY = r3.mul(0.03).add(0.02), y0 = restP.y;
-    const tL = v0.y.add(sqrt(v0.y.mul(v0.y).add(max(y0.sub(gY), 0).mul(19.6)))).div(9.8);
-    const tf = min(tau, tL), ta = max(tau.sub(tL), 0), landed = step(0.0, tau.sub(tL)).mul(step(0.0001, tau));
-    const fly = vec3(restP.x.add(v0.x.mul(tf)), max(y0.add(v0.y.mul(tf)).sub(tf.mul(tf).mul(4.9)), gY), restP.z.add(v0.z.mul(tf)));
-    // on the ground they spread out low and wide (a warm pool, never a bright disc behind the guide's text)
-    const p = select(tau.greaterThan(0), fly.add(vec3(v0.x, 0, v0.z).mul(float(1).sub(exp(ta.mul(-4.0))).mul(0.12))).add(radial.mul(r3.mul(0.9).add(0.3)).mul(float(1).sub(exp(ta.mul(-1.5))))), restP);
-    const falling = step(0.0001, tau).mul(float(1).sub(landed));
-    const speed = length(vec2(v0.x, v0.y.sub(tf.mul(9.8)))).mul(falling);
-    // ---- the crack: a thin bright fissure across the tower where it gives, on the face turned to the room
-    // intent: down the face from the pom through the upper tronc (where the top gives); carregat: across the pinya's shoulders
-    const faceK = smoothstep(0.1, 0.5, dot(normalize(vec3(posB.x, 0, posB.z).add(vec3(0.0001, 0, 0))), ve));
-    const xc = sin(posB.y.mul(5.0).add(1.0)).mul(0.06).add(sin(posB.y.mul(13.0)).mul(0.03));
-    const dxc = posB.x.sub(xc).div(0.03);
-    const runY = mix(U.top, U.top.mul(0.45), smoothstep(1.6, 2.35, t));
-    const lineI = exp(dxc.mul(dxc).negate()).mul(step(runY, posB.y));
-    const yc = float(1.35).add(sin(posB.x.mul(9.0).add(1.0)).mul(0.09)).add(sin(posB.x.mul(23.0)).mul(0.04));
-    const dyc = posB.y.sub(yc).div(0.028);
-    const runX = mix(float(-2.9), float(2.9), smoothstep(1.6, 2.35, t));
-    const lineC = exp(dyc.mul(dyc).negate()).mul(step(posB.x, runX));
-    const onLine = select(isI, lineI, lineC).mul(faceK);
-    const crack = onLine.mul(float(1).sub(step(0.985, r4))).mul(smoothstep(1.55, 1.7, t)).mul(mix(float(1), float(0.25), smoothstep(2.4, 3.2, t))).mul(float(1).sub(step(0.0001, tau)));
-    // ---- light through the fall: held, a little brighter falling, a soft touch on landing, cooling to ember then dark; all black by 15
-    const cool = float(1).sub(exp(ta.mul(float(0.45).add(r1.mul(0.8))).negate()));
-    E = E.mul(float(1).sub(falling.mul(0.4)))   // falling, they dim (going out), never brighter than the standing castell
-      .mul(float(1).sub(cool)).mul(mix(float(1), float(0.14), landed)).add(landed.mul(exp(ta.mul(-6.0))).mul(0.04));   // on the ground: dimmer (they pile up), going out
-    col = mix(col, ember(float(1.2)).div(1.2).add(vec3(0.05, 0, 0)), smoothstep(0.0, 0.6, cool.add(landed.mul(0.3))));
-    E = E.mul(float(1).sub(select(isI, smoothstep(2.8, 4.4, t).mul(0.4), smoothstep(1.2, 2.8, t).mul(0.5))));   // intent: full light until it comes apart (they see what they built)   // after the crack the castell's light starts to go (the guide's text stays readable)
-    E = E.mul(U.gain).mul(1.8).mul(mix(float(1), float(0.15), aura)).mul(float(1).sub(smoothstep(12.5, 15.0, t))).mul(U.vis);
-    const crackC = vec3(1.0, 0.86, 0.62).mul(crack.mul(6.0)).mul(U.vis);
-    // ---- the billboard (as castell.js): falling particles stretch into a short streak
-    const pp = occ ? p.sub(nrm.mul(0.02)).sub(vd.mul(0.06)) : p;
-    const mv = modelViewMatrix.mul(vec4(pp, 1));
-    const stretch = float(1).add(min(speed.mul(0.9), 5.0)).add(float(1).sub(e0).mul(select(isClimb, float(0), float(3))));
-    const size = U.size.mul(occ ? 2.0 : mix(float(1), float(9), aura));
-    const clip = cameraProjectionMatrix.mul(vec4(mv.xy.add(positionGeometry.xy.mul(vec2(size, size.mul(stretch)))), mv.z, mv.w));
-    const settled = select(isClimb, ec, e0);
-    const vis = occ ? settled.greaterThan(0.85).and(ke.greaterThan(0.95)).and(tau.lessThan(0.0001)).and(C.build.greaterThan(start)).and(U.vis.greaterThan(0.5)) : E.add(crack).greaterThan(0.0004);
-    const m = occ ? new THREE.MeshBasicNodeMaterial({ colorWrite: false, depthWrite: true, depthTest: true, side: THREE.DoubleSide })
-      : new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    m.vertexNode = select(vis, clip, vec4(0, 0, 2, 1));
-    const vCol = varying(col.mul(E).div(stretch).add(crackC));
-    const d = uv().sub(0.5);
-    m.colorNode = occ ? vec3(0) : vCol.mul(exp(dot(d, d).mul(-16)));
+  const NGEO = 3, PER = 220;
+  const heatA = [], meshes = [];
+  for (let k = 0; k < NGEO; k++) {
+    const g = shardGeo(31 + k * 7);
+    const ha = new THREE.InstancedBufferAttribute(new Float32Array(PER), 1); ha.setUsage(THREE.DynamicDrawUsage); g.setAttribute('aHeat', ha); heatA.push(ha);
+    const heat = attribute('aHeat', 'float');
+    // own shading (the glaze needs light to read): a key light from above, a cool rim (the bevel), a glaze highlight; the hot edge of a
+    // fresh break burns gold → ember → dark (the instance colour tints it all: terracotta, cobalt, turquoise, ochre, white)
+    const m = new THREE.MeshBasicNodeMaterial();
+    const nW = TSL.normalWorld, nV = TSL.normalView, key = TSL.max(nW.y, 0).mul(0.55).add(0.1), rim = TSL.pow(float(1).sub(nV.z.abs()), 3);
+    const spec = TSL.pow(TSL.max(TSL.dot(TSL.reflect(TSL.positionViewDirection.negate(), nV), vec3(0, 0.8, 0.6).normalize()), 0), 24);
+    m.colorNode = vec3(key).add(rim.mul(0.5)).add(spec.mul(0.9)).add(mix(vec3(1.0, 0.22, 0.05), vec3(1.0, 0.72, 0.36), smoothstep(0.4, 1.0, heat)).mul(heat.mul(heat)).mul(3.0)).mul(uGain).mul(uEnd);
     m.fog = false;
-    return m;
+    const im = new THREE.InstancedMesh(g, m, PER); im.frustumCulled = false; im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (let i = 0; i < PER; i++) im.setColorAt(i, new THREE.Color(0, 0, 0));
+    object.add(im); meshes.push(im);
   }
-  const towers = [];
-  for (let i = 0; i < 4; i++) {
-    const C = { build: uniform(0), phase: uniform(i * 1.7), eye: uniform(new THREE.Vector3(0, 1.6, 12)) };
-    const g = new THREE.Group(); g.matrixAutoUpdate = false;
-    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), makeMaterial(C, false)), occ = new THREE.Mesh(new THREE.BufferGeometry(), makeMaterial(C, true));
-    mesh.frustumCulled = false; occ.frustumCulled = false; mesh.matrixAutoUpdate = false; occ.matrixAutoUpdate = false; occ.renderOrder = -1;
-    g.add(occ, mesh); object.add(g);
-    towers.push({ g, mesh, occ, C, base: new THREE.Vector3(), on: false });
+  const shards = [];
+  for (let k = 0; k < NGEO; k++) for (let i = 0; i < PER; i++) shards.push({ mesh: meshes[k], geo: k, i, on: false, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), size: 0, small: false, heat: 0, rest: 0, land: -1e9, tw: 0, col: GLZ[0], seed: R() });
+  let nextShard = 0;
+  function spawn(p, v, size, small, tw, heat, col) {
+    for (let n = 0; n < shards.length; n++) {
+      const s = shards[(nextShard + n) % shards.length];
+      if (s.on) continue;
+      nextShard = (nextShard + n + 1) % shards.length;
+      s.on = true; s.p.copy(p); s.v.copy(v); s.size = size; s.small = small; s.tw = tw; s.heat = heat; s.rest = 0; s.col = col;
+      s.q.setFromEuler(eul.set(R() * 6, R() * 6, R() * 6)); s.w.set((R() - 0.5) * 9, (R() - 0.5) * 9, (R() - 0.5) * 9);
+      return s;
+    }
+    return null;
+  }
+  const eul = new THREE.Euler();
+
+  // ------------------------------------------------------------------------------------------------ dust: soft puffs that rise and thin
+  const ND = 220;
+  const dA = new THREE.InstancedBufferAttribute(new Float32Array(ND * 4), 4), dB = new THREE.InstancedBufferAttribute(new Float32Array(ND * 4), 4);
+  dA.setUsage(THREE.DynamicDrawUsage); dB.setUsage(THREE.DynamicDrawUsage);
+  const dGeo = new THREE.InstancedBufferGeometry();
+  dGeo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
+  dGeo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+  dGeo.setIndex([0, 1, 2, 0, 2, 3]); dGeo.setAttribute('dA', dA); dGeo.setAttribute('dB', dB); dGeo.instanceCount = ND;
+  {
+    const a = attribute('dA', 'vec4'), b = attribute('dB', 'vec4');   // a: xyz, radius · b: alpha, seed, warm, -
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const mv = modelViewMatrix.mul(vec4(a.xyz, 1));
+    m.vertexNode = select(b.x.greaterThan(0.001), cameraProjectionMatrix.mul(vec4(mv.xy.add(positionGeometry.xy.mul(a.w)), mv.z, mv.w)), vec4(0, 0, 2, 1));
+    const vB = varying(b), q = uv().sub(0.5).mul(2), r2 = dot(q, q);
+    const lump = TSL.sin(q.x.mul(5).add(vB.y.mul(40))).mul(TSL.sin(q.y.mul(4).sub(vB.y.mul(23)))).mul(0.25).add(0.75);
+    m.colorNode = mix(vec3(0.32, 0.36, 0.38), vec3(0.6, 0.42, 0.3), vB.z).mul(exp(r2.mul(-3.2))).mul(lump).mul(vB.x).mul(0.03).mul(uGain).mul(uEnd);
+    m.fog = false;
+    const dm = new THREE.Mesh(dGeo, m); dm.frustumCulled = false; dm.renderOrder = 6; object.add(dm);
+  }
+  const dust = []; for (let i = 0; i < ND; i++) dust.push({ on: false, p: new THREE.Vector3(), v: new THREE.Vector3(), r: 0, r1: 0, t: 0, life: 1, a: 0, seed: R(), warm: R() });
+  let nextDust = 0;
+  function puff(p, n, big) {
+    for (let k = 0; k < n; k++) {
+      const d = dust[nextDust]; nextDust = (nextDust + 1) % ND;
+      d.on = true; d.t = 0; d.life = 4 + R() * 4 * (big ? 1.5 : 1); d.p.copy(p); d.p.x += (R() - 0.5) * 0.4; d.p.z += (R() - 0.5) * 0.4;
+      d.v.set((R() - 0.5) * 0.5, 0.12 + R() * 0.25, (R() - 0.5) * 0.5); d.r = 0.08 + R() * 0.1; d.r1 = (big ? 0.9 : 0.45) + R() * 0.4; d.a = 0.6 + R() * 0.4;
+    }
   }
 
-  // ------------------------------------------------------------------------------------------------ the dust (after the impacts)
-  const NDU = 4000, DB = []; for (let i = 0; i < 4; i++) DB.push(new THREE.Vector4());
-  const uDB = TSL.uniformArray(DB, 'vec4');
-  const dustMesh = (() => {
-    const r = rng(7), aD = new Float32Array(NDU * 4), aE = new Float32Array(NDU * 4);
-    for (let i = 0; i < NDU; i++) {
-      const ph = r() * Math.PI * 2, rad = 0.4 + 3.0 * Math.sqrt(r());
-      aD[i * 4] = Math.cos(ph) * rad; aD[i * 4 + 1] = Math.sin(ph) * rad; aD[i * 4 + 2] = 3.6 + r() * 5.5; aD[i * 4 + 3] = i % 4;
-      aE[i * 4] = r(); aE[i * 4 + 1] = r(); aE[i * 4 + 2] = r(); aE[i * 4 + 3] = r();
+  // ------------------------------------------------------------------------------------------------ the night (art 14:30)
+  // a blue night round the whole room (additive: it never hides the world it replaces), embers rising from where the tower stood on
+  // every wall, and warm pools of lamp light on the ground; all of it goes out with the end of the fall
+  const uVis = uniform(1);
+  {
+    const g = new THREE.SphereGeometry(70, 32, 16), m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const d = TSL.normalize(TSL.positionLocal), y = d.y;
+    m.colorNode = mix(vec3(0.011, 0.019, 0.052), vec3(0.002, 0.004, 0.014), smoothstep(-0.05, 0.6, y)).add(vec3(0.03, 0.022, 0.03).mul(TSL.pow(float(1).sub(y.abs()), 10))).mul(uVis).mul(uEnd);
+    m.fog = false;
+    const dome = new THREE.Mesh(g, m); dome.frustumCulled = false; dome.renderOrder = -10; object.add(dome);
+  }
+  {   // embers: 1800 sparks rising slowly from the four walls' feet, flickering, cooling as they climb
+    const N = 1800, A = new Float32Array(N * 4 * 8), idx = new Uint32Array(N * 6), C = [[-1, -1], [1, -1], [1, 1], [-1, 1]], re = rng(77);
+    for (let k = 0; k < N; k++) {
+      const w = walls[k % NW], u = (re() - 0.5) * 1.6, dep = 3 + re() * 9;
+      const x = w.centre.x + w.right.x * u * (w.width / 2 + dep * 0.9) - w.normal.x * dep, z = w.centre.z + w.right.z * u * (w.width / 2 + dep * 0.9) - w.normal.z * dep;
+      const rnd = re(), sp = 0.15 + re() * 0.35;
+      for (let q = 0; q < 4; q++) A.set([x, -0.5 + re() * 0.2, z, C[q][0], C[q][1], rnd, sp, re()], (k * 4 + q) * 8);
+      const b = k * 4; idx.set([b, b + 1, b + 2, b, b + 2, b + 3], k * 6);
     }
-    const g = new THREE.InstancedBufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
-    g.setIndex([0, 1, 2, 0, 2, 3]);
-    g.setAttribute('aD', new THREE.InstancedBufferAttribute(aD, 4));
-    g.setAttribute('aE', new THREE.InstancedBufferAttribute(aE, 4));
-    g.instanceCount = NDU;
-    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    const D4 = attribute('aD', 'vec4'), E4 = attribute('aE', 'vec4');
-    const tw = uDB.element(TSL.int(D4.w));
-    const tau = max(U.t.sub(D4.z), 0), a = clamp(tau.div(E4.x.mul(3.0).add(3.5)), 0, 1);
-    const p = vec3(tw.x.add(D4.x).add(sin(E4.y.mul(40.0).add(U.t.mul(0.3))).mul(a.mul(0.6))), a.mul(E4.z.mul(2.5).add(1.0)).add(0.1), tw.y.add(D4.y).add(cos(E4.w.mul(40.0).add(U.t.mul(0.25))).mul(a.mul(0.6))));
-    const size = float(0.1).add(E4.w.mul(0.18)).mul(a.mul(1.4).add(0.6));
-    const A = sin(a.mul(Math.PI)).mul(step(0.0001, tau)).mul(tw.w).mul(U.vis).mul(float(1).sub(smoothstep(12.0, 14.5, U.t)));
+    const ib = new THREE.InterleavedBuffer(A, 8), g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.InterleavedBufferAttribute(ib, 3, 0)); g.setAttribute('aE', new THREE.InterleavedBufferAttribute(ib, 4, 3)); g.setAttribute('aE2', new THREE.InterleavedBufferAttribute(ib, 1, 7));
+    const pos = attribute('position', 'vec3'), e = attribute('aE', 'vec4'), e2 = attribute('aE2', 'float');
+    const life = TSL.fract(uTime.mul(e.w.mul(0.12)).add(e.z)), hgt = life.mul(e.w.mul(14).add(3));
+    const p = pos.add(vec3(TSL.sin(uTime.mul(0.7).add(e.z.mul(40))).mul(0.4).mul(life), hgt, TSL.cos(uTime.mul(0.6).add(e.z.mul(23))).mul(0.4).mul(life)));
     const mv = modelViewMatrix.mul(vec4(p, 1));
-    m.vertexNode = select(A.greaterThan(0.002), cameraProjectionMatrix.mul(vec4(mv.xy.add(positionGeometry.xy.mul(size)), mv.z, mv.w)), vec4(0, 0, 2, 1));
-    const vA = varying(A), q = uv().sub(0.5);
-    m.colorNode = vec3(0.02, 0.016, 0.013).mul(vA).mul(exp(dot(q, q).mul(-14.0)));
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    m.vertexNode = cameraProjectionMatrix.mul(vec4(mv.xy.add(vec2c(e.x, e.y).mul(0.045)), mv.z, mv.w));
+    const vL = varying(life), vR = varying(e2), q = uv().sub(0.5).mul(2), rr = dot(q, q);
+    const flick = TSL.pow(TSL.sin(uTime.mul(vR.mul(9).add(4)).add(vR.mul(60))).mul(0.5).add(0.5), 3).mul(0.7).add(0.3);
+    m.colorNode = mix(vec3(1.0, 0.62, 0.25), vec3(0.8, 0.12, 0.03), smoothstep(0.2, 0.9, vL)).mul(exp(rr.mul(-5))).mul(flick).mul(float(1).sub(smoothstep(0.6, 1.0, vL))).mul(smoothstep(0.0, 0.05, vL)).mul(2.6).mul(uVis).mul(uEnd);
     m.fog = false;
-    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 3;
-    object.add(mesh);
-    return mesh;
-  })();
-
-  // ------------------------------------------------------------------------------------------------ per frame
-  let ownClock = -1, prevBlock = '', frozen = null, lastShift = 0;
-  const frozenBuild = new Float32Array(4);
-  function update(dt, input) {
-    const S = input.state, time = input.time ?? 0;
-    const arrive = clamp01(input.arrive ?? (P.arrive ?? 1)), leave = clamp01(input.leave ?? (P.leave ?? 0));
-    U.vis.value = arrive * (1 - leave);
-    object.visible = U.vis.value > 0.001;
-    if (!object.visible) return;
-    const dur = Math.max(5, Number(P.duration) || 15);
-    let t, outcome;
-    if (S) {
-      if (input.events) for (const e of input.events) if (e === 'fall') ownClock = time;
-      if (S.block === 'fall' && prevBlock !== 'fall' && ownClock < 0) ownClock = time;
-      prevBlock = S.block;
-      t = S.block === 'fall' ? S.t : ownClock >= 0 ? time - ownClock : 0;
-      outcome = S.outcome || 'intent';
-    } else { t = input.t ?? 0; outcome = P.outcome || 'intent'; }
-    const intent = outcome !== 'carregat', src = source(intent);
-    if (!src) return;
-    if (intent) U.vis.value = Math.min(1, arrive * 8) * (1 - leave);   // intent: the assembly from fragments IS the arrival (no extra fade)
-    // intent: the castell assembles in the first TA s, then the 15 s script runs in what is left of `duration`
-    const TA = intent ? 1.5 : 0;
-    U.asm.value = intent ? clamp01(Math.max(0, t) / TA) : 1;
-    U.t.value = Math.max(0, t - TA) * (15 / Math.max(3, dur - TA));
-    U.out.value = intent ? 0 : 1;
-    if (src === own) {                                              // the group's castell: tronc tiers from the floors it reached
-      const floors = S ? (input.acta?.floors || S.stats?.maxFloors || S.floors || 0) : Number(P.floors) || 0;
-      const tiers = floors ? Math.round(Math.min(7, Math.max(4, floors - 2))) : Number(P.tiers) || 5;
-      const kind = S && S.structure === 4 ? 'quatre' : (P.kind || 'tres'), sh = S ? 0 : Number(P.shift) || 0;
-      if (tiers !== ownP.tiers || kind !== ownP.kind || sh !== lastShift) {
-        ownP.tiers = tiers; ownP.kind = kind; own.setParams(ownP); lastShift = sh;
-        if (sh) for (const c of own.castells) { c.grp.position.addScaledVector(c.wall.right, sh); c.grp.updateMatrixWorld(true); }
-      }
-      own.update(dt, { time, t: 0, hands: [], params: ownP });
-      own.object.updateMatrixWorld(true);
-    }
-    U.time.value = time % 1000;
-    U.gain.value = Number(P.light ?? 1.75); U.size.value = Number(P.size ?? 0.03);
-    U.top.value = src.stats?.top || 9;
-    // the build each tower had when the fall began (frozen from then on)
-    const inFall = S ? S.block === 'fall' || ownClock >= 0 : true;
-    if (!inFall) frozen = null;
-    for (let i = 0; i < 4; i++) {
-      const tw = towers[i], c = src.castells[i % src.castells.length];
-      if (!c || i >= NW) { tw.g.visible = false; DB[i].w = 0; continue; }
-      if (!frozen) frozenBuild[i] = src === own ? 1 : c.U.build.value;
-      const b = frozenBuild[i];
-      const onWall = src !== own || !S || !S.walls || !S.walls.some(Boolean) || !!S.walls[i];   // intent: the structure's walls
-      tw.g.visible = b > 0.002 && onWall;
-      if (tw.mesh.geometry !== c.mesh.geometry) tw.mesh.geometry = c.mesh.geometry;
-      if (tw.occ.geometry !== c.occ.geometry) tw.occ.geometry = c.occ.geometry;
-      tw.mesh.matrix.copy(c.mesh.matrixWorld); tw.occ.matrix.copy(c.occ.matrixWorld);       // (object and group stay identity: matrix = world)
-      tw.mesh.matrixWorldNeedsUpdate = true; tw.occ.matrixWorldNeedsUpdate = true;
-      tw.C.build.value = b; tw.C.eye.value.copy(c.U.eye.value); tw.C.phase.value = c.U.phase.value;
-      c.grp.getWorldPosition(tw.base);
-      DB[i].set(tw.base.x, tw.base.z, 0, tw.g.visible ? 1 : 0);
-    }
-    if (inFall) frozen = true;
+    const em = new THREE.Mesh(g, m); em.frustumCulled = false; em.renderOrder = 7; object.add(em);
   }
-  if (typeof window !== 'undefined') window.__fall3d = { asm: () => U.asm.value, t: () => U.t.value, tiers: () => ownP.tiers, top: () => U.top.value };
+  {   // lamp pools: three warm pools of light on the ground beyond every wall (the square's lamps, still lit)
+    const N = NW * 3, g = new THREE.PlaneGeometry(1, 1); g.rotateX(-Math.PI / 2);
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const q = uv().sub(0.5).mul(2), rr = dot(q, q);
+    m.colorNode = vec3(1.0, 0.55, 0.24).mul(exp(rr.mul(-4.5))).mul(float(1).sub(smoothstep(0.8, 1.0, rr))).mul(0.09).mul(uVis).mul(uEnd);
+    m.fog = false;
+    const im = new THREE.InstancedMesh(g, m, N); im.frustumCulled = false; im.renderOrder = 2;
+    const M = new THREE.Matrix4(), rp = rng(5);
+    for (let k = 0; k < N; k++) { const w = walls[Math.floor(k / 3)], u = ((k % 3) - 1) * 0.42 * w.width, dep = 2.5 + rp() * 3.5, sz = 3.5 + rp() * 2.5;
+      M.makeScale(sz, 1, sz).setPosition(w.centre.x + w.right.x * u - w.normal.x * dep, 0.01, w.centre.z + w.right.z * u - w.normal.z * dep); im.setMatrixAt(k, M); }
+    object.add(im);
+  }
+
+  // ------------------------------------------------------------------------------------------------ sound (ENT › Ola 2)
+  let fxBc = null; try { fxBc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { fxBc = null; }
+  const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
+  let fxN = 0, fxT = 0;
+  function fxImpact(wall, u, strength, mat, kind) {
+    if (!fxBc || fxN >= 16) return; fxN++;
+    fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
+    try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
+  }
+  const fxP = new THREE.Vector3();
+  function fxAt(pl, strength, mat, kind) {   // pl: a point in this part's frame
+    fxP.copy(pl).applyMatrix4(object.matrixWorld);
+    const W = walls, e = room.eye, dx = fxP.x - e.x, dz = fxP.z - e.z; let wi = 0, best = -Infinity;
+    for (let i = 0; i < W.length; i++) { const k = -(dx * W[i].normal.x + dz * W[i].normal.z); if (k > best) { best = k; wi = i; } }
+    const w = W[wi], de = (w.centre.x - e.x) * w.normal.x + (w.centre.z - e.z) * w.normal.z, t = best > 1e-6 ? -de / best : 0;
+    fxImpact(wi, 0.5 + ((e.x + dx * t - w.centre.x) * w.right.x + (e.z + dz * t - w.centre.z) * w.right.z) / w.width, strength, mat, kind);
+  }
+
+  // ------------------------------------------------------------------------------------------------ the fall's state
+  const inv = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpM = new THREE.Matrix4(), tmpS = new THREE.Vector3(), tmpC = new THREE.Color();
+  const towerBase0 = walls.map((w) => w.centre.clone().addScaledVector(w.normal, -TOWER_D));   // world (x, z)
+  // the private towers are turned 32° round the room so that each stands beside the words, not behind them (biblia §4 quiet zones)
+  const towerBaseOwn = towerBase0.map((b) => new THREE.Vector3(b.x * Math.cos(OWN_TURN) + b.z * Math.sin(OWN_TURN), 0, -b.x * Math.sin(OWN_TURN) + b.z * Math.cos(OWN_TURN)));
+  let towerBase = towerBase0;
+  const spawned = walls.map(() => new Uint8Array(12)), landY = new Float32Array(NW).fill(-1e9);
+  let src = null, srcOwn = false, started = false, clock = -1, prevBlock = '', lastT = 0, levelsAt = -1, outcome = 'intent', floorsGroup = 7, ended = false;
+  const G = 7.5;
+  let brkAt = -9;
+
+  function begin(intent, dur, S) {
+    started = true; ended = false;
+    for (const f of spawned) f.fill(0);
+    for (const s of shards) s.on = false; for (const d of dust) d.on = false;
+    const host = ctx.parts?.tronc3d, glass = ctx.parts?.baixada3d;
+    const hostShown = !!(host && host.collapse && host.object && host.object.visible && host.object.parent);
+    glassFall = !intent && !!(glass && glass.object && glass.object.visible); towerBase = towerBase0;
+    if (glassFall) {                                   // carregat from the bajada: baixada3d's glass tower IS the castell and lets go
+      src = host && host.levels ? host : null; srcOwn = false;   // on its own; the tronc tower it hid must stay hidden (no second tower)
+      veilAt = 0;
+    } else if (hostShown) {                                   // carregat (or any fall with the tower on screen): this tower falls
+      src = host; srcOwn = false;
+      if (!host.collapsing?.on) host.collapse({ mode: intent ? 'intent' : 'carregat', duration: dur });
+    } else {                                           // intent: the group's tower, assembled here
+      src = own; srcOwn = true; towerBase = towerBaseOwn;
+      framed = false;
+    }
+    void S;
+  }
+  // frame the private tower for its fall: tronc3d's room rise follows the forming floor; here it is scaled so that (intent) the stump
+  // that stays (the top of the floor under the crack) sits at the foot of the walls, and the floors that fall come down through the
+  // whole height of the walls; (carregat) the top of the tower at ~6.5 m. A reset (floors 9 → N) makes tronc3d jump to the new rise.
+  let framed = false, glassFall = false, veilAt = -1;
+  function frame(intent, n) {
+    ownP.collapse = 'off'; ownP.rise = 1; ownP.floors = n; ownIn.time = 0; ownIn.arrive = 0;
+    own.update(0.016, ownIn);
+    const T = own.levels()[0]; if (!T) return;
+    const r0 = own.rise, brk = intent ? Math.max(1, Math.round(n * 0.62)) : 1, f = T.floors;
+    const want = intent ? (f[brk - 1].y + f[brk - 1].h / 2) - -0.6 : (f[n].y + f[n].h / 2) - 6.5;   // how much more the room must rise
+    ownP.rise = r0 > 0.01 ? Math.max(0, (r0 + want) / r0) : 1;
+    ownP.floors = 9; own.update(0.016, ownIn); ownP.floors = n; own.update(0.016, ownIn);
+    framed = true;
+  }
+  function end() {
+    started = false; clock = -1;
+    if (own) { ownP.collapse = 'off'; own.object.visible = false; }
+  }
+
+  function update(dt, input) {
+    dt = Math.min(0.05, Math.max(0, dt || 0.016));
+    fxT += dt; if (fxT > 1) { fxT = 0; fxN = 0; }
+    const S = input.state, time = input.time ?? 0;
+    uTime.value = time % 1000;
+    const arrive = clamp01(input.arrive ?? (P.arrive ?? 1)), leave = clamp01(input.leave ?? (P.leave ?? 0));
+    const dur = Math.max(6, Number(P.duration) || 15);
+    // ---- the clock of the fall
+    let t;
+    if (S) {
+      if (S.block === 'fall' && prevBlock !== 'fall') { clock = 0; outcome = S.outcome || 'intent'; floorsGroup = input.acta?.floors || S.stats?.maxFloors || S.floors || 7; ownP.walls = NW; begin(outcome !== 'carregat', dur, S); }
+      prevBlock = S.block;
+      if (clock >= 0) clock += dt;
+      t = S.block === 'fall' ? S.t : clock;
+      if (S.block !== 'fall' && leave >= 0.999) end();
+    } else {
+      t = input.t ?? 0;
+      outcome = P.outcome || 'intent'; floorsGroup = Number(P.floors) || 7; ownP.walls = Math.max(1, Math.min(NW, Math.round(P.walls ?? NW)));
+      if (!started || t < lastT - 0.25) begin(true, dur, null);   // the study: a private tower always (outcome sets its mode); a clock jump restarts
+      lastT = t;
+    }
+    if (!started) { object.visible = false; return; }
+    object.visible = arrive * (1 - leave) > 0.001 || srcOwn;
+    const intent = outcome !== 'carregat';
+    uGain.value = Number(P.light ?? 1) * (1 - leave); uVis.value = Math.min(arrive, 1) * (1 - leave);
+    uEnd.value = 1 - smooth(dur - 3.2, dur - 0.4, t);
+    // ---- the private tower: assemble (1.5 s), then collapse in the rest
+    const TA = 1.5;
+    if (srcOwn && !own) return;   // still loading
+    if (srcOwn) {
+      if (src !== own) src = own;
+      own.object.visible = true;
+      ownP.floors = Math.max(2, Math.min(9, Math.round(floorsGroup)));
+      ownP.collapse = t >= TA ? (intent ? 'intent' : 'carregat') : 'off'; ownP.collapseDur = Math.max(4, dur - TA);
+      ownP.gain = uGain.value;
+      ownIn.time = t + 0.5; ownIn.t = t; ownIn.dt = dt;   // tronc3d (study mode) starts its collapse when time > 2, i.e. t > 1.5
+      ownIn.arrive = Math.min(arrive, smooth(0, TA, t)); ownIn.leave = leave;
+      if (!framed) { const keep = ownP.collapse; frame(intent, ownP.floors); ownP.collapse = keep; }
+      own.update(dt, ownIn);
+    }
+    object.updateMatrixWorld(); inv.copy(object.matrixWorld).invert();
+
+    // ---- carregat from the bajada: the glass tower falls by itself (baixada3d); here the tronc stays hidden and a veil of dust rises
+    if (glassFall) {
+      const host = ctx.parts?.tronc3d;
+      if (host?.takeFloor && !ctx.parts?.baixada3d?.object?.visible) for (let i = 0; i <= 9; i++) host.takeFloor(i, { hide: true });   // once the bajada has given its floors back
+      if (t < 5 && time - veilAt > 0.12) {
+        veilAt = time;
+        for (let w = 0; w < NW; w++) {
+          const b = towerBase[w], a = R() * Math.PI * 2, rr = R() * 2.4;
+          tmpV.set(b.x + Math.cos(a) * rr, R() * 1.5, b.z + Math.sin(a) * rr).applyMatrix4(inv); puff(tmpV, 1, true);
+        }
+      }
+    }
+    // ---- the floors that let go throw their shards (polled at 10 Hz from tronc3d.levels(): world heights)
+    if (!glassFall && src && src.levels && time - levelsAt > 0.1) {
+      levelsAt = time;
+      const plazaY = ctx.parts?.plaza?.object?.visible ? 0 : -1e9;
+      for (const T of src.levels()) {
+        const tw = T.tower; if (tw >= NW) continue;
+        let top = -1e9;
+        for (const f of T.floors) if (f.i <= T.built && !f.gone && !f.taken) top = Math.max(top, f.y + f.h / 2);
+        landY[tw] = Math.max(top, plazaY);
+        for (const f of T.floors) {
+          if (!f.gone || spawned[tw][f.i] || f.i > T.built) continue;
+          spawned[tw][f.i] = 1;
+          const b = towerBase[tw], n = 14 + Math.floor(f.h * 10);
+          for (let k = 0; k < n; k++) {
+            const a = R() * Math.PI * 2, rr = 0.4 + R() * 1.6;
+            tmpV.set(b.x + Math.cos(a) * rr, f.y + (R() - 0.5) * f.h, b.z + Math.sin(a) * rr).applyMatrix4(inv);
+            const out = intent ? 0.5 + R() * 1.3 : 0.3 + R() * 0.6;
+            tmpV2.set(Math.cos(a) * out, intent ? 0.6 + R() * 2.2 : -0.3 - R() * 0.6, Math.sin(a) * out);
+            spawn(tmpV, tmpV2, 0.3 + Math.pow(R(), 1.5) * 0.5, false, tw, 1, GLZ[Math.floor(R() * GLZ.length)]);
+          }
+          tmpV.set(b.x, f.y, b.z).applyMatrix4(inv); puff(tmpV, 2, false); fxAt(tmpV, 0.9, 'stone', 'break');
+        }
+      }
+    }
+
+    // ---- shards: gravity, spin, landing (a hard landing breaks a big one into three), settle, cool
+    for (const s of shards) {
+      if (!s.on) continue;
+      s.heat = Math.max(0, s.heat - dt * 0.45);
+      if (s.rest < 1) {
+        s.v.y -= G * dt; s.p.addScaledVector(s.v, dt);
+        tmpV.copy(s.p).applyMatrix4(object.matrixWorld);
+        const b = towerBase[s.tw], onTop = Math.hypot(tmpV.x - b.x, tmpV.z - b.z) < 3.2, gy = onTop || landY[s.tw] <= -1e8 + 1 ? landY[s.tw] : Math.max(-1e9, ctx.parts?.plaza?.object?.visible ? 0 : -1e9);
+        const hs = s.size * 0.06;
+        if (gy > -1e8 && tmpV.y - hs < gy && s.v.y < 0) {
+          const force = -s.v.y;
+          tmpV.y = gy + hs; s.p.copy(tmpV).applyMatrix4(inv);
+          if (!s.small && force > 2.2) {                 // breaks: three tesserae, a puff
+            s.on = false;
+            for (let k = 0; k < 3; k++) { tmpV2.set((R() - 0.5) * 2.4, force * (0.25 + R() * 0.2), (R() - 0.5) * 2.4); spawn(s.p, tmpV2, s.size * (0.4 + R() * 0.15), true, s.tw, Math.max(s.heat, 0.7), s.col); }
+            puff(s.p, 2, false); if (time - brkAt > 0.34) { brkAt = time; fxAt(s.p, Math.min(1, force / 7), 'ceramic', 'break'); }
+            continue;
+          }
+          if (force > 1.2) { puff(s.p, 1, false); fxAt(s.p, Math.min(1, (force - 1.2) / 4), 'ceramic', 'floor'); }
+          s.v.y = force * 0.35; s.v.x *= 0.6; s.v.z *= 0.6; s.w.multiplyScalar(0.55);
+          if (force < 0.8) { s.rest = 1; s.v.set(0, 0, 0); s.w.set(0, 0, 0); }
+        }
+        if (tmpV.y < -40) { s.on = false; continue; }
+        const wl = s.w.length(); if (wl > 1e-4) { tmpQ.setFromAxisAngle(tmpV2.copy(s.w).multiplyScalar(1 / wl), wl * dt); s.q.premultiply(tmpQ); }
+      }
+    }
+    for (let k = 0; k < NGEO; k++) {
+      const im = meshes[k], ha = heatA[k].array;
+      for (let i = 0; i < PER; i++) {
+        const s = shards[k * PER + i];
+        if (!s.on) { tmpM.makeScale(0, 0, 0); im.setMatrixAt(i, tmpM); ha[i] = 0; continue; }
+        const sc = s.size * uEnd.value;
+        tmpM.compose(s.p, s.q, tmpS.set(sc, sc, sc)); im.setMatrixAt(i, tmpM);
+        tmpC.setRGB(s.col[0], s.col[1], s.col[2]); im.setColorAt(i, tmpC); ha[i] = s.heat;
+      }
+      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; heatA[k].needsUpdate = true;
+    }
+    // ---- dust
+    const da = dA.array, db = dB.array;
+    for (let i = 0; i < ND; i++) {
+      const d = dust[i];
+      if (d.on) { d.t += dt; if (d.t > d.life) d.on = false; }
+      if (!d.on) { db[i * 4] = 0; continue; }
+      const k = d.t / d.life;
+      d.p.addScaledVector(d.v, dt); d.v.multiplyScalar(Math.max(0, 1 - dt * 0.4)); d.v.y += dt * 0.02;
+      da[i * 4] = d.p.x; da[i * 4 + 1] = d.p.y; da[i * 4 + 2] = d.p.z; da[i * 4 + 3] = d.r + (d.r1 - d.r) * Math.sqrt(k);
+      db[i * 4] = d.a * smooth(0, 0.08, k) * (1 - smooth(0.35, 1, k)); db[i * 4 + 1] = d.seed; db[i * 4 + 2] = d.warm;
+    }
+    dA.needsUpdate = true; dB.needsUpdate = true;
+  }
+
+  if (typeof window !== 'undefined') window.__fall3d = { get shards() { return shards.filter((s) => s.on).length; }, get dust() { return dust.filter((d) => d.on).length; }, get src() { return srcOwn ? 'own' : src ? 'host' : null; }, get own() { return !!own; }, get ownApi() { return own; }, ownP, ownIn };
   return {
     object,
     update,
     setParams(p) { if (p && p !== P) Object.assign(P, p); },
-    dispose() { for (const tw of towers) { tw.mesh.material.dispose(); tw.occ.material.dispose(); } dustMesh.geometry.dispose(); dustMesh.material.dispose(); if (own && own !== 'loading') own.dispose?.(); },
+    dispose() { try { fxBc?.close(); } catch { /* closed */ } for (const im of meshes) { im.geometry.dispose(); im.material.dispose(); } dGeo.dispose(); own?.dispose?.(); },
   };
 }

@@ -75,7 +75,10 @@ export function create({ THREE, TSL, room, params }) {
   const uLP = uniformArray(LP, 'vec4'), uLC = uniformArray(LC, 'vec4');
   const MOON = new THREE.Vector3(-0.38, 0.8, 0.46).normalize();
   const moonDir = vec3(MOON.x, MOON.y, MOON.z);
-  const COOL = vec3(0.55, 0.66, 1.0), WARM = vec3(1.0, 0.62, 0.32), WARM2 = vec3(1.0, 0.78, 0.55);
+  // the colour script (T-028): params.warm / cool / air ([r, g, b], live; the host eases them block by block). Defaults: the intro's night.
+  const uWarm = uniform(new THREE.Vector3(1.0, 0.62, 0.32)), uCool = uniform(new THREE.Vector3(0.55, 0.66, 1.0)), uAir = uniform(new THREE.Vector3(0.0035, 0.0058, 0.0125));
+  const COOL = uCool, WARM = uWarm, WARM2 = mix(uWarm, vec3(1.0), 0.4);
+  const uLineCol = uniform(new THREE.Vector3(1.0, 0.62, 0.32)), uLineHalo = uniform(1);   // params.lineColor [r,g,b], params.lineHalo (0..1: the soft band round the line)
 
   const wrapS = (x) => x.sub(floor(x.div(PER).add(0.5)).mul(PER));   // signed perimeter distance in [-PER/2, PER/2]
 
@@ -234,7 +237,7 @@ export function create({ THREE, TSL, room, params }) {
     const low = float(1).sub(clamp(dir.y.mul(1.6), 0, 1));
     const cm = dot(dir, moonDir);
     const g = 0.72, mie = float(1 - g * g).div(pow(float(1 + g * g).sub(cm.mul(2 * g)), 1.5));
-    c.addAssign(vec3(0.0035, 0.0058, 0.0125).mul(low.mul(0.8).add(0.45)).add(COOL.mul(mie.mul(0.0018).mul(U.moon))).mul(U.haze));
+    c.addAssign(vec3(uAir).mul(low.mul(0.8).add(0.45)).add(COOL.mul(mie.mul(0.0018).mul(U.moon))).mul(U.haze));
     // the lamps in the air: closed form of the 1/d² glow along the eye ray, up to just past the lamp
     const lh = vec3(0).toVar();
     Loop(U.nL, ({ i }) => {
@@ -250,8 +253,8 @@ export function create({ THREE, TSL, room, params }) {
     const vis = float(1).sub(smoothstep(U.front.sub(0.28), U.front.add(0.03), dx));
     const along = sin(vS.mul(6.2832 * 7 / PER).add(U.time.mul(0.35))).mul(sin(vS.mul(6.2832 * 3 / PER).sub(U.time.mul(0.21)))).mul(0.14).add(0.86);
     const Lp = exp(dy.mul(dy).div(-2 * sc * sc)).mul(2.6 * 0.0022 / sc)
-      .add(exp(dy.mul(dy).div(-2 * 0.016 * 0.016)).mul(0.07)).add(exp(dy.mul(dy).div(-2 * 0.25 * 0.25)).mul(0.008));
-    c.addAssign(WARM.mul(Lp.mul(vis).mul(along).mul(U.line)));
+      .add(exp(dy.mul(dy).div(-2 * 0.016 * 0.016)).mul(0.07).mul(uLineHalo)).add(exp(dy.mul(dy).div(-2 * 0.25 * 0.25)).mul(0.008).mul(uLineHalo));
+    c.addAssign(vec3(uLineCol).mul(Lp.mul(vis).mul(along).mul(U.line)));
     const hd = dx.sub(min(U.front, PER / 2)), r2 = hd.mul(hd).add(dy.mul(dy));
     c.addAssign(WARM2.mul(U.head.mul(exp(r2.div(-2 * 0.010 * 0.010)).mul(2.5).add(exp(r2.div(-2 * 0.07 * 0.07)).mul(0.18)).add(exp(r2.div(-2 * 0.45 * 0.45)).mul(0.02)))));
     const fx = wrapS(vS.sub(X0 + PER / 2)), f2 = fx.mul(fx).add(dy.mul(dy));
@@ -305,6 +308,11 @@ export function create({ THREE, TSL, room, params }) {
     U.amount.value = Math.max(0, Number(P.dust ?? 1));
     U.haze.value = ss(0.5, 7.0, t) * Math.max(0, Number(P.haze ?? 1));
     U.moon.value = Number(P.moon ?? 1); U.bokeh.value = Number(P.bokeh ?? 1); U.stir.value = Number(P.stir ?? 1);
+    if (Array.isArray(P.warm)) uWarm.value.fromArray(P.warm);
+    if (Array.isArray(P.cool)) uCool.value.fromArray(P.cool);
+    if (Array.isArray(P.air)) uAir.value.fromArray(P.air);
+    if (Array.isArray(P.lineColor)) uLineCol.value.fromArray(P.lineColor); else uLineCol.value.copy(uWarm.value);
+    uLineHalo.value = P.lineHalo ?? 1;
     U.lampGain.value = Number(P.lampGain ?? 1); U.lineY.value = Number(P.lineY) || 1.25;
     const lineB = Math.max(0, Number(P.line ?? 1));
     const prog = lt > 0 ? clamp01(lt) : smoother((t - 8.6) / 13.4);

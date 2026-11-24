@@ -7,7 +7,9 @@
   {"key": "walls", "label": "Baixada: structure walls (stand-in)", "type": "number", "min": 2, "max": 4, "step": 1, "default": 4},
   {"key": "arrive", "label": "Baixada: arrive (0 = not there, 1 = there)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 1},
   {"key": "leave", "label": "Baixada: leave (0 = there, 1 = gone)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0},
-  {"key": "rain", "label": "Baixada: rain amount", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1},
-  {"key": "gain", "label": "Baixada: brightness", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1},
-  {"key": "density", "label": "Baixada: fragments (reload)", "type": "number", "min": 0.25, "max": 3, "step": 0.05, "default": 1}
+  {"key": "rain", "label": "Baixada: glass trickle", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1},
+  {"key": "gain", "label": "Baixada: brightness", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1},
+  {"key": "floorH", "label": "Baixada: height of a glass floor", "type": "number", "min": 2, "max": 6, "step": 0.1, "default": 3.6, "unit": "m"},
+  {"key": "town", "label": "Baixada: own square silhouettes (off when plaza.js draws them)", "type": "bool", "default": true},
+  {"key": "lower", "label": "Baixada: the band to bring down (T-042 stand-in)", "type": "bool", "default": false}
 ]

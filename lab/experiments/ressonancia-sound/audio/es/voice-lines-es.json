@@ -26,7 +26,17 @@
     "v-cierre-descarregat": "[warmly] Descarregat. Levantado, coronado y bajado sin caer.",
     "v-cierre-carregat": "[softly] Carregat. Coronado, y después cayó.",
     "v-cierre-intent": "[softly] Cayó antes de la corona. En las plazas lo llaman un intent. Y vuelven a intentarlo.",
-    "v-cierre-final": "[tender, hushed] Este ha sido vuestro castell. Cuando los cuerpos resuenan juntos, nace la cultura."
+    "v-cierre-final": "[tender, hushed] Este ha sido vuestro castell. Cuando los cuerpos resuenan juntos, nace la cultura.",
+    "v-wait-invite": "[softly] Tocad. Jugad con la sala.",
+    "v-wait-start": "[softly] Sostened el anillo para empezar.",
+    "v-tronc-lift": "[hushed, steady] Ahora, levantad. Cada piso sube con vuestras manos.",
+    "v-tronc-wobble": "[hushed] Tiembla. Sujetad la base.",
+    "v-aleta-raise": "[awed, softly] Ella levanta la mano.",
+    "v-aleta-yours": "[softly] Levantad la vuestra.",
+    "v-baixada-gently": "[softly] Despacio. Piso a piso.",
+    "v-pinya-wait": "[warm, hushed] Alguien espera vuestra mano.",
+    "v-pinya-closein": "[softly] Juntaos. Hombro con hombro.",
+    "v-aleta-crowned": "El castell está coronado. (recortada de v-aleta-1 a 1,86 s, fundidos 30/120 ms)"
   },
   "voice": "Mía Evans (ElevenLabs voice library, peninsular Spanish, Qvbf0AoA7UZSgJUp8Ba5)",
   "model": "eleven_v4",
@@ -61,7 +71,17 @@
     "v-cierre-descarregat": 4.44,
     "v-cierre-carregat": 3.87,
     "v-cierre-intent": 6.27,
-    "v-cierre-final": 6.27
+    "v-cierre-final": 6.27,
+    "v-wait-invite": 2.4,
+    "v-wait-start": 2.32,
+    "v-tronc-lift": 4.55,
+    "v-tronc-wobble": 2.3,
+    "v-aleta-raise": 2.14,
+    "v-aleta-yours": 1.75,
+    "v-baixada-gently": 2.61,
+    "v-pinya-wait": 2.14,
+    "v-pinya-closein": 2.61,
+    "v-aleta-crowned": 1.98
   },
   "stt": {
     "v-wait": "Poned las manos sobre el muro para empezar",
@@ -89,10 +109,22 @@
     "v-cierre-descarregat": "Descarregat: levantado, coronado y bajado sin caer",
     "v-cierre-carregat": "Carregat coronado y después cayó",
     "v-cierre-intent": "Cayó antes de la corona. En las plazas lo llaman un intent y vuelven a intentarlo",
-    "v-cierre-final": "Este ha sido vuestro castell. Cuando los cuerpos resuenan juntos, nace la cultura"
+    "v-cierre-final": "Este ha sido vuestro castell. Cuando los cuerpos resuenan juntos, nace la cultura",
+    "v-wait-invite": "Tocad, jugad con la sala",
+    "v-wait-start": "Sostened el anillo para empezar",
+    "v-tronc-lift": "Ahora levantad. Cada piso sube con vuestras manos",
+    "v-tronc-wobble": "Tiembla. Sujetad la base",
+    "v-aleta-raise": "Ella levanta la mano",
+    "v-aleta-yours": "Levantad la vuestra",
+    "v-baixada-gently": "Despacio piso a piso",
+    "v-pinya-wait": "Alguien espera vuestra mano",
+    "v-pinya-closein": "Juntaos hombro con hombro",
+    "v-aleta-crowned": "El castell está coronado"
   },
   "tts_text": {
     "v-cierre-descarregat": "[warmly] Descarregát. Levantado, coronado y bajado sin caer.",
     "v-cierre-carregat": "[softly] Carregát. Coronado, y después cayó."
-  }
+  },
+  "notes_2026_11_24": "v-wait is no longer used (the reveal rule); v-wait-invite / v-wait-start recorded 2026-11-24 with the same voice, model, settings and tag; checked with scribe_v1: v-wait-invite: «Tocad, jugad con la sala»; v-wait-start: «Sostened el anillo para empezar»",
+  "notes_2026_11_24_plan": "Plan de interacción (approved by Vicente): 7 new lines recorded 2026-11-24 with the same voice, model, settings and tags; checked with scribe_v1 (no tag spoken). Silenced (kept, not deleted): v-tronc-1, v-tronc-3, v-pinya-1, v-pinya-2, v-aleta-1, v-baixada-1."
 }

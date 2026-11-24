@@ -45,10 +45,16 @@ const INTRO_VOICE = [
 //    Mía Evans (peninsular Spanish, eleven_v4): 6.4 · 9.5 · 9.1 · 5.4 · 5.1 · 2.2 s — they fit the same cues.
 const INTRO_VOICE_ES = [[8.5, 'v-intro-1'], [17, 'v-intro-2'], [29, 'v-intro-3'], [41, 'v-intro-4'], [53.3, 'v-intro-5'], [66.3, 'v-intro-6']];
 const ACTA_AT = { outcome: 4.5, final: 24.5 };   // acta.js: the castell appears at 4 s, the last sentence at 24 s
-const TITLE_LINE = { brasa: 'v-brasa-1', pinya: 'v-pinya-1', tronc: 'v-tronc-1', pom: 'v-pom-1' };   // when a block's title phase starts
-const HINT_LINE = { together: 'v-brasa-2', again: 'v-brasa-3', more: 'v-pinya-2', hold: 'v-pinya-2', beat: 'v-tronc-3', straight: 'v-tronc-2', still: 'v-pom-3' };
+// 24-11 (plan de interacción): the voice invites (≤ 7 words where it can), never counts, never repeats a line in a pass. Silenced, kept:
+// v-pinya-1 / v-pinya-2 (circles), v-tronc-1 / v-tronc-3 (the drum and the beat), v-aleta-1 (raise the hand AFTER the crown), v-baixada-1.
+const TITLE_LINE = { brasa: 'v-brasa-1', pinya: 'v-pinya-wait', tronc: 'v-tronc-lift', pom: 'v-pom-1' };   // when a block's title phase starts
+const HINT_LINE = { together: 'v-brasa-2', again: 'v-brasa-3', straight: 'v-tronc-2', still: 'v-pom-3' };   // more / hold / beat / lift / foot: silent (their moments have their own lines now)
 const OUTCOME_LINE = { descarregat: 'v-cierre-descarregat', carregat: 'v-cierre-carregat', intent: 'v-cierre-intent' };
-const WAIT_EVERY = 40, WAIT_RECENT = 120, WAIT_AFTER = 6;   // v-wait: at most every 40 s, only if a hand was seen in the last 2 min (and gone 6 s)
+const WAIT_EVERY = 40, WAIT_RECENT = 120, WAIT_AFTER = 6;   // the wait's call: at most every 40 s, only if a hand was seen in the last 2 min (and gone 6 s)
+// The wait's voice (2026-11-24): the old v-wait («put your hands on the wall to begin») no longer fits the reveal rule and is SILENT.
+// Its replacements: v-wait-invite (before the button is revealed: an invitation to play) and v-wait-start (on 'reveal': hold the
+// ring to begin). Recorded 2026-11-24 (audio/ and audio/es/, same voices and settings; speech-to-text checked).
+const WAIT_VOICES = true;
 
 // ---------------------------------------------------------------------------------------------------------------- the music
 // A set = the layers of one chapter, started together (sample-locked). once: plays through; else it loops [a, b] with an
@@ -71,8 +77,8 @@ const SETS = {
 const CROWN_IMPACT = 4.0;                    // m-crown: the reverse swell ends and the release hits at 4.0 s (measured)
 const AMBIENCE = ['s-embers-loop', 's-fire-loop', 's-breath-loop', 's-wind-loop', 's-rain-loop', 's-crowd-loop'];
 const SHOTS = ['s-bells', 's-tabals', 's-ember-burst', 's-clay', 's-ceramic', 's-impact', 's-crack', 's-gralla', 's-timbal', 'sfx-crown', 'sfx-fall', 'sfx-tile'];
-const VOICES = ['v-wait', ...INTRO_VOICE.map((c) => c[1]), ...Object.values(TITLE_LINE), 'v-brasa-2', 'v-brasa-3', 'v-pinya-2', 'v-pinya-3', 'v-tronc-2', 'v-tronc-3',
-  'v-pom-2', 'v-pom-3', 'v-aleta-1', 'v-aleta-2', 'v-baixada-1', ...Object.values(OUTCOME_LINE), 'v-cierre-final'];
+const VOICES = [...(WAIT_VOICES ? ['v-wait-invite', 'v-wait-start'] : []), ...INTRO_VOICE.map((c) => c[1]), ...Object.values(TITLE_LINE), 'v-brasa-2', 'v-brasa-3', 'v-pinya-3', 'v-tronc-2',
+  'v-pom-2', 'v-pom-3', 'v-aleta-2', ...Object.values(OUTCOME_LINE), 'v-cierre-final', 'v-tronc-wobble', 'v-aleta-raise', 'v-aleta-yours', 'v-aleta-crowned', 'v-baixada-gently', 'v-pinya-closein'];
 const FILES = [...new Set([...Object.values(SETS).flatMap((s) => Object.values(s.layers)), ...AMBIENCE, ...SHOTS, ...VOICES])];
 const VOICE_SET = new Set(VOICES);
 const GROUP = (name) => (name.startsWith('st-') ? name.split('-').slice(0, 2).join('-') : name);   // stems share one normalisation
@@ -99,7 +105,7 @@ const XOUT = Float32Array.from({ length: 64 }, (_, i) => Math.cos((Math.PI / 2) 
 
 export default async function start(host) {
   const { audio, vt } = host;
-  const ctx = audio.ctx, P = { voice: 1, music: 1, drums: 1, effects: 1, touch: 1, lang: 'en', ...host.params };
+  const ctx = audio.ctx, P = { voice: 1, music: 1, drums: 1, effects: 1, touch: 1, lang: 'es', ...host.params };   // Spanish by default (Vicente, 24-11); English stays in the selector
   const walls = vt.walls || [], NW = Math.max(1, walls.length), wallIdx = new Map(walls.map((w, i) => [w.id, i]));
   const score = createScore(NW), S = score.state, T = score.times;
   const now = () => ctx.currentTime;
@@ -194,13 +200,15 @@ export default async function start(host) {
 
   // the voice: one line at a time; a block's line cuts the one before, a hint waits its turn (it is dropped if someone speaks)
   let vo = null;
+  const saidThisPass = new Set();   // a line never repeats in a pass (the wait's calls are between passes)
   function say(name, { delay = 0.4, polite = false } = {}) {
     if (!name) return false;
+    if (saidThisPass.has(name)) return false;
     const b = buffers.get(name); if (!b || !running()) return false;
     const t = now();
     if (vo && t < vo.end) { if (polite) return false; vo.h.stop(0.15); }
     const at = t + delay, h = play(name, { gain: L.voice, dest: voiceBus, at }); if (!h) return false;
-    vo = { h, end: h.end, name };
+    vo = { h, end: h.end, name }; if (!name.startsWith('v-wait')) saidThisPass.add(name);
     duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(L.duck, Math.max(t, at - 0.35), 0.15); duck.gain.setTargetAtTime(1, h.end + 0.3, 0.7);
     return true;
   }
@@ -319,6 +327,130 @@ export default async function start(host) {
   const CERAMIC = [[1, 1, 0.9], [2.32, 0.5, 0.45], [4.25, 0.3, 0.22], [6.63, 0.15, 0.1]];          // tile: bright, short
   const GLASS = [[1, 1, 3.5], [2.76, 0.4, 1.8], [5.4, 0.18, 0.9], [8.93, 0.08, 0.4]];              // glass / small bell: long
   const STONE = [[1, 1, 1.4], [1.51, 0.45, 0.6], [2.47, 0.25, 0.3]];                               // a low resonant stone
+  const CHROME = [[1, 1, 2.2], [2.41, 0.55, 1.4], [3.87, 0.35, 0.9], [5.93, 0.22, 0.5], [8.12, 0.1, 0.3]];   // a struck metal plate: inharmonic, long
+
+  // ---------------------------------------------------------------- impacts from the visual piece (wave 2 channel)
+  // The visual parts post { type: 'fx', fx: 'impact', wall, u (0..1 along the wall), strength 0..1, mat, kind } on
+  // BroadcastChannel('ressonancia') when their physical objects are struck, land, break, splash, slide, lock or bloom. Each chapter's
+  // matter has its timbre, tuned to the chapter's mode (the stone chapters — brasa, pinya, tronc, fall — D minor pentatonic; the
+  // others D major pentatonic); position along the wall → degree; strength → level and brightness. ≤ 14 a second in all, through the
+  // hand voices (they share the 12-voice cap); slides ≤ 1 per wall every 0.15 s. Unknown mat → ceramic; unknown kind → silent.
+  //   mat:  ceramic (umbral, tronc tiles) · chrome (umbral backs, brasa's liquid) · glass (umbral) · fire (brasa's burning tiles) ·
+  //         wire (pinya's wire cubes) · stone (tronc's pieces) · line (pom's line tiles) · petal (pom's gardens)
+  //   kind: hit · floor (lands) · break · hook / lock (back in place) · splash (into liquid) · sink · ignite · slide · bloom
+  const WIRE = [[1, 1, 0.45], [2.93, 0.55, 0.3], [5.21, 0.35, 0.18], [8.66, 0.2, 0.1], [12.1, 0.1, 0.06]];   // a wire cube: thin, bright, short
+  const IMPACT_MAT = { ceramic: CERAMIC, chrome: CHROME, glass: GLASS, wire: WIRE, stone: STONE, line: GLASS, fire: CHROME, petal: GLASS };
+  const IMPACT_BASE = { ceramic: 79, chrome: 74, glass: 86, wire: 84, stone: 57, line: 88, fire: 67, petal: 86 };   // MIDI of a strike
+  const STONE_BLOCKS = new Set(['brasa', 'pinya', 'tronc', 'fall']);
+  const slideAt = walls.map(() => -1);
+  let impactWin = 0, impactN = 0, impactRate = 0, impactLast = 0;
+  // density: a rain of pieces (the entrance drops ~9 per touch; a group keeps the channel at its cap) must sound like a glass-tile
+  // rain, not a machine gun: near-simultaneous impacts on one wall (< 90 ms) join ONE cluster — they add a small tick to its voice
+  // instead of a new voice and a new clack; the louder layers (tile clack, body) thin out as the rate rises; pitch and timbre vary
+  // with the piece's size (`size` in metres if the part sends it, else a random spread).
+  const cluster = walls.map(() => ({ t: -1, g: null, n: 0 }));
+  function liquid(at, hz, k, dest) {   // a drop into liquid chrome: a pitch that falls fast, a metal shimmer under it
+    const o = osc('sine', hz * 2.2), g = G(0, dest); o.connect(g);
+    o.frequency.setValueAtTime(hz * 2.2, at); o.frequency.exponentialRampToValueAtTime(hz * 0.6, at + 0.12);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(k, at + 0.005); g.gain.exponentialRampToValueAtTime(0.0004, at + 0.26);
+    o.start(at); o.stop(at + 0.3);
+    modal(at + 0.01, hz, k * 0.45, dest, CHROME);
+  }
+  function scrape(at, dur, k, dest) {  // a slide: band-passed noise, a little gritty
+    const n = ctx.createBufferSource(), f = F('bandpass', rand(900, 1700), 2.5), g = G(0, dest); n.buffer = NOISE; series(n, f, g);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(k, at + 0.04); g.gain.linearRampToValueAtTime(0, at + dur);
+    n.start(at, Math.random() * 1.5, dur + 0.05);
+  }
+  function impact(m) {
+    if (!running() || !(m.wall >= 0 && m.wall < NW)) return;
+    const wt = performance.now() / 1000; if (wt - impactWin > 1) { impactWin = wt; impactN = 0; } if (++impactN > 20) return;
+    impactRate = impactRate * Math.exp(-(wt - impactLast) / 1.0) + 1; impactLast = wt;          // impacts in about the last second
+    const crowd = 1 / Math.sqrt(1 + impactRate / 4);                                               // 1 alone … ~0.45 at 16/s
+    const wallId = walls[m.wall].id, u = clamp(+m.u || 0.5, 0, 1), k = clamp(+m.strength || 0.3, 0, 1), t = now() + 0.004;
+    const mat = IMPACT_MAT[m.mat] ? m.mat : 'ceramic', parts = IMPACT_MAT[mat], deg = clamp(Math.floor(u * 5), 0, 4);
+    const scale = STONE_BLOCKS.has(S.block) ? MINOR_PENTA : MAJOR_PENTA;
+    const size = +m.size > 0 ? +m.size : rand(0.1, 0.35), sizeOct = size > 0.3 ? -12 : size < 0.15 ? 12 : 0;      // big pieces lower, small ones higher
+    const mm = IMPACT_BASE[mat] + scale[(deg + Math.floor(Math.random() * 3)) % 5] + (m.kind === 'floor' || m.kind === 'hit' ? sizeOct : 0);
+    // a cluster: this wall rang < 90 ms ago — add a tick to that voice, nothing more
+    const cl = cluster[m.wall];
+    if ((m.kind === 'floor' || m.kind === 'hit' || m.kind === 'hook') && cl.g && wt - cl.t < 0.09 && cl.n < 8) {
+      cl.n++; modal(t + rand(0, 0.03), midiHz(mm + 12), (0.004 + 0.008 * k) * P.effects * crowd, cl.g, mat === 'chrome' ? CHROME : mat === 'glass' ? GLASS : CERAMIC);
+      return;
+    }
+    // a burst on one wall cannot pile up: each wall carries a load that decays in ~0.35 s (as the hands do)
+    const wl = wallLoad[m.wall]; wl.v *= Math.exp(-(wt - wl.t) / 0.35); wl.t = wt;
+    const lvl = P.effects / (1 + 0.04 * Math.max(0, (S.hands || 0) - 3)) / (1 + wl.v) * (S.block === 'fall' ? 0.3 : 1) * crowd; wl.v += 0.7;   // the fall has its own big hits: its debris sits under them
+    switch (m.kind) {
+      case 'hit': {                  // struck by a hand: a chime of its matter
+        const g = handVoice(wallId, u, 3, 0.6);
+        modal(t, midiHz(mm), (0.012 + 0.03 * k) * lvl, g, parts); cl.t = wt; cl.g = g; cl.n = 0;
+        if (mat === 'fire') play('s-ember-burst', { gain: 0.04 * k * lvl, dest: g, at: t, rate: rand(1.1, 1.4) });
+        break;
+      }
+      case 'floor': {                // it lands
+        if (mat === 'glass') { const g = handVoice(wallId, u, 3, 0.9); modal(t, midiHz(mm + 12), (0.005 + 0.012 * k) * lvl, g, GLASS); cl.t = wt; cl.g = g; cl.n = 0; break; }   // a glass shard lands (the dawn's rain)
+        if (mat === 'line' || mat === 'petal') { const g = handVoice(wallId, u, 4, 1.4); modal(t, midiHz(mm), (0.004 + 0.01 * k) * lvl, g, GLASS); break; }   // far below, in the canyon
+        const g = handVoice(wallId, u, 2.2, 0.35), low = mm - 12;
+        if (mat === 'stone') { play('s-ceramic', { gain: (0.02 + 0.05 * k) * lvl, dest: g, at: t, rate: rand(0.45, 0.65) }); modal(t, midiHz(low), (0.015 + 0.035 * k) * lvl, g, STONE); }
+        else if (mat === 'wire') { modal(t, midiHz(mm), (0.01 + 0.025 * k) * lvl, g, WIRE); modal(t + 0.004, midiHz(low - 12), 0.015 * k * lvl, g, STONE); }
+        else {
+          if (k > 0.3 && Math.random() < crowd * 1.4) play('sfx-tile', { gain: (0.02 + 0.06 * k) * lvl, dest: g, at: t, rate: rand(1.0, 1.6) * (size > 0.3 ? 0.8 : 1.15) });   // the clack thins out in a rain
+          modal(t, midiHz(low), (0.012 + 0.03 * k) * lvl, g, parts);
+        }
+        cl.t = wt; cl.g = g; cl.n = 0;
+        if (k > 0.4 && crowd > 0.6) drum(t, g, { f0: 140, f1: 70, dur: 0.18, gain: 0.05 * k * lvl, noise: 0.25, sub: 0.15 * k, subDest: touchSub });
+        break;
+      }
+      case 'break': {                // a crack, and the chips scatter
+        const g = handVoice(wallId, u, 3, 0.5);
+        play('s-crack', { gain: 0.06 * k * lvl, dest: g, at: t, rate: rand(1.3, 1.7) });
+        play('sfx-tile', { gain: 0.1 * k * lvl, dest: g, at: t, rate: rand(0.9, 1.2) });
+        for (let j = 0; j < 6; j++) modal(t + 0.05 + j * rand(0.04, 0.09), midiHz(86 + scale[Math.floor(Math.random() * 5)]), 0.008 * lvl, g, CERAMIC);
+        drum(t, g, { f0: 110, f1: 50, dur: 0.35, gain: 0.06 * k * lvl, noise: 0.3, sub: 0.25 * k, subDest: touchSub });
+        break;
+      }
+      case 'hook': {                 // back on its thread: a tiny glass tick
+        modal(t, midiHz(93 + scale[deg]), 0.006 * lvl, handVoice(wallId, u, 2.5, 0.9), GLASS);
+        break;
+      }
+      case 'lock': {                 // a piece locks into place (a floor, a cube going home): a clack in tune
+        const g = handVoice(wallId, u, 2, 0.5);
+        play('sfx-tile', { gain: (0.02 + 0.05 * k) * lvl, dest: g, at: t, rate: rand(1.3, 1.7) });
+        modal(t, midiHz(mm - (mat === 'stone' ? 0 : 12)), (0.01 + 0.025 * k) * lvl, g, mat === 'wire' ? WIRE : mat === 'stone' ? STONE : CERAMIC);
+        break;
+      }
+      case 'splash': {               // into the liquid chrome (brasa): a falling metal drop; a burning one hisses
+        const g = handVoice(wallId, u, 2.4, 0.7);
+        liquid(t, midiHz(mm - 12), (0.015 + 0.04 * k) * lvl, g);
+        if (mat === 'fire') play('s-ember-burst', { gain: (0.03 + 0.05 * k) * lvl, dest: g, at: t + 0.02, rate: rand(0.55, 0.75) });
+        break;
+      }
+      case 'sink': {                 // it goes under: a low glide into the sub
+        const g = handVoice(wallId, u, 1.8, 0.3), o = osc('sine', 110), og = G(0, g), os = G(0, touchSub); o.connect(og); o.connect(os);
+        o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(42, t + 1.2);
+        for (const [x, v] of [[og, 0.02], [os, 0.08]]) { x.gain.setValueAtTime(0, t); x.gain.linearRampToValueAtTime(v * k * lvl, t + 0.08); x.gain.exponentialRampToValueAtTime(0.0004, t + 1.3); }
+        o.start(t); o.stop(t + 1.4);
+        break;
+      }
+      case 'ignite': {               // it catches fire: an ember burst and a soft low breath
+        const g = handVoice(wallId, u, 2.2, 0.5);
+        play('s-ember-burst', { gain: (0.04 + 0.08 * k) * lvl, dest: g, at: t, rate: rand(0.7, 0.9) });
+        drum(t, g, { f0: 70, f1: 40, dur: 0.6, gain: 0.03 * k * lvl, noise: 0, sub: 0.3 * k, subDest: touchSub });
+        break;
+      }
+      case 'slide': {                // sliding along a deck: a short scrape (strength = speed)
+        if (wt - slideAt[m.wall] < 0.15) break; slideAt[m.wall] = wt;
+        scrape(t, 0.2 + 0.4 * k, (0.006 + 0.018 * k) * lvl, handVoice(wallId, u, 1, 0.2));
+        break;
+      }
+      case 'bloom': {                // a garden opens (pom): a soft rising glass arpeggio
+        const g = handVoice(wallId, u, 4, 1.2);
+        for (let j = 0; j < 3; j++) modal(t + j * 0.09, midiHz(86 + MAJOR_PENTA[(deg + j * 2) % 5]), (0.004 + 0.008 * k) * lvl, g, GLASS);
+        break;
+      }
+      default: break;
+    }
+  }
   function fmHit(at, hz, gain, dest) {   // the festa's resonant hit: FM bell (bright attack, inharmonic shimmer) on a round body
     const c = osc('sine', hz), m = osc('sine', hz * 1.41), mg = G(hz * 2.2), g = G(0, dest);
     m.connect(mg); mg.connect(c.frequency); c.connect(g);
@@ -404,6 +536,44 @@ export default async function start(host) {
   // the pom: a thin thread that rises with the light and flickers when hands move
   const thread = osc('sine', midiHz(74)), threadG = G(0), threadAm = G(1, outRoom); series(thread, threadG, threadAm); threadAm.connect(G(0.8, verbIn)); thread.start(); persistent.push(thread);
   const flick = osc('square', 9), flickG = G(0); series(flick, flickG, threadAm.gain); const flickD = G(0); flick.connect(flickD); flickD.connect(thread.detune); flick.start(); persistent.push(flick);
+  // the threshold's start ring: a glass tone that rises D4 → D5 (and a fifth above, faint) as the start ring fills
+  const startTone = osc('sine', midiHz(62)), startFifth = osc('sine', midiHz(69)), startG = G(0, outRoom), startF = G(0.35, startG);
+  startTone.connect(startG); startFifth.connect(startF); startG.connect(G(0.7, verbIn)); startTone.start(); startFifth.start(); persistent.push(startTone, startFifth);
+  // ---- the ROOM MOVEMENTS (the parts move their worlds; the sound follows the score's state that drives them)
+  const noiseSrc = () => { const n = ctx.createBufferSource(); n.buffer = NOISE; n.loop = true; n.start(0, Math.random() * 1.5); persistent.push(n); return n; };
+  // brasa: the room sinks into the liquid chrome as the ring wakes — a viscous churn (band-passed, breathing) and its body in the sub
+  const liqN = noiseSrc(), liqBp = F('bandpass', 420, 2.2), liqG = G(0, outRoom), liqLp = F('lowpass', 120, 3), liqSubG = G(0, outSub);
+  series(liqN, liqBp, liqG); liqN.connect(liqLp); liqLp.connect(liqSubG);
+  // pinya: the whole pinya turns with the rotllana — a soft rush of bodies that goes round the walls
+  const rotTurn = rotor(0, 0.2), turnN = noiseSrc(), turnBp = F('bandpass', 700, 0.8), turnG = G(0, rotTurn.inp); series(turnN, turnBp, turnG);
+  // tronc: the elevator beside the tower — a deep stone grind and a low fifth while the room climbs
+  const liftN = noiseSrc(), liftBp = F('bandpass', 190, 3), liftG = G(0, outRoom); series(liftN, liftBp, liftG); liftG.connect(G(0.6, outSub));
+  const liftO = [osc('sawtooth', midiHz(38)), osc('sawtooth', midiHz(45))], liftLp = F('lowpass', 260, 1.2), liftOG = G(0, outRoom); for (const o of liftO) { o.connect(liftLp); o.start(); persistent.push(o); } series(liftLp, liftOG); liftOG.connect(G(0.8, outSub));
+  // pom: 1.6 → 90 m — the city's hum falls away below, the thin air of altitude opens above
+  const cityN = noiseSrc(), cityLp = F('lowpass', 260, 0.7), cityG = G(0, outSub), cityBp = F('bandpass', 180, 1.2), cityRoomG = G(0, outRoom); series(cityN, cityLp, cityG); cityN.connect(cityBp); cityBp.connect(cityRoomG);
+  const cityO = [osc('sine', midiHz(38)), osc('sine', midiHz(50)), osc('triangle', midiHz(57))], cityOG = G(0, outRoom); cityO.forEach((o, i) => { o.detune.value = (i - 1) * 7; o.connect(G([0.5, 0.35, 0.15][i], cityOG)); o.start(); persistent.push(o); });
+  const airN = noiseSrc(), airBp = F('bandpass', 2500, 1.4), airG = G(0, ambDest['s-wind-loop'].inp); series(airN, airBp, airG);
+  let mvLiftH = 0, mvLiftV = 0, mvPomP = 0, lastPhrase = '', lastStage = '';
+  const structWalls = () => { const a = []; for (let w = 0; w < NW; w++) if (S.walls && S.walls[w]) a.push(w); return a.length ? a : [0, 1]; };
+  // the intro's TEAR (INT, T-034): from 46.3 to 57.8 s the host tears the square into slabs of image that turn over and fly
+  // (one wave round the room, half of it in ~0.42 of the time). A rip of band-passed noise that wanders, slab clacks and glass
+  // glints running round the walls from P4 both ways, a crack and a sub drop at the start; it thins under the motto (53.3 s).
+  const TEAR = [46.3, 57.8];
+  const tearN = noiseSrc(), tearBp = F('bandpass', 1400, 1.6), tearG = G(0, outRoom); series(tearN, tearBp, tearG); tearG.connect(G(0.5, verbIn));
+  let tearCue = 0;
+  // ---- colours of the re-made chapters (wave 2): pads that the state opens; silent until their block
+  const padOf = (notes, type, lpHz, dest) => { const lp = F('lowpass', lpHz, 0.6), g = G(0, dest); lp.connect(g); notes.forEach((m, i) => { const o = osc(type, midiHz(m)); o.detune.value = (i % 2 ? 1 : -1) * rand(3, 7); o.connect(G(1 / notes.length, lp)); o.start(); persistent.push(o); }); return { g, lp }; };
+  // festa (a plate of chrome and glass): a glass-harmonica shimmer in D major that grows with the resonance
+  const glassPad = padOf([74, 78, 81, 86], 'sine', 9000, rotSoar.inp);
+  // the baixada at dawn: lighter, major, airy — an open D (add9) and the air of the morning
+  const dawnPad = padOf([62, 69, 76, 78, 81], 'triangle', 1800, outRoom); dawnPad.g.connect(G(0.6, verbIn));
+  const dawnN = noiseSrc(), dawnBp = F('bandpass', 5200, 0.9), dawnAir = G(0, ambDest['s-rain-loop'].inp); series(dawnN, dawnBp, dawnAir);
+  // the pom's golden haze (p ≈ 0.55–0.65): a high golden chord and a bright breath as the room passes through it
+  const hazePad = padOf([86, 90, 93, 98], 'sine', 12000, ambDest['s-wind-loop'].inp); hazePad.g.connect(G(0.8, verbIn));
+  const hazeN = noiseSrc(), hazeBp = F('bandpass', 4200, 1.1), hazeG = G(0, ambDest['s-wind-loop'].inp); series(hazeN, hazeBp, hazeG);
+  // the fall (the assemblage tower collapses): a rumble that dies in ~6 s; the debris itself comes from the part's impacts
+  const fallN = noiseSrc(), fallLp = F('lowpass', 90, 0.8), fallSubG = G(0, outSub), fallBp = F('bandpass', 260, 1.4), fallRoomG = G(0, outRoom);
+  series(fallN, fallLp, fallSubG); fallN.connect(fallBp); fallBp.connect(fallRoomG);
   // the tronc's creak: a slow click-train through a resonance, one level per wall (its lean), and a low wobble in the sub
   const creakSrc = osc('sawtooth', 26), creakBp = F('bandpass', 420, 5), creakMix = G(1); series(creakSrc, creakBp, creakMix); creakSrc.start(); persistent.push(creakSrc);
   const creakG = walls.map((_, w) => { const g = G(0, toWall(w)); creakMix.connect(g); return g; });
@@ -445,7 +615,7 @@ export default async function start(host) {
     const b = S.block, ph = S.phase, t = now() + 0.005, metres = e.v * (walls[w].height || 3), u = e.u ?? 0.5;
     const oct = metres < 0.9 ? 0 : metres < 1.5 ? 1 : 2, deg = clamp(Math.floor(u * 5), 0, 4);
     const far = (k) => { const g = handVoice(e.wallId, u, 2.6, 0.9); play('s-timbal', { gain: 0.12 * k * dense, dest: g, at: t, rate: rand(0.78, 0.86) }); drum(t, G(0, g), { sub: 0.35 * k * dense, gain: 0.1, subDest: touchSub }); };
-    if (b === 'wait') far(0.6);
+    if (b === 'wait') far(0.4);                           // softer now: the threshold's tiles answer the hand too (impacts)
     else if (b === 'intro' || b === 'acta') { const g = handVoice(e.wallId, u, 4, 1.2); modal(t, midiHz(74 + MAJOR_PENTA[deg] + 12 * (oct > 1 ? 1 : 0)), 0.012 * dense, g, GLASS); }   // dust: a faint glint
     else if (b === 'brasa') {   // an ember burst; a low thump in the sub
       const g = handVoice(e.wallId, u, 2.2, 0.5);
@@ -479,8 +649,30 @@ export default async function start(host) {
   // ---------------------------------------------------------------- the score's events
   let block = S.block, introCue = 0, bellsCue = 0, crownAt = -1, crownMusic = false, bloomUntil = -1, actaCue = 0;
   let nextHeart = 0, lastHandClock = -1e9, waitSaid = -1e9, pace = 1, festaIn = false, gustUntil = 0;
+  // the visual's tile transition (INT, T-028: res-obra3d/experience.js › MOVES): on every block change the whole room breaks into tiles
+  // and locks into the next world; its peak lands at 0.15 s + half the move's duration. A band-passed swell rises round the walls into
+  // that peak, where the tiles lock in (a tile clack and a glass glint per wall, a soft deep hit). Quieter where the music already hits.
+  const TILE_DUR = { intro: 4.2, brasa: 3.8, pinya: 3.8, tronc: 3.8, pom: 4.0, crown: 3.6, festa: 3.4, baixada: 4.2, fall: 2.6, acta: 4.0, wait: 4.0 };
+  const TILE_GAIN = { intro: 1, brasa: 0.8, pinya: 0.8, tronc: 0.8, pom: 1, crown: 0.45, festa: 0.6, baixada: 0.9, fall: 0.3, acta: 1, wait: 0.9 };
+  function tileSweep(b) {
+    if (!running()) return;
+    const t = now(), pk = t + (0.15 + (TILE_DUR[b] || 3.8) / 2) / pace, k = (TILE_GAIN[b] ?? 0.8) * P.effects;
+    for (let w = 0; w < NW; w++) {
+      const a = t + 0.08 + w * 0.05, n = ctx.createBufferSource(), f = F('bandpass', 300, 1.3), g = G(0, toWall(w));
+      n.buffer = NOISE; n.loop = true; series(n, f, g); g.connect(G(0.5, verbIn));
+      f.frequency.setValueAtTime(260, a); f.frequency.exponentialRampToValueAtTime(5200, pk); f.frequency.exponentialRampToValueAtTime(900, pk + 1.4);
+      g.gain.setValueAtTime(0, a); g.gain.linearRampToValueAtTime(0.016 * k, pk - 0.04); g.gain.exponentialRampToValueAtTime(0.0005, pk + 1.5);
+      n.start(a, Math.random() * 1.5); n.stop(pk + 1.6);
+      play('sfx-tile', { gain: 0.055 * k, dest: toWall(w), at: pk + w * 0.035, rate: rand(0.9, 1.3) });
+      modal(pk + w * 0.035, midiHz(86 + MAJOR_PENTA[(w * 2) % 5]), 0.011 * k, toWall(w), GLASS, 0.8);
+    }
+    drum(pk, drumBus, { f0: 90, f1: 40, dur: 0.9, gain: 0.045 * k, noise: 0.05, sub: 0.28 * k });
+  }
   function enterBlock(b) {
     const prev = block; block = b; const t = now();
+    if (b === 'intro' || b === 'wait') saidThisPass.clear();
+    musicBus.gain.setTargetAtTime(P.music, t, 0.3);   // a tronc's wobble may have left the music down
+    if (prev !== b) tileSweep(b);
     // what leaves: each set as its world closes (the festa lets its drums go first, the rest under the baixada)
     for (const name of Object.keys(sets)) {
       if (!sets[name].want) continue;
@@ -489,7 +681,7 @@ export default async function start(host) {
     }
     for (const c of Object.values(clouds)) c.on = false;
     if (prev === 'tronc' || b === 'tronc') uncut();
-    if (b === 'intro') { introCue = 0; bellsCue = 0; musicOn('intro', { offset: 0, fade: 0.5 }); drum(t + 0.05, drumBus, { f0: 70, f1: 34, dur: 2, gain: 0.1, noise: 0, sub: 1 }); }
+    if (b === 'intro') { introCue = 0; bellsCue = 0; tearCue = 0; musicOn('intro', { offset: 0, fade: 0.5 }); drum(t + 0.05, drumBus, { f0: 70, f1: 34, dur: 2, gain: 0.1, noise: 0, sub: 1 }); }
     else if (b === 'brasa') musicOn('brasa', { fade: 6 });
     else if (b === 'pinya') { musicOn('pinya', { fade: 6 }); layer('pinya', 'bass', 0.5, 0.1); layer('pinya', 'other', 0.1, 0.1); }
     else if (b === 'tronc') { arpN = 0; }
@@ -497,27 +689,46 @@ export default async function start(host) {
     else if (b === 'crown') crown();
     else if (b === 'festa') { say('v-aleta-2', { delay: 0.3 }); if (!sets.festa.want) festaStart(); }
     else if (b === 'baixada') {
-      say('v-baixada-1', { delay: 1.2 });
+      say('v-baixada-gently', { delay: 1.2 });
       layer('festa', 'drums', 0, 0.8); layer('festa', 'bass', 0.3, 2); sets.festa.lp.frequency.setTargetAtTime(900, t, 2.5);
       setTimeout(() => { if (block === 'baixada') musicOff('festa', 8); }, 2500);
       musicOn('baixada', { fade: 5 });
     } else if (b === 'fall') {
       for (const name of Object.keys(sets)) musicOff(name, 0.4);
       play('s-impact', { gain: 0.3, at: t + 0.02 }); play('sfx-fall', { gain: 0.3, at: t + 0.1 });
-      drum(t + 0.03, drumBus, { f0: 70, f1: 30, dur: 1.8, gain: 0.2, noise: 0.05, sub: 0.9 });
+      drum(t + 0.03, drumBus, { f0: 70, f1: 30, dur: 1.8, gain: 0.2, noise: 0.05, sub: 0.7 });   // sub 0.9 → 0.7 (24-11): the collapse's rumble and debris now sit under it
     } else if (b === 'acta') { actaCue = 0; musicOn('acta', { offset: 0, fade: 2 }); }
     if (b !== 'crown') { crownAt = -1; crownMusic = false; }
     if (b !== 'festa' && b !== 'crown' && b !== 'baixada') festaIn = false;
   }
   function festaStart() { festaIn = true; musicOn('festa', { fade: 6 }); layer('festa', 'bass', 0.6, 0.1); layer('festa', 'other', 0.45, 0.1); layer('festa', 'drums', 0, 0.1); setNow(sets.festa.lp.frequency, 700); }
   function crownMusicStart(offset) { if (crownMusic) return; crownMusic = true; musicOn('crown', { offset, fade: 0.05, level: 0.75 }); }
+  // l'aleta's swell: band-passed noise opening 0.3 → 4 kHz and a low saw rising D3 → D4 through an opening low-pass, over the window;
+  // cut in 30 ms when the group crowns (the crown's release lands on that instant)
+  let swell = null, aletaYoursT = 0;
+  function aletaSwell(dur) {
+    if (!running()) return; swell?.stop(now());
+    const t = now(), n = ctx.createBufferSource(), f = F('bandpass', 300, 1.2), g = G(0, spread(0.1)), o = osc('sawtooth', midiHz(50)), lp = F('lowpass', 400, 0.8), og = G(0, spread(0.2));
+    n.buffer = NOISE; n.loop = true; series(n, f, g); series(o, lp, og); g.connect(G(0.5, verbIn));
+    f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(4000, t + dur);
+    o.frequency.setValueAtTime(midiHz(50), t); o.frequency.exponentialRampToValueAtTime(midiHz(62), t + dur); lp.frequency.setValueAtTime(400, t); lp.frequency.exponentialRampToValueAtTime(3000, t + dur);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.03 * P.effects, t + dur); og.gain.setValueAtTime(0, t); og.gain.linearRampToValueAtTime(0.02 * P.music, t + dur);
+    n.start(t); o.start(t);
+    let done = false;
+    const stop = (at) => { if (done) return; done = true; for (const x of [g.gain, og.gain]) { x.cancelScheduledValues(at); x.setValueAtTime(x.value, at); x.linearRampToValueAtTime(0, at + 0.03); } try { n.stop(at + 0.1); o.stop(at + 0.1); } catch { /* stopped */ } };
+    swell = { stop }; setTimeout(() => stop(now()), (dur + 2) * 1000);   // never longer than the window (+2 s)
+  }
   function crown() {   // l'aleta: the release, the bloom, the square roars, the voice; the festa's music comes in from below
     if (crownAt >= 0 || !running()) return; const t = now(); crownAt = t;
-    crownMusicStart(CROWN_IMPACT - 0.35);      // jumped here (no pom reward to start the swell): straight to the release
+    swell?.stop(t); swell = null;
+    crownMusicStart(CROWN_IMPACT - 0.05);      // the release of m-crown lands on the trigger (the group's, or the window's end)
     bloom(t + 0.02);
-    for (let w = 0; w < NW; w++) modal(t + 0.05 + w * 0.09, midiHz(86 + MAJOR_PENTA[w % 5]), 0.05, toWall(w), GLASS, 0.8);
+    const wide = clamp(S.aletaWidth || 0.5, 0.15, 1);   // wider (more glints, louder) the more hands rose and the sooner
+    for (let w = 0; w < NW; w++) modal(t + 0.05 + w * 0.09, midiHz(86 + MAJOR_PENTA[w % 5]), 0.03 + 0.03 * wide, toWall(w), GLASS, 0.8);
+    if (wide > 0.5) for (let w = 0; w < NW; w++) modal(t + 0.12 + w * 0.07, midiHz(93 + MAJOR_PENTA[(w + 2) % 5]), 0.02 * wide, toWall(w + 2), GLASS, 0.9);
     if (play('sfx-crown', { gain: 0.24, dest: fxIn['s-crowd-loop'] || fxBus, at: t + 0.4 })) rotCrowd.speed = 0.12;
-    say('v-aleta-1', { delay: 2.2 });
+    if (aletaYoursT) { clearTimeout(aletaYoursT); aletaYoursT = 0; }   // crowned before the second line: it is not needed
+    say('v-aleta-crowned', { delay: 1.6 });   // v-aleta-1 without its first sentence (trimmed 24-11): «El castell está coronado.»
   }
   const rotCrowd = ambDest['s-crowd-loop'];
   function cutDry() {   // the tronc's last floor: everything that is music stops at once (a 12 ms ramp: dry, without a click)
@@ -535,7 +746,10 @@ export default async function start(host) {
       layer('tronc', 'bass', 0.65, 0.05); layer('tronc', 'drums', 0, 0.05); layer('tronc', 'other', 0, 0.05); setNow(sets.tronc.lp.frequency, 1800);
     } else if (block === 'tronc' && p === 'reward') cutDry();
     else if (block === 'pom' && p === 'play') say('v-pom-2', { delay: 0.3 });
-    else if (block === 'pom' && p === 'reward') crownMusicStart(Math.max(0, CROWN_IMPACT - T.pom.reward / pace));   // the swell rises under the last light; it lands on the crown
+    else if (block === 'pom' && p === 'aleta') {
+      aletaSwell((T.aleta?.window || 8) / pace);
+      if (say('v-aleta-raise', { delay: 0.1 })) { const d = (buffers.get('v-aleta-raise')?.buf.duration || 1.5) + 1.5; aletaYoursT = setTimeout(() => { aletaYoursT = 0; if (block === 'pom') say('v-aleta-yours', { delay: 0 }); }, d * 1000); }   // «She raises her hand.» … 1.5 s … «Raise yours.»
+    }   // l'aleta (24-11): the group decides when; a swell rises under the window, the crown lands on the trigger
     else if (block === 'pinya' && p === 'reward') { play('s-crack', { gain: 0.26, at: t + 4.5 }); riser(t + 2.5, 2, 0.03); }
   }
   function onEvent(ev) {
@@ -545,6 +759,65 @@ export default async function start(host) {
     if (k === 'hint') return say(HINT_LINE[arg], { polite: true, delay: 0.2 });
     if (k === 'abandon') { hush(1); for (const name of Object.keys(sets)) musicOff(name, 3); for (const c of Object.values(clouds)) c.on = false; for (const h of [...live]) if (!h.name.endsWith('-loop')) h.stop(2); return; }
     if (!running()) return;
+    if (k === 'reveal') {   // the start button is whole: a glass chord goes round the walls over a soft low breath
+      if (WAIT_VOICES) say('v-wait-start', { delay: 1.4 });
+      for (let w = 0; w < NW; w++) for (const [j, d] of [[0, 0], [1, 7], [2, 16]]) modal(t + 0.05 + w * 0.18 + j * 0.06, midiHz(74 + d), 0.03, toWall(w), GLASS, 0.9);
+      drum(t + 0.05, drumBus, { f0: 62, f1: 36, dur: 2.2, gain: 0.05, noise: 0, sub: 0.35 });
+      return;
+    }
+    if (k === 'start') {    // the ring blows apart: a burst of glass round the room (the intro's deep hit follows at once)
+      for (let w = 0; w < NW; w++) { play('sfx-tile', { gain: 0.08, dest: toWall(w), at: t + 0.02 + w * 0.03, rate: rand(1.2, 1.6) }); for (let j = 0; j < 4; j++) modal(t + 0.03 + w * 0.03 + j * rand(0.05, 0.12), midiHz(86 + MAJOR_PENTA[(w + j) % 5]), 0.018, toWall(w), GLASS, 0.9); }
+      setNow(startG.gain, 0, t + 0.2);
+      return;
+    }
+    // ---- II. Pinya, gather (24-11): a wall packs — the crowd closes in there (a low wordless voice, a soft clay thump)
+    if (k === 'pack') { const w = +arg; voiceNote(t + 0.02, [45, 50, 52, 57][w % 4], 2.6, 0.03, toWall(w)); play('s-clay', { gain: 0.07, dest: toWall(w), at: t, rate: 0.6 }); return; }
+    // ---- III. Tronc, lift and level (24-11)
+    if (k === 'lift') { for (const w of structWalls()) modal(t + 0.02, midiHz(62 + MINOR_PENTA[(S.floors + 2) % 5]), 0.02, toWall(w), CERAMIC, 0.5); return; }
+    if (k === 'level') { for (const w of structWalls()) modal(t + 0.15, midiHz(81), 0.012, toWall(w), GLASS, 0.8); return; }
+    if (k === 'wobble') {   // it trembles: the music goes, the trencadís cracks, a low rumble (the creak follows the lean)
+      say('v-tronc-wobble', { delay: 0.5 });
+      musicBus.gain.setTargetAtTime(0.12 * P.music, t, 0.12); play('s-crack', { gain: 0.14, dest: toWall(S.wobbleWall >= 0 ? S.wobbleWall : 0), at: t + 0.02, rate: 0.7 });
+      drum(t + 0.03, drumBus, { f0: 48, f1: 30, dur: 3, gain: 0.06, noise: 0.03, sub: 0.45 }); return;
+    }
+    if (k === 'steady') { musicBus.gain.setTargetAtTime(P.music, t, 0.6); drum(t + 0.02, drumBus, { f0: 70, f1: 36, dur: 1.4, gain: 0.14, noise: 0.03, sub: 0.6 }); return; }   // relief
+    if (k === 'slip') {   // it loses a floor: a crack and the tiles slide down
+      musicBus.gain.setTargetAtTime(P.music, t + 0.6, 0.8); play('s-crack', { gain: 0.18, at: t + 0.01, rate: 0.6 });
+      for (let j = 0; j < 5; j++) play('sfx-tile', { gain: 0.06, dest: toWall((S.wobbleWall >= 0 ? S.wobbleWall : 0) + (j % 2)), at: t + 0.1 + j * 0.13, rate: 1.2 - j * 0.1 });
+      return;
+    }
+    // ---- la bajada, bring it down (24-11)
+    if (k === 'lower') { for (let j = 0; j < 3; j++) modal(t + 0.05 + j * 0.16, midiHz(86 - [0, 5, 10][j]), 0.02, toWall(S.descents + j), GLASS, 0.9); drum(t + 0.05, drumBus, { f0: 60, f1: 40, dur: 1.2, gain: 0.04, noise: 0, sub: 0.25 }); return; }
+    if (k === 'crack') {  // abrupt, or let go: it cracks and shards spill
+      play('s-crack', { gain: 0.12, at: t + 0.01, rate: rand(0.8, 1.1) });
+      for (let j = 0; j < 6; j++) modal(t + 0.06 + j * rand(0.04, 0.1), midiHz(86 + MAJOR_PENTA[Math.floor(Math.random() * 5)]), 0.01, toWall(j), CERAMIC, 0.6);
+      drum(t + 0.02, drumBus, { f0: 90, f1: 40, dur: 0.6, gain: 0.06, noise: 0.2, sub: 0.3 }); return;
+    }
+    if (k === 'call') {   // the brasa's call (24-11): timbal tok… tok… TOK, gap s apart; the TOK on the answering wall (or all four)
+      const C = S.call || {}, g = (C.gap || 0.8) / pace, from = C.from || 0, to = C.to ?? from;
+      for (let j = 0; j < 2; j++) { play('s-timbal', { gain: 0.09, dest: toWall(from), at: t + 0.01 + j * g, rate: 0.92 }); drum(t + 0.01 + j * g, toWall(from), { f0: 110, f1: 70, dur: 0.25, gain: 0.03, noise: 0.05 }); }
+      const tokAt = t + 0.01 + 2 * g, tw = to < 0 ? [...Array(NW).keys()] : [to];
+      for (const w of tw) play('s-timbal', { gain: 0.16 / Math.sqrt(tw.length), dest: toWall(w), at: tokAt, rate: 0.84 });
+      drum(tokAt, drumBus, { f0: 82, f1: 44, dur: 0.6, gain: 0.08, noise: 0.06, sub: 0.3 });
+      return;
+    }
+    // ---- V. la ressonància (24-11): fronts that cross the room, echoes returned an octave up, the room's ghost return
+    if (k === 'front' || k === 'echo' || k === 'ghost') {
+      const f = (S.fronts || [])[S.fronts.length - 1]; if (!f) return;
+      const travel = Math.max(0.3, (f.arrive - S.clock) / pace), m = 62 + 12 * Math.min(2, f.gen) + MAJOR_PENTA[(f.from + f.gen) % 5];
+      if (k !== 'front') fmHit(t + 0.01, midiHz(m), (k === 'ghost' ? 0.018 : 0.028), toWall(f.from));                 // the return, an octave up per rebound
+      // the front crossing: a soft band of noise that leaves one wall and arrives at the other, and a glint on arrival
+      const n = ctx.createBufferSource(), bp = F('bandpass', 900 + 500 * f.gen, 1.5), ga = G(0, toWall(f.from)), gb = G(0, toWall(f.to)); n.buffer = NOISE; n.loop = true; n.connect(bp); bp.connect(ga); bp.connect(gb);
+      const k0 = (0.006 + 0.004 * Math.min(3, f.gen)) * P.effects;
+      ga.gain.setValueAtTime(k0, t); ga.gain.linearRampToValueAtTime(0, t + travel); gb.gain.setValueAtTime(0, t); gb.gain.linearRampToValueAtTime(k0 * 1.3, t + travel); gb.gain.linearRampToValueAtTime(0, t + travel + 0.4);
+      n.start(t, Math.random()); n.stop(t + travel + 0.5);
+      modal(t + travel, midiHz(m + 12), 0.012, toWall(f.to), GLASS, 0.8);
+      return;
+    }
+    if (k === 'wave' && (S.block === 'brasa' || S.block === 'festa') && S.waveBig === false) {   // a missed call: a small wave, one tabal, and the room will call again
+      play('s-tabals', { gain: 0.06, dest: toWall((S.call && S.call.from) || 0), at: t + 0.03, rate: 0.9 });
+      return;
+    }
     if (k === 'wave') {   // the correfoc's tabals run round the room from the busiest wall, and land deep
       let from = 0, best = -1; S.count.forEach((c, w) => { if (c > best) { best = c; from = w; } });
       for (let j = 0; j < NW; j++) play('s-tabals', { gain: 0.13 * (0.55 + 0.45 * (j / Math.max(1, NW - 1))), dest: toWall(from + j), at: t + 0.03 + j * 0.16, rate: 1 - j * 0.03 });
@@ -568,9 +841,11 @@ export default async function start(host) {
       heart(t + 0.05, 0.1);
     } else if (k === 'crown') crown();
     else if (k === 'bloom') {   // the room flowers: everything opens for 5 s, bells round the walls, the crowd swells
-      bloomUntil = t + 5;
-      for (let w = 0; w < NW; w++) modal(t + 0.05 + w * 0.12, midiHz(86 + MAJOR_PENTA[w % 5]), 0.04, toWall(w), GLASS, 0.8);
-      drum(t + 0.02, drumBus, { f0: 70, f1: 36, dur: 1.6, gain: 0.1, noise: 0, sub: 0.45 });
+      const size = S.bloomSize > 0 ? S.bloomSize : 0.6;            // 24-11: the final bloom, always; its size by how together they were
+      bloomUntil = t + (S.bloomDur > 0 ? S.bloomDur / pace : 5);
+      for (let w = 0; w < NW; w++) modal(t + 0.05 + w * 0.12, midiHz(86 + MAJOR_PENTA[w % 5]), 0.02 + 0.03 * size, toWall(w), GLASS, 0.8);
+      if (size > 0.6) for (let w = 0; w < NW; w++) modal(t + 0.3 + w * 0.1, midiHz(93 + MAJOR_PENTA[(w + 2) % 5]), 0.025 * size, toWall(w + 1), GLASS, 0.9);
+      drum(t + 0.02, drumBus, { f0: 70, f1: 36, dur: 1.6, gain: 0.05 + 0.06 * size, noise: 0, sub: 0.2 + 0.3 * size });
       ambLevel('s-crowd-loop', L.crowd * 1.8, 0.3);
     } else if (k === 'down') {   // a floor comes down: a tile, and a falling note on the next wall round
       play('sfx-tile', { gain: 0.14, dest: toWall(S.floors), at: t + 0.02 });
@@ -586,17 +861,44 @@ export default async function start(host) {
     // the voice by the clock: the intro's lines, the waiting call, the acta's lines
     const IV = P.lang === 'es' ? INTRO_VOICE_ES : INTRO_VOICE;
     if (b === 'intro') while (introCue < IV.length && S.t >= IV[introCue][0]) say(IV[introCue++][1], { delay: 0.05 });
-    if (b === 'wait' && S.hands === 0) { const gone = S.clock - lastHandClock; if (gone >= WAIT_AFTER && gone <= WAIT_RECENT && S.clock - waitSaid >= WAIT_EVERY) { waitSaid = S.clock; say('v-wait', { polite: true, delay: 0.2 }); } }
+    if (b === 'wait' && S.hands === 0) { const gone = S.clock - lastHandClock; if (gone >= WAIT_AFTER && gone <= WAIT_RECENT && S.clock - waitSaid >= WAIT_EVERY) { waitSaid = S.clock; if (WAIT_VOICES && (S.reveal || 0) < 1) say('v-wait-invite', { polite: true, delay: 0.2 }); } }
     if (b === 'acta') {
       if (actaCue === 0 && S.t >= ACTA_AT.outcome) { actaCue = 1; say(OUTCOME_LINE[S.outcome] || OUTCOME_LINE.descarregat, { delay: 0.05 }); }
       if (actaCue === 1 && S.t >= ACTA_AT.final) { actaCue = 2; say('v-cierre-final', { delay: 0.05 }); }
     }
     if (!on) return;
     musicKeep(); ambKeep();
+    // the threshold: as play reveals the button, glass motes gather (more and brighter); the start ring raises a glass tone
+    if (b === 'wait') {
+      const rv = S.reveal || 0;
+      if (rv > 0.04 && rv < 1 && Math.random() < dt * (0.4 + 5 * rv)) { const w = Math.floor(Math.random() * NW); modal(t + 0.01, midiHz(86 + MAJOR_PENTA[Math.floor(Math.random() * 5)] + (Math.random() < 0.3 ? 12 : 0)), (0.004 + 0.012 * rv) * P.effects, toWall(w), GLASS, 1); }
+      const st = S.start || 0;
+      startTone.frequency.setTargetAtTime(midiHz(62) * Math.pow(2, st), t, 0.15); startFifth.frequency.setTargetAtTime(midiHz(69) * Math.pow(2, st), t, 0.15);
+      startG.gain.setTargetAtTime(st > 0.01 ? (0.006 + 0.03 * st) * P.effects : 0, t, 0.2);
+    } else if (startG.gain.value > 0) startG.gain.setTargetAtTime(0, t, 0.3);
     // the intro's bells: far away (the far wall) at the start, again lower as the tower dissolves
     if (b === 'intro') {
       if (bellsCue === 0 && S.t >= 2.5) { bellsCue = 1; const h = play('s-bells', { gain: 0.13, dest: toWall(Math.floor(NW / 2)), rate: 0.947 }); h?.g.connect(G(0.9, verbIn)); }
-      if (bellsCue === 1 && S.t >= 46) { bellsCue = 2; const h = play('s-bells', { gain: 0.09, dest: toWall(0), rate: 0.71 }); h?.g.connect(G(1, verbIn)); }
+      if (tearCue === 0 && S.t >= TEAR[0] && S.t < TEAR[1]) {
+        tearCue = 1;
+        play('s-crack', { gain: 0.11, dest: fxBus, at: t + 0.01, rate: 0.8 });
+        drum(t + 0.02, drumBus, { f0: 62, f1: 30, dur: 2.2, gain: 0.08, noise: 0.08, sub: 0.55 });
+        const g = tearG.gain, e = P.effects; g.cancelScheduledValues(t); g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(0.03 * e, t + 1.2); g.linearRampToValueAtTime(0.024 * e, t + 5.5);
+        g.linearRampToValueAtTime(0.008 * e, t + 7.0); g.linearRampToValueAtTime(0.006 * e, t + 10.5); g.linearRampToValueAtTime(0, t + 11.8);
+      }
+      if (tearCue === 1 && S.t >= TEAR[0] && S.t < TEAR[1]) {
+        const x = S.t - TEAR[0], span = TEAR[1] - TEAR[0];
+        tearBp.frequency.setTargetAtTime(rand(500, 3200), t, 0.05);
+        const rate = 9 * Math.exp(-(((x - 2.2) / 2.2) ** 2)) + 1.5 * (x < 7 ? 1 : 0.3);
+        if (Math.random() < dt * rate) {
+          const front = Math.min(1, x / (0.42 * span)), w = Math.round((Math.random() < 0.5 ? 1 : -1) * front * (NW / 2)) % NW;
+          if (Math.random() < 0.6) play('sfx-tile', { gain: rand(0.015, 0.04) * (x > 7 ? 0.5 : 1), dest: toWall(w), at: t + 0.01, rate: rand(0.75, 1.4) });
+          else modal(t + 0.01, midiHz(rand(79, 91)), 0.01 * (x > 7 ? 0.5 : 1), toWall(w), GLASS, 0.8);
+        }
+      }
+      if (tearCue === 1 && S.t >= TEAR[1]) { tearCue = 2; for (let w = 0; w < NW; w++) modal(t + 0.05 + w * 0.1, midiHz(74 + MAJOR_PENTA[(w * 2) % 5]), 0.014, toWall(w), GLASS, 1); }   // the last slab settles: the title
+      if (bellsCue === 1 && S.t >= TEAR[0]) { bellsCue = 2; const h = play('s-bells', { gain: 0.09, dest: toWall(0), rate: 0.71 }); h?.g.connect(G(1, verbIn)); }
     }
     if (b === 'crown' && !festaIn && S.t >= 13.5) festaStart();   // the festa grows out of the crown's last bars
 
@@ -648,6 +950,47 @@ export default async function start(host) {
 
     // ---- a crowd of hands shares the sub: their thumps get lighter as the room fills (the walls keep their attacks)
     touchSub.gain.setTargetAtTime(1 / Math.sqrt(Math.max(1, (S.hands || 0) / 3)), t, 0.3);
+    // ---- the tronc's phrase (24-11): when the hands start to lift, a soft ceramic line rises round the tower's walls (D minor pentatonic)
+    if (b === 'tronc' && ph === 'play' && S.phrase === 'rise' && lastPhrase !== 'rise' && !(S.wobble > 0)) {
+      const sw = structWalls();
+      for (let j = 0; j < 4; j++) modal(t + 0.05 + j * 0.55, midiHz(62 + MINOR_PENTA[(j + (S.floors || 0)) % 5] + (j >= 3 ? 12 : 0)), 0.01 + 0.003 * j, toWall(sw[j % Math.max(1, sw.length)] ?? j), CERAMIC, 0.4);
+      riser(t + 0.1, 2.3, 0.012, fxBus);
+    }
+    lastPhrase = S.phrase;
+    // the pinya's call: when the figures start to lead the hands to the centre (and the group has not packed yet)
+    if (b === 'pinya' && ph === 'play' && S.pinyaStage === 'pack' && lastStage === 'palm' && !(S.learned && S.learned.pinya)) say('v-pinya-closein', { polite: true, delay: 0.2 });
+    lastStage = S.pinyaStage;
+    // ---- the room movements
+    {
+      const brasa = b === 'brasa', sink = brasa && ph !== 'title' ? clamp(prog * 1.15, 0, 1) : 0;
+      liqG.gain.setTargetAtTime(0.02 * sink * P.effects, t, 1.5); liqSubG.gain.setTargetAtTime(0.12 * sink * P.effects, t, 1.5);
+      liqBp.frequency.setTargetAtTime(300 + 260 * (0.5 + 0.5 * Math.sin(t * 0.4)), t, 0.8);
+      if (sink > 0.1 && Math.random() < dt * (0.3 + 1.2 * sink)) { const w = Math.floor(Math.random() * NW); liquid(t + 0.01, midiHz(rand(38, 50)), 0.012 * sink * P.effects, toWall(w)); }   // a slow bubble
+      const turning = b === 'pinya' && (S.closed || 0) >= 1 ? (ph === 'reward' ? clamp(1 - S.tp / 7, 0, 1) : 1) : 0;
+      turnG.gain.setTargetAtTime(0.018 * turning * P.effects, t, 1.2); rotTurn.speed = 0.04 + 0.04 * turning;
+      const h = (S.floors || 0) + (S.floorProgress || 0), climbing = b === 'tronc' && ph === 'play';
+      mvLiftV += ((climbing ? Math.max(0, (h - mvLiftH) / Math.max(dt, 1e-3)) : 0) - mvLiftV) * (1 - Math.exp(-dt / 1.2)); mvLiftH = h;
+      const lk = climbing ? clamp(0.25 + mvLiftV * 2.5, 0, 1) : 0;
+      liftG.gain.setTargetAtTime(0.03 * lk * P.effects, t, climbing ? 0.8 : 0.012); liftOG.gain.setTargetAtTime(0.012 * lk * P.effects, t, climbing ? 0.8 : 0.012);   // the reward's dry cut takes it too
+      liftLp.frequency.setTargetAtTime(180 + 30 * h, t, 1); liftBp.frequency.setTargetAtTime(150 + 12 * h, t, 1);
+      const pomOn = b === 'pom' && ph !== 'reward' ? 1 : b === 'pom' ? 0.4 : 0, ht = pom ? prog : 0;
+      const below = pomOn * Math.pow(1 - ht, 1.6);
+      cityG.gain.setTargetAtTime(0.1 * below * P.effects, t, 1.5); cityRoomG.gain.setTargetAtTime(0.03 * below * P.effects, t, 1.5); cityOG.gain.setTargetAtTime(0.01 * below * P.effects, t, 1.5);
+      cityLp.frequency.setTargetAtTime(120 + 200 * (1 - ht), t, 1.5);
+      airG.gain.setTargetAtTime((0.003 + 0.022 * ht) * pomOn * P.effects, t, 1.5); airBp.frequency.setTargetAtTime(2200 + 5000 * ht, t, 1.5);
+      if (pom) { ambDest['s-wind-loop'].phase -= (prog - mvPomP) * (45 / 360); }   // the wind field turns with the world's 45°
+      mvPomP = pom ? prog : 0;
+      // the re-made chapters' colours
+      const fe = (b === 'festa' ? clamp(S.resonance || 0, 0, 1) : 0) * P.music;
+      glassPad.g.gain.setTargetAtTime(0.004 * (fe > 0 ? 1 : 0) + 0.016 * fe, t, 0.8); glassPad.lp.frequency.setTargetAtTime(3000 + 9000 * fe, t, 0.8);
+      const dawn = b === 'baixada' ? clamp(0.3 + 0.7 * prog, 0, 1) : b === 'acta' ? clamp(1 - S.t / 8, 0, 1) * 0.5 : 0;
+      dawnPad.g.gain.setTargetAtTime(0.012 * dawn * P.music, t, 2.5); dawnPad.lp.frequency.setTargetAtTime(1200 + 2400 * dawn, t, 2);
+      dawnAir.gain.setTargetAtTime(0.006 * dawn * P.effects, t, 2.5);
+      const haze = pom ? Math.exp(-(((prog - 0.6) / 0.06) ** 2)) : 0;
+      hazePad.g.gain.setTargetAtTime(0.014 * haze * P.music, t, 0.6); hazeG.gain.setTargetAtTime(0.01 * haze * P.effects, t, 0.6);
+      const fk = b === 'fall' ? Math.exp(-S.t / 2.2) * clamp(S.t / 0.15, 0, 1) : 0;
+      fallSubG.gain.setTargetAtTime(0.08 * fk * P.effects, t, 0.15); fallRoomG.gain.setTargetAtTime(0.02 * fk * P.effects, t, 0.15);
+    }
     // ---- the drone
     const drone = b === 'wait' ? 0.03 : b === 'brasa' ? 0.015 : b === 'tronc' && ph === 'title' ? 0.035 : b === 'baixada' ? 0.012 : b === 'fall' ? 0.02 : 0;
     if (!(b === 'tronc' && ph === 'reward')) { droneG.gain.setTargetAtTime(drone * 0.9, t, 1.2); droneSubG.gain.setTargetAtTime(drone * 1.3, t, 1.2); }
@@ -676,8 +1019,9 @@ export default async function start(host) {
   // LOCAL WORKAROUND (see the top of the file): the BroadcastChannel to the visual piece.
   let bc = null;
   try { bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { bc = null; }
-  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (m.jump) score.jump(m.jump); };
-  const lastPos = new Map(), hands = [];
+  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (m.jump) score.jump(m.jump); };
+  const lastPos = new Map(), hands = [], handPool = [];
+  const wallS0 = walls.reduce((a, w, i) => { a.push(i ? a[i - 1] + (walls[i - 1].width || 4) : 0); return a; }, []);   // where each wall starts along the perimeter (m)
   let last = performance.now();
   const timer = setInterval(() => {
     const wallNow = performance.now(), dt = clamp((wallNow - last) / 1000, 0, 0.25), wt = wallNow / 1000; last = wallNow;
@@ -687,9 +1031,13 @@ export default async function start(host) {
       const w = wallIdx.get(h.wallId); if (w == null) continue;
       const W = walls[w], x = h.u * (W.width || 4), y = h.v * (W.height || 3);
       let p = lastPos.get(h.stroke);
-      if (!p) { p = { x, y, t: wt, speed: 0 }; lastPos.set(h.stroke, p); }
-      else if (wt - p.t >= 0.09) { p.speed = Math.hypot(x - p.x, y - p.y) / (wt - p.t); p.x = x; p.y = y; p.t = wt; }
-      seen.add(h.stroke); hands.push({ stroke: h.stroke, wall: w, dx: (h.u - 0.5) * (W.width || 4), speed: p.speed });
+      if (!p) { p = { x, y, t: wt, speed: 0, vx: 0, vy: 0 }; lastPos.set(h.stroke, p); }
+      else if (wt - p.t >= 0.09) { const d = wt - p.t; p.vx = (x - p.x) / d; p.vy = (y - p.y) / d; p.speed = Math.hypot(p.vx, p.vy); p.x = x; p.y = y; p.t = wt; }
+      // the score's hand (plan de interacción, step 0): height from the floor, velocity, size and place on the perimeter, in metres
+      const o = handPool[hands.length] || (handPool[hands.length] = {});
+      o.stroke = h.stroke; o.wall = w; o.dx = (h.u - 0.5) * (W.width || 4); o.y = y; o.vx = p.vx; o.vy = p.vy; o.speed = p.speed;
+      o.size = h.size > 0 ? h.size : 0.12; o.s = wallS0[w] + h.u * (W.width || 4);
+      seen.add(h.stroke); hands.push(o);
     }
     for (const k of lastPos.keys()) if (!seen.has(k)) lastPos.delete(k);
     score.step(dt * pace, hands);
@@ -713,7 +1061,7 @@ export default async function start(host) {
       for (const h of [...live]) h.stop(0.3);
       for (const name of Object.keys(sets)) musicOff(name, 0.3);
       for (const c of Object.values(clouds)) c.on = false;
-      for (const g of [droneG, droneSubG, threadG, wobG, ...creakG]) ramp(g.gain, 0, 0.1, t);
+      for (const g of [glassPad.g, dawnPad.g, dawnAir, hazePad.g, hazeG, fallSubG, fallRoomG, droneG, droneSubG, threadG, wobG, startG, liqG, liqSubG, turnG, liftG, liftOG, cityG, cityRoomG, cityOG, airG, ...creakG]) ramp(g.gain, 0, 0.1, t);
       for (const o of persistent) { try { o.stop(t + 1); } catch { /* done */ } }
       setTimeout(() => { for (const wi of wallIn) wi.disconnect(); }, 1500);
     },

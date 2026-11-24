@@ -3,7 +3,7 @@
 - **Status:** prototype
 - **Kind:** sound
 - **Author:** Vicente
-- **Updated:** 2026-11-23
+- **Updated:** 2026-11-24
 
 ## Concept
 The sound of `ressonancia`: the whole ten-minute work of `ressonancia/GUION.md`, block by block, redesigned (v3) as a
@@ -42,7 +42,7 @@ one-shots), `touch` (hand sounds).
 ## Audio — the sound world of each block
 | Block | World | What sounds (layers → what moves them) |
 |---|---|---|
-| wait | embers in the dark | `s-embers-loop` low, the synth drone (D, A, sub D1); a far timbal (`s-timbal` lowered, big reverb, a sub breath) under each hand; `v-wait` at most every 40 s, only when the room is empty and a hand was seen in the last 2 min |
+| wait | the threshold (umbral3d) | `s-embers-loop` low, the synth drone (D, A, sub D1); a far timbal (`s-timbal` lowered, big reverb, a sub breath) under each hand, softer; **the tiles' impacts** from the visual (`fx:impact`, below); glass motes that gather, more and brighter, with `reveal`; **reveal**: a glass chord round the walls over a low breath; while the start ring fills, a glass tone rising D4 → D5 (with its fifth); **start**: a burst of tiles and glass round the room; `v-wait` at most every 40 s, only when the room is empty and a hand was seen in the last 2 min |
 | intro (70 s) | a night square holding its breath | `m-intro` (sub breath and dust → bells smeared into drones → a stretched reed); `s-bells` at 2.5 s from the far wall (re-tuned to D) and again at 46 s, lower; `s-breath-loop` faint 20–50 s; granular reed "memory" from 56 s; voice on the table at the top of `sound.js` (re-timed to `scenes/intro.js`: 8.5 / 17 / 29 / 41 / 53.3 / 66.3 s); hands leave a faint glass glint |
 | brasa | fire | `m-brasa` bed (sub rumble, crackle, far processed tabals) → `progress`; `s-fire-loop` grows from 20 % to 100 % with `progress`; `s-embers-loop`; **hand**: `s-ember-burst` (rate 0.8–1.25) + a sub thump; **wave**: `s-tabals` once per wall, 0.16 s apart, from the busiest wall round the room, landing on a deep hit; **awake**: `s-impact` REVERSED (a 5 s swell) into a deep hit and four low stone tones; then the fire sinks into the pinya |
 | pinya | bodies | stems of `m-pinya`: `bass` (pressure) 0.5→1 and `other` (warm vowel pads) 0.1→1 with `progress`; `s-breath-loop` 40→100 %; heartbeat (synth, sub + skin) quickening with `progress`; **hand**: `s-clay` + body thump; **wall:n**: a low formant voice and a clay thump on that wall; **close**: the gralla **granulated and turning round the room** (D4/A4/D5 grains on a fast rotor) + `v-pinya-3`; **reward**: a riser into `s-crack` (the clay cracks into trencadís) |
@@ -96,7 +96,20 @@ A file that fails to load logs a warning and the piece goes on without it (a mis
   `voice-lines-v2.json`; the v2 voice lines were overwritten by v3 with the same names.
 
 ## Voice in Spanish
-- Parameter `lang` ("Voice language": English / Spanish (Spain)); it can change live (the other language's lines are loaded).
+- 2026-11-24, interaction plan (approved by Vicente): 7 new lines × ES/EN, same voices/settings/tags, checked with scribe_v1:
+  `v-pinya-wait` (pinya title: «Alguien espera vuestra mano.»), `v-pinya-closein` (when the figures start to lead the hands, unless
+  packed: «Juntaos. Hombro con hombro.»), `v-tronc-lift` (tronc title: «Ahora, levantad. Cada piso sube con vuestras manos.»),
+  `v-tronc-wobble` (on 'wobble': «Tiembla. Sujetad la base.»), `v-aleta-raise` + 1.5 s + `v-aleta-yours` (when l'aleta's window
+  opens: «Ella levanta la mano.» … «Levantad la vuestra.»; the second is dropped if the group already crowned), `v-baixada-gently`
+  (baixada entry: «Despacio. Piso a piso.»). Silenced (kept on disk): v-pinya-1, v-pinya-2, v-tronc-1, v-tronc-3, v-aleta-1,
+  v-baixada-1; hints more/hold/beat/lift/foot are silent. `v-aleta-crowned` = v-aleta-1 trimmed after its first sentence
+  (ffmpeg at the pause: EN from 2.23 s, ES from 1.86 s, fades 30/120 ms; originals kept; scribe_v1: «The castell is crowned» / «El castell
+  está coronado»), said 1.6 s after the crown. A line never repeats in a pass (the wait's calls are between passes).
+- 2026-11-24: `v-wait` is no longer used (the start button is revealed by play). New lines, both languages, same voices/settings/tag,
+  checked with scribe_v1: `v-wait-invite` («Tocad. Jugad con la sala.» / «Touch. Play with the room.»: the empty room's call before
+  the reveal) and `v-wait-start` («Sostened el anillo para empezar.» / «Hold the ring to begin.»: 1.4 s after 'reveal').
+- **Spanish is the default** since 2026-11-24 (Vicente: all the work in Spanish). Parameter `lang` ("Voice language": Spanish (Spain) /
+  English); it can change live (the other language's lines are loaded).
 - 26 lines in peninsular Spanish (vosotros: the public is in Barcelona), the casteller words kept in Catalan (castell, pinya, seny,
   descarregat, carregat, intent). Script, settings, lengths and speech-to-text checks: `audio/es/voice-lines-es.json`.
 - Voice: **Mía Evans** (ElevenLabs voice library, peninsular, `Qvbf0AoA7UZSgJUp8Ba5`), `eleven_v4` with the same expressive tags
@@ -109,7 +122,83 @@ A file that fails to load logs a warning and the piece goes on without it (a mis
 - In the lab: `?sound=ressonancia-sound&soundParams={"lang":"es"}` on a visual page. Tested on the review page: the 26 Spanish
   files load, none in English, no warnings. Nobody has listened to them yet.
 
+## Physical impacts from the visual (`fx:impact`)
+The visual parts post their physical events on the same `BroadcastChannel('ressonancia')`:
+`{ type: 'fx', fx: 'impact', wall, u (0..1 along the wall), strength (0..1), mat, kind }`. `impact()` gives each matter its timbre,
+tuned to the chapter's mode (brasa, pinya, tronc, fall: D minor pentatonic; the rest D major pentatonic; position → degree):
+- mat: `ceramic` `chrome` `glass` (umbral), `fire` (brasa's burning tiles), `wire` (pinya's wire cubes), `stone` (tronc's pieces),
+  `line` (pom's line tiles), `petal` (pom's gardens); unknown → ceramic.
+- kind: `hit` (a chime of the matter), `floor` (lands: tile clack / low stone / thin wire tick; pom's: far below, a reverberant tick),
+  `break` (crack + chips), `hook`/`lock` (back in place: a clack in tune), `splash` (a metal drop falling in pitch; fire hisses),
+  `sink` (a glide into the sub), `ignite` (ember burst + low breath), `slide` (a band-passed scrape; ≤ 1 per wall per 0.15 s),
+  `bloom` (a soft rising glass arpeggio); unknown → silent.
+- Density (2026-11-24): impacts on one wall < 90 ms after the last one that rang there join its cluster (a small tick an octave up into
+  that voice, ≤ 8, no new voice or clack); each impact's level falls with the rate of the last second (1/√(1 + rate/4)); the tile clack
+  thins and the low body drops out in a rain; pitch varies with the piece's `size` (m, optional in the message). Cap 20 a second.
+- Before that: at most 14 a second in all, through the hand voices (12-voice cap); each wall carries a load that decays in 0.35 s, shared with the
+  hands, so a burst on one wall cannot pile up. Silent test: bursts of 9–12 full-strength impacts on one wall per chapter → walls
+  ≤ 0.25, sub ≤ 0.21. The sending snippet for parts is in `lab/estudio/notas/ENT.md`.
+
+## Room movements (wave 2)
+The parts move their worlds; the sound follows the score state that drives them (`follow()` › "the room movements"):
+- brasa (the room sinks into liquid chrome, ∝ progress): a breathing band-passed viscous churn + its body in the sub, slow low bubbles;
+- pinya (the pinya turns with the rotllana once `closed = 1`): a soft rush of bodies on a rotor round the walls, out within ~7 s of the reward;
+- tronc (the elevator beside the tower): a low stone grind + a low fifth (D1/A1) ∝ the smoothed rise speed of floors + floorProgress,
+  brighter higher up; it goes with the reward's dry cut;
+- pom (1.6 → 90 m, 45° turn): the city's hum falls away (low noise + low D/A, (1 − progress)^1.6, closing low-pass) and the thin air of
+  altitude opens (band-passed noise 2.2 → 7.2 kHz ∝ progress) on the wind's rotor; the wind field turns 45° with the world over the rise.
+
+## Colours of the re-made chapters (wave 2)
+- festa (a plate of chrome and glass): a glass-harmonica shimmer in D major (D5 F#5 A5 D6) on the fast rotor, opening with `resonance`;
+- baixada at dawn (lighter, major, airy): an open D add9 pad (D4 A4 E5 F#5 A5, triangles, low-pass 1.2 → 3.6 kHz) that comes in with
+  the descent and lingers 8 s into the acta, and the morning air (noise at 5.2 kHz on the rain's rotor); `glass` landings are high glass ticks;
+- pom's golden haze (progress ≈ 0.55–0.65): a high golden chord (D6 F#6 A6 D7) and a bright breath on the wind's rotor, a gaussian
+  bell centred on 0.60;
+- fall (the assemblage tower collapses): a rumble that dies in ~6 s under the fall's hits; the part's `stone` impacts at 0.3 within
+  `fall`; the fall's deep hit's sub 0.9 → 0.7 and its tile-transition gain 0.6 → 0.3 (measured: walls 0.34, sub 0.64 with 12 impacts).
+
+## The intro's tear (INT, T-034)
+From 46.3 to 57.8 s the host tears the square into slabs of image (it no longer breaks into floating panels). `follow()` marks it:
+a crack (`s-crack` at 0.8) and a sub drop at 46.3 s; a wandering band-passed rip (0.5–3.2 kHz) that rises in 1.2 s, holds to ~51.8 s
+and thins under the motto (voice at 53.3 s); slab clacks (`sfx-tile`) and glass glints running round the walls from P4 both ways
+(densest at ~48.5 s); a glass glint per wall when the last slab settles at 57.8 s. The low bells moved from 46 to 46.3 s.
+
+## The score's new inputs and l'aleta (2026-11-24, interaction plan steps 0–1)
+- The piece builds each hand for the score as `{ stroke, wall, dx, y (v × wall height), vx, vy, size, s (m along the perimeter), speed }`.
+- L'aleta: the score's `pom` block has a phase `'aleta'` (an 8 s window after the reward) in which the group crowns the castell by
+  raising its hands. A swell (band-passed noise 0.3 → 4 kHz and a saw D3 → D4 through an opening low-pass) rises under the window; on
+  the trigger it is cut in 30 ms and `m-crown` starts at its release (4.0 s into the take), so the crown lands on the group's gesture;
+  the crown's glass glints grow with `aletaWidth`. `m-crown` no longer starts at the pom's reward.
+
+## Tronc = lift and level, baixada = bring it down (2026-11-24, plan steps 2–3)
+The tronc's pulse stays (the take's grid, the timbal); the score now judges 4.8 s phrases (gather → rise → lock). Sound: when a rise
+begins, a soft ceramic line climbs round the tower's walls (D minor pentatonic) with a breath; `lift` a ceramic chord; `level` a glass
+note; `wobble` (the tower trembles: 5 s to bring hands to its foot) drops the music to 0.12 with a crack and a low rumble (the creak
+follows the lean); `steady` a deep hit of relief and the music back; `slip` a crack and tiles sliding down. Baixada: `lower` a falling
+glass triad and a soft low; `crack` a crack and spilt shards. Silent harness test: tronc walls ≤ 0.30, sub 0.58; baixada ≤ 0.32, sub 0.12.
+
+## Pinya = gather (2026-11-24, plan step 4)
+A wall fills by how packed its hands are, not by time. `pack:w` (a wall has packed) sounds as a low wordless voice and a soft clay
+thump on that wall; `wall:w` (full) as before.
+
+## Brasa: the call (2026-11-24, plan step 6)
+`call`: two timbal toks on the calling wall and the TOK (lower, louder) on the answering wall or on all four, `call.gap` apart (0.8 s,
+slower after a miss); the big wave as before (tabals round the walls, a deep hit); a missed call's small wave = one soft tabal.
+
+## La ressonància: free → echo → call → bloom (2026-11-24, plan step 7)
+`front`: a soft noise band that leaves one wall and reaches the opposite one over the 3 s travel, a glint on arrival; `echo`: a resonant
+FM hit an octave up per rebound on the returning wall (`ghost`, the room's return, softer); the call as in the brasa on all four walls;
+the final `bloom` grows with `bloomSize` and lasts `bloomDur`. Silent harness test (pace 6): walls ≤ 0.33, sub 0.50.
+
+## Tile transitions (INT, T-028)
+On every block change the visual breaks the whole room into tiles; their peak lands at 0.15 s + half the move's duration
+(`res-obra3d/experience.js › MOVES`, copied into `TILE_DUR`). `tileSweep()` marks it: a band-passed noise swell rising round the
+walls into the peak, then per wall a tile clack (`sfx-tile`) and a glass glint, and a soft deep hit (`TILE_GAIN`: quieter where the
+music already hits — crown, festa, fall).
+
 ## Status and tests
+- 2026-11-24 (ENT): `check.mjs /sound/ressonancia-sound` → `errors: []`; the 3D study `?part=umbral3d&group=4&sound=ressonancia-sound` →
+  no errors; 12 impacts at once on P2: P2's meter 0.022 → 0.134, the other walls unchanged. Silent checks only; nobody has listened.
 Lab harness only (hidden Electron window, `check.mjs`):
 - `node lab/tools/check.mjs "/sound/ressonancia-sound" --delay 5000` → `errors: []`.
 - Whole passes with a virtual audience, sound leading (`/experiences/res-obra/simulate.html?people=N&from=<block>&sound=ressonancia-sound`),

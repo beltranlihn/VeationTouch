@@ -1,5 +1,173 @@
 # Cuaderno de 3D-BR
 
+## 15:28 — Paso 7 (T-044) en festa3d (sobre la versión de FES-F; mi r4 sigue aparcada)
+Respaldo `scratchpad/brasa3d/t033/festa3d.before-step7.js`. Lee `state.festaStage`, `fronts[]`, `call`, `bloomSize`/`bloomDur`, `clock`.
+- **Frentes de eco:** cada frente sale del centro de su muro como una banda vertical de oro que corre por los dos lados y se encuentra
+  en el muro de enfrente a los 3 s (se le ve venir); los devueltos (`gen` ≥ 1) más anchos y brillantes; los de la sala (`ghost`) al 55 %.
+- **La llamada:** en los cuatro muros un anillo de oro se contrae hacia el corazón del botón (1,25 m) y llega en el TOK; tok, tok lo hacen
+  latir; en el TOK se abre un anillo de oro. Se dibuja después del compresor del remanso (una línea fina, la guía legible).
+- **Florecimiento** con `bloomSize` (techo 0,3 + 0,7 × tamaño) y `bloomDur` (se suelta en el último 1,5 s); la misma subida geométrica
+  (≤ ×2/s, criterio DECISIONES 00:00); el lavado, con el mismo techo.
+- Estudio: params `echo`, `call`, `bloomSize`. Hoja en la obra con el piloto (`review.html?from=festa`, ritmo 3/6/10, sin errores):
+  `scratchpad/brasa3d/t033/step7_sheet.png` (eco con 2 rebotes devueltos · llamada 1 a −0,7 s del TOK · florecimiento 1,0 a +2,5 s).
+  WebGL2 en estudio sin errores.
+**Débil:** con la resonancia alta del piloto la placa ya es muy brillante y los frentes se leen como bandas claras arriba (el remanso
+los comprime en el centro); el remanso sigue siendo el «parche azul» que ARTE-O pidió cambiar (eso es la r4 aparcada). Paro aquí.
+
+## 15:20 — Paso 6 (T-043): la LLAMADA de Brasa dibujada (cuenta atrás tok… tok… TOK)
+Respaldo `scratchpad/brasa3d/t029/brasa3d.before-call.js`. Lee `state.brasaStage === 'call'` y `state.call {n, at, gap, from, to}` (reloj
+`state.clock`): en cada muro que llama, un anillo de luz de fuego (elipse de 5,5 × 1,6 m) se contrae sobre la línea de brasas y **llega
+justo en el TOK**; los dos tok anteriores lo hacen latir; en el TOK aterriza y corre por la línea a los dos lados. Llamada 1: un muro;
+2: el que llama (cuenta entera) y el opuesto contesta (sólo el último compás); 3: los cuatro. La ola sale del muro que llamó; `waveBig`
+false (fallo) = **ola pequeña** (un octavo de vuelta, tenue, sin diablos); acierto = la ola grande de siempre. Estudio: param `call` 1–3
+(una llamada cada 4 s). Evidencia (sin errores): estudio `scratchpad/brasa3d/t029/call/study_board.png` (llamada 1 a −1,55 / −0,75 /
++0,1 s del TOK · llamada 2 a −0,5 · llamada 3 a −0,3 / +0,15); obra `review.html?from=brasa` con el piloto (ritmo 3):
+`call/obra_board.png` (llamada 1 en P4 a −0,9 s y +0,1 s). Las llamadas 2–3 no llegaron en la ventana de 13 s (el piloto falló la 1.ª: la
+sala volvió a llamar más despacio, como debe); vistas en el estudio.
+
+## 14:45 — festa3d ronda 4 APARCADA (orden del director): festa3d.js vuelve a la versión de FES-F tal cual
+Mi trabajo a medias queda en `scratchpad/brasa3d/t033/festa3d.r4-WIP-parked.js` (remanso = el mismo metal calmado en oro oscuro con
+compresor suave, sin lila; entorno bajo en oro oscuro; mandala de dos modos superpuestos (pétalos, no rueda); arena que se concentra
+en la figura; guirnaldas reales de bombillas a 2,5–3,3 m; núcleo de coronación por muro). Sin verificar del todo: la arena concentrada
+sube las zonas tranquilas a p95 111–151 (> 89) — hay que bajarla antes de usarlo. Brasa: recortes de coste en › 14:28; pido re-medida a QA.
+
+## 14:28 — Brasa: coste (QA 40 fps-eq medio, 24,7 ms sola) — recortes sin cambiar la imagen; pido re-medida
+Respaldo `scratchpad/brasa3d/t029/brasa3d.before-perf.js`. (1) Los reflejos (llamas, chispas, diablos, gotas…) se desplazan sólo con el
+oleaje (4 senos): fuera el bucle de 24 ondas POR VÉRTICE espejado (~50 M iteraciones por frame en las chispas); el suelo sigue dibujando
+cada onda. (2) Suelo: el bucle de ondas sólo hasta 4,5 m tras el muro (más allá no hay ondas); el normal fino es analítico (2 senos en vez
+de 3 ruidos) y la deformación del oleaje, un ruido de una escala (2 en vez de 4). (3) Llamas reflejadas: un tercio de los sprites (geometría
+compartida). (4) Bruma: 110 velos en vez de 320 (relleno). (5) Gotas: 28 × 90 segmentos (antes 40 × 140). Imagen igual (antes/después
+`scratchpad/brasa3d/t029/pf_board.png`); WebGPU y WebGL2 sin errores. **Sin medir** (QA).
+
+## 13:55 — festa3d pasa a FES-F (orden del director): dejo de tocarlo
+Estado y respaldos para FES-F: ver › 13:50 y › 13:30. Versiones: `scratchpad/brasa3d/t033/festa3d.3DFE-handover.js` (lo de 3D-FE),
+`festa3d.v1-1330.js`, `festa3d.v2-1340.js`; la actual es la r2. Parámetros nuevos en el .json: `contours` (0), `quiet` (1), `mandala` (1
+por código), `glass` 0, `depth` 1,35, `relief` 0,6. El velo de zonas tranquilas está al final del bloque de la placa (`quietMesh`). Sigo con Brasa.
+
+## 13:50 — T-033 festa3d r2 (director + ARTE: «todavía no, gráfico 2D turbio») · Brasa: gotas, zonas tranquilas, mitad alta
+`SP33` = `/private/tmp/claude-501/-Users-vicentemanzano-Desktop-INTERACTIVE-EXPERIENCES/0aac3285-443e-4d3b-aece-2f1b4c394a37/scratchpad/brasa3d/t033/`. Respaldos de festa: `SP33/festa3d.v1-1330.js`, `SP33/festa3d.v2-1340.js`.
+**festa3d — antes / después.** Antes (`SP33/tap_board.png`, `SP33/c5_zoom.png`): curvas de oro sobre un espejo turbio pardo, láminas planas
+beige, retícula de rombos. Después (`SP33/n_board.png`: resonancia 0,3 · 0,6 con dos manos · 1 · coronación 6 s · 15 s; `SP33/n_r1_p1.png`;
+obra `SP33/o_obra.png`):
+- **Membrana de cromo** a 1,35 m tras el muro (`depth`), relieve ×0,6: metal LIMPIO plata (oro blanco al resonar) en un estudio
+  luminoso propio: negro profundo entre paneles altos en las esquinas (sus reflejos enmarcan cada muro y dejan quieto el centro), una
+  caja de luz baja, luz cenital, contraluz lila; crestas oro, valles lila; negro sólo en el fondo de los valles. Sin manchas rosas.
+- **Fuera las curvas** (`contours` 0) **y la retícula de rombos** (`glass` 0). **Un MANDALA por muro** (Ø 2,1 m, a 0,22 del muro, 1,5 m de
+  alto; anillos cada 0,31 m × 6 pétalos), analítico: el metal lo muestra en relieve y la **arena** (los 600 k granos) se desliza a sus
+  líneas nodales y brilla allí; su fuerza = el orden del grupo (`order` de la resonancia + la floración). Los modos de la sala bajan
+  (×0,3): se acabó el papel pintado de celdas.
+- **Física: esferas de cromo** — 4 por muro de Ø 0,25–0,6 m + 40 cuentas; la mano las lanza, caen, rebotan (0,6) y cada bote abre un
+  anillo en la membrana (la arena salta) + `fxImpact(…, 'chrome', 'hit')`.
+- Iconos de corona fuera; el destello y el cáustico dorado de la coronación (15 s) se quedan. Bandas pixel-sort al máximo, igual.
+- **Zonas tranquilas** (regla nueva): un velo negro suave en el plano del muro detrás del texto (±1,6 m × 1,75–2,2) y del botón
+  (±0,9 × 0,9–1,6), que crece con la resonancia/coronación. Media / p95 de luma: resonancia 0,3 → btn 5–7/28–37, txt 6–20/33–73; 0,6 +
+  manos → 6–12/26–52, 13–20/48–55; 1 → 7–14/20–51, 22–40/56–104; coronación 15 s → 16–25/64–99, 29–35/81–93. (p95 objetivo ≤ 89:
+  pasa salvo algún muro a resonancia 1 y coronación; el velo sube con `quiet`.)
+- `iridP is not defined` (INT, a mitad de edición): resuelto; WebGL2 sin errores (`SP33/o_gl.png`).
+**Brasa** (QA PASA; notas de QA y ARTE): gotas de mercurio con **cabeza redonda**, cuello torcido (estrías en espiral), espejo con
+horizonte plata; **5 por muro** (3 cerca + 2 lejos) en vez de 14 peones. **Zonas tranquilas**: el mismo velo (más con `awake` y con manos);
+p95 en el botón 60–82 con awake y con 15 manos (antes 77–105), texto ≤ 31. **Mitad alta con vida**: brasas que suben hasta ~9 m y
+bruma cálida hasta ~16 m (media de luma arriba 2,2 → 4,6). `SP/r_play_p1.png`, `SP/r_tap2_s.png`.
+**Falta (festa):** la arena aún se lee como polvo fino (más visible como hilos de oro en los nodos), el metal en la zona central queda
+oscuro por el velo; vidrio grueso descartado por las esferas (lo pidió ARTE).
+
+## 13:30 — T-033 festa3d de cromo y vidrio (pasó de 3D-FE a mí): primera versión, en la obra, a QA
+Construido sobre lo que dejó 3D-FE (respaldos `parts/festa3d.ARTE2.js.bak`, `res-3d-study/parts/festa3d.json.ARTE2.bak`; el traspaso exacto en
+`SP33/festa3d.3DFE-handover.js`). `SP33` = `/private/tmp/claude-501/-Users-vicentemanzano-Desktop-INTERACTIVE-EXPERIENCES/0aac3285-443e-4d3b-aece-2f1b4c394a37/scratchpad/brasa3d/t033/`.
+- **La placa es metal líquido en relieve:** un espejo en toda la placa (antes sólo donde se movía), con `bend` 1,0 (antes 0,35): el campo
+  dobla de verdad el reflejo. El entorno que refleja es propio y continuo en los 4 muros: cielo de estudio oro pálido, tiras de luz
+  suaves alrededor, **luz principal cenital** (las crestas brillan: el relieve se lee) y contraluz lila `#B9A3FF`; el `room.envMap` entra
+  sólo como capa tenue teñida de oro (**adiós a las manchas del panel rosa**). La palma deja un hoyuelo de cromo como una lente. Las
+  curvas de oro bajan (×0,55 → ×0,3) para que mande el metal; arena, bandas, coronación y floración siguen igual.
+- **Interacción física — vidrio y cromo sobre la placa:** 140 piezas (jerarquía 1:3:9, 5–38 cm; 30 % cromo, 70 % vidrio con película
+  rosa-oro-lila y cantos encendidos) yacen sobre la placa (los muros = la placa vista desde arriba), algo inclinadas cada una. La resonancia
+  las hace **traquetear**; una mano que llega **lanza las de alrededor** (≤ 0,75 m) hacia arriba y fuera, girando; vuelven a caer sobre la
+  placa, **rebotan** (vidrio 0,45, cromo 0,6) y **cada caída hace sonar la placa** (un impulso en el campo: un anillo de oro sale de donde
+  cayó) y manda `fxImpact(muro, u, fuerza, 'glass'|'chrome', 'floor')`. Luego se deslizan a su sitio. La floración y el destello de la
+  coronación las lanzan todas. CPU, sin asignación por frame, una sola llamada instanciada.
+- **Tercera capa + movimiento de sala:** una nube de ~900 esquirlas de vidrio y cromo a 9–34 m; con la resonancia **la sala flota**: la
+  nube baja más allá de los muros (≤ 0,12 m/s) y gira alrededor (≤ 2°/s), suave (rampas de 1,5 s), quieta al salir.
+- Sonido: snippet de ENT pegado (`fxImpact`).
+Banda de la guía 0,9–1,6 m (media del 40 % central, P4 · P1 · P2 · P3): resonancia 0 → 26 · 14 · 13 · 22; 0,6 con dos manos → 33 · 43 · 33 · 36;
+1 → 62 · 64 · 51 · 62 (antes de mí 0,6 daba 23–28); coronación 6 s → 25–31, 15 s → 54–65 (la sala se llena de luz, como pide el guion).
+Evidencia (todas `errors: []`): toque +0,12 / +0,45 / +1,1 s `SP33/tap_board.png`; `SP33/f1_p1.png` (P1, 0,6 y dos manos); barrido
+resonancia 0 / 1 / coronación 6 s / 15 s / WebGL2 / arrive 0,5 / leave 0,35 `SP33/sweep_board.png`; costura P3|P4 `SP33/seam.png`; WebGL2
+`SP33/f1gl.png`; obra `review.html?from=festa` (wait → festa/play, 5 manos) `SP33/obra1.png`, a ritmo 12 festa → baixada sin errores, y
+`from=crown` a ritmo 6 crown → festa sin errores.
+**Sin medir:** fps (QA). Coste nuevo: la placa con la luz de estudio (igual de pasos), 140 piezas, 900 esquirlas lejanas.
+**Débil / siguiente:** las piezas de vidrio leen como láminas claras, no aún como vidrio grueso con refracción; las curvas de oro siguen
+siendo lo más visible a resonancia media; a resonancia 1 la banda de la guía llega a 62–64.
+
+## 13:20 — T-029 ronda 2 de ARTE (tres toques)
+1. **Una sola familia de «gotas de mercurio»** (cerca: 14, 2,5–5,5 m tras el muro; lejos: 26, 48–82 m): perfil con menisco al pie, panza,
+   cuello y cabeza; espejo puro (sin difuso: el reflejo del fuego + cielo plata + borde frío), con estrías finas que estiran el fuego en
+   vetas verticales. Fuera los conos beige y los monolitos de pizarra.
+2. **Suelo lejos del fuego:** el oleaje se deforma a dos escalas (ruido 0,07/m ×4 m y 0,33/m ×0,7 m: sin zigzag periódico) y la banda
+   cálida del entorno baja a la mitad más allá de 3–4,5 m del anillo (metal casi negro con bordes plata).
+3. **Tesela ardiendo:** costra `#2A0C08` en todas (sin esmalte rojo), grietas naranjas (`fireRamp` ~1), blanco sólo en el canto.
+Banda de la guía en juego (progress 0,6): 37 · 39 · 41 · 37. WebGPU y WebGL2 sin errores. `SP/p5_tap_p1.png` (toque), `SP/p6_p2.png` (gotas).
+
+## 13:15 — T-029 pasada de pulido (director + notas de ARTE 13:10 + sonido de ENT), entregada a QA
+`SP` = `/private/tmp/claude-501/-Users-vicentemanzano-Desktop-INTERACTIVE-EXPERIENCES/0aac3285-443e-4d3b-aece-2f1b4c394a37/scratchpad/brasa3d/t029/`.
+- **El metal es metal (ARTE 1):** entorno con cielo plata frío `#9FB4D8` al ~10 % arriba (bandas plateadas entre los reflejos naranjas),
+  reflectividad alta en todos los ángulos; mar de fondo (λ 1,5–3 m, 4–7 cm + un oleaje largo) y anillos de onda de cada mano y cada caída
+  (0,6 m/s, ~3 crestas, ~4 s).
+- **Horizonte / manos sobre el metal (ARTE 2):** `sink` por defecto 0,5 m: con el anillo despierto el cromo llega a ~1,0–1,25 m en el muro,
+  bajo las manos. (El horizonte de un plano infinito siempre cae a la altura del ojo; lo que sube es el metal visible y el anillo.)
+- **Cromo vertical (ARTE 3):** 14 columnas/gotas de cromo (3–4 por muro, 2,5–5,5 m tras el muro, 1,5–2,5 m de alto) + los 26 monolitos
+  lejanos, ahora **con presencia**: caras iluminadas por el fuego, contraluz de fuego y borde frío `#5A6C8C`, cielo plata; reflejados.
+- **Capa lejana viva:** bruma roja baja sobre el líquido (320 velos, 9–45 m, aditiva y tenue) y brasas que suben a lo lejos (12–40 m).
+- **Teselas = brasas de cerámica (ARTE 4, director 2):** costra `#2A0C08` con grietas encendidas, brillo de esmalte; jerarquía 1:3:9
+  (64 colgadas en total, de 6 a 36 cm; ya no «lluvia uniforme»); al caer, borde al rojo blanco y grietas abiertas; al hundirse, un
+  **siseo de vapor y ceniza**. La lava del anillo va **en charcos** con cromo oscuro entre ellos (ARTE 6).
+- **Sonido (ENT, ola 2):** snippet `fxImpact`/`fxAt` pegado; `fire/ignite` al prender, `fire/splash` (fuerza |vy|/6) al chocar con el cromo,
+  `fire/sink` al hundirse. ≤ 16/s.
+**Banda de la guía 0,9–1,6 m (media del 40 % central, P4 · P1 · P2 · P3):** juego progress 0,6 sin manos 42 · 39 · 44 · 40; premio
+20 · 20 · 22 · 20; **awake** (espiral de teselas, a +2,5 s) 53 · 57 · 74 · 54; **15 manos + awake** 56 · 52 · 64 · 47. Antes de la
+poda de teselas el awake daba 62–96; la versión ARTE2 (sin cromo) daba ~40 en awake. El pico de awake dura ~2,5 s (la espiral); si QA lo
+quiere ≤ 60 siempre, el recorte es bajar las chispas de salpicadura durante la espiral.
+Evidencia (todas `errors: []`, WebGPU y WebGL2): `SP/p4_tap_p1.png` (toque, P1), `SP/p3_p2.png` (columnas y monolitos, P2, sin manos),
+`SP/p3_board.png` (juego · awake · 15 manos · WebGL2), `SP/p4_board.png`; obra `review.html?from=brasa` a ritmo 10: brasa title → play →
+reward → pinya, 9 manos, sin errores (`SP/p4_obra.png`).
+
+## 13:05 — T-029 primera versión visible + integrada en la obra (Brasa sobre cromo líquido); respaldo `parts/brasa3d.ARTE2.js.bak`
+Sólo `parts/brasa3d.js` y `res-3d-study/parts/brasa3d.json` (parámetros nuevos `chrome`, `reflect`, `tiles`, `sink`, `turn`). Evidencia en
+`SP` = `/private/tmp/claude-501/-Users-vicentemanzano-Desktop-INTERACTIVE-EXPERIENCES/0aac3285-443e-4d3b-aece-2f1b4c394a37/scratchpad/brasa3d/t029/`.
+- **Cromo líquido:** todo el suelo del mundo (desde dentro de la sala hasta 110 m) es metal líquido: oleaje lento (4 ondas analíticas) +
+  hasta 24 anillos de onda (cada caída, gota y frente de ola) + ruido fino. **Reflejo por geometría espejo**: llamas, chispas, diablos,
+  teselas, gotas y monolitos se dibujan reflejados en el plano del líquido, desplazados por la pendiente de la onda donde se ve el reflejo
+  (el reflejo ondula); es geometría del mundo, continua en esquinas y en P3|P4. Además el rayo reflejado de cada píxel se cruza con el
+  anillo de fuego (cilindro) y lee su calor allí (resplandor ancho, roto por las ondas). El anillo = brasas flotando sobre el cromo.
+- **Interacción física — trencadís en llamas:** 240 teselas de cerámica vidriada (óxido, naranja, crema, oro, blanco) flotan a 0,15–1,1 m
+  tras los muros, a la altura de las manos (capa cercana). Una mano las desprende en cascada (la más cercana en el mismo frame, las
+  vecinas ≤ 0,25 s después) y siempre rompe una bajo la mano: prenden, saltan girando, caen con gravedad, **chocan con el cromo** (corona de
+  chispas, corona de gotas de cromo, onda), rebotan una vez, flotan, se inclinan y se hunden apagándose; se vuelven a montar a los 3–6 s.
+  Arrastrar las barre. **Cada ola tira las teselas a su paso**; con **`awake` caen todas en espiral alrededor de la sala en ~2,5 s.**
+- **Tres capas:** teselas y chispas 0–1 m · fuego, diablos, anillo 4–10 m · 26 monolitos de cromo fundido a 48–82 m (sólo atrapan el fuego).
+- **Movimiento de sala:** la sala se hunde en el líquido con el progreso (mi grupo `world` sube hasta `sink` 0,35 m; ≤ 3 cm/s, aceleración
+  suave; nada en la espera) y los monolitos giran alrededor a ≤ 1,2°/s. No toco el rig del host; el recorte en el líquido usa alturas
+  locales (robusto al rig de INT). `room.envMap` no lo uso: el entorno procedural refleja MI fuego (el envMap de noche no lo tiene).
+- Llegada/salida: esquirlas como antes + el cromo aparece con `arrive`, las teselas se montan con él y en `leave` suben girando y se apagan.
+  La espera queda como T-020 (cromo casi apagado, sin teselas).
+
+Evidencia (todas `errors: []`):
+- estudio progress 0,6, P1 a escala 1: `SP/a5_p1.png` · tira entera `SP/a1.png`
+- toque con 2 manos, +0,15 / +0,7 / +1,5 s: `SP/tap_board.png`; zoom de la salpicadura `SP/tap700_zoom.png`
+- awake (espiral de teselas) / ola / **WebGL2** (backend `webgl2`): `SP/b2_board.png`
+- arrive 0,4 / leave 0,5 / espera: `SP/st_board.png` · costura P3|P4 con una salpicadura en la esquina (onda continua): `SP/seam_board.png`
+- **obra** `review.html?from=brasa` (clic, 6 personas): wait → brasa/title → play, 6 manos: `SP/obra1.png`; a ritmo 10: brasa play →
+  reward → pinya/title → play, 9 manos, sin errores; el premio de brasa en la obra: `SP/obra_lv_board.png` (arriba).
+
+**Sin medir:** fps (QA). Coste nuevo: el suelo (24 ondas + 3 ruidos por píxel), la pasada espejo de llamas/chispas/diablos (~230 k sprites
+más × 4 vistas, 24 ondas por vértice), 240 teselas + 220 gotas en CPU (sin asignación por frame). Primer recorte si falta: no reflejar
+las llamas, bajar `RIP_N`.
+**Para QA:** banda de la guía con premio y `awake` (el anillo y su reflejo suben ~0,2 m en el muro con el hundimiento); 15 manos (cada mano
+rompe teselas: la lluvia es más densa).
+**Sonido (ola 2, canal de ENT):** `'fx:impact'` {muro, u, fuerza 0..1} en cada choque de tesela con el cromo (registrado en
+`window.__brasa.fx()`); `'fx:drop'` para las gotas (no emitido aún).
+**Débil:** las teselas colgadas leen rojo oscuro (poca luz); el cromo cercano es oscuro salvo junto al fuego (de noche refleja poco); los
+monolitos son finos y fantasmales.
+
 ## 03:52 — fall3d intent: el castell del grupo a plena luz; la «estrella de la enxaneta» no es de fall3d; respaldo `/private/tmp/claude-501/-Users-vicentemanzano-Desktop-INTERACTIVE-EXPERIENCES/0aac3285-443e-4d3b-aece-2f1b4c394a37/scratchpad/brasa3d/fall/fall3d.v5.js`
 - La reunión del castell ya llega a su luz normal casi al instante (antes, cada partícula a media luz hasta llegar), y en intent el castell
   conserva toda su luz hasta que empieza a deshacerse (el oscurecimiento tras la grieta, añadido a las 03:45 para carregat, también

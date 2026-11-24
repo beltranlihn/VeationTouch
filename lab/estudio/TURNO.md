@@ -1,11 +1,11 @@
 # Turnos
 
-**Próximo número libre de ticket: T-026** (T-007…T-010 planes de mejora; T-011 rendimiento del castell, 3D-FE; T-012 3D-PI, T-013 3D-BR; T-014 3D-FE; T-015 3D-PO; T-016 3D-PI; T-017 3D-BR; T-018 3D-FE; T-019 3D-PI; T-020 3D-BR; T-021 3D-PO; T-022 transiciones, varios; T-023 3D-PI; T-024 3D-BR; T-025 INT)
+**Próximo número libre de ticket: T-046** (T-045 INT visor 3D de la sala; (T-043 GUI guía y manos fantasma; T-044 3D-PI Pinya juntarse; (T-042 3D-PO aleta + bajar; (T-041 3D-FE Tronc levantar; (T-038 ENT paso 0 entradas nuevas + quietud Pom; T-039 l aleta interactiva; T-040 INT entradas en el host) (T-037 RND-F render y teselas, Fable; T-036 3D-PI la caída; T-035 3D-PO bajada al amanecer; T-034 INT intro: plaza física y rotura en teselas; T-033 3D-FE festa de cromo y vidrio; ola Arte 2: T-026 ENT entrada, T-027 GUI texto y botones, T-028 INT transiciones, T-029 3D-BR, T-030 3D-PI, T-031 3D-PO, T-032 3D-FE) (T-007…T-010 planes de mejora; T-011 rendimiento del castell, 3D-FE; T-012 3D-PI, T-013 3D-BR; T-014 3D-FE; T-015 3D-PO; T-016 3D-PI; T-017 3D-BR; T-018 3D-FE; T-019 3D-PI; T-020 3D-BR; T-021 3D-PO; T-022 transiciones, varios; T-023 3D-PI; T-024 3D-BR; T-025 INT)
 
 ## Recursos compartidos
 | Recurso | Quién lo tiene | Desde | Tope | Cola |
 |---|---|---|---|---|
-| GPU-MEDICIÓN (medir fps; nadie más mide mientras tanto) | libre (QA devolvió a las 04:39) | — | — | QA: T-014b/T-018 festa, T-016 pinya, fall3d, baixada3d cuando estén |
+| GPU-MEDICIÓN (medir fps; nadie más mide mientras tanto) | libre (QA devolvió a las 14:26) | — | — | QA: T-014b/T-018 festa, T-016 pinya, fall3d, baixada3d cuando estén |
 
 ## Historial de devoluciones
 | Hora | Quién | Recurso | Estado en que lo deja | Pendiente |
@@ -32,3 +32,8 @@
 | 04:39 | QA | GPU-MEDICIÓN (04:30–04:55) | libre y limpio: ninguna ventana de QA abierta; obra entera high/medium, piezas y tirones medidos (`notas/QA.md` §3) | se puede levantar la congelación; humo final a las 06:00 |
 | 04:40 | director | GPU-MEDICIÓN | congelación levantada. Obra entera: media ≥ 60 fps-eq en todos los bloques; alta: tronc 49, bajada 46, el resto 65–286. Transiciones en frío ≤ 19–29 ms (antes hasta 70). Partes: brasa 99 (88 con 15), festa 118 (97 con 15), pinya 161, fall3d 124; pom con ciudad +0,6–1,1 ms, su salida v3 a 0,3 = 55 fps-eq (aceptado: la sala es mucho más rápida) | — |
 | 05:00 | director | todos | CONGELACIÓN: obra terminada y entregada (PARA-VICENTE.md). Nadie toca archivos. Sin commits | — |
+| 24-11 12:45 | director | todos | DESCONGELACIÓN: ola «Arte 2» (brief `OLA-ARTE2.md`). GPU-MEDICIÓN libre; sólo QA mide, con turno | — |
+| 24-11 13:40 | director | QA | GPU-MEDICIÓN concedida para 15:40–16:00 (aviso a todos a las 15:35; nadie abre check.mjs en esa ventana) | — |
+| 24-11 14:18 | director | QA | GPU-MEDICIÓN adelantada a AHORA 14:20–14:45 (casi todo entregado; agentes en espera). Nadie abre check.mjs en la ventana | — |
+| 14:26 | QA | GPU-MEDICIÓN (14:18–14:26) | libre y limpio: ninguna ventana de QA abierta; todas las corridas others=0; control _example 1,6 ms vs intro high 26,3 ms; partes, obra medium/high, TAA, tirones y salto (`notas/QA.md` › Ventana 14:18) | brasa3d a 40 fps-eq en media (24,8 ms): para 3D-BR |
+| 24-11 14:27 | director | todos | Ventana GPU cerrada antes de tiempo (QA devolvió 14:26): se levanta la congelación | — |

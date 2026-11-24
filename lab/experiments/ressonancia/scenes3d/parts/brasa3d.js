@@ -53,10 +53,12 @@ export function create({ THREE, TSL, room, params }) {
     Fn, uniform, uniformArray, instancedArray, instanceIndex, attribute, varying, positionWorld, positionGeometry, uv, texture,
     vec2, vec3, vec4, float, int, uint, If, Loop, sin, cos, exp, mix, clamp, smoothstep, max, min, abs, sqrt, floor, fract, pow,
     dot, normalize, length, select, hash, modelViewMatrix, cameraProjectionMatrix, cameraWorldMatrix, cameraPosition, Discard,
-    mx_noise_float, mx_fractal_noise_float, cross, reflect, step,
+    mx_noise_float, mx_fractal_noise_float, cross, reflect, step, atan,
   } = TSL;
   const object = new THREE.Group();
   object.name = 'brasa3d';
+  const world = new THREE.Group(); world.name = 'brasa3d-world';        // everything of the fire world: it rises (the room sinks into the liquid)
+  object.add(world);
   const walls = room.walls, NW = walls.length, eye = room.eye;
 
   // ------------------------------------------------------------------------------------------------ the room as a perimeter
@@ -87,6 +89,7 @@ export function create({ THREE, TSL, room, params }) {
     time: uniform(0), dt: uniform(1 / 60), level: uniform(0.1), arrive: uniform(1), leave: uniform(0), contract: uniform(0),
     cool: uniform(0), earth: uniform(0), awake: uniform(0), flames: uniform(1), heat: uniform(1), devils: uniform(1), haze: uniform(1), smoke: uniform(1), wait: uniform(0), breath: uniform(1), crowd: uniform(1),
     seed: uniform(0, 'uint'), nE: uniform(0, 'int'), nH: uniform(0, 'int'),
+    lift: uniform(0), refl: uniform(1), chrome: uniform(1), quiet: uniform(0.3), callT: uniform(-99), callGap: uniform(0.8), callOn: uniform(0), callW: uniform(new THREE.Vector4()),
   };
   const heatData = new Uint8Array(NC * 4);
   const heatTex = new THREE.DataTexture(heatData, NC, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
@@ -122,6 +125,7 @@ export function create({ THREE, TSL, room, params }) {
     const soft = raw.div(raw.mul(0.6).add(1));                         // a soft ceiling: a crowd of hands never whitens the ring
     return soft.mul(U.crowd).mul(ignT(s)).mul(hearthT(s)).mul(float(1).sub(U.cool.mul(0.82))).mul(U.heat);
   };
+  const puddleT = (xz) => mix(smoothstep(-0.05, 0.35, mx_noise_float(vec3(xz.x.mul(0.21), 7.7, xz.y.mul(0.21)))), float(1), U.wait);   // the lava lies in puddles
   const livePatch = (xz) => {
     const pn = mx_noise_float(vec3(xz.x.mul(0.42), U.time.mul(0.045), xz.y.mul(0.42))).mul(0.5).add(0.5);
     return smoothstep(float(0.62).sub(U.level.mul(0.85)), float(0.92).sub(U.level.mul(0.5)), pn);
@@ -140,15 +144,87 @@ export function create({ THREE, TSL, room, params }) {
     g.instanceCount = n;
     return g;
   };
+  const subGeo = (g, n) => { const h = new THREE.InstancedBufferGeometry(); h.index = g.index; for (const k in g.attributes) h.setAttribute(k, g.attributes[k]); h.instanceCount = n; return h; };   // a shared subset (perf)
   const additive = () => new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const _v = new THREE.Vector3(), _v2 = new THREE.Vector3();
+
+  // ------------------------------------------------------------------------------------------------ the liquid chrome (T-029)
+  // The world's floor is liquid metal at local y = 0 (the world group rises by `lift`: the room sinks into it). Its surface =
+  // a slow swell (4 analytic waves) + up to RIP_N ripple rings (CPU sources: splashes, drops, the wave fronts) + fine noise (the floor
+  // only). It REFLECTS two ways: (1) mirror geometry — flames, sparks, devils, tiles, drops and the far monoliths are drawn a second time
+  // mirrored in y = 0, each point shifted by the surface slope where its reflection is seen (so the reflection ripples); it is world
+  // geometry, continuous at the corners and at P3|P4; (2) an environment term — each reflected ray is cut with the fire ring (a cylinder
+  // round the eye) and reads the ring's heat there (the broad glow, broken by the ripples), dark sky above.
+  const RIP_N = 24, RIP_C = 0.6, RIP_K = TAU / 0.3;
+  const RS = []; for (let i = 0; i < RIP_N; i++) RS.push(new THREE.Vector4(0, 0, -1e4, 0));
+  const uRS = uniformArray(RS, 'vec4');
+  let ripI = 0;
+  const SWELL = [[0.83, 0.56, 2.2, 0.9, 0.05], [-0.42, 0.91, 3.1, -1.1, 0.032], [0.97, -0.24, 4.3, 1.3, 0.012], [-0.66, -0.75, 0.6, -0.35, 0.07]];   // the ground swell: λ 1.5–3 m, 4–8 cm (+ a long one)
+  const swellT = (xz) => {
+    let h = float(0), gx = float(0), gz = float(0);
+    for (const [dx, dz, k, w, a] of SWELL) {
+      const ph = xz.x.mul(dx * k).add(xz.y.mul(dz * k)).add(U.time.mul(w));
+      h = h.add(sin(ph).mul(a)); const c = cos(ph).mul(a * k); gx = gx.add(c.mul(dx)); gz = gz.add(c.mul(dz));
+    }
+    return vec3(h, gx, gz).mul(U.chrome);
+  };
+  const ripT = Fn(([xz]) => {
+    const acc = vec3(0, 0, 0).toVar();
+    Loop(RIP_N, ({ i }) => {
+      const r4 = uRS.element(i), d = xz.sub(r4.xy), r = length(d).add(0.002), age = U.time.sub(r4.z);
+      const ph = r.sub(age.mul(RIP_C)), q = ph.add(0.3);
+      const env = exp(q.mul(q).mul(-5.0)).mul(exp(age.mul(-0.6))).mul(r4.w).div(r.mul(1.2).add(0.6)).mul(step(0.0, age));
+      const g = cos(ph.mul(RIP_K)).mul(env).mul(RIP_K);
+      acc.addAssign(vec3(sin(ph.mul(RIP_K)).mul(env), g.mul(d.x).div(r), g.mul(d.y).div(r)));
+    });
+    return acc;
+  });
+  // the reflection of a local point p (world group): mirrored in y = 0 and shifted by the slope where it is seen reflected
+  const camL = vec3(cameraPosition.x, cameraPosition.y.sub(U.lift), cameraPosition.z);
+  const mirP = Fn(([p]) => {
+    const hgt = max(p.y, 0.0);
+    const q = camL.xz.add(p.xz.sub(camL.xz).mul(camL.y.div(camL.y.add(hgt))));
+    const g = swellT(q);   // (perf, QA 14:30: no 24-ripple loop per mirrored vertex; the floor still draws every ripple)
+    const k = min(hgt, 1.5).mul(1.6);
+    return vec3(p.x.add(g.y.mul(k)), hgt.negate(), p.z.add(g.z.mul(k)));
+  });
+  const CHROME = vec3(1.0, 0.93, 0.84);                                 // the metal's tint on what it reflects
+  // the perimeter position s of a direction (hx, hz) from the eye (a 4-wall rectangle; the eye at x = z = 0)
+  const angleS = (hx, hz) => {
+    const zw = abs(hz).mul(ax).greaterThan(abs(hx).mul(bz));
+    const x0 = hx.mul(bz).div(max(abs(hz), 1e-4)), z0 = hz.mul(ax).div(max(abs(hx), 1e-4));
+    const sZ = select(hz.lessThan(0), x0.add(ax + cum[0]), float(cum[2] + ax).sub(x0));
+    const sX = select(hx.greaterThan(0), z0.add(bz + (cum[1] ?? 0)), float((cum[3] ?? 0) + bz).sub(z0));
+    return select(zw, sZ, sX);
+  };
+  let twSum = 0; for (const w of walls) twSum += -new THREE.Vector3().subVectors(w.centre, eye).dot(w.normal);
+  const RCYL = twSum / NW + 6.2;                                         // the ring, as a cylinder round the eye
+  // the fire ring seen along a reflected ray R from a surface point P (local): its heat where the ray meets the ring, low and warm
+  const envFire = (P, R, vertex) => {
+    const a = max(dot(R.xz, R.xz), 1e-5), b = dot(P.xz, R.xz).mul(2), c = dot(P.xz, P.xz).sub(RCYL * RCYL);
+    const disc = b.mul(b).sub(a.mul(c).mul(4)), sq = sqrt(max(disc, 0));
+    const t = select(c.lessThan(0), b.negate().add(sq), b.negate().sub(sq)).div(a.mul(2));
+    const ok = disc.greaterThan(0).and(t.greaterThan(0));
+    const hit = P.xz.add(R.xz.mul(t)), yh = max(P.y.add(R.y.mul(t)), 0.0);
+    const s = angleS(hit.x, hit.y);
+    const H = bedHeat(s, 0.85, heatSample(s, vertex));
+    const glow = H.mul(exp(yh.div(-0.3)).mul(0.45).add(exp(yh.div(-1.2)).mul(0.04)));
+    return vec3(1.0, 0.36, 0.1).mul(glow).mul(select(ok, float(1), float(0)));
+  };
+  const skyEnv = (R) => vec3(0.003, 0.0028, 0.003).add(vec3(0.35, 0.46, 0.69).mul(0.1).mul(smoothstep(0.02, 0.5, R.y)).mul(mx_noise_float(vec3(R.x.mul(3.0), R.y.mul(6.0), R.z.mul(3.0))).mul(0.35).add(0.75)))
+    .add(vec3(0.012, 0.0045, 0.0016).mul(exp(max(R.y, 0).mul(-9.0))).mul(U.level).mul(float(1).sub(U.cool)));
+  const fireLightK = () => min(U.level.mul(0.5).add(0.12).mul(float(1).sub(U.cool.mul(0.6))).add(U.awake.mul(0.15)), 0.7);
+  // a glossy highlight of the fire ring's light (it lies out and below): tiles, drops, monoliths
+  const fireSpec = (P, R, k) => { const Ld = normalize(vec3(P.x, P.y.negate().mul(0.2).sub(0.25), P.z)); return vec3(1.0, 0.5, 0.2).mul(pow(max(dot(R, Ld), 0), k)).mul(fireLightK()); };
+  // quaternion rotation (tiles)
+  const rotQ = (q, v) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2.0));
 
   // ------------------------------------------------------------------------------------------------ 1. the floor and the ember bed
   const floorMesh = (() => {
     const sList = [];
     walls.forEach((w, i) => { const n = Math.max(8, Math.round(w.width * 16)); for (let k = 0; k < n; k++) sList.push(cum[i] + (w.width * k) / n); });
     sList.push(PER);
-    const dList = [0.02, 0.5, 1.2, 2, 2.8, 3.3, 3.6, 3.9, 4.2, 4.6, 5, 5.5, 6, 6.5, 7, 7.4, 7.8, 8.1, 8.4, 8.8, 9.4, 10.5, 12, 15, 20, 30];
+    const dList = [-2.2, -1.6, -1.0, -0.5, 0.02, 0.5, 1.2, 2, 2.8, 3.3, 3.6, 3.9, 4.2, 4.6, 5, 5.5, 6, 6.5, 7, 7.4, 7.8, 8.1, 8.4, 8.8, 9.4, 10.5, 12, 15, 20, 30, 45, 70, 110];
     const pos = [], at = [], idx = [];
     for (const s of sList) for (const d of dList) { ringPoint(s, d, _v); pos.push(_v.x, 0, _v.z); at.push(s, d); }
     const nd = dList.length;
@@ -157,7 +233,7 @@ export function create({ THREE, TSL, room, params }) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('aSD', new THREE.Float32BufferAttribute(at, 2));
     g.setIndex(idx);
-    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
+    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, depthWrite: false });   // no depth: its reflections (mirror geometry, y < 0) show through it
     const vSD = varying(attribute('aSD', 'vec2'));
     m.colorNode = Fn(() => {
       const s = vSD.x, d = vSD.y, xz = positionWorld.xz, t = U.time;
@@ -177,19 +253,35 @@ export function create({ THREE, TSL, room, params }) {
       const ridge = float(1).sub(abs(mx_noise_float(vec3(xz.x.mul(6.5), t.mul(0.07), xz.y.mul(6.5)))));
       const crk = pow(ridge, 7.0);
       const fl = mx_noise_float(vec3(xz.x.mul(1.4), t.mul(0.9), xz.y.mul(1.4))).mul(0.25).add(0.85);
-      const T = H.mul(band).mul(coal.mul(0.75).add(0.12).add(crk.mul(coal).mul(1.1))).mul(fl).mul(breathe);
+      const pud = puddleT(xz);
+      const T = H.mul(band).mul(pud).mul(coal.mul(0.75).add(0.12).add(crk.mul(coal).mul(1.1))).mul(fl).mul(breathe);
       const col = fireRamp(T).toVar();
-      // ash crust, warm earth (the reward: the next chapter is clay), the fire's light on the square's floor
+      // ash crust, warm earth (the reward: the next chapter is clay)
       const ash = vec3(0.016, 0.015, 0.014).mul(band).mul(float(1).sub(coal).mul(0.7).add(0.3)).mul(min(H.mul(2.0).add(U.cool.mul(1.2)), 1.0));
       const earthMask = smoothstep(RING0 - 2.5, RING0, d).mul(smoothstep(RING1 + 3, RING1, d));
       const earth = vec3(0.034, 0.016, 0.007).mul(U.earth).mul(earthMask).mul(mx_noise_float(vec3(xz.x.mul(1.7), 9.0, xz.y.mul(1.7))).mul(0.3).add(0.8));
-      const glowAmt = H.mul(exp(abs(d.sub(mix(float(6.0), float((WAIT0 + WAIT1) / 2), U.wait))).mul(-0.42))).mul(mix(float(0.028), float(0.006), U.wait));
-      col.addAssign(ash.add(earth).add(vec3(1.0, 0.42, 0.14).mul(glowAmt)));
-      return col.mul(float(1).sub(smoothstep(0.55, 1.0, U.leave)));
+      col.addAssign(ash.add(earth));
+      // the liquid chrome between the floating embers: swell + ripples + fine noise, reflecting the fire ring and the sky
+      const wq = vec2(mx_noise_float(vec3(xz.x.mul(0.09), 3.3, xz.y.mul(0.09))), mx_noise_float(vec3(xz.x.mul(0.09), 8.1, xz.y.mul(0.09)))).mul(3.5);   // the swell warped (no periodic zigzag)
+      const rip = vec3(0, 0, 0).toVar();
+      If(d.lessThan(4.5), () => { rip.assign(ripT(xz)); });   // ripples live near the walls (splashes, drops, the wave's wake): skip the loop far out (perf)
+      const g = swellT(xz.add(wq)).add(rip).toVar();
+      const gN = vec2(sin(xz.x.mul(3.7).add(xz.y.mul(1.3)).add(t.mul(0.5))), sin(xz.y.mul(3.1).sub(xz.x.mul(1.9)).sub(t.mul(0.43)))).mul(0.012).mul(U.chrome);   // fine ripple, analytic (was 3 noises)
+      const Nn = normalize(vec3(g.y.add(gN.x).negate(), 1.0, g.z.add(gN.y).negate()));
+      const V = normalize(cameraPosition.sub(positionWorld));
+      const R = reflect(V.negate(), Nn).toVar();
+      R.y.assign(max(R.y, 0.002));
+      const cosT = max(dot(Nn, V), 0.0), F = float(0.78).add(pow(float(1).sub(cosT), 5.0).mul(0.22));
+      const Pl = vec3(xz.x, 0.0, xz.y);
+      const farK = float(1).sub(smoothstep(3.0, 4.5, abs(d.sub(6.0))).mul(0.5));   // far from the fire: near-black metal with silver edges
+      const liquid = envFire(Pl, R, false).mul(farK).add(skyEnv(R).mul(mix(float(0.5), float(1), farK))).mul(F).mul(CHROME).mul(U.refl).mul(float(1).sub(U.earth.mul(0.55)));
+      const island = band.mul(pud).mul(smoothstep(0.32, 0.64, coal)).mul(float(1).sub(U.wait)).add(U.wait.mul(band));
+      const outC = mix(liquid, col, max(island, float(1).sub(U.chrome)));
+      return outC.mul(float(1).sub(smoothstep(0.55, 1.0, U.leave)));
     })();
     m.fog = false;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = -2;
-    object.add(mesh);
+    world.add(mesh);
     return mesh;
   })();
 
@@ -206,11 +298,13 @@ export function create({ THREE, TSL, room, params }) {
       i++;
     }
     const g = quadGeo(NF, { aH, aR });
+    const meshes = [];
+    for (const mirror of [false, true]) {
     const m = additive();
     const H4 = attribute('aH', 'vec4'), R4 = attribute('aR', 'vec4');
     const xz = H4.xy, s = H4.z, r1 = R4.x, r2 = R4.y, r3 = R4.z, r4 = R4.w, t = U.time;
     const hs = heatSample(s, true);
-    const H = bedHeat(s, livePatch(xz), hs).mul(float(1).sub(smoothstep(0.1, 0.5, U.leave))).mul(U.flames).mul(float(1).sub(U.wait));
+    const H = bedHeat(s, livePatch(xz), hs).mul(puddleT(xz)).mul(float(1).sub(smoothstep(0.1, 0.5, U.leave))).mul(U.flames).mul(float(1).sub(U.wait));
     const age = fract(t.mul(r1.mul(0.9).add(0.55)).add(r2.mul(17.0)));
     const tongue = mx_noise_float(vec3(xz.x.mul(1.6), t.mul(1.3), xz.y.mul(1.6))).mul(0.5).add(0.55);
     const hgt = H.mul(0.55).add(0.08).mul(tongue).add(hs.g.mul(4 * 0.5)).add(U.awake.mul(0.45));
@@ -219,14 +313,15 @@ export function create({ THREE, TSL, room, params }) {
     const size = float(0.1).add(r3.mul(0.12)).mul(float(1).sub(age.mul(0.55))).mul(min(H, 1.2).mul(0.5).add(0.55));
     const T = pow(float(1).sub(age), 1.25).mul(1.25).mul(min(H, 1.5));
     const E = smoothstep(0.0, 0.08, age).mul(pow(float(1).sub(age), 1.3)).mul(0.09);
-    m.vertexNode = select(H.greaterThan(0.025), billboard(p, size, size.mul(1.7)), HIDE);
+    m.vertexNode = select(H.greaterThan(0.025), billboard(mirror ? mirP(p) : p, size, size.mul(1.7)), HIDE);
     const vC = varying(fireRamp(T).mul(E));
     const q = uv().sub(0.5);
-    m.colorNode = vC.mul(exp(q.x.mul(q.x).mul(-16).add(q.y.mul(q.y).mul(-11))));
+    m.colorNode = vC.mul(exp(q.x.mul(q.x).mul(-16).add(q.y.mul(q.y).mul(-11)))).mul(mirror ? CHROME.mul(U.refl).mul(0.65) : float(1));
     m.fog = false;
-    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 2;
-    object.add(mesh);
-    return mesh;
+    const mesh = new THREE.Mesh(mirror ? subGeo(g, Math.floor(NF / 3)) : g, m); mesh.frustumCulled = false; mesh.renderOrder = mirror ? -1 : 2;
+    world.add(mesh); meshes.push(mesh);
+    }
+    return meshes;
   })();
 
   // ------------------------------------------------------------------------------------------------ 3. sparks (GPU compute)
@@ -285,6 +380,8 @@ export function create({ THREE, TSL, room, params }) {
   const sparkCompute = sparkStep().compute(NSP);
   const sparkMesh = (() => {
     const g = quadGeo(NSP, {});
+    const meshes = [];
+    for (const mirror of [false, true]) {
     const m = additive();
     const P4 = bufP.toAttribute(), V4 = bufV.toAttribute(), K4 = bufK.toAttribute();
     const inside = abs(P4.x).lessThan(ax - 0.02).and(abs(P4.z).lessThan(bz - 0.02));
@@ -292,7 +389,8 @@ export function create({ THREE, TSL, room, params }) {
     const x = clamp(P4.w.div(max(V4.w, 1e-3)), 0, 1);
     const buoy = K4.y.lessThan(0);
     const T = K4.x.mul(pow(float(1).sub(x), select(buoy, float(1.6), float(1.1)))).mul(sin(U.time.mul(31.0).add(K4.w.mul(300.0))).mul(0.12).add(0.88));
-    const head = modelViewMatrix.mul(vec4(P4.xyz, 1)), tail = modelViewMatrix.mul(vec4(P4.xyz.sub(V4.xyz.mul(0.024)), 1));
+    const hp = mirror ? mirP(P4.xyz) : P4.xyz, tp = mirror ? hp.sub(vec3(V4.x, V4.y.negate(), V4.z).mul(0.024)) : P4.xyz.sub(V4.xyz.mul(0.024));
+    const head = modelViewMatrix.mul(vec4(hp, 1)), tail = modelViewMatrix.mul(vec4(tp, 1));
     const ax2 = head.xy.sub(tail.xy), L = length(ax2), dir = select(L.greaterThan(1e-5), ax2.div(max(L, 1e-5)), vec2(0, 1)), perp = vec2(dir.y.negate(), dir.x);
     const dist = head.z.negate().max(0.1);
     const w0 = select(buoy, float(0.016), float(0.011)), W = max(w0, dist.mul(PX_ANG * 1.3));
@@ -306,11 +404,12 @@ export function create({ THREE, TSL, room, params }) {
     const vC = varying(fireRamp(T).mul(E).add(vec3(0.05, 0.048, 0.046).add(vec3(0.5, 0.55, 0.62).mul(glint)).mul(ashK)));
     const vA = varying(along);
     const q = uv().sub(0.5);
-    m.colorNode = vC.mul(exp(q.x.mul(q.x).mul(-14))).mul(mix(float(0.3), float(1), vA));
+    m.colorNode = vC.mul(exp(q.x.mul(q.x).mul(-14))).mul(mix(float(0.3), float(1), vA)).mul(mirror ? CHROME.mul(U.refl).mul(0.6) : float(1));
     m.fog = false;
-    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 4;
-    object.add(mesh);
-    return mesh;
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = mirror ? -1 : 4;
+    world.add(mesh); meshes.push(mesh);
+    }
+    return meshes;
   })();
   let cursor = 0, nE = 0;
   const sparkGain = () => Math.max(0, Number(P.sparks ?? 1));
@@ -352,6 +451,8 @@ export function create({ THREE, TSL, room, params }) {
       aS[i * 4] = r(); aS[i * 4 + 1] = r(); aS[i * 4 + 2] = r(); aS[i * 4 + 3] = slot;
     }
     const g = quadGeo(n, { aJ, aD, aS });
+    const meshes = [];
+    for (const mirror of [false, true]) {
     const m = additive();
     const J4 = attribute('aJ', 'vec4'), D4 = attribute('aD', 'vec4'), S4 = attribute('aS', 'vec4');
     const A = uJ.element(int(J4.x)), B = uJ.element(int(J4.y)), st = uDS.element(int(S4.w));
@@ -370,14 +471,15 @@ export function create({ THREE, TSL, room, params }) {
     const T = pow(float(1).sub(age), 1.3).mul(1.6).add(0.12).mul(D4.w).mul(st.z).mul(e.mul(0.6).add(0.4)).mul(float(1).sub(smoothstep(0.35, 1.0, v)));
     const E = smoothstep(0.0, 0.1, age).mul(pow(float(1).sub(age), 0.9)).mul(0.33).mul(U.devils).mul(float(1).sub(U.leave));
     const size = float(0.05).add(r3.mul(0.03)).mul(age.mul(0.5).add(0.8)).mul(float(1).add(v.mul(0.8)));
-    m.vertexNode = select(st.x.greaterThan(0.001).and(T.greaterThan(0.01)), billboard(p, size, size.mul(float(1.4).add(v.mul(2.0)))), HIDE);
+    m.vertexNode = select(st.x.greaterThan(0.001).and(T.greaterThan(0.01)), billboard(mirror ? mirP(p) : p, size, size.mul(float(1.4).add(v.mul(2.0)))), HIDE);
     const vC = varying(fireRamp(T).mul(E));
     const q = uv().sub(0.5);
-    m.colorNode = vC.mul(exp(dot(q, q).mul(-14)));
+    m.colorNode = vC.mul(exp(dot(q, q).mul(-14))).mul(mirror ? CHROME.mul(U.refl).mul(0.65) : float(1));
     m.fog = false;
-    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 3;
-    object.add(mesh);
-    return mesh;
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = mirror ? -1 : 3;
+    world.add(mesh); meshes.push(mesh);
+    }
+    return meshes;
   })();
   const devils = [];
   for (let i = 0; i < MAXD; i++) devils.push({ on: false, s: 0, d: DEV_D, dir: 1, spd: 0.7, age: 0, life: 8, k: 0, dis: 0, style: 0, phase: 0, wave: null, h: 1, acc: 0, born: 0 });
@@ -576,7 +678,7 @@ export function create({ THREE, TSL, room, params }) {
     })();
     m.fog = false;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 1;
-    object.add(mesh);
+    world.add(mesh);
     // CPU: a subset of landings throws a puff of sparks
     const puffs = [];
     for (let i = 0; i < NSH; i += 12) puffs.push({ a: aFl[i * 4], x: aRest[i * 4], z: aRest[i * 4 + 2], h: aFl[i * 4 + 1], dx: aFl[i * 4 + 2], dz: aFl[i * 4 + 3] });
@@ -584,6 +686,213 @@ export function create({ THREE, TSL, room, params }) {
     return mesh;
   })();
 
+  // ------------------------------------------------------------------------------------------------ 5c. the burning trencadís (T-029)
+  // NT glazed ceramic tiles float 0.15–1.1 m beyond the walls at hand height (the near layer), turning slowly, their edges smouldering.
+  // A hand knocks them loose (CPU rigid bodies): they catch fire, jump into the world spinning, fall, hit the liquid chrome (a crown of
+  // sparks, a crown of chrome drops, a ripple), bounce once, float, tilt and sink as they go out. New ones assemble 3–6 s later.
+  // Drawn as one instanced slab (per-instance position/scale, quaternion, state from the CPU each frame) + its mirror in the liquid.
+  const NT = 240, ND = 220;
+  const tA = new Float32Array(NT * 4), tQ = new Float32Array(NT * 4), tS = new Float32Array(NT * 4);
+  const GLAZE = [[0.024, 0.006, 0.004], [0.03, 0.008, 0.005], [0.04, 0.011, 0.006], [0.026, 0.007, 0.004], [0.022, 0.012, 0.01]];   // crust #2A0C08   // crust #2A0C08, a few with red glaze
+  const glazeT = (k) => { let c = vec3(...GLAZE[0]); for (let i = 1; i < GLAZE.length; i++) c = select(k.greaterThan(i - 0.5), vec3(...GLAZE[i]), c); return c; };
+  // a hot surface lit by the fire: the light from the ring (out and down), from the liquid below, and its glossy reflection
+  const glossEnv = (P, R) => envFire(P, R, false).add(skyEnv(R)).mul(select(R.y.greaterThan(0), float(1), float(0)))
+    .add(envFire(P, vec3(R.x, R.y.abs(), R.z), false).mul(0.75).mul(select(R.y.greaterThan(0), float(0), float(1))));
+  const tileGeo = (() => {
+    const NCOR = 7, P0 = [], N0 = [], F0 = [], C0 = [];
+    const ring = (k, rad, z) => { const a = (k % NCOR) * (Math.PI * 2 / NCOR); return [Math.cos(a) * rad, Math.sin(a) * rad, z]; };
+    const tri = (A, B, C, ka, kb, kc, face) => {
+      const u = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], v = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
+      let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      const l = Math.hypot(n[0], n[1], n[2]) || 1; n = n.map((x) => x / l);
+      for (const [Pt, k] of [[A, ka], [B, kb], [C, kc]]) { P0.push(...Pt); N0.push(...n); F0.push(face); C0.push(k % NCOR); }
+    };
+    for (let k = 0; k < NCOR; k++) {
+      const k1 = k + 1;
+      tri([0, 0, 0.5], ring(k, 0.5, 0.5), ring(k1, 0.5, 0.5), k, k, k1, 1);
+      tri([0, 0, -0.5], ring(k1, 0.5, -0.5), ring(k, 0.5, -0.5), k, k1, k, -1);
+      const a0 = ring(k, 0.5, 0.5), a1 = ring(k1, 0.5, 0.5), b0 = ring(k, 0.5, -0.5), b1 = ring(k1, 0.5, -0.5);
+      tri(b0, b1, a1, k, k1, k1, 0); tri(b0, a1, a0, k, k1, k, 0);
+    }
+    const geo = new THREE.InstancedBufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(P0, 3));
+    geo.setAttribute('aNrm', new THREE.Float32BufferAttribute(N0, 3));
+    geo.setAttribute('aFace', new THREE.Float32BufferAttribute(F0, 1));
+    geo.setAttribute('aCor', new THREE.Float32BufferAttribute(C0, 1));
+    for (const [k, arr] of [['aTA', tA], ['aTQ', tQ], ['aTS', tS]]) { const b = new THREE.InstancedBufferAttribute(arr, 4); b.setUsage(THREE.DynamicDrawUsage); geo.setAttribute(k, b); }
+    geo.instanceCount = NT;
+    return geo;
+  })();
+  const tileMesh = [];
+  for (const mirror of [false, true]) {
+    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
+    const A4 = attribute('aTA', 'vec4'), Q4 = attribute('aTQ', 'vec4'), S4 = attribute('aTS', 'vec4');
+    const aNrm = attribute('aNrm', 'vec3'), aFace = attribute('aFace', 'float'), aCor = attribute('aCor', 'float');
+    const sd = S4.z, pg = positionGeometry;
+    const cs = sin(sd.mul(91.0).add(aCor.mul(2.7)).add(sd.mul(13.0))).mul(0.3).add(1.0);
+    const sc = A4.w.mul(S4.y);                                           // size × appear (0 = hidden)
+    const loc = vec3(pg.xy.mul(cs).mul(vec2(sc, sc.mul(sd.mul(0.5).add(0.7)))), pg.z.mul(sc.mul(0.14)));
+    const pw = rotQ(Q4, loc).add(A4.xyz), nw = rotQ(Q4, aNrm);
+    const pf = mirror ? mirP(pw) : pw, vYl = varying(pf.y);   // the height over the liquid (local: robust to the host's rig)
+    m.positionNode = pf;
+    const vN = varying(mirror ? vec3(nw.x, nw.y.negate(), nw.z) : nw), vFace = varying(aFace), vH = varying(S4.x), vG = varying(S4.w), vSd = varying(sd);
+    const vLoc = varying(loc.div(max(sc, 1e-4)));
+    m.colorNode = Fn(() => {
+      const yl = vYl;
+      If(mirror ? yl.greaterThan(0.0) : yl.lessThan(0.0), () => { Discard(); });     // the liquid swallows it: cut at the surface
+      const N = normalize(vN), V = normalize(cameraPosition.sub(positionWorld));
+      const Nf = select(dot(N, V).lessThan(0), N.negate(), N);
+      const P = vec3(positionWorld.x, yl, positionWorld.z);
+      const Ld = normalize(vec3(P.x, P.y.negate().mul(0.25).sub(0.3), P.z));
+      const I = fireLightK();
+      const top = smoothstep(0.5, 0.9, vFace), bottom = smoothstep(-0.5, -0.9, vFace);
+      const glaze = glazeT(vG), bisc = vec3(0.2, 0.075, 0.035);
+      const alb = mix(mix(bisc.mul(0.8), bisc, bottom), glaze, top);
+      const diff = alb.mul(vec3(1.0, 0.56, 0.3)).mul(I).mul(max(dot(Nf, Ld), 0).add(max(Nf.y.negate(), 0).mul(0.45)).add(0.22)).mul(1.6).add(alb.mul(vec3(0.03, 0.026, 0.024)));
+      const R = reflect(V.negate(), Nf);
+      const fr = float(0.04).add(pow(float(1).sub(max(dot(Nf, V), 0)), 5.0).mul(0.96));
+      const spec = glossEnv(P, R).mul(fr).mul(top.mul(0.85).add(0.15)).mul(4.0).add(fireSpec(P, R, 30.0).mul(top.mul(2.2).add(0.2))).add(vec3(0.03, 0.032, 0.04).mul(fr).mul(top).mul(smoothstep(0.0, 0.8, R.y)));
+      // burning: the edges first, a crackle of the glaze, the biscuit underneath
+      const crk = pow(float(1).sub(abs(mx_noise_float(vLoc.mul(7.0).add(vSd.mul(31.0))))), 14.0);
+      const T = vH.mul(select(abs(vFace).lessThan(0.5), float(1.45).add(smoothstep(0.6, 1.0, vH).mul(0.35)), mix(float(0.55), crk.mul(1.05), top)));
+      return diff.add(spec).add(fireRamp(T)).mul(mirror ? CHROME.mul(U.refl).mul(0.85) : float(1));
+    })();
+    m.fog = false;
+    const mesh = new THREE.Mesh(tileGeo, m); mesh.frustumCulled = false; mesh.renderOrder = mirror ? -1 : 1;
+    world.add(mesh); tileMesh.push(mesh);
+  }
+  const tiles = [];
+  for (let i = 0; i < NT; i++) tiles.push({ mode: 0, wall: 0, s: 0, rest: new THREE.Vector3(), pos: new THREE.Vector3(), vel: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), heat: 0, alpha: 0, seed: Math.random(), glaze: Math.floor(Math.random() * 5), scale: 0.1, timer: Math.random() * 2, delay: 0, kick: 1, hvx: 0, bounced: 0, appear: 0, ph: Math.random() * 6.3 });
+  // droplets of chrome (the splash's crown)
+  const dA = new Float32Array(ND * 4);
+  const dropGeo = (() => {
+    const src = new THREE.IcosahedronGeometry(1, 2), geo = new THREE.InstancedBufferGeometry();
+    geo.setAttribute('position', src.getAttribute('position')); geo.setAttribute('normal', src.getAttribute('normal'));
+    const b = new THREE.InstancedBufferAttribute(dA, 4); b.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('aDA', b);
+    geo.instanceCount = ND; return geo;
+  })();
+  const dropMesh = [];
+  for (const mirror of [false, true]) {
+    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.FrontSide });
+    const D4 = attribute('aDA', 'vec4'), nrm = attribute('normal', 'vec3');
+    const pw = D4.xyz.add(positionGeometry.mul(D4.w).mul(vec3(1, 1.25, 1)));
+    const pf = mirror ? mirP(pw) : pw, vYl = varying(pf.y);
+    m.positionNode = pf;
+    const vN = varying(mirror ? vec3(nrm.x, nrm.y.negate(), nrm.z) : nrm);
+    m.colorNode = Fn(() => {
+      const yl = vYl;
+      If(mirror ? yl.greaterThan(0.0) : yl.lessThan(0.0), () => { Discard(); });
+      const N = normalize(vN), V = normalize(cameraPosition.sub(positionWorld)), R = reflect(V.negate(), N);
+      const P = vec3(positionWorld.x, yl, positionWorld.z);
+      const rimD = pow(float(1).sub(abs(dot(N, V))), 3.0);
+      return glossEnv(P, R).mul(CHROME).mul(1.6).add(fireSpec(P, R, 6.0).mul(3.0)).add(vec3(0.06, 0.062, 0.075).mul(smoothstep(-0.2, 0.9, R.y))).add(vec3(0.5, 0.25, 0.1).mul(rimD).mul(fireLightK())).add(vec3(1.0, 0.45, 0.15).mul(max(N.y.negate(), 0)).mul(fireLightK()).mul(0.2)).mul(mirror ? CHROME.mul(U.refl).mul(0.85) : float(1));
+    })();
+    m.fog = false;
+    const mesh = new THREE.Mesh(dropGeo, m); mesh.frustumCulled = false; mesh.renderOrder = mirror ? -1 : 1;
+    world.add(mesh); dropMesh.push(mesh);
+  }
+  const drops = []; for (let i = 0; i < ND; i++) drops.push({ on: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), r: 0.01 });
+  let dropI = 0;
+
+  // ------------------------------------------------------------------------------------------------ 5d. the far background (T-029)
+  // Monoliths of molten chrome 26–46 m away, half sunk in the liquid: dark, they only catch the fire's glow (their faces that look at the
+  // ring reflect it) and stand reflected in the liquid. Their group turns very slowly round the room (≤ 1.5°/s).
+  const NFAR0 = 8, NCOL = 12, NFAR = NFAR0 + NCOL;   // 5 a wall: 3 near, 2 far
+  const farGroup = new THREE.Group(); world.add(farGroup);
+  const farMesh = [];
+  {
+    const r = rng(123), aF = new Float32Array(NFAR * 4), aG = new Float32Array(NFAR * 4);
+    for (let i = 0; i < NFAR; i++) {
+      if (i >= NFAR0) {                               // a chrome column / drop rising out of the liquid among the embers
+        const k = i - NFAR0; ringPoint((k + 0.25 + 0.5 * r()) / NCOL * PER, 2.5 + 3 * r(), _v);
+        aF[i * 4] = _v.x; aF[i * 4 + 1] = _v.z; aF[i * 4 + 2] = 0.22 + 0.1 * r(); aF[i * 4 + 3] = 2 + 1.6 + 0.9 * r();
+        aG[i * 4] = r(); aG[i * 4 + 1] = (r() - 0.5) * 0.08; aG[i * 4 + 2] = r(); aG[i * 4 + 3] = r();
+        continue;
+      }
+      const a = (i + 0.2 + r() * 0.6) / NFAR0 * Math.PI * 2 + 0.4, rad = 40 + r() * 20;
+      aF[i * 4] = Math.cos(a) * rad; aF[i * 4 + 1] = Math.sin(a) * rad; aF[i * 4 + 2] = 2.2 + 1.2 * r(); aF[i * 4 + 3] = 18 + r() * 12;
+      aG[i * 4] = r(); aG[i * 4 + 1] = (r() - 0.5) * 0.25; aG[i * 4 + 2] = r(); aG[i * 4 + 3] = r();
+    }
+    const src = new THREE.CylinderGeometry(1, 1, 1, 28, 90, false), geo = new THREE.InstancedBufferGeometry();
+    geo.setIndex(src.getIndex()); geo.setAttribute('position', src.getAttribute('position')); geo.setAttribute('normal', src.getAttribute('normal'));
+    geo.setAttribute('aF', new THREE.InstancedBufferAttribute(aF, 4)); geo.setAttribute('aG', new THREE.InstancedBufferAttribute(aG, 4));
+    geo.instanceCount = NFAR;
+    for (const mirror of [false, true]) {
+      const m = mirror ? new THREE.MeshBasicNodeMaterial({ side: THREE.FrontSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })
+        : new THREE.MeshBasicNodeMaterial({ side: THREE.FrontSide });
+      const F4 = attribute('aF', 'vec4'), G4 = attribute('aG', 'vec4'), nrm = attribute('normal', 'vec3'), pg = positionGeometry;
+      const yy = pg.y.add(0.5).mul(F4.w).sub(2.0);                       // the base sunk 2 m
+      // a MERCURY DROP rising out of the liquid: a meniscus at its foot, a belly, a neck, a small head (one family, near and far)
+      const Hv = F4.w.sub(2.0), tt = clamp(yy.div(Hv), 0, 1);
+      // in metres: a belly low, a long thin neck, and a ROUND head (a sphere of radius rh on top: no point)
+      const sz = F4.z.mul(G4.w.mul(0.3).add(0.85)), rh = sz.mul(0.62), yc = Hv.sub(rh);
+      const radAt = (y) => {
+        const t = clamp(y.div(Hv), 0, 1), b = t.sub(0.26).div(0.2);
+        const body = float(0.2).add(exp(b.mul(b).negate()).mul(0.8)).add(exp(t.div(-0.035)).mul(0.5)).mul(sz)
+          .mul(float(1).sub(smoothstep(yc.sub(rh.mul(0.5)), yc.sub(rh.mul(0.05)), y)).mul(0.6).add(0.4)).mul(step(y, yc));
+        const hd = y.sub(yc), head = sqrt(max(rh.mul(rh).sub(hd.mul(hd)), 0.0));
+        return max(body, head);
+      };
+      const wob = sin(U.time.mul(0.35).add(G4.x.mul(30.0)).add(tt.mul(5.0))).mul(0.03).add(1);
+      const rad = radAt(yy).mul(wob);
+      const drdy = radAt(yy.add(0.02)).sub(radAt(yy.sub(0.02))).div(0.04);
+      const lean = G4.y.mul(max(yy, 0));
+      const p = vec3(pg.x.mul(rad).add(F4.x).add(lean), yy, pg.z.mul(rad).add(F4.y));
+      const pf = mirror ? vec3(p.x, p.y.negate(), p.z) : p, vYl = varying(pf.y);
+      m.positionNode = pf;
+      const ang = atan(pg.z, pg.x), rd = normalize(vec3(pg.x, 0, pg.z).add(vec3(1e-4, 0, 0))), tg = vec3(rd.z.negate(), 0, rd.x);
+      const nl = normalize(rd.sub(vec3(0, clamp(drdy, -3, 3), 0)).add(tg.mul(sin(ang.mul(11.0).add(yy.div(Hv).mul(9.0)).add(G4.x.mul(20.0))).mul(smoothstep(0.35, 0.7, tt)).mul(0.22))));   // a twisted neck: the fire in spiral streaks
+      const vN = varying(mirror ? vec3(nl.x, nl.y.negate(), nl.z) : nl);
+      m.colorNode = Fn(() => {
+        const yl = vYl;
+        If(mirror ? yl.greaterThan(0.0) : yl.lessThan(0.0), () => { Discard(); });
+        const N = normalize(vN), V = normalize(cameraPosition.sub(positionWorld)), R = reflect(V.negate(), N);
+        const P = vec3(positionWorld.x, abs(yl), positionWorld.z);
+        const fireOnly = envFire(P, vec3(R.x, abs(R.y), R.z), false).mul(select(R.y.greaterThan(0), float(1), float(0.7)));
+        const rim = pow(float(1).sub(abs(dot(N, V))), 4.0);
+        // the faces that look at the room catch the fire's light (strongest low down); the silhouette is rim-lit in fire
+        const Lf = normalize(vec3(P.x.negate(), 0.12, P.z.negate()));
+        const lit = vec3(1.0, 0.36, 0.1).mul(fireLightK()).mul(pow(max(dot(N, Lf), 0), 1.5)).mul(exp(P.y.div(-10.0))).mul(0.05).mul(smoothstep(15.0, 40.0, length(P.xz)));
+        void lit;
+        const c = fireOnly.mul(CHROME).mul(12.0).add(fireSpec(P, R, 40.0).mul(0.8)).add(vec3(0.0015, 0.0014, 0.0016)).add(vec3(0.012, 0.013, 0.018).mul(smoothstep(0.3, 1.0, R.y)))
+          .add(vec3(0.1, 0.14, 0.26).mul(pow(rim, 1.5)).mul(0.5)).add(vec3(0.35, 0.46, 0.69).mul(0.09).mul(exp(abs(R.y).mul(-10.0))))   // a cold silver horizon across the mirror
+          .add(skyEnv(R).mul(select(R.y.greaterThan(0), float(0.8), float(0))));
+        const vis = float(1).sub(U.wait).mul(smoothstep(0.2, 0.8, U.arrive)).mul(float(1).sub(smoothstep(0.2, 0.7, U.leave)));
+        return c.mul(vis).mul(mirror ? CHROME.mul(U.refl).mul(0.45) : float(1));
+      })();
+      m.fog = false;
+      const mesh = new THREE.Mesh(geo, m); mesh.frustumCulled = false; mesh.renderOrder = mirror ? -1 : 0;
+      farGroup.add(mesh); farMesh.push(mesh);
+    }
+  }
+
+
+  // ------------------------------------------------------------------------------------------------ 5e. low haze over the liquid (T-029)
+  // 320 wide, flat, soft sprites 9–45 m out, 0.2–2.6 m over the liquid, drifting slowly round; lit red by the fire (stronger near the
+  // ring, fading with distance). Additive and faint: the guide band stays readable.
+  const NHZ = 110;
+  const hazeMesh = (() => {
+    const r = rng(211), aH = new Float32Array(NHZ * 4), aQ = new Float32Array(NHZ * 4);
+    for (let i = 0; i < NHZ; i++) {
+      aH[i * 4] = r() * Math.PI * 2; aH[i * 4 + 1] = 9 + 36 * r() * r(); aH[i * 4 + 2] = 0.2 + 16.0 * r() * r();   // up to ~7 m: the upper half of the walls has a warm breath aH[i * 4 + 3] = r();
+      aQ[i * 4] = 6 + 10 * r(); aQ[i * 4 + 1] = 2 + 4 * r(); aQ[i * 4 + 2] = (r() - 0.5) * 0.02; aQ[i * 4 + 3] = r();
+    }
+    const g = quadGeo(NHZ, { aH, aQ });
+    const m = additive();
+    const H4 = attribute('aH', 'vec4'), Q4 = attribute('aQ', 'vec4'), t = U.time;
+    const a = H4.x.add(t.mul(Q4.z)), rad = H4.y;
+    const p = vec3(cos(a).mul(rad), H4.z.add(sin(t.mul(0.07).add(H4.w.mul(20.0))).mul(0.25)), sin(a).mul(rad));
+    const k = exp(rad.sub(10.0).div(-14.0)).mul(exp(H4.z.div(-9.0)));
+    const A = k.mul(fireLightK()).mul(float(1).sub(U.wait)).mul(smoothstep(0.1, 0.7, U.arrive)).mul(float(1).sub(smoothstep(0.2, 0.8, U.leave))).mul(U.haze)
+      .mul(sin(t.mul(0.05).add(Q4.w.mul(30.0))).mul(0.35).add(0.65));
+    m.vertexNode = select(A.greaterThan(0.002), billboard(p, Q4.x, Q4.y), HIDE);
+    const vA = varying(A), q = uv().sub(0.5);
+    m.colorNode = vec3(1.0, 0.3, 0.08).mul(vA).mul(0.03).mul(exp(q.x.mul(q.x).mul(-9.0).add(q.y.mul(q.y).mul(-12.0))));
+    m.fog = false;
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 5;
+    world.add(mesh);
+    return mesh;
+  })();
   // ------------------------------------------------------------------------------------------------ 5b. smoke in a few columns
   // 24 plumes (3 500 sprites), placed by the CPU on hot stretches of the ring and moved when their 12–20 s life ends (fading in and out). The sprites,
   // large and soft (vertex stage, no state, NORMAL blending) are shared out among them: each rises up its column, widens with
@@ -621,7 +930,7 @@ export function create({ THREE, TSL, room, params }) {
     m.opacityNode = vA.mul(exp(dot(q, q).mul(-9.0))).mul(float(1).sub(smoothstep(0.42, 0.5, length(q))));
     m.fog = false;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 5;
-    object.add(mesh);
+    world.add(mesh);
     return mesh;
   })();
   function updatePlumes(time, level, arr) {
@@ -665,12 +974,34 @@ export function create({ THREE, TSL, room, params }) {
       If(dot(cameraWorldMatrix.element(2).xyz, vN).lessThan(0.999), () => { Discard(); });
       const Pw = positionWorld, y = Pw.y, s = wrapT(vS.sub(PER / 2)).add(PER / 2);
       const tw = length(Pw.xz.sub(eyeU.xz));
-      const yR = eyeU.y.sub(eyeU.y.mul(tw).div(tw.add(mix(float(6.0), float((WAIT0 + WAIT1) / 2), U.wait))));             // where the middle of the bed is seen on this wall
+      const yR = eyeU.y.sub(eyeU.y.sub(U.lift).mul(tw).div(tw.add(mix(float(6.0), float((WAIT0 + WAIT1) / 2), U.wait))));             // where the middle of the bed is seen on this wall
       const hs = heatSample(s, false);
       const H = bedHeat(s, smoothstep(0.0, 0.7, U.level).mul(0.7).add(0.15), hs).mul(float(1).sub(smoothstep(0.3, 0.9, U.leave)));
       const dy = y.sub(yR);
       const g1 = exp(dy.mul(dy).div(-2 * 0.05 * 0.05)).mul(0.035), g2 = exp(max(dy, 0).div(-0.55)).mul(smoothstep(-0.08, 0.02, dy)).mul(0.03);
       const c = vec3(1.0, 0.36, 0.1).mul(H.mul(g1.add(g2))).mul(U.haze).toVar();
+      // T-043 THE CALL (tok… tok… TOK): on every calling wall a ring of fire light (a wide ellipse) contracts onto the ember line and
+      // ARRIVES on the TOK; the two toks before it pulse it. The answering wall (call 2) shows only the last beat. callW per wall:
+      // 1 = calls (the whole countdown), 0.5 = answers, 0 = silent.
+      If(U.callOn.greaterThan(0.001), () => {
+        let wsel = float(U.callW.x), wc = float(cum[0] + walls[0].width / 2);
+        const comps = ['x', 'y', 'z', 'w'];
+        for (let i = 1; i < NW && i < 4; i++) { const inW = s.greaterThanEqual(cum[i]); wsel = select(inW, U.callW[comps[i]], wsel); wc = select(inW, float(cum[i] + walls[i].width / 2), wc); }
+        const ct = U.callT, gp = U.callGap, dxw = s.sub(wc);
+        const full = step(0.75, wsel);
+        const span = mix(gp, gp.mul(2), full);                                  // the answering wall: only the last gap
+        const k = clamp(ct.negate().div(span), 0, 1), live = step(span.negate(), ct).mul(step(ct, 0.0)).mul(step(0.25, wsel));
+        const rx = k.mul(2.6).add(0.12), ry = k.mul(0.75).add(0.03);
+        const ex_ = dxw.div(rx), ey_ = dy.div(ry), e = sqrt(ex_.mul(ex_).add(ey_.mul(ey_)));
+        const rd = e.sub(1).mul(rx).div(0.07), ring = exp(rd.mul(rd).negate());
+        const p1 = ct.add(gp.mul(2)).div(0.09), p2 = ct.add(gp).div(0.09);
+        const tok = exp(p1.mul(p1).negate()).mul(full).add(exp(p2.mul(p2).negate()).mul(mix(float(0.6), float(1), full)));   // tok, tok
+        c.addAssign(vec3(1.0, 0.38, 0.1).mul(ring).mul(float(0.3).add(float(1).sub(k).mul(0.3)).add(tok.mul(0.55))).mul(live).mul(U.callOn));
+        // the TOK: the ring lands on the line and runs along it both ways, hot
+        const tk = max(ct, 0.0), land = exp(tk.mul(-3.5)).mul(step(0.0, ct)).mul(step(ct, 0.9)).mul(step(0.25, wsel));
+        const spread = tk.mul(4.0).add(0.15), xs = dxw.div(spread), ys = dy.div(0.045);
+        c.addAssign(vec3(1.0, 0.62, 0.25).mul(exp(xs.mul(xs).negate()).mul(exp(ys.mul(ys).negate()))).mul(land).mul(0.9).mul(U.callOn));
+      });
       Loop(U.nH, ({ i }) => {                                             // a hand: a warm glow at once, a flash when it lands
         const hp = uHP.element(i), d = Pw.sub(hp.xyz), r2 = dot(d, d);
         c.addAssign(vec3(1.0, 0.45, 0.15).mul(exp(r2.div(-2 * 0.13 * 0.13)).mul(hp.w.mul(0.16).add(0.04))).add(vec3(1.0, 0.55, 0.2).mul(exp(r2.div(-2 * 0.06 * 0.06)).mul(hp.w.mul(0.4)))));   // orange, never a white ball
@@ -679,22 +1010,50 @@ export function create({ THREE, TSL, room, params }) {
     })();
     m.fog = false;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 6;
-    object.add(mesh);
+    object.add(mesh);   // (the air stays on the wall planes: not lifted)
     return mesh;
   })();
+
+
+  // ------------------------------------------------------------------ the guide's quiet zones (director's rule, 24-11)
+  // At each wall's centre, text ±1.6 m × 1.75–2.2 m and button ±0.9 m × 0.9–1.6 m: whatever the world shows behind them is veiled
+  // (a black layer on the wall plane, soft edges 0.2 m) by U.quiet (0..1), so nothing there reads above ~35 % luminance.
+  const _vq = new THREE.Vector3();
+  const quietMesh = (() => {
+    const pos = [], at = [], idx = [];
+    walls.forEach((w, i) => {
+      const o = pos.length / 3;
+      for (const [uu, vv] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+        room.wallPoint(i, uu, vv, _vq).addScaledVector(w.normal, -0.003);
+        pos.push(_vq.x, _vq.y, _vq.z); at.push((uu - 0.5) * w.width, vv * w.height);
+      }
+      idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('aQ', new THREE.Float32BufferAttribute(at, 2)); g.setIndex(idx);
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.NormalBlending, side: THREE.DoubleSide });
+    const q = varying(attribute('aQ', 'vec2'));
+    const box = (hw, y0, y1) => smoothstep(hw + 0.5, hw - 0.1, abs(q.x)).mul(smoothstep(y0 - 0.4, y0 + 0.05, q.y)).mul(smoothstep(y1 + 0.4, y1 - 0.05, q.y));   // soft: a dimming, never a box
+    m.colorNode = vec3(0, 0, 0);
+    m.opacityNode = max(box(1.6, 1.75, 2.2), box(0.9, 0.9, 1.6)).mul(U.quiet);
+    m.fog = false;
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 5.9;
+    return mesh;
+  })();
+  object.add(quietMesh);
 
   // ------------------------------------------------------------------------------------------------ 7. lights for the other parts
   const lights = walls.map((w, i) => {
     const l = new THREE.PointLight(0xff7a30, 0, 0, 2); l.layers.set(31);
     ringPoint(hearthS[i], 6, l.position); l.position.y = 0.6;
-    object.add(l); return l;
+    world.add(l); return l;
   });
 
   // ------------------------------------------------------------------------------------------------ CPU state
   const hands = []; for (let i = 0; i < 32; i++) hands.push({ stroke: null, seen: false, acc: 0, rib: 0, jet: 0, jetAcc: 0, flash: 0, s: 0, y: 1.2 });
   const recent = []; for (let i = 0; i < 16; i++) recent.push({ s: 0, t: -1e9 });
   let recentI = 0;
-  const waves = []; for (let i = 0; i < 4; i++) waves.push({ on: false, s0: 0, t0: 0, last: [0, 0], met: false });
+  const waves = []; for (let i = 0; i < 4; i++) waves.push({ on: false, s0: 0, t0: 0, last: [0, 0], lastR: [-1e9, -1e9], met: false });
   let level = 0.1, awakeEnv = 0, awakeT = -1e9, contract = 0, cool = 0, prevArrive = -1, lastWave = -1e9, prevWaveP = false, prevAwakeP = false, nextAutoWave = 0;
   const recentUps = []; for (let i = 0; i < 8; i++) recentUps.push({ s: 0, y: 0, t: -1e9 });
   let upI = 0, served = 'brasa', servedPhase = 'play', crowdN = 0, crowdK = 1, waitK = 0, breathPh = 0, trailI = 0, puffCount = 0, ambAcc = 0, columnAcc = 0, leaveAcc = 0, frame = 0, rewardT = 0;
@@ -706,11 +1065,11 @@ export function create({ THREE, TSL, room, params }) {
     const n = Math.ceil((sigma * 3) / CELL), c = Math.round(wrapP(s) / CELL);
     for (let k = -n; k <= n; k++) { const j = ((c + k) % NC + NC) % NC, x = (k * CELL) / sigma; arr[j] = Math.max(arr[j], amt * Math.exp(-0.5 * x * x)); }
   };
-  function startWave(s0, time) {
+  function startWave(s0, time, big = true) {
     const w = waves.find((x) => !x.on) || waves[0];
-    w.on = true; w.s0 = s0; w.t0 = time; w.met = false;
+    w.on = true; w.s0 = s0; w.t0 = time; w.met = false; w.lastR = [-1e9, -1e9]; w.big = big;   // a missed call: a small wave (an eighth of the way, dimmer, no devils)
     w.last[0] = w.last[1] = 0;
-    spawnDevil(s0, 1, 3.0, 2.8, w, time); spawnDevil(s0, -1, 3.0, 2.8, w, time);
+    if (big) { spawnDevil(s0, 1, 3.0, 2.8, w, time); spawnDevil(s0, -1, 3.0, 2.8, w, time); }
     lastWave = time;
   }
   function waveOrigin(time) {                       // circular mean of the hands landed in the last 1.2 s
@@ -718,6 +1077,163 @@ export function create({ THREE, TSL, room, params }) {
     for (const r of recent) if (time - r.t <= 1.2) { const a = (r.s / PER) * Math.PI * 2; cx += Math.cos(a); cz += Math.sin(a); n++; }
     if (!n) return wrapP(hearthS[0]);
     return wrapP((Math.atan2(cz, cx) / (Math.PI * 2)) * PER);
+  }
+
+  // ---- T-029: the liquid, the tiles, the drops (CPU)
+  const HANG = 64, _cw = [0, 0, 0, 0]; let callOnK = 0, nHang = 0, farAcc = 0, lift = 0, liftV = 0, splashN = 0, trailT = 0, impacts = 0;
+  const fx = []; for (let i = 0; i < 16; i++) fx.push({ t: -1, wall: 0, u: 0, force: 0 });   // 'fx:impact' for the sound (wave 2)
+  let fxI = 0;
+  const _q = new THREE.Quaternion(), _ax = new THREE.Vector3(), _t = new THREE.Vector3(), _img = new THREE.Vector3();
+  function addRipple(x, z, amp, time) { RS[ripI].set(x, z, time % 3000, amp); ripI = (ripI + 1) % RIP_N; }
+  function spinStep(t, dt) {
+    const wl = t.w.length(); if (wl < 1e-5) return;
+    _ax.copy(t.w).multiplyScalar(1 / wl); _q.setFromAxisAngle(_ax, wl * dt); t.q.premultiply(_q);
+  }
+  function placeTile(t, time) {                    // a new resting place beyond a wall, at hand height, away from the guide's button
+    for (let k = 0; k < 8; k++) {
+      let x = Math.random() * PER, w = NW - 1; for (let i = 0; i < NW; i++) if (x < cum[i] + walls[i].width) { w = i; break; }
+      const W = walls[w], u = (x - cum[w]) / W.width;
+      if (u < 0.03 || u > 0.97) continue;
+      const y = 0.62 + 1.55 * (Math.random() + Math.random()) / 2, du = (u - 0.5) * W.width;
+      if (k < 7 && Math.hypot(du, y - 1.25) < 0.42) continue;
+      const depth = 0.15 + 0.95 * Math.random() * Math.random();
+      t.wall = w; t.s = x;
+      t.rest.copy(W.pa).addScaledVector(W.right, u * W.width).addScaledVector(W.normal, -depth); t.rest.y = y;
+      break;
+    }
+    t.pos.copy(t.rest); t.pos.y -= lift; t.vel.set(0, 0, 0);
+    t.q.setFromAxisAngle(_ax.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(), Math.random() * 6.3);
+    t.w.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(0.12 + 0.4 * Math.random());
+    { const z = Math.random(); t.scale = z < 0.15 ? 0.26 + 0.1 * Math.random() : z < 0.5 ? 0.13 + 0.07 * Math.random() : 0.06 + 0.04 * Math.random(); }   // 1 : 3 : 9
+    t.mode = 1; t.heat = 0.15; t.delay = 0; t.bounced = 0; t.seed = Math.random(); t.glaze = Math.floor(Math.random() * 5);
+    t.appear = 0.15 + 0.8 * Math.random(); t.born = time;
+  }
+  function knock(t, kick, hvx) {
+    const W = walls[t.wall], r = Math.random;
+    t.mode = 2; t.bounced = 0; t.heat = 0.95; t.delay = 0;
+    fxAt(t.pos, 0.6, 'fire', 'ignite');
+    t.vel.copy(W.normal).multiplyScalar(-(0.6 + 0.9 * r()) * kick).addScaledVector(W.right, (r() - 0.5) * 0.9 + hvx * 0.5);
+    t.vel.y = (0.5 + 1.3 * r()) * kick;
+    t.w.set(r() - 0.5, r() - 0.5, r() - 0.5).normalize().multiplyScalar(4 + 7 * r());
+    if (nE < MAXE - 10) emit(16, t.pos.x, t.pos.y, t.pos.z, 0.04, -W.normal.x, 0.6, -W.normal.z, 0.9, 0.6, 2.4, 0.3, 0.8, 1.75, 1, 0.8);   // it catches
+  }
+  // a hand on wall i at world position hp: knock the tiles whose image on the wall is under it (a landing: a cascade round it)
+  function touchTiles(h, down, hy) {
+    const W = walls[h.wall], n = W.normal, R0 = down ? 0.55 : 0.2;
+    const dWall = -_t.subVectors(W.pa, eye).dot(n);
+    let found = 0;
+    for (const t of tiles) {
+      if (t.mode !== 1 || t.wall !== h.wall || t.alpha < 0.5 || t.delay > 0) continue;
+      _t.copy(t.pos); _t.y += lift; _t.sub(eye);
+      const k = dWall / Math.max(1e-3, -_t.dot(n));
+      _img.copy(eye).addScaledVector(_t, k);
+      const dist = _img.distanceTo(h.pos);
+      if (dist >= R0) continue;
+      found++;
+      t.kick = 1; t.hvx = h.vx || 0;
+      if (!down || dist < 0.12) knock(t, 1, t.hvx); else t.delay = 0.01 + (dist / R0) * 0.24;
+    }
+    if (down) {                                   // and a tile breaks off right under the hand, at once
+      let t = tiles.find((x) => x.mode === 0) || tiles.find((x) => x.mode === 3) || tiles[0];
+      placeTile(t, 0); t.wall = h.wall; t.s = cum[h.wall] + h.u * W.width;
+      t.rest.copy(h.pos).addScaledVector(n, -0.22); t.pos.copy(t.rest); t.pos.y = hy; t.alpha = 1;
+      knock(t, 1, h.vx || 0);
+    }
+  }
+  function splash(t, time) {
+    const sp = -t.vel.y, W = walls[t.wall];
+    fxAt(t.pos, Math.min(1, Math.abs(t.vel.y) / 6), 'fire', 'splash');
+    addRipple(t.pos.x, t.pos.z, Math.min(0.024, 0.005 * sp), time);
+    if (splashN < 6) { splashN++; emit((26 + 16 * sp) * (0.3 + 0.7 * crowdK) * (time - awakeT < 4 ? 0.4 : 1), t.pos.x, 0.02, t.pos.z, 0.05, 0, 1, 0, 0.5, 1.2, 2.6 + sp * 0.5, 0.35, 1.0, 1.8, 1, 0.9); }
+    const nd = Math.min(12, Math.round(4 + sp * 2));
+    for (let k = 0; k < nd; k++) {
+      const d = drops[dropI]; dropI = (dropI + 1) % ND;
+      const a = Math.random() * Math.PI * 2, v = (0.4 + 0.9 * Math.random()) * (0.5 + sp * 0.18);
+      d.on = true; d.pos.set(t.pos.x, 0.01, t.pos.z); d.vel.set(Math.cos(a) * v, (1.1 + 1.6 * Math.random()) * (0.45 + sp * 0.16), Math.sin(a) * v);
+      d.r = 0.012 + 0.024 * Math.random() * Math.random();
+    }
+    impacts++;
+    const u = ((t.s - cum[t.wall]) / W.width);
+    const f = fx[fxI]; f.t = time; f.wall = t.wall; f.u = Math.min(1, Math.max(0, u)); f.force = Math.min(1, sp / 5); fxI = (fxI + 1) % fx.length;
+  }
+  function stepTiles(dt, time, arrive, leave) {
+    splashN = 0; let trails = 0; nHang = 0; for (const t of tiles) if (t.mode === 1) nHang++;
+    for (let i = 0; i < NT; i++) {
+      const t = tiles[i];
+      if (leave > 0.02 && (t.mode === 1 || t.mode === 2)) { t.mode = 4; t.vel.set((Math.random() - 0.5) * 0.4, 0.2 + 0.6 * Math.random(), (Math.random() - 0.5) * 0.4); t.w.multiplyScalar(2.5).addScalar(0.5); }
+      if (t.mode === 1) {
+        if (t.delay > 0) { t.delay -= dt; if (t.delay <= 0) { knock(t, t.kick, t.hvx); continue; } }
+        t.pos.copy(t.rest); t.pos.y += -lift + 0.025 * Math.sin(time * 0.6 + t.ph * 5); t.pos.x += 0.012 * Math.sin(time * 0.43 + t.ph * 3);
+        spinStep(t, dt);
+        t.heat += (0.3 + 0.15 * level - t.heat) * (1 - Math.exp(-dt / 0.8));
+        const gate = clamp01((arrive - t.appear) / 0.12) * (1 - waitK);
+        t.alpha = Math.min(gate, t.alpha + dt / 0.7);
+      } else if (t.mode === 2) {
+        t.vel.y -= 9.8 * dt; t.vel.multiplyScalar(Math.exp(-0.06 * dt)); t.pos.addScaledVector(t.vel, dt); spinStep(t, dt);
+        t.heat += (0.9 - t.heat) * (1 - Math.exp(-dt / 1.5));
+        if (trails < 6 && ((i + frame) & 1) === 0 && nE < MAXE - 8) { trails++; emit(3, t.pos.x, t.pos.y, t.pos.z, 0.03, 0, 1, 0, 1.0, 0.05, 0.5, 0.35, 0.8, 1.5, 0.2, 2.0); }
+        if (t.pos.y - 0.01 <= 0 && t.vel.y < 0) {
+          if (!t.bounced) {
+            splash(t, time);
+            t.bounced = 1; t.pos.y = 0.012; t.vel.y = -t.vel.y * 0.3; t.vel.x *= 0.55; t.vel.z *= 0.55;
+            t.w.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(3 + 5 * Math.random());
+          } else {
+            addRipple(t.pos.x, t.pos.z, 0.006, time);
+            t.mode = 3; t.timer = 0; t.pos.y = 0.004; t.vel.set(t.vel.x * 0.3, 0, t.vel.z * 0.3);
+            t.w.multiplyScalar(0.15);
+          }
+        }
+      } else if (t.mode === 3) {                   // afloat: it slows, tilts one edge down and sinks as it goes out
+        t.timer += dt; t.vel.multiplyScalar(Math.exp(-dt * 1.5)); t.pos.addScaledVector(t.vel, dt);
+        if (t.timer > 0.7 && t.timer - dt <= 0.7 && nE < MAXE - 6) { emit(16, t.pos.x, 0.03, t.pos.z, 0.06, 0, 1, 0, 0.7, 0.25, 0.8, 1.2, 2.4, 0.32, -0.12, 1.4); fxAt(t.pos, 0.5, 'fire', 'sink'); }   // a hiss of steam and ash as it goes under
+        if (t.timer > 0.7) { t.pos.y -= dt * (0.015 + 0.05 * (t.timer - 0.7)); if (t.w.lengthSq() < 0.5) t.w.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize().multiplyScalar(0.9); }
+        else t.pos.y = 0.004 + 0.003 * Math.sin(t.timer * 9);
+        spinStep(t, dt);
+        t.heat *= Math.exp(-dt / 0.9);
+        if (t.pos.y < -0.12 || t.timer > 6) { t.mode = 0; t.alpha = 0; t.timer = 3 + 3 * Math.random(); }
+      } else if (t.mode === 4) {                   // leaving: lift, turn, drift apart, thin out
+        t.vel.y += dt * 0.5; t.pos.addScaledVector(t.vel, dt); spinStep(t, dt);
+        t.heat += (0.55 - t.heat) * (1 - Math.exp(-dt / 0.6));
+        t.alpha = Math.min(t.alpha, 1 - smoother((leave - 0.35) / 0.5));
+        if (leave < 0.01) { t.mode = 0; t.timer = Math.random(); }
+      } else {
+        t.alpha = 0;
+        t.timer -= dt;
+        if (t.timer <= 0 && leave < 0.01 && waitK < 0.5) { if (nHang < HANG) { placeTile(t, time); t.alpha = 0; nHang++; } else t.timer = 0.5 + Math.random(); }
+      }
+      const j = i * 4;
+      tA[j] = t.pos.x; tA[j + 1] = t.pos.y; tA[j + 2] = t.pos.z; tA[j + 3] = t.scale;
+      tQ[j] = t.q.x; tQ[j + 1] = t.q.y; tQ[j + 2] = t.q.z; tQ[j + 3] = t.q.w;
+      tS[j] = t.heat; tS[j + 1] = Math.max(0, t.alpha); tS[j + 2] = t.seed; tS[j + 3] = t.glaze;
+    }
+    for (const k of ['aTA', 'aTQ', 'aTS']) tileGeo.getAttribute(k).needsUpdate = true;
+    for (let i = 0; i < ND; i++) {
+      const d = drops[i], j = i * 4;
+      if (d.on) {
+        d.vel.y -= 9.8 * dt; d.pos.addScaledVector(d.vel, dt);
+        if (d.pos.y < 0 && d.vel.y < 0) { d.on = false; if ((i % 3) === 0) addRipple(d.pos.x, d.pos.z, 0.003, time); }
+      }
+      dA[j] = d.pos.x; dA[j + 1] = d.pos.y; dA[j + 2] = d.pos.z; dA[j + 3] = d.on ? d.r : 0;
+    }
+    dropGeo.getAttribute('aDA').needsUpdate = true;
+  }
+  for (const t of tiles) placeTile(t, 0);
+  for (let i = HANG; i < NT; i++) { tiles[i].mode = 0; tiles[i].timer = 1e9; }   // the rest: a pool for the tiles a hand breaks off
+
+  // ---- sound (wave 2): physical impacts to the sound piece (ressonancia-sound › impact()) on the work's BroadcastChannel; ≤ 16 a second
+  let fxBc = null; try { fxBc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { fxBc = null; }
+  const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
+  let fxN = 0, fxT = 0;
+  function fxImpact(wall, u, strength, mat, kind) {                // wall: room.walls index · u: 0..1 along it · strength: 0..1
+    if (!fxBc || fxN >= 16) return; fxN++;
+    fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
+    try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
+  }
+  function fxAt(p, strength, mat, kind) {                         // the same from a world point (the wall it is seen through from the eye)
+    const W = room.walls, e = room.eye, dx = p.x - e.x, dz = p.z - e.z; let wi = 0, best = -Infinity;
+    for (let i = 0; i < W.length; i++) { const k = -(dx * W[i].normal.x + dz * W[i].normal.z); if (k > best) { best = k; wi = i; } }
+    const w = W[wi], de = (w.centre.x - e.x) * w.normal.x + (w.centre.z - e.z) * w.normal.z, t = best > 1e-6 ? -de / best : 0;
+    fxImpact(wi, 0.5 + ((e.x + dx * t - w.centre.x) * w.right.x + (e.z + dz * t - w.centre.z) * w.right.z) / w.width, strength, mat, kind);
   }
 
   function update(dt, input) {
@@ -735,7 +1251,13 @@ export function create({ THREE, TSL, room, params }) {
     breathPh = (time / 6) % 1;
     const progress = clamp01(input.progress ?? (S ? S.progress : P.progress) ?? 0);   // the host's per-part progress (0.05 in the wait; held while leaving)
     frame++; nE = 0;
+    fxT += dt; if (fxT > 1) { fxT = 0; fxN = 0; }
     U.seed.value = (frame * 2654435761) >>> 0;
+    // ---- the room sinks into the liquid as the ring wakes (the world rises; ≤ 3 cm/s, soft accelerations); none in the wait
+    const liftT = Math.max(0, Number(P.sink ?? 0.5)) * smoother(Math.min(1, level * 1.15)) * (1 - waitK);
+    if (frame <= 2 || (!S && time < 4)) { lift = liftT; liftV = 0; }
+    else { const want = Math.max(-0.03, Math.min(0.03, (liftT - lift) * 0.6)); liftV += (want - liftV) * (1 - Math.exp(-dt / 0.9)); lift += liftV * dt; }
+    world.position.y = lift; U.lift.value = lift;
 
     // ---- events
     let waveEv = false, awakeEv = false;
@@ -765,7 +1287,7 @@ export function create({ THREE, TSL, room, params }) {
     }
     let nh = 0;
     for (const h of hs) {
-      let slot = null;
+      let slot = null, newDown = false;
       for (const x of hands) if (x.stroke === h.stroke && x.stroke !== null) { slot = x; break; }
       if (!slot) {
         slot = hands.find((x) => x.stroke === null) || hands[0]; slot.stroke = h.stroke; slot.acc = 0; slot.rib = 0; slot.jetAcc = 0; slot.px = undefined;
@@ -778,12 +1300,15 @@ export function create({ THREE, TSL, room, params }) {
         if (!cont) for (const x of hands) if (x !== slot && x.stroke !== null && Math.abs(wrapC(x.s - s0)) < 0.35 && Math.abs((x.y ?? 0) - h.pos.y) < 0.35) { cont = true; break; }
         slot.flash = cont ? slot.flash : 1; slot.jet = cont ? 0 : 0.6;
         if (!cont) {
+          newDown = true;
+          { const W = walls[h.wall]; _v.copy(h.pos).addScaledVector(W.normal, -0.5); addRipple(_v.x, _v.z, 0.014, time); }
           const n = h.normal, wk = 1 - 0.75 * waitK;
-          emit(Math.max(24, 60 * gH) * wk, h.pos.x - n.x * 0.03, h.pos.y, h.pos.z - n.z * 0.03, 0.03, -n.x * 0.4, 0.9, -n.z * 0.4, 0.8, 1.0, 3.0, 0.4, 0.9, 1.6, 0.6, 1.2);   // a small burst at the hand, at once
+          emit(Math.max(24, 60 * gH) * wk, h.pos.x - n.x * 0.03, h.pos.y - lift, h.pos.z - n.z * 0.03, 0.03, -n.x * 0.4, 0.9, -n.z * 0.4, 0.8, 1.0, 3.0, 0.4, 0.9, 1.6, 0.6, 1.2);   // a small burst at the hand, at once
           if ((P.devils ?? 1) > 0 && waitK < 0.5) spawnDevil(s0, Math.random() < 0.5 ? -1 : 1, 0.8 + Math.random() * 0.7, 7 + Math.random() * 3, null, time);   // dancing pace, m/s in the world
         }
       }
       slot.seen = true;
+      if (waitK < 0.5 && P.tiles !== false) touchTiles(h, newDown, h.pos.y - lift);
       const s = cum[h.wall] + h.u * walls[h.wall].width; slot.s = s; slot.y = h.pos.y;
       addHeat(dyn, s, dt * 0.9 * gH, 0.6);
       const n = h.normal, w = walls[h.wall], sp = Math.hypot(h.vx || 0, h.vy || 0);
@@ -791,13 +1316,13 @@ export function create({ THREE, TSL, room, params }) {
       if (slot.acc >= 4) {
         const k = Math.floor(slot.acc); slot.acc -= k;
         const ix = w.right.x * (h.vx || 0) * 0.6, iz = w.right.z * (h.vx || 0) * 0.6, iy = (h.vy || 0) * 0.6;
-        emit(k, h.pos.x - n.x * 0.03, h.pos.y, h.pos.z - n.z * 0.03, 0.04, -n.x * 0.7, 0.7, -n.z * 0.7, 0.5, 1.2, 4.5, 0.7, 1.6, 1.5, 1, 0.6, ix, iy, iz);
+        emit(k, h.pos.x - n.x * 0.03, h.pos.y - lift, h.pos.z - n.z * 0.03, 0.04, -n.x * 0.7, 0.7, -n.z * 0.7, 0.5, 1.2, 4.5, 0.7, 1.6, 1.5, 1, 0.6, ix, iy, iz);
       }
       // the correfoc fountain: a jet over 0.6 s from the hand into the world (not all at once: a jet, and no white ball of overlap)
       if (slot.jet > 0) {
         const wk = 1 - 0.75 * waitK, nn = h.normal;
         slot.jetAcc += (780 / 0.6) * gH * wk * Math.min(dt, slot.jet); slot.jet -= dt;
-        if (slot.jetAcc >= 4) { const k = Math.floor(slot.jetAcc); slot.jetAcc -= k; emit(k, h.pos.x - nn.x * 0.03, h.pos.y, h.pos.z - nn.z * 0.03, 0.05, -nn.x * 0.75, 0.68, -nn.z * 0.75, 0.32, 3.2, 8.5, 1.3, 2.8, 1.75, 1, 0.3); }
+        if (slot.jetAcc >= 4) { const k = Math.floor(slot.jetAcc); slot.jetAcc -= k; emit(k, h.pos.x - nn.x * 0.03, h.pos.y - lift, h.pos.z - nn.z * 0.03, 0.05, -nn.x * 0.75, 0.68, -nn.z * 0.75, 0.32, 3.2, 8.5, 1.3, 2.8, 1.75, 1, 0.3); }
       }
       // a dragged hand leaves a ribbon: slow embers that hang where the hand passed, then sink and go out
       // (by the distance the hand really travels — the sensor's velocity can be 0 — about 4 embers a centimetre; they hang almost still,
@@ -808,13 +1333,13 @@ export function create({ THREE, TSL, room, params }) {
         if (slot.rib >= 3) {
           const k = Math.floor(slot.rib); slot.rib -= k;
           // spread along the segment just travelled: two emitters, at its two halves
-          const mx = (h.pos.x + slot.px) / 2, my = (h.pos.y + slot.py) / 2, mz = (h.pos.z + slot.pz) / 2;
-          emit(k / 2, h.pos.x - n.x * 0.04, h.pos.y, h.pos.z - n.z * 0.04, 0.035 + mv * 0.25, 0, 1, 0, 1.0, 0.01, 0.12, 2.0, 3.2, 1.6, -0.02, 3.5);
+          const mx = (h.pos.x + slot.px) / 2, my = (h.pos.y + slot.py) / 2 - lift, mz = (h.pos.z + slot.pz) / 2;
+          emit(k / 2, h.pos.x - n.x * 0.04, h.pos.y - lift, h.pos.z - n.z * 0.04, 0.035 + mv * 0.25, 0, 1, 0, 1.0, 0.01, 0.12, 2.0, 3.2, 1.6, -0.02, 3.5);
           emit(k / 2, mx - n.x * 0.04, my, mz - n.z * 0.04, 0.035 + mv * 0.25, 0, 1, 0, 1.0, 0.01, 0.12, 2.0, 3.2, 1.6, -0.02, 3.5);
         }
       }
       slot.px = h.pos.x; slot.py = h.pos.y; slot.pz = h.pos.z;
-      if (nh < 16) { HP[nh].set(h.pos.x, h.pos.y, h.pos.z, slot.flash * gHs); nh++; }
+      if (nh < 16) { HP[nh].set(h.pos.x, h.pos.y - lift, h.pos.z, slot.flash * gHs); nh++; }
       slot.flash *= Math.exp(-dt / 0.18);
     }
     for (const x of hands) if (!x.seen && x.stroke !== null) { const u = recentUps[upI]; u.s = x.s; u.y = x.y ?? 1.2; u.t = time; upI = (upI + 1) % recentUps.length; x.stroke = null; }
@@ -823,11 +1348,29 @@ export function create({ THREE, TSL, room, params }) {
     // ---- the chapter's level, waves, awake, reward
     const target = phase === 'reward' ? 1 : 0.0 + progress;
     level += (target - level) * (1 - Math.exp(-dt * 0.8));
-    if (waveEv) startWave(waveOrigin(time), time);
+    if (waveEv) {
+      // the call's wave starts from the calling wall's centre; a miss (state.waveBig false) is a small wave
+      const C = S && S.call, fromCall = S && S.brasaStage === 'call' && C;
+      startWave(fromCall ? wrapP(hearthS[C.from % NW]) : waveOrigin(time), time, S ? S.waveBig !== false : true);
+    }
+    // ---- the call's countdown (state.call; study: params.call 1..3 loops a call every 4 s, the TOK at 2.4 s)
+    {
+      let on = 0, ct = -99, gap = 0.8; const cw = _cw; cw[0] = cw[1] = cw[2] = cw[3] = 0;
+      if (S && S.block === 'brasa' && S.phase === 'play' && S.brasaStage === 'call' && S.call) {
+        const C = S.call; ct = (S.clock ?? 0) - C.at; gap = C.gap || 0.8; on = 1;
+        if (C.to === -1 || C.n >= 3) cw[0] = cw[1] = cw[2] = cw[3] = 1; else { cw[C.from % NW] = 1; if (C.to !== C.from && C.to >= 0) cw[C.to % NW] = 0.5; }
+      } else if (!S && Number(P.call) > 0) {
+        const n = Math.round(Number(P.call)), per = 4; ct = ((time % per) + per) % per - 2.4; gap = 0.8; on = 1;
+        if (n >= 3) cw[0] = cw[1] = cw[2] = cw[3] = 1; else { cw[1] = 1; if (n === 2) cw[3] = 0.5; }
+      }
+      callOnK += ((on ? 1 : 0) - callOnK) * (1 - Math.exp(-dt / 0.3));
+      U.callT.value = ct; U.callGap.value = gap; U.callOn.value = callOnK * (1 - leave); U.callW.value.set(cw[0], cw[1], cw[2], cw[3]);
+    }
     const vW = Number(P.waveSpeed) || 3;
     for (const w of waves) {
       if (!w.on) continue;
-      const r = vW * (time - w.t0), half = PER / 2;
+      const r = vW * (time - w.t0), half = PER / 2, wk = w.big === false ? 0.4 : 1;
+      if (w.big === false && r >= PER / 8) { w.on = false; continue; }
       if (r >= half) {
         if (!w.met) {                               // the fronts meet on the far side
           w.met = true;
@@ -839,13 +1382,20 @@ export function create({ THREE, TSL, room, params }) {
       }
       for (let side = 0; side < 2; side++) {
         const s = w.s0 + (side ? -r : r);
-        maxHeat(flare, s, 2.6, 0.8); addHeat(dyn, s, dt * 2.4, 0.9);
+        maxHeat(flare, s, 2.6 * wk, 0.8); addHeat(dyn, s, dt * 2.4 * wk, 0.9);
         ringPoint(s, 4.5 + Math.random() * 3.5, _v);
-        emit(Math.max(1, Math.round(1700 * dt * (0.45 + 0.55 * crowdK))), _v.x, 0.15, _v.z, 0.6, 0, 1, 0, 0.4, 3, 8, 1.0, 2.2, 2.2, 0.9, 0.4);
-        if (r - w.last[side] >= 4) { w.last[side] = r; spawnDevil(s, side ? -1 : 1, 2.6 + Math.random() * 0.8, 2.6, w, time); }   // a relay of devils along the front
+        emit(Math.max(1, Math.round(1700 * dt * wk * (0.45 + 0.55 * crowdK))), _v.x, 0.15, _v.z, 0.6, 0, 1, 0, 0.4, 3, 8, 1.0, 2.2, 2.2, 0.9, 0.4);
+        if (time - w.lastR[side] > 0.28) { w.lastR[side] = time; ringPoint(s, 0.5 + Math.random() * 2.5, _v); addRipple(_v.x, _v.z, 0.012, time); }
+        for (const t of tiles) if (t.mode === 1 && t.delay <= 0 && t.alpha > 0.5 && Math.abs(wrapC(t.s - s)) < 0.45) { t.kick = 0.8; t.hvx = 0; t.delay = 0.01 + Math.random() * 0.2; }   // the front knocks the tiles down as it passes
+        if (w.big !== false && r - w.last[side] >= 4) { w.last[side] = r; spawnDevil(s, side ? -1 : 1, 2.6 + Math.random() * 0.8, 2.6, w, time); }   // a relay of devils along the front
       }
     }
-    if (awakeEv) { awakeT = time; for (let i = 0; i < NC; i++) flare[i] = Math.max(flare[i], 1.2); }
+    if (awakeEv) {
+      awakeT = time; for (let i = 0; i < NC; i++) flare[i] = Math.max(flare[i], 1.2);
+      // the ring is awake: every tile comes down, in a spiral that runs round the room in ~2.5 s, into the liquid
+      const a0 = Math.random();
+      for (const t of tiles) if (t.mode === 1 && t.alpha > 0.3) { t.kick = 0.7; t.hvx = 0; t.delay = 0.05 + (((t.s / PER - a0) % 1) + 1) % 1 * 2.4 + Math.random() * 0.15; }
+    }
     const sa = time - awakeT;
     awakeEnv = sa < 0 ? 0 : sa < 0.8 ? 1.6 * smoother(sa / 0.8) : 0.35 + 1.25 * Math.exp(-(sa - 0.8) / 3);
     if (phase === 'reward') rewardT += dt; else rewardT = 0;
@@ -855,6 +1405,8 @@ export function create({ THREE, TSL, room, params }) {
     cool += (coolT - cool) * (1 - Math.exp(-dt * 2));
 
     // ---- ambient sparks off the ring, the awake column, the leave motes, the landing puffs
+    farAcc += dt * 16 * arrive * (1 - waitK) * (1 - leave) * (0.4 + 0.6 * level);   // a few embers drifting up in the depth (12–40 m out)
+    while (farAcc >= 1) { farAcc -= 1; ringPoint(Math.random() * PER, 12 + Math.random() * 28, _v); emit(3, _v.x, 0.2 + Math.random() * Math.random() * 9, _v.z, 0.6, 0, 1, 0, 0.6, 0.2, 0.9, 5, 9, 1.5, -0.14, 0.5); }   // embers drifting high in the depth: the upper half lives
     if (waitK > 0.5) {                                              // the wait: now and then a single ember leaves the line
       ambAcc += dt * 2.5 * waitK;
       while (ambAcc >= 1) { ambAcc -= 1; const s = Math.random() * PER; ringPoint(s, WAIT0 + Math.random(), _v); emit(2 + Math.random() * 3, _v.x, 0.05, _v.z, 0.2, 0, 1, 0, 0.3, 0.6, 1.8, 1.2, 2.4, 1.3, -0.1, 0.8); }
@@ -929,6 +1481,9 @@ export function create({ THREE, TSL, room, params }) {
       }
     }
 
+    // ---- the tiles and drops
+    stepTiles(dt, time, arrive, leave);
+
     // ---- the heat field -> texture
     const kd = Math.exp(-dt / 3.2), kf = Math.exp(-dt / 0.7);
     for (let i = 0; i < NC; i++) {
@@ -945,6 +1500,10 @@ export function create({ THREE, TSL, room, params }) {
     U.crowd.value = 0.6 + 0.4 * crowdK;
     U.haze.value = Number(P.haze ?? 1); U.wait.value = waitK; U.breath.value = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(breathPh * Math.PI * 2)); U.smoke.value = Math.max(0, Number(P.smoke ?? 1)); smokeMesh.visible = U.smoke.value > 0;
     updatePlumes(time, level * (1 - cool * 0.5), arrive);
+    U.chrome.value = Math.max(0, Number(P.chrome ?? 1)) * (1 - 0.85 * waitK);
+    U.refl.value = Math.max(0, Number(P.reflect ?? 1)) * smoother(arrive / 0.6) * (1 - 0.7 * waitK);
+    farGroup.rotation.y = (farGroup.rotation.y + dt * (Number(P.turn ?? 1.2) * Math.PI / 180) * (0.3 + 0.7 * level) * (1 - waitK)) % (Math.PI * 2);
+    U.quiet.value = Math.min(0.85, (0.36 + 0.35 * Math.min(1, awakeEnv) + 0.25 * clamp01((crowdN - 1) / 6)) * (1 - waitK) * Math.max(0, Number(P.quiet ?? 1)));
     U.nE.value = nE;
     for (let i = 0; i < lights.length; i++) {
       const c = Math.round(wrapP(hearthS[i]) / CELL) % NC;
@@ -953,14 +1512,15 @@ export function create({ THREE, TSL, room, params }) {
     room.renderer.compute(sparkCompute);
   }
 
-  if (typeof window !== 'undefined') window.__brasa = { breath: () => U.breath.value, wait: () => waitK, puffs: () => puffCount, roots: () => devils.map((d, i) => (d.on && d.dis === 0 ? [i, JV[i * NJ].x, JV[i * NJ].z, d.wave ? 1 : 0] : null)).filter(Boolean), devils: () => devils.filter((d) => d.on).length, waves: () => waves.filter((w) => w.on).length, emitters: () => nE };
+  if (typeof window !== 'undefined') window.__brasa = { breath: () => U.breath.value, wait: () => waitK, puffs: () => puffCount, roots: () => devils.map((d, i) => (d.on && d.dis === 0 ? [i, JV[i * NJ].x, JV[i * NJ].z, d.wave ? 1 : 0] : null)).filter(Boolean), devils: () => devils.filter((d) => d.on).length, callT: () => U.callT.value, lift: () => lift, impacts: () => impacts, fx: () => fx.filter((f) => f.t >= 0), tiles: () => tiles.reduce((a, t) => { a[t.mode]++; return a; }, [0, 0, 0, 0, 0]), waves: () => waves.filter((w) => w.on).length, emitters: () => nE };
   return {
     object,
     update,
     setParams(p) { if (p && p !== P) Object.assign(P, p); },
     dispose() {
-      for (const m of [floorMesh, flameMesh, sparkMesh, devilMesh, shardMesh, smokeMesh, airMesh]) { m.geometry.dispose(); m.material.dispose(); }
+      for (const m of [floorMesh, ...flameMesh, ...sparkMesh, ...devilMesh, shardMesh, smokeMesh, airMesh, ...tileMesh, ...dropMesh, ...farMesh, hazeMesh]) { m.geometry.dispose(); m.material.dispose(); }
       heatTex.dispose();
+      try { fxBc?.close(); } catch { /* closed */ }
       for (const b of [bufP, bufV, bufK]) b.value?.dispose?.();
     },
   };

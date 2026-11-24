@@ -1,115 +1,99 @@
-// Ressonància — part "actatext" (contract: ../PARTS.md): the closing, l'acta, as words and four bars ON the walls, in 3D.
-// The 2D version is ../../scenes/acta.js; the dust and the dim horizon are atmos' (the host passes it t = 69).
+// Ressonància — part "actatext" (contract: ../PARTS.md): the closing, l'acta, the work's typographic finale ON the walls, in 3D type
+// (../typo3d.js, T-027: every line ASSEMBLES from glyph-tiles and BREAKS into tiles). In Spanish; casteller words in Catalan.
+// Black and type, with one line of colour per chapter (art bible, notas/ARTE.md §2). The dust and the dim horizon are atmos'.
 // Timeline on input.state.t (or input.t; 40 s):
-//   0.2–15   the group's castell as the colles write it (assembled from light by ~2.4 s), on every wall: "3 de 7"; under it the outcome in Catalan, letter-spaced
-//            (DESCARREGAT / CARREGAT / INTENT), and a small English gloss (it leaves at ~12)
-//   12–26    the four values, one per wall (Força / Equilibri / Valor / Seny with Strength / Balance / Courage / Good sense small):
-//            a thin gold track draws itself, then deep red fills it to the value over 2.5 s; walls 2 s apart
-//   17–26    above them, small: "14 hands · 22 s of silence"
-//   25–33    one sentence on every wall, large and calm: "When bodies resonate together, / culture is born."
-//   33.5–40  the credits, small and wide
-// input.acta (score.acta()) gives the content. T-022 (3D-PI): every plate ASSEMBLES from fragments of light — the type is cut in 2.2 cm
-// cells that fly in from scattered offsets, each on its own delay, bright gold in flight, settling into the warm type — and breaks
-// the same way when it goes (the cells drift up). The castell line starts at once and reads by ~2.5 s (it used to wait 4 s and
-// ride the host's slow 5 s arrive). input.arrive only gates (full by ~1.7 s); input.leave breaks everything. Words are drawn into canvas textures (redrawn only when the content changes), on planes 2 cm behind the
-// wall planes, each with a soft dark plate. Nothing is allocated per frame. Study: params.t (s) and params.castell / outcome stand in.
-const VALUES = [['forca', 'Força', 'STRENGTH'], ['equilibri', 'Equilibri', 'BALANCE'], ['valor', 'Valor', 'COURAGE'], ['seny', 'Seny', 'GOOD SENSE']];
-const OUTCOME = { descarregat: ['DESCARREGAT', 'raised, crowned and brought down'], carregat: ['CARREGAT', 'crowned, and then it fell'], intent: ['INTENT', 'it fell before the crown'] };
-const SENTENCE = ['When bodies resonate together,', 'culture is born.'];
-const CREDITS = ['RESSONÀNCIA', 'Barcelona XR Lab × Alma Digital Studio', 'With the support of the Generalitat de Catalunya'];
-const FONT = 'Geist, "Segoe UI", system-ui, -apple-system, sans-serif';
-const Y = { castell: 2.42, gloss: 1.86, stat: 2.3, label: 1.86, bar: 1.62, sentence: 2.15, credits: 2.1 };
-const BAR_W = 2.2, BAR_H = 0.034;
+//   0.2–14   «3 de 7» in serif, «descarregat» in italic rising on its hairlines, the six chapters' colours as a ribbon drawn from
+//            the centre out, and a small gloss in Spanish (to ~11.6)
+//   12–24.6  the four values, one per wall (Força / Equilibri / Valor / Seny, the Spanish under it): the bar's slots draw themselves,
+//            then its ceramic tiles (the colour of the chapter that taught the value) come in and snap home one by one while the
+//            number counts up; walls 2 s apart
+//   17–24.6  above them, small: «14 MANOS · 22 S DE QUIETUD»
+//   25–32.6  the voice's last line: «Este ha sido vuestro castell.» / «Cuando los cuerpos resuenan juntos, / nace la cultura.»
+//   33.5–40  the credits
+// input.acta (score.acta()) gives the content; texts are laid out only when it changes (the numbers, when their integer changes).
+// input.arrive only gates; input.leave breaks everything. Study: params.castell / outcome / values stand in.
+import { typo } from '../typo3d.js';
+
+const VALUES = [['forca', 'Força', 'Fuerza'], ['equilibri', 'Equilibri', 'Equilibrio'], ['valor', 'Valor', 'Valor'], ['seny', 'Seny', 'Sensatez']];
+const OUTCOME = { descarregat: ['descarregat', 'levantado, coronado y bajado sin caer'], carregat: ['carregat', 'coronado, y después cayó'], intent: ['intent', 'cayó antes de la corona'] };
+const SENTENCE = ['Este ha sido vuestro castell.', 'Cuando los cuerpos resuenan juntos,', 'nace la cultura.'];   // the voice: v-cierre-final
+const CREDITS = ['Ressonància', 'Barcelona XR Lab × Alma Digital Studio', 'Con el apoyo de la Generalitat de Catalunya'];
+const INK = [0.76, 0.73, 0.68], SOFT = [0.76, 0.73, 0.68];   // bone #F2EEE6 at 92 % (secondary lines at 60 %), under the bloom: no neon
+// one colour line per chapter (art bible §2, Acta row): Brasa · Pinya · Tronc · Pom · Corona · Bajada (linear)
+const CHAPTER = [[1.0, 0.14, 0.014], [0.027, 0.65, 0.56], [0.55, 0.12, 0.04], [0.85, 0.89, 1.0], [0.92, 0.56, 0.1], [0.93, 0.47, 0.56]];
+// each value's bar takes the colour of the chapter that taught it: Força = Pinya, Equilibri = Tronc, Valor = Pom, Seny = the descent
+const VALUE_COL = [CHAPTER[1], CHAPTER[2], CHAPTER[3], CHAPTER[5]];
+const Y = { castell: 2.3, ribbon: 1.8, gloss: 1.66, stat: 2.32, label: 1.9, bar: 1.62, sentence: 2.08, credits: 2.1 };
+const BAR_W = 2.2, NB = 22, TILE_H = 0.05;
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
 const env = (t, a, b, c, d) => (t < a || t > d ? 0 : t < b ? smooth((t - a) / (b - a)) : t > c ? 1 - smooth((t - c) / (d - c)) : 1);
 
 export function create({ THREE, TSL, room, params = {} }) {
-  const { uniform, uv, vec2, vec3, vec4, float, smoothstep, step, texture, max, exp, floor, fract, sin, dot, clamp, select, mix } = TSL;
+  const { uniform, uv, vec2, vec3, float, smoothstep, step, max, min, exp, sin, cos, attribute, positionGeometry, select, mix, clamp } = TSL;
   const object = new THREE.Group(); object.name = 'actatext';
-  const NW = room.walls.length, PX = 300;
+  const NW = room.walls.length;
   const basis = room.walls.map((w) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, new THREE.Vector3(0, 1, 0), w.normal)));
   const over = { transparent: true, depthWrite: false, depthTest: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor, side: THREE.DoubleSide, fog: false };
+  const place = (mesh, wi, y) => { const w = room.walls[wi]; mesh.position.copy(w.centre).setY(y).addScaledVector(w.normal, -0.02); mesh.quaternion.copy(basis[wi]); mesh.renderOrder = 12; mesh.visible = false; mesh.frustumCulled = false; object.add(mesh); };
 
-  // ---- a text plate: one canvas, one texture, shown on one or all walls
-  function plate(wM, hM) {
-    const cv = document.createElement('canvas'); cv.width = Math.round(wM * PX); cv.height = Math.round(hM * PX);
-    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; tex.premultiplyAlpha = false;
-    return { cv, g: cv.getContext('2d'), tex, wM, hM, key: null };
-  }
-  function draw(p, items, shade = 0.5) {     // items: [{ text, size (cap m), y (m from centre), track, alpha, weight }]
-    const { cv, g } = p, W = cv.width, H = cv.height;
-    g.clearRect(0, 0, W, H);
-    let maxW = 0;
-    for (const it of items) {
-      let size = it.size * PX * 1.38; g.font = `${it.weight || 300} ${size}px ${FONT}`;
-      const chars = [...it.text], tr = (it.track || 0) * size;
-      let tw = chars.reduce((a, ch) => a + g.measureText(ch).width + tr, -tr);
-      if (tw > W * 0.9) { const k = (W * 0.9) / tw; size *= k; tw *= k; }
-      it.px = size; it.tw = tw; it.chars = chars; maxW = Math.max(maxW, tw);
-    }
-    if (shade > 0) {
-      g.save(); g.translate(W / 2, H / 2); g.scale(Math.min(W, maxW + 0.8 * PX) / 2, H / 2);
-      const gr = g.createRadialGradient(0, 0, 0, 0, 0, 1);
-      gr.addColorStop(0, `rgba(0,0,0,${shade})`); gr.addColorStop(0.55, `rgba(0,0,0,${shade * 0.8})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
-      g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.fill(); g.restore();
-    }
-    g.textBaseline = 'middle';
-    for (const it of items) {
-      g.font = `${it.weight || 300} ${it.px}px ${FONT}`; g.fillStyle = `rgba(255,226,186,${it.alpha ?? 1})`;   // warm
-      let x = (W - it.tw) / 2; const y = H / 2 - it.y * PX, tr = (it.track || 0) * it.px;
-      for (const ch of it.chars) { g.fillText(ch, x, y); x += g.measureText(ch).width + tr; }
-    }
-    p.tex.needsUpdate = true;
-  }
+  // ---- the words: one text per line of the acta (on every wall), and one per wall for the values and their numbers
+  const T = (y, opt = {}) => { const t = typo.text({ placements: typo.onWalls(room, y), renderOrder: 12, ...opt }); object.add(t.object); return { t, prev: 0 }; };
+  const castellT = T(Y.castell, { plate: 0.5 }), glossT = T(Y.gloss, { plate: 0.35 }), statT = T(Y.stat, { plate: 0.3 }), sentT = T(Y.sentence, { plate: 0.55, depth: 0.45 }), credT = T(Y.credits, { plate: 0.35 });
+  const valT = room.walls.map((w, i) => { const t = typo.text({ placements: [typo.onWalls(room, Y.label)[i]], renderOrder: 12, plate: 0.3 }); object.add(t.object); return { t, prev: 0 }; });
+  const numT = room.walls.map((w, i) => { const t = typo.text({ placements: [typo.onWalls(room, Y.bar, BAR_W / 2 + 0.07)[i]], renderOrder: 12, plate: 0, max: 8 }); object.add(t.object); return { t, prev: 0, shown: -1 }; });
+  sentT.t.set([{ text: SENTENCE[0], font: 'italic', size: 0.17, y: 0.44, track: 0.015, alpha: 0.75, color: INK, rise: true },
+    { text: SENTENCE[1], font: 'serif', size: 0.3, y: 0.08, track: 0.01, color: INK, delay: 0.6 }, { text: SENTENCE[2], font: 'italic', size: 0.3, y: -0.3, track: 0.01, color: INK, rise: true, delay: 0.9 }]);
+  credT.t.set([{ text: CREDITS[0], font: 'serif', size: 0.2, y: 0.22, track: 0.04, color: INK }, { text: CREDITS[1], font: 'sans', size: 0.09, y: -0.04, track: 0.1, alpha: 0.75, color: SOFT }, { text: CREDITS[2], font: 'sans', size: 0.082, y: -0.22, track: 0.16, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
+  room.walls.forEach((_, i) => { const [, ca, es] = VALUES[i % 4]; valT[i].t.set([{ text: ca, font: 'serif', size: 0.24, y: 0.1, track: 0.02, color: INK }, { text: es, font: 'sans', size: 0.082, y: -0.17, track: 0.16, alpha: 0.6, color: SOFT, upper: true, edge: 0.47, delay: 0.2 }]); });
   const mats = [], geos = [];
-  function place(p, wi, yM) {                // a mesh of plate p on wall wi at height yM; returns its opacity uniform
-    // a = the host's gate; asm = how assembled the type is (0 scattered … 1 whole); out = 1 while it breaks (cells drift up)
-    const a = uniform(0), asm = uniform(0), out = uniform(0);
-    const P = uv().mul(vec2(p.wM, p.hM)), cell = floor(P.div(0.022));
-    const hash = (o) => fract(sin(dot(cell.add(o), vec2(12.9898, 78.233))).mul(43758.5453));
-    const h1 = hash(0), h2 = hash(17.3), h3 = hash(41.9);
-    const q = clamp(asm.mul(1.6).sub(h1.mul(0.6)), 0, 1), e = q.mul(q).mul(float(3).sub(q.mul(2)));
-    const dirIn = vec2(h2.sub(0.5).mul(0.7), h3.sub(0.5).mul(0.5)), dirOut = vec2(h2.sub(0.5).mul(0.3), h3.mul(0.35).add(0.15));
-    const off = select(out.greaterThan(0.5), dirOut, dirIn).mul(float(1).sub(e));
-    const s = texture(p.tex, uv().add(off.div(vec2(p.wM, p.hM))));
-    const ink = s.a.mul(e), flight = e.mul(float(1).sub(e)).mul(4);                       // bright while the fragment flies
-    const m = new THREE.MeshBasicNodeMaterial(over);
-    m.colorNode = s.rgb.mul(ink).mul(1.85).add(vec3(1.0, 0.74, 0.4).mul(s.a).mul(flight).mul(0.9)).mul(a);
-    m.opacityNode = max(ink, s.a.mul(flight).mul(0.45)).mul(a);   // alpha through opacityNode (see guide3d.js)
-    const geo = new THREE.PlaneGeometry(p.wM, p.hM), mesh = new THREE.Mesh(geo, m), w = room.walls[wi];
-    mesh.position.copy(w.centre).setY(yM).addScaledVector(w.normal, -0.02); mesh.quaternion.copy(basis[wi]);
-    mesh.renderOrder = 12; mesh.visible = false; object.add(mesh); mats.push(m); geos.push(geo);
-    return { a, asm, out, mesh, prev: 0 };
-  }
-  const castellP = plate(5.8, 1.15), glossP = plate(5.0, 0.32), statP = plate(4.4, 0.3), sentP = plate(6.2, 1.25), credP = plate(6.0, 1.0);
-  const valP = room.walls.map(() => plate(3.0, 0.55));
-  const W = room.walls.map((w, i) => ({
-    castell: place(castellP, i, Y.castell), gloss: place(glossP, i, Y.gloss), stat: place(statP, i, Y.stat),
-    sent: place(sentP, i, Y.sentence), cred: place(credP, i, Y.credits), val: place(valP[i], i, Y.label),
-  }));
-  // the static plates
-  draw(sentP, [{ text: SENTENCE[0], size: 0.2, y: 0.2, track: 0.04, weight: 300 }, { text: SENTENCE[1], size: 0.2, y: -0.22, track: 0.04, weight: 300 }], 0.72);
-  draw(credP, [{ text: CREDITS[0], size: 0.1, y: 0.22, track: 0.5, weight: 300 }, { text: CREDITS[1], size: 0.06, y: -0.02, track: 0.12, alpha: 0.85 }, { text: CREDITS[2], size: 0.045, y: -0.2, track: 0.1, alpha: 0.7 }], 0.4);
-  room.walls.forEach((_, i) => { const [, ca, en] = VALUES[i % 4]; draw(valP[i], [{ text: ca, size: 0.1, y: 0.1, track: 0.14, weight: 300 }, { text: en, size: 0.045, y: -0.13, track: 0.2, alpha: 0.7 }], 0.4); });
 
-  // ---- the bars: a thin gold track drawing itself, deep red filling it
-  const barGeo = new THREE.PlaneGeometry(BAR_W + 0.2, 0.2); geos.push(barGeo);
-  const bars = room.walls.map((w, i) => {
-    const U = { track: uniform(0), fill: uniform(0), a: uniform(0), head: uniform(0) };
-    const x = uv().x.mul(BAR_W + 0.2).sub(0.1), y = uv().y.sub(0.5).mul(0.2);          // metres: x from the bar's left end
-    const inX = step(0, x).mul(step(x, U.track.mul(BAR_W)));
-    const line = smoothstep(0.004, 0.0015, y.abs()).mul(inX);                            // the gold track, ~3 mm
-    const inF = step(0, x).mul(step(x, U.fill.mul(BAR_W)));
-    const fillB = smoothstep(BAR_H * 0.5 + 0.003, BAR_H * 0.5 - 0.002, y.abs()).mul(inF);
-    const dx = x.sub(U.fill.mul(BAR_W)), headG = exp(dx.mul(dx).add(y.mul(y)).mul(-900)).mul(U.head);
-    const shade = float(1).sub(smoothstep(0.03, 0.1, y.abs())).mul(step(-0.1, x)).mul(step(x, BAR_W + 0.1)).mul(0.4);
-    const col = vec3(1.0, 0.72, 0.36).mul(line.mul(1.4)).add(vec3(0.62, 0.07, 0.05).mul(fillB.mul(1.6))).add(vec3(1.0, 0.45, 0.25).mul(headG));
+  // ---- the chapters' ribbon under the castell: six short hairlines of colour, drawn one after another (the order of the night)
+  const RIB_W = 1.5, ribGeo = new THREE.PlaneGeometry(RIB_W + 0.1, 0.05); geos.push(ribGeo);
+  const ribbons = room.walls.map((w, i) => {
+    const U = { grow: uniform(0), a: uniform(0) };
+    const x = uv().x.sub(0.5).mul(RIB_W + 0.1), y = uv().y.sub(0.5).mul(0.05), u = x.div(RIB_W).add(0.5);
+    const seg = u.mul(6).floor().clamp(0, 5), f = u.mul(6).fract();
+    let col = vec3(...CHAPTER[0]);
+    for (let k = 1; k < 6; k++) col = select(seg.greaterThan(k - 0.5), vec3(...CHAPTER[k]), col);
+    const inside = step(0, u).mul(step(u, 1)).mul(smoothstep(0.0, 0.04, f)).mul(smoothstep(1.0, 0.96, f));
+    const line = smoothstep(0.0042, 0.0022, y.abs()).mul(inside).mul(step(f, U.grow.mul(6).sub(seg)));   // segment by segment, each drawn left to right
     const m = new THREE.MeshBasicNodeMaterial(over);
-    m.colorNode = col.mul(U.a); m.opacityNode = max(shade, fillB.mul(0.9)).mul(U.a);
-    const mesh = new THREE.Mesh(barGeo, m);
-    mesh.position.copy(w.centre).setY(Y.bar).addScaledVector(w.normal, -0.02); mesh.quaternion.copy(basis[i]);
-    mesh.renderOrder = 12; mesh.visible = false; object.add(mesh); mats.push(m);
+    m.colorNode = col.mul(line).mul(1.1).mul(U.a); m.opacityNode = line.mul(U.a);
+    const mesh = new THREE.Mesh(ribGeo, m); place(mesh, i, Y.ribbon); mats.push(m);
+    return { mesh, U };
+  });
+
+  // ---- the bars: NB ceramic tiles per value. The slots draw themselves left to right (ghosts); as the value fills, each tile comes in
+  // from above, waits just off its slot and SNAPS home with a flash; the number at the end counts up with them
+  const tileGeo = new THREE.InstancedBufferGeometry();
+  tileGeo.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
+  tileGeo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1], 2));
+  { const a = new Float32Array(NB * 4); for (let i = 0; i < NB; i++) { const h = (k) => ((Math.sin((i + 1) * (12.9898 + k * 7.3) + k) * 43758.5453) % 1 + 1) % 1; a[i * 4] = i; a[i * 4 + 1] = h(1); a[i * 4 + 2] = h(2); a[i * 4 + 3] = h(3); } tileGeo.setAttribute('aI', new THREE.InstancedBufferAttribute(a, 4)); }
+  tileGeo.instanceCount = NB; geos.push(tileGeo);
+  const bars = room.walls.map((w, i) => {
+    const U = { track: uniform(0), fill: uniform(0), a: uniform(0) };
+    const I = attribute('aI', 'vec4'), idx = I.x, r1 = I.y, r2 = I.z, r3 = I.w, pg = positionGeometry;
+    const lock = clamp(U.fill.mul(NB).sub(idx), 0, 1), snapped = step(0.999, lock);
+    const e = mix(float(1).sub(exp(lock.mul(-5.0))).mul(0.85), float(1), snapped), ie = float(1).sub(e);
+    const since = U.fill.mul(NB).sub(idx).sub(1.0), pop = exp(max(since, 0).mul(-6.0)).mul(snapped);
+    const slotX = idx.add(0.5).div(NB).sub(0.5).mul(BAR_W), tw = float(BAR_W / NB * 0.86).mul(r1.mul(0.1).add(0.95)), th = float(TILE_H).mul(r2.mul(0.2).add(0.9));
+    const jit = vec2(sin(r3.mul(40.0).add(pg.x.mul(7.0)).add(pg.y.mul(13.0))), cos(r2.mul(31.0).add(pg.x.mul(11.0)))).mul(0.06);
+    const loc0 = pg.xy.add(jit).mul(vec2(tw, th)).mul(pop.mul(0.2).add(1.0));
+    const ang = ie.mul(step(0.001, lock)).mul(r2.sub(0.5).mul(2.4));
+    const loc = vec2(loc0.x.mul(cos(ang)).sub(loc0.y.mul(sin(ang))), loc0.x.mul(sin(ang)).add(loc0.y.mul(cos(ang))));
+    const ghost = step(slotX.add(BAR_W / 2), U.track.mul(BAR_W)).mul(float(1).sub(step(0.001, lock)));
+    const m = new THREE.MeshBasicNodeMaterial(over);
+    const flying = ie.mul(step(0.001, lock));   // a ghost slot stays home; a tile on its way hovers just above it
+    m.positionNode = vec3(vec2(slotX, flying.mul(r1.mul(0.03).add(0.05))).add(vec2(flying.mul(r3.sub(0.5)).mul(0.06), 0)).add(loc), flying.mul(0.15));
+    const q = uv(), edge = min(min(q.x, float(1).sub(q.x)), min(q.y, float(1).sub(q.y)));
+    const glaze = smoothstep(0.0, 0.14, edge).mul(0.45).add(0.55).add(smoothstep(0.6, 1.0, q.y).mul(0.25));
+    const rim = float(1).sub(smoothstep(0.0, 0.08, edge));
+    const base = vec3(...VALUE_COL[i % 4]).mul(r2.mul(0.35).add(0.75));
+    const tileVis = step(0.001, lock).mul(snapped.mul(0.4).add(0.6));
+    const col = base.mul(glaze).mul(tileVis).add(vec3(1.0, 0.92, 0.8).mul(pop.mul(1.4)).mul(tileVis)).add(vec3(...INK).mul(rim).mul(ghost).mul(0.35));
+    m.colorNode = col.mul(U.a); m.opacityNode = max(tileVis.mul(0.95), rim.mul(ghost).mul(0.35)).mul(U.a);
+    const mesh = new THREE.Mesh(tileGeo, m); place(mesh, i, Y.bar); mats.push(m);
     return { mesh, U };
   });
 
@@ -123,32 +107,46 @@ export function create({ THREE, TSL, room, params = {} }) {
     if (key === contentKey) return;
     contentKey = key;
     const O = OUTCOME[outcome] || OUTCOME.descarregat;
-    draw(castellP, [{ text: castell, size: 0.4, y: 0.16, track: 0.08, weight: 300 }, { text: O[0], size: 0.11, y: -0.36, track: 0.5, alpha: 0.95 }], 0.72);
-    draw(glossP, [{ text: O[1], size: 0.065, y: 0, track: 0.08, alpha: 0.85 }], 0.6);
-    draw(statP, [{ text: `${hands} ${hands === 1 ? "hand" : "hands"} · ${still} s of silence`, size: 0.055, y: 0, track: 0.1, alpha: 0.8 }], 0.35);
+    // «3 de 7 · descarregat» as the colles write it: the castell in serif, the outcome in italic rising on its hairlines
+    castellT.t.set([{ text: castell, font: 'serif', size: 0.66, y: 0.16, track: 0.01, color: INK }, { text: O[0], font: 'italic', size: 0.2, y: -0.38, track: 0.02, alpha: 0.9, color: INK, rules: 0.45, rise: true, delay: 0.5 }]);
+    glossT.t.set([{ text: O[1], font: 'sans', size: 0.082, y: 0, track: 0.16, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
+    statT.t.set([{ text: `${hands} ${hands === 1 ? 'mano' : 'manos'} · ${still} s de quietud`, font: 'sans', size: 0.082, y: 0, track: 0.16, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
   }
-  // v: the plate's envelope (0..1). It assembles while v rises and breaks while it falls; the host's gate k multiplies the light.
-  const set = (o, v, k) => { if (v > o.prev + 1e-4) o.out.value = 0; else if (v < o.prev - 1e-4) o.out.value = 1; o.prev = v; o.asm.value = v; o.a.value = k; o.mesh.visible = v > 0.002 && k > 0.002; };
+  // v: the line's envelope (0..1). It assembles while v rises and breaks while it falls; k (the host's gate) multiplies the light.
+  function set(o, v, k, dt = 1 / 60) {
+    const U = o.t.U;
+    if (v > o.prev + 1e-4) { U.asm.value = v; U.out.value = 0; } else if (v < o.prev - 1e-4) { U.asm.value = 1; U.out.value = 1 - v; }
+    if (v <= 0.001) { U.asm.value = 0; U.out.value = 0; }
+    o.prev = v;
+    const since = U.out.value === 0 && U.asm.value >= 1 ? (o.since = (o.since || 0) + dt) : (o.since = 0);
+    U.sweep.value = -0.25 + since * 0.8; U.sweepK.value = since > 0 && since < 2.5 ? 1 : 0;
+    o.t.alpha.fill(k); o.t.apply(1);
+  }
 
   function update(dt, input) {
     const S = input.state, t = S && S.block === 'acta' ? S.t : (input.t ?? params.t ?? 0);
+    typo.setTime(input.time ?? t);
     content(input.acta);
     const lv = input.leave ?? 0, k = smooth(Math.min(1, (input.arrive ?? 1) * 3)) * (lv > 0 ? 1 - smooth((lv - 0.4) / 0.6) : 1);
+    const brk = 1 - clamp01(lv * 1.6);                           // leaving: the type breaks into tiles first
+    set(castellT, env(t, 0.2, 2.6, 13.5, 14.2) * brk, k, dt);
+    set(glossT, env(t, 2.4, 4.2, 11, 11.6) * brk, k, dt);
+    set(statT, env(t, 17, 19, 24, 24.6) * brk, k, dt);
+    set(sentT, env(t, 25, 28, 31.8, 32.6) * brk, k, dt);
+    set(credT, env(t, 33.5, 35, 38.8, 39.6) * brk, k, dt);
     for (let i = 0; i < NW; i++) {
-      const w = W[i], s0 = 12 + 2 * i;
-      const brk = 1 - clamp01(lv * 1.6);                         // leaving: the type breaks into light first
-      set(w.castell, env(t, 0.2, 2.4, 13.5, 15.5) * brk, k);
-      set(w.gloss, env(t, 1.6, 3.6, 11, 12.5) * brk, k);
-      set(w.val, env(t, s0, s0 + 1.5, 24, 26) * brk, k);
-      set(w.stat, env(t, 17, 19, 24, 26) * brk, k);
-      set(w.sent, env(t, 25, 27.5, 31.5, 33) * brk, k);
-      set(w.cred, env(t, 33.5, 35, 38.5, 40) * brk, k);
-      const b = bars[i], f = smooth((t - (s0 + 1.8)) / 2.5);
-      b.U.track.value = smooth((t - (s0 + 0.5)) / 1.2); b.U.fill.value = f * values[i];
-      b.U.head.value = f > 0 && f < 1 ? Math.sin(f * Math.PI) : 0;
-      b.U.a.value = k * env(t, s0 + 0.4, s0 + 0.8, 24, 26); b.mesh.visible = b.U.a.value > 0.002;
+      const rb = ribbons[i]; rb.U.grow.value = clamp01((t - 1.6) / 1.8) * (1 - smooth((t - 13.2) / 0.6)) * brk; rb.U.a.value = k; rb.mesh.visible = rb.U.grow.value > 0.001 && k > 0.002;
+      const s0 = 12 + 2 * i;
+      set(valT[i], env(t, s0, s0 + 1.5, 24, 24.6) * brk, k, dt);
+      const b = bars[i], f = clamp01((t - (s0 + 1.8)) / 2.8), fe = 1 - Math.pow(1 - f, 2);
+      b.U.track.value = smooth((t - (s0 + 0.5)) / 1.2); b.U.fill.value = fe * values[i];
+      b.U.a.value = k * env(t, s0 + 0.4, s0 + 0.8, 24, 24.6) * brk; b.mesh.visible = b.U.a.value > 0.002;
+      // the number counts up with the tiles (re-laid out only when its integer changes)
+      const N = numT[i], pct = Math.round(fe * values[i] * 100);
+      if (pct !== N.shown) { N.shown = pct; N.t.set([{ text: String(pct), font: 'serif', size: 0.11, y: 0.005, track: 0.01, color: INK, align: 'left' }]); }   // caps centred on the bar
+      set(N, (t > s0 + 1.8 ? 1 : 0) * env(t, s0, s0 + 0.01, 24, 24.6) * brk, k, dt);
     }
   }
-  function dispose() { for (const m of mats) m.dispose(); for (const g of geos) g.dispose(); for (const p of [castellP, glossP, statP, sentP, credP, ...valP]) p.tex.dispose(); }
+  function dispose() { for (const m of mats) m.dispose(); for (const g of geos) g.dispose(); for (const o of [castellT, glossT, statT, sentT, credT, ...valT, ...numT]) o.t.dispose(); }
   return { object, update, dispose };
 }

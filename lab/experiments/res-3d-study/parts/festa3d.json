@@ -1,20 +1,253 @@
 [
-  { "key": "mode", "label": "Festa: moment", "type": "select", "default": "festa", "options": [["crown", "Crown (25 s, then the resonance)"], ["festa", "Resonance"]] },
-  { "key": "crown", "label": "Festa: crown time override (0 = clock)", "type": "number", "min": 0, "max": 1, "step": 0.005, "default": 0 },
-  { "key": "resonance", "label": "Festa: resonance (added to the state's)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
-  { "key": "bloomNow", "label": "Festa: bloom now (trigger)", "type": "bool", "default": false },
-  { "key": "auto", "label": "Festa: self-impulses with < 2 hands (study only)", "type": "bool", "default": true },
-  { "key": "arrive", "label": "Festa: arrive", "type": "number", "min": 0, "max": 1, "step": 0.005, "default": 1 },
-  { "key": "leave", "label": "Festa: leave", "type": "number", "min": 0, "max": 1, "step": 0.005, "default": 0 },
-  { "key": "speed", "label": "Festa: wave speed", "type": "number", "min": 1.5, "max": 8, "step": 0.1, "default": 3.6, "unit": "m/s" },
-  { "key": "ring", "label": "Festa: ring time", "type": "number", "min": 0.5, "max": 8, "step": 0.1, "default": 3, "unit": "s" },
-  { "key": "clip", "label": "Festa: amplitude limit", "type": "number", "min": 0.1, "max": 2, "step": 0.05, "default": 0.6 },
-  { "key": "glow", "label": "Festa: plate light", "type": "number", "min": 0, "max": 4, "step": 0.05, "default": 1 },
-  { "key": "lines", "label": "Festa: line density", "type": "number", "min": 0.3, "max": 3, "step": 0.05, "default": 1 },
-  { "key": "relief", "label": "Festa: relief", "type": "number", "min": 0, "max": 1.5, "step": 0.05, "default": 0.35, "unit": "m" },
-  { "key": "depth", "label": "Festa: plate depth behind the walls (on load)", "type": "number", "min": 0.3, "max": 4, "step": 0.1, "default": 1.1, "unit": "m" },
-  { "key": "sand", "label": "Festa: sand amount", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 1 },
-  { "key": "sandGlow", "label": "Festa: sand light", "type": "number", "min": 0, "max": 4, "step": 0.05, "default": 1 },
-  { "key": "bands", "label": "Festa: ordered bands", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
-  { "key": "sensitivity", "label": "Festa: stand-in rule sensitivity (study)", "type": "number", "min": 0, "max": 4, "step": 0.05, "default": 1 }
+ {
+  "key": "mode",
+  "label": "Festa: moment",
+  "type": "select",
+  "default": "festa",
+  "options": [
+   [
+    "crown",
+    "Crown (25 s, then the resonance)"
+   ],
+   [
+    "festa",
+    "Resonance"
+   ]
+  ]
+ },
+ {
+  "key": "crown",
+  "label": "Festa: crown time override (0 = clock)",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.005,
+  "default": 0
+ },
+ {
+  "key": "resonance",
+  "label": "Festa: resonance (added to the state's)",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.01,
+  "default": 0
+ },
+ {
+  "key": "bloomNow",
+  "label": "Festa: bloom now (trigger)",
+  "type": "bool",
+  "default": false
+ },
+ {
+  "key": "auto",
+  "label": "Festa: self-impulses with < 2 hands (study only)",
+  "type": "bool",
+  "default": true
+ },
+ {
+  "key": "arrive",
+  "label": "Festa: arrive",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.005,
+  "default": 1
+ },
+ {
+  "key": "leave",
+  "label": "Festa: leave",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.005,
+  "default": 0
+ },
+ {
+  "key": "speed",
+  "label": "Festa: wave speed",
+  "type": "number",
+  "min": 1.5,
+  "max": 8,
+  "step": 0.1,
+  "default": 3.6,
+  "unit": "m/s"
+ },
+ {
+  "key": "ring",
+  "label": "Festa: ring time",
+  "type": "number",
+  "min": 0.5,
+  "max": 8,
+  "step": 0.1,
+  "default": 3,
+  "unit": "s"
+ },
+ {
+  "key": "clip",
+  "label": "Festa: amplitude limit",
+  "type": "number",
+  "min": 0.1,
+  "max": 2,
+  "step": 0.05,
+  "default": 0.6
+ },
+ {
+  "key": "glow",
+  "label": "Festa: plate light",
+  "type": "number",
+  "min": 0,
+  "max": 4,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "lines",
+  "label": "Festa: line density",
+  "type": "number",
+  "min": 0.3,
+  "max": 3,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "relief",
+  "label": "Festa: relief",
+  "type": "number",
+  "min": 0,
+  "max": 1.5,
+  "step": 0.05,
+  "default": 0.6,
+  "unit": "m"
+ },
+ {
+  "key": "depth",
+  "label": "Festa: plate depth behind the walls (on load)",
+  "type": "number",
+  "min": 0.3,
+  "max": 4,
+  "step": 0.1,
+  "default": 1.35,
+  "unit": "m"
+ },
+ {
+  "key": "sand",
+  "label": "Festa: sand amount",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.01,
+  "default": 1
+ },
+ {
+  "key": "sandGlow",
+  "label": "Festa: sand light",
+  "type": "number",
+  "min": 0,
+  "max": 4,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "bands",
+  "label": "Festa: ordered bands",
+  "type": "number",
+  "min": 0,
+  "max": 2,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "sensitivity",
+  "label": "Festa: stand-in rule sensitivity (study)",
+  "type": "number",
+  "min": 0,
+  "max": 4,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "chrome",
+  "label": "Festa: chrome plate (reflection)",
+  "type": "number",
+  "min": 0,
+  "max": 2,
+  "step": 0.05,
+  "default": 0.9
+ },
+ {
+  "key": "glass",
+  "label": "Festa: glass tiles",
+  "type": "number",
+  "min": 0,
+  "max": 3,
+  "step": 0.05,
+  "default": 0
+ },
+ {
+  "key": "bend",
+  "label": "Festa: relief bends the reflection",
+  "type": "number",
+  "min": 0,
+  "max": 2,
+  "step": 0.05,
+  "default": 1.0
+ },
+ {
+  "key": "contours",
+  "label": "Festa: gold contour lines (0 = off: the sand draws)",
+  "type": "number",
+  "min": 0,
+  "max": 2,
+  "step": 0.05,
+  "default": 0
+ },
+ {
+  "key": "quiet",
+  "label": "Festa: veil behind the guide's quiet zones",
+  "type": "number",
+  "min": 0,
+  "max": 2,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "swell",
+  "label": "Oleaje propio del metal",
+  "type": "number",
+  "min": 0,
+  "max": 3,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "mandala",
+  "label": "Mandala (fuerza)",
+  "type": "number",
+  "min": 0,
+  "max": 2,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "echo",
+  "label": "Festa: echo fronts (study stand-in)",
+  "type": "bool",
+  "default": false
+ },
+ {
+  "key": "call",
+  "label": "Festa: the call (study stand-in, a call every 4 s)",
+  "type": "bool",
+  "default": false
+ },
+ {
+  "key": "bloomSize",
+  "label": "Festa: bloom size (study)",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.05,
+  "default": 1
+ }
 ]

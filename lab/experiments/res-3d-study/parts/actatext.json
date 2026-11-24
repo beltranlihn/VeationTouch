@@ -1,0 +1,42 @@
+[
+ {
+  "key": "castell",
+  "label": "Castell",
+  "type": "select",
+  "default": "3 de 7",
+  "options": [
+   [
+    "3 de 7",
+    "3 de 7"
+   ],
+   [
+    "4 de 8",
+    "4 de 8"
+   ],
+   [
+    "2 de 6",
+    "2 de 6"
+   ]
+  ]
+ },
+ {
+  "key": "outcome",
+  "label": "Outcome",
+  "type": "select",
+  "default": "descarregat",
+  "options": [
+   [
+    "descarregat",
+    "Descarregat"
+   ],
+   [
+    "carregat",
+    "Carregat"
+   ],
+   [
+    "intent",
+    "Intent"
+   ]
+  ]
+ }
+]

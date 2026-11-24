@@ -9,15 +9,15 @@
       "key": "lang",
       "label": "Voice language",
       "type": "select",
-      "default": "en",
+      "default": "es",
       "options": [
-        [
-          "en",
-          "English"
-        ],
         [
           "es",
           "Spanish (Spain)"
+        ],
+        [
+          "en",
+          "English"
         ]
       ]
     },

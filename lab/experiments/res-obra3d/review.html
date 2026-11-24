@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ressonància 3D — review</title>
+<title>Ressonància 3D — revisión</title>
 <!-- LAB ONLY. The review page of the 3D work (res-obra3d) alone, as res-obra/review.html shows the 2D one. The whole work playing on its own: a virtual audience follows the guide from the wait to the acta.
      The room is shown in two rows (P4 · P1 above, P2 · P3 below) so it reads on a laptop. Not part of the piece: the app loads
      index.html; this page needs the lab harness (window.__labRoom). -->
@@ -47,28 +47,28 @@
 <canvas id="c"></canvas>
 <div id="view"></div>
 <div id="bar"><div id="now"><span id="block">—</span><span id="clock">0:00</span></div><div id="track"></div><div id="head"></div></div>
-<div id="start"><h1>RESSONÀNCIA</h1><p>The whole work in 3D with a virtual audience</p>
+<div id="start"><h1>RESSONÀNCIA</h1><p>La obra entera en 3D, con un público virtual</p>
 <div class="card" id="chooser">
-  <span class="lab">Start at</span><div class="chips" data-key="from"></div>
-  <span class="lab">Voice</span><div class="chips" data-key="lang"></div>
-  <span class="lab">People</span><div class="chips" data-key="people"></div>
-  <span class="lab">Quality</span><div class="chips" data-key="q3"></div>
-  <button class="go" id="go">Start (with sound)</button>
-  <span class="note" id="note">Volume: the fader top right, or the keys − / +</span>
+  <span class="lab">Empezar en</span><div class="chips" data-key="from"></div>
+  <span class="lab">Voz</span><div class="chips" data-key="lang"></div>
+  <span class="lab">Personas</span><div class="chips" data-key="people"></div>
+  <span class="lab">Calidad</span><div class="chips" data-key="q3"></div>
+  <button class="go" id="go">Empezar (con sonido)</button>
+  <span class="note" id="note">Volumen: el deslizador arriba a la derecha, o las teclas − / +</span>
 </div></div>
 <script type="module">
-// LAB ONLY — the chooser on the start card. The choices are the page's URL parameters (links keep working): from, people, q3, and the
+// LAB ONLY — the chooser on the start card. The voice is Spanish by default (T-027, 24-11: the work's words are in Spanish); English stays selectable. The choices are the page's URL parameters (links keep working): from, people, q3, and the
 // sound piece's language (?soundParams={"lang":"es"}). The page reads them at load (the audience, the room's quality, the voice), so a
 // changed choice reloads the page with the new parameters and the card then waits for one click (the browser needs a click for sound).
 const q = new URLSearchParams(location.search);
 let sp = {}; try { sp = JSON.parse(q.get('soundParams') || '{}'); } catch { sp = {}; }
 const OPTS = {
-  from: [['wait', 'Wait'], ['intro', 'Intro'], ['brasa', 'I · Brasa'], ['pinya', 'II · Pinya'], ['tronc', 'III · Tronc'], ['pom', 'IV · Pom de dalt'], ['crown', 'The crown'], ['festa', 'The resonance'], ['baixada', 'La baixada'], ['fall', 'The fall'], ['acta', "L'acta"]],
-  lang: [['en', 'English'], ['es', 'Español']],
+  from: [['wait', 'La espera'], ['intro', 'Intro'], ['brasa', 'I · Brasa'], ['pinya', 'II · Pinya'], ['tronc', 'III · Tronc'], ['pom', 'IV · Pom de dalt'], ['crown', 'La coronación'], ['festa', 'La ressonància'], ['baixada', 'La baixada'], ['fall', 'La caída'], ['acta', "L'acta"]],
+  lang: [['es', 'Español'], ['en', 'English']],
   people: [['2', '2'], ['6', '6'], ['15', '15']],
-  q3: [['medium', 'Medium (laptop)'], ['high', 'High (the room)']],
+  q3: [['medium', 'Media (portátil)'], ['high', 'Alta (la sala)']],
 };
-const now = { from: q.get('from') || 'wait', lang: sp.lang || 'en', people: q.get('people') || '6', q3: q.get('q3') || 'high' };
+const now = { from: q.get('from') || 'wait', lang: sp.lang || 'es', people: q.get('people') || '6', q3: q.get('q3') || 'high' };
 const pick = { ...now };
 const card = document.getElementById('chooser'), go = document.getElementById('go'), note = document.getElementById('note');
 card.addEventListener('click', (e) => { if (e.target !== go) e.stopPropagation(); });   // choosing does not start the pass
@@ -82,7 +82,7 @@ for (const box of card.querySelectorAll('.chips')) {
   }
 }
 const changed = () => !q.has('sound') || Object.keys(pick).some((k) => pick[k] !== now[k]);   // without ?sound the pass would be silent
-function refresh() { go.textContent = changed() ? 'Apply and get ready' : 'Start (with sound)'; note.textContent = changed() ? 'The page reloads with these choices; then one click starts it.' : 'Volume: the fader top right, or the keys − / +'; }
+function refresh() { go.textContent = changed() ? 'Aplicar y preparar' : 'Empezar (con sonido)'; note.textContent = changed() ? 'La página se recarga con esta elección; después, un clic la empieza.' : 'Volumen: el deslizador arriba a la derecha, o las teclas − / +'; }
 go.addEventListener('click', (e) => {
   if (!changed()) return;                       // the click goes on to #start: the audience and the sound begin
   e.stopPropagation();
@@ -93,7 +93,7 @@ go.addEventListener('click', (e) => {
 });
 refresh();
 // ready only once the work and the audience are (the audience listens for the start click from then on)
-go.disabled = true; go.style.opacity = '0.45'; const goLabel = go.textContent; go.textContent = 'Loading…';
+go.disabled = true; go.style.opacity = '0.45'; const goLabel = go.textContent; go.textContent = 'Cargando…';
 (async () => { while (!window.__obra || !window.__labRoom?.stage) await new Promise((r) => setTimeout(r, 100)); await new Promise((r) => setTimeout(r, 300)); go.disabled = false; go.style.opacity = ''; go.textContent = goLabel; refresh(); })();
 </script>
 <script type="module" src="./experience.js"></script>

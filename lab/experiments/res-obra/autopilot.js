@@ -57,6 +57,16 @@ function hold(p, w, dx, ym, both = false) {          // a person standing at wal
   if (both || p.i % 2 === 0) put(p.hands[1], c + (both ? 0.32 : 0.12) * sPerM, ym - 0.05); else lift(p.hands[1]);
 }
 
+// the new verbs (24-11, plan de interacción step 0; ENT): hands that slide up or down the wall at a human pace, gather towards the wall's
+// centre, and one hand raised (l'aleta). Stateless: each is a height / offset as a function of the time since the verb started.
+const slideY = (from, dy, speed, since) => from + Math.sign(dy) * Math.min(Math.abs(dy), Math.max(0, since) * speed);   // rise (dy > 0) or lower (dy < 0)
+const gatherDx = (dx, since, secs = 4) => dx * (1 - Math.min(1, Math.max(0, since) / secs));                          // towards the centre
+function raiseOne(p, w, ym, since) {           // l'aleta: one hand rises 0.3–0.6 m at 0.3–0.45 m/s, the other stays
+  const c = wallC[w], dy = 0.3 + (p.i % 4) * 0.1, speed = 0.3 + (p.i % 3) * 0.075, late = (p.i % 5) * 0.25;
+  put(p.hands[0], c - 0.1 * sPerM, slideY(ym, dy, speed, since - late));
+  put(p.hands[1], c + 0.12 * sPerM, ym - 0.05);
+}
+
 function tick() {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000) * PACE; last = now; t += dt;   // the audience lives in the score's time
   const b = S.block, phase = S.phase, key = b + ':' + phase;
@@ -70,8 +80,11 @@ function tick() {
     liftAll();                                        // they watch and listen
   } else if (b === 'brasa') {
     if (phase === 'reward') liftAll();
-    else if (modeT < 14) {                            // first, each one touches on their own
+    else if (S.brasaStage ? S.brasaStage === 'spark' : modeT < 14) {   // first, each one touches on their own (the spark)
       for (const p of people) { p.next -= dt; const h = p.hands[0]; if (h.on && p.next < 1.2) lift(h); if (p.next <= 0) { p.next = 2 + rnd() * 3; put(h, wallC[p.wall] + (rnd() - 0.5) * 4 * sPerM, 1.05 + rnd() * 0.4); } }
+    } else if (S.brasaStage === 'call' && S.call) {   // the call (24-11): they listen to tok… tok… and strike on the TOK (the sloppy ones a little late)
+      const C = S.call, dtT = S.clock - C.at;
+      for (const p of people) { const off = p.sloppy ? 0.45 : 0.08; if (dtT >= off - 0.02 && dtT < off + 0.35 && C.n <= 3) put(p.hands[0], wallC[p.wall] + ((p.i >> 2) - 1) * 0.9 * sPerM, 1.2 + 0.1 * Math.sin(p.i)); else lift(p.hands[0]); }
     } else {                                          // then together, as the voice asks
       tapAt -= dt;
       if (tapAt <= 0) { tapAt = 4.2; for (const p of people) put(p.hands[0], wallC[p.wall] + ((p.i >> 2) - 1) * 0.9 * sPerM, 1.2 + 0.1 * Math.sin(p.i)); }
@@ -81,34 +94,42 @@ function tick() {
     const need = Math.max(2, S.needWalls), offs = S.buttons >= 3 ? [-1.1, 0, 1.1] : S.buttons === 2 ? [-0.7, 0.7] : [0];
     people.forEach((p, k) => {
       if (modeT < 1.5 + k * 1.6) { lift(p.hands[0]); lift(p.hands[1]); return; }
-      const w = k % need, o = offs[Math.floor(k / need) % offs.length];
-      hold(p, w, o, 1.25);
+      const w = k % need, o = offs[Math.floor(k / need) % offs.length] + ((k / need) | 0) * 0.3;
+      const near = 0.2 + 0.8 * (1 - Math.min(1, Math.max(0, (S.tp || 0) - 15) / 6));   // 24-11: after the palm (15 s) they follow it to the wall's centre
+      hold(p, w, o * near, 1.1);
     });
-  } else if (b === 'tronc') {                         // on the castell's walls: press on the beat; from the third floor, both sides
-    const beat = S.beat, crossed = beat < lastBeat; lastBeat = beat;
+  } else if (b === 'tronc') {                         // lift and level (24-11): each phrase, hands down to receive, then up 0.5 m; the sloppy one is the base
+    const sec = (S.phraseT || 0) * (T.tronc.phrase || 4.8);
     people.forEach((p, k) => {
       const w = sw[k % sw.length], side = S.balance ? (Math.floor(k / sw.length) % 2 ? 0.65 : -0.65) : 0;
-      const off = p.sloppy && Math.sin(t * 0.13 + p.i) > 0.6;              // now and then someone loses the pulse
-      const up = !off && beat > 0.62 && beat < 0.93;                       // lift just before the drum, land on it
-      if (up) { lift(p.hands[0]); lift(p.hands[1]); } else hold(p, w, side, 1.25, S.balance && sw.length * 2 > people.length);
-      if (crossed && off) lift(p.hands[0]);
+      let y = p.sloppy ? 0.95 : slideY(0.95, 0.5, 0.38, sec - 1.2);
+      if (S.wobble > 0 && w === S.wobbleWall) y = Math.max(0.7, 1.45 - S.wobble * 4);   // it trembles: hands to the foot
+      hold(p, w, side, y, S.balance && sw.length * 2 > people.length);
     });
+  } else if (b === 'pom' && phase === 'aleta') {     // l'aleta: they raise one hand, like the enxaneta
+    people.forEach((p, k) => raiseOne(p, sw[k % sw.length], 1.25, modeT - 0.6));
   } else if (b === 'pom') {                           // still, hands on the wall
     people.forEach((p, k) => { const w = sw[k % sw.length]; hold(p, w, 0, 1.25); });
-  } else if (b === 'festa') {                         // play: groups land together, someone drags
+  } else if (b === 'festa' && S.festaStage === 'call' && S.call) {   // the final call (24-11): everybody strikes on the TOK
+    const C = S.call, dtT = S.clock - C.at;
+    for (const p of people) { const off = p.sloppy ? 0.4 : 0.08; if (dtT >= off - 0.02 && dtT < off + 0.35 && C.n <= 4) put(p.hands[0], wallC[p.wall] + ((p.i >> 2) - 1) * 0.9 * sPerM, 1.0 + 0.15 * (p.i % 4)); else lift(p.hands[0]); lift(p.hands[1]); }
+  } else if (b === 'festa') {                         // play: groups land together, someone drags; in the echo, someone returns the fronts
+    if (S.festaStage === 'echo' && S.fronts) for (const f of S.fronts) { const d = S.clock - f.arrive; if (d > -0.15 && d < 0.2) { const p = people.find((q) => q.wall === f.to && !q.sloppy); if (p) { put(p.hands[1], wallC[f.to] + 0.4 * sPerM, 1.1 + 0.3 * (f.gen % 3)); p.next2 = 0.4; } } }
+    for (const p of people) if (p.next2 !== undefined) { p.next2 -= dt; if (p.next2 <= 0) { lift(p.hands[1]); p.next2 = undefined; } }
     tapAt -= dt;
     if (tapAt <= 0) { tapAt = 1.6 + rnd() * 1.2; const n = 2 + Math.floor(rnd() * Math.min(PEOPLE, 6)); for (let j = 0; j < n; j++) { const p = people[Math.floor(rnd() * PEOPLE)]; put(p.hands[0], rnd(), 0.9 + rnd() * 0.9); p.next = 0.5 + rnd() * 0.5; } }
     for (const p of people) { p.next -= dt; if (p.next <= 0) lift(p.hands[0]); }
     const d = people[0].hands[1]; put(d, wallC[0] + Math.sin(t * 0.35) * 2.5 * sPerM, 1.3 + 0.25 * Math.sin(t * 0.5));   // one dragging hand
-  } else if (b === 'baixada') {
-    people.forEach((p, k) => { const w = sw[k % sw.length]; hold(p, w, 0, 1.25); });
+  } else if (b === 'baixada') {                       // bring it down (24-11): up to receive, then down 0.75 m at 0.3 m/s, gently
+    const sec = (t + 0.0) % 6.5;
+    people.forEach((p, k) => { const w = sw[k % sw.length]; const y = sec < 1.5 ? slideY(0.85, 0.75, 0.6, sec) : sec < 4 ? slideY(1.6, -0.75, 0.3, sec - 1.5) : 0.85; hold(p, w, 0, y); });
   }
 
   // the bar
   let at = 0; for (const [pb, d] of PLAN) { if (pb === b) { at += Math.min(S.t, d); break; } at += d; }
   if (b === 'wait') at = 0;
   head.style.left = `${(at / total) * 100}%`;
-  blockEl.innerHTML = `<b>${NAMES[b] || b}</b> &nbsp;·&nbsp; ${phase === 'title' ? 'chapter card' : phase === 'reward' ? 'reward' : 'play'} &nbsp;·&nbsp; ${PEOPLE} people${S.structure ? ` · castell on ${S.structure} walls · ${S.floors} floors` : ''}`;
+  blockEl.innerHTML = `<b>${NAMES[b] || b}</b> &nbsp;·&nbsp; ${phase === 'title' ? 'chapter card' : phase === 'reward' ? 'reward' : phase === 'aleta' ? "l'aleta" : 'play'} &nbsp;·&nbsp; ${PEOPLE} people${S.structure ? ` · castell on ${S.structure} walls · ${S.floors} floors` : ''}`;
   clockEl.textContent = `${mmss(S.passT || 0)} / ≈${mmss(total)}${PACE !== 1 ? ` · ×${PACE}` : ''}`;
   requestAnimationFrame(tick);
 }

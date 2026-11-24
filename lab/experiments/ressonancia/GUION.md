@@ -220,3 +220,58 @@ definitivos; 4) pulido y pruebas. Así siempre hay una obra entera que enseñar,
 4. **Todo se genera en la obra:** no habrá ningún vídeo aparte; la intro, las transiciones y el cierre van por código.
 5. **Se prueba la música generada de ElevenLabs** para la intro, la fiesta y el cierre.
 6. **Primera versión visual a criterio de Claude;** si un universo no convence, Vicente pasa referencias.
+
+## 11. Lo que la partitura sabe de cada mano, y l'aleta (24-11, plan de interacción pasos 0 y 1)
+
+**Entradas.** Cada mano llega a la partitura con su muro, su distancia al centro del muro (`dx`), **su altura desde el suelo (`y`)**,
+su velocidad (`vx`, `vy`), su tamaño (`size`) y su sitio en el perímetro (`s`), todo en metros. Con eso la partitura lleva, por muro,
+la altura mediana de las manos (`yMed`, y a cada lado del centro `yL` / `yR`), cuánto han subido desde donde estaban (`rise`) y lo
+juntas que están (`span`: la anchura de manos en los 2 m más poblados); y por mano, su línea base y cuánto se ha movido en el último
+segundo. También guarda qué gestos ha aprendido el grupo (`learned`) y cuánto le ayuda la colla (`assist`), que usarán los pasos
+siguientes. Sin altura (un anfitrión antiguo) la obra se juega como antes.
+
+**Pom de dalt: la quietud.** Una mano está quieta si en el último segundo se ha movido menos de 15 cm (medido con promedios, no con la
+velocidad de un instante): el temblor del sensor (±3 cm a 10 Hz) ya no cuenta como «inquieto». Una mano que el sensor pierde está
+ausente, no inquieta.
+
+**V. L'aleta, ahora del grupo.** Tras el premio del Pom se abre una ventana de 8 s: la enxaneta levanta la mano y el público también.
+Cuenta cada mano que sube al menos 28 cm desde donde estaba al abrirse la ventana (o desde donde se posó, si llega después) o que pasa
+de 1,6 m. Cuando la mayoría (60 %) de las manos presentes ha subido en 2 s, el castell se corona; si no, se corona al acabar la ventana
+(siempre corona). Cuantas más manos y antes, más ancha la coronación (`aletaWidth`). El sonido sube bajo la ventana y la coronación cae
+en el instante del disparo. Con manos quietas corona a los 8 s, estrecha; con manos que suben, en ~2 s y ancha.
+
+**III. Tronc = levantar y nivelar (24-11, paso 2).** Cada 4,8 s (dos compases del pulso, que sigue como reloj de la música) hay una
+frase: *reunir* (las manos bajan a recibir), *subir* (2,4 s) y *encajar*. Al encajar, cada muro de la torre cuenta cuántas manos han
+subido al menos 33 cm desde donde empezó la subida; las que se quedan quietas abajo son la base (no restan: dan estabilidad); los
+muros sin torre ayudan a la mitad. Desde el tercer piso la torre se inclina hacia el lado de las manos más bajas (o el que nadie
+sostiene) y un piso torcido cuenta menos. Una vez (dos si el grupo va sobrado), en el penúltimo piso, la torre **tiembla**: 5 s para
+llevar manos abajo, junto al pie; si llegan, se asienta; si no, pierde un piso (no cae). Pasado el tiempo previsto la colla ayuda
+(`assist`), así que acaban 5–9 pisos. Pruebas: con manos quietas 1 piso a los 60 s (5 al final, con la ayuda); subiendo, 6 a los 60 s
+y 9 si se asienta el temblor; con un solo lado subiendo, la torre se inclina del todo y sube menos.
+
+**La bajada = bajar (24-11, paso 3).** Las manos de la torre llevan la banda hacia abajo: cuando bajan 50 cm (mediana, desde su punto
+más alto) bajan dos pisos; suave (≤ 0,4 m/s) es limpio, brusco cruje; si se sueltan todas en mitad de un descenso, el castell se
+desploma dos pisos y cruje; tres soltados seguidos es *carregat*. Con manos quietas no baja: sólo el reloj, como red, en los últimos
+12 s. El último piso no baja antes del mínimo (30 s).
+
+**II. Pinya = juntarse (24-11, paso 4).** Primero palma con palma (15 s): donde llega una mano sale una figura y apoya su palma.
+Después las figuras se deslizan hacia el centro del muro y las manos las siguen. Cada muro se llena según lo **apretadas** que estén
+sus manos (la anchura de manos en los 2 m más poblados, frente a la que corresponde al grupo, y qué parte de las manos del muro cabe
+ahí), no por tiempo; si se separan, se vacía despacio. Con todos los muros necesarios llenos y sostenidos 3 s, el círculo se cierra.
+Desde los 40 s de juego la multitud de luz cierra los huecos por el grupo. `min` 75 → 50 s, `target` 75, `max` 100. Pruebas: manos
+apretadas cierran a los 50 s (el mínimo); manos separadas sólo con la ayuda (~71 s); separadas que luego siguen a la palma, a los 50 s.
+La partitura marca además qué gestos ha aprendido el grupo (`learned`: pinya, tronc, pom, aleta, baixada) para que la guía se retire.
+
+**I. Brasa: la llamada (24-11, paso 6).** Tras 20 s de chispa (toques sueltos, chorros, diables), la sala **llama**: timbal *tok… tok…
+TOK* (0,8 s entre golpes) y todos golpean en el TOK (ventana de −0,5 a +0,7 s). Tres llamadas: desde un muro; desde un muro y
+contesta el de enfrente; en los cuatro (el anillo entero arde: *awake*). Si no llegan bastantes manos a tiempo, ola pequeña y la sala
+vuelve a llamar, más despacio (1,0 s, 1,2 s); nunca «Otra vez. Juntos.». El relevo del diable queda para después. Pruebas: golpes en
+el TOK → tres olas grandes y despierta (bloque ~52 s); golpes 1,2 s antes o 1,3 s después → sólo olas pequeñas (despierta por tiempo).
+**Duración del pase:** Pom un poco más largo (subidas de 21/23/25 s) y ressonància `min 60 · target 76 · max 84`: el pase sube ~20 s.
+
+**V. La ressonància: libre → eco → llamada → florecer (24-11, paso 7).** 0–20 s libre (onda y nota; la altura de la mano decide el
+tono). 20–48 s **el eco**: cada onda viaja hasta el muro de enfrente como un frente que se ve venir 3 s; si alguien golpea ese muro
+cuando llega (±0,7 s) rebota doblada (más ancha, más brillante, una octava arriba) y vuelve; si nadie devuelve una en 12 s, la sala la
+devuelve. Desde los 48 s **la llamada** de la Brasa, en los cuatro muros, cuatro veces, cada una mayor; en la última la sala **florece
+siempre**, más grande y más larga cuanto más a la vez golpearon y más ecos devolvieron. Pruebas: sin devolver, 1 eco por casualidad y
+la sala devuelve uno; devolviendo a la llegada, 18–24 ecos; florece siempre (0,25 sin unísono ni ecos, 0,75 con unísono, 1,0 con todo).

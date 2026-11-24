@@ -681,6 +681,7 @@ export function create(ctx) {
   // ------------------------------------------------------------------------------------------------ uniforms
   const uT = uniform(0), uTime = uniform(0), uS = uniform(0), uRev = uniform(0), uSky = uniform(0), uHorizon = uniform(0.55);
   const uFog = uniform(0.018), uGlow = uniform(1), uLit = uniform(0.45), uWet = uniform(0.75), uDrift = uniform(1), uMirror = uniform(0.45);
+  const uSkyTint = uniform(new THREE.Vector3(1, 1, 1));               // params.skyTint [r, g, b]: the host's colour script (T-034)
   const uWin = uniform(1), uStars = uniform(1), uTR = uniform(0), uDark = uniform(1);
   const uMoonDir = uniform(new THREE.Vector3(0.55, 0.62, 0.56).normalize());
   const lampVec = Array.from({ length: NL }, () => new THREE.Vector4());
@@ -735,7 +736,7 @@ export function create(ctx) {
     const star = step(0.9955, h).mul(smoothstep(0.42, 0.0, length(f))).mul(tw).mul(smoothstep(0.03, 0.3, y)).mul(h.sub(0.9955).mul(200).add(0.3)).mul(uStars);
     const cl = !clouds ? float(0) : mx_fractal_noise_float(vec3(dr.x.mul(2.2), dr.y.mul(9), dr.z.mul(2.2)).add(vec3(uTime.mul(0.003), 0, uTime.mul(0.002))), 4, 2.0, 0.55);
     const cloud = smoothstep(0.05, 0.7, cl).mul(pow(md, 2).mul(0.05).add(0.006)).mul(smoothstep(0.0, 0.25, y));
-    return g.add(vec3(0.75, 0.8, 1.0).mul(halo)).add(vec3(star)).add(vec3(0.55, 0.6, 0.75).mul(cloud)).mul(uSky);
+    return g.mul(uSkyTint).add(vec3(0.75, 0.8, 1.0).mul(halo)).add(vec3(star)).add(vec3(0.55, 0.6, 0.75).mul(cloud).mul(uSkyTint)).mul(uSky);
   };
   // what a mirror-like surface at Pw sees along R: the dark square, the facades (until they break), the sky, and the lamps
   const envRefl = (R, Pw, sharp) => Fn(() => {
@@ -785,6 +786,11 @@ export function create(ctx) {
   };
   // the fanals, lit by hand: each pixel only pays for the lamps within reach (three's PointLights would cost all 16 everywhere)
   const LR2 = 15.0 * 15.0;
+  const uPool = uniform(1);
+  const uNight = uniform(0), uReach = uniform(1);                    // params.reach: the lamps' radius (× 15 m)                                          // params.night: the blue of the night on stone outside the lamp pools
+  const NAVY = vec3(0.0103, 0.0232, 0.0844);                         // #1B2A52 in linear (ARTE-2 §3, the intro's night blue)
+  const nightOn = (albedo, lampAcc) => NAVY.mul(uNight).mul(dot(albedo, vec3(0.3, 0.55, 0.15)).mul(1.2).add(0.3).min(0.8))
+    .mul(float(1).sub(smoothstep(0.0, 0.12, dot(lampAcc, vec3(0.3, 0.55, 0.15))))).mul(uRev).mul(uDark);                                           // params.pool: the lamps' pools on stone (T-034 light pass: 1.25 in the work)
   const lampLight = (albedo, rough, metal, nV, Pw) => Fn(() => {
     const acc = vec3(0).toVar();
     const Nw = normalize(nV.transformDirection(cameraWorldMatrix));
@@ -799,8 +805,8 @@ export function create(ctx) {
       If(d2.lessThan(LR2).and(L.w.greaterThan(0.001)), () => {
         const Ld = Lv.mul(d2.inverseSqrt());
         const ndl = max(dot(Nw, Ld), 0);
-        const win = pow(clamp(float(1).sub(d2.div(LR2)), 0, 1), 2);
-        const E = L.w.mul(26).div(d2.add(0.25)).mul(win).mul(ndl);
+        const win = pow(clamp(float(1).sub(d2.div(uReach.mul(LR2))), 0, 1), 2);   // uReach < 1: tighter pools, the night between them
+        const E = L.w.mul(26).mul(uPool).div(d2.add(0.25)).mul(win).mul(ndl);
         const H = normalize(Ld.add(Vw));
         const spec = f0.mul(pow(max(dot(Nw, H), 0), shin).mul(shin.add(8).mul(1 / (8 * Math.PI))));
         acc.addAssign(LC.mul(E).mul(kd.add(spec)));
@@ -812,7 +818,35 @@ export function create(ctx) {
   const viewDir = () => normalize(positionWorld.sub(cameraPosition));
 
   // ------------------------------------------------------------------------------------------------ materials
-  function finish(m, shatterKind) { if (shatterKind !== undefined) m.positionNode = shatterPos(shatterKind); m.fog = false; m.outputNode = fogOut(); return m; }
+  // T-034: the square's OWN environment (room.captureEnvironment): black at first, captured from the eye at rest (the host calls
+  // captureEnv() during its warm-up, the square at t = 30): wet slabs, glass, iron and the mirror shards reflect the real square.
+  // The hand-made reflections (sky in the glass, lamp streaks on the floor) stay, weaker (uFake), for the crispness the 256 px map lacks.
+  // CC0 detail (Poly Haven, ../assets/cc0/SOURCES.md): real sandstone grain on the facades, worn stone slabs on the floor — as
+  // detail over the procedural pattern (albedo × the map's deviation from its mean, roughness bias), so the square keeps its design
+  const tl = new THREE.TextureLoader();
+  const cc0 = (name, map, srgb) => { const t = tl.load(new URL(`../assets/cc0/${name}/${name}_${map}_1k.jpg`, import.meta.url).href); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 4; return t; };
+  const texWall = cc0('sandstone_cracks', 'diff', true), texWallR = cc0('sandstone_cracks', 'rough', false);
+  const texSlab = cc0('large_sandstone_blocks', 'diff', true), texSlabR = cc0('large_sandstone_blocks', 'rough', false);
+  const { texture: tex } = TSL;
+  const uDetail = uniform(1);                                          // params.detail (0 = the procedural surfaces alone)
+  const envRT = room.captureEnvironment ? room.captureEnvironment(new THREE.Scene()) : null, envMats = [];
+  const uFake = uniform(envRT ? 0.45 : 1);
+  // params.silhouette (0..1, the baixada's dawn): the square drawn pure black, unlit, with a thin warm rim on what faces the east
+  // (P1, where the dawn is) — the sky and the floor are hidden, so the part behind (3D-PO's dawn sky) shows through. Far layer only.
+  const uSil = uniform(0);
+  const eastW = room.walls.find((w) => w.id === 'P1') || room.walls[0];
+  const uEast = uniform(eastW.normal.clone().negate());
+  const silOut = Fn(() => {
+    const N = normalize(normalWorld), V = normalize(cameraPosition.sub(positionWorld));
+    const edge = pow(float(1).sub(abs(dot(N, V))), 4), toE = max(dot(N, uEast), 0);
+    return vec4(vec3(1.0, 0.55, 0.3).mul(edge.mul(toE).mul(0.35)), 1);
+  });
+  function finish(m, shatterKind) {
+    if (shatterKind !== undefined) m.positionNode = shatterPos(shatterKind); m.fog = false; m.outputNode = mix(fogOut(), silOut(), uSil);
+    if (envRT && m.isMeshStandardNodeMaterial) { m.envMap = envRT.texture; m.envMapIntensity = 1; envMats.push(m); }
+    return m;
+  }
+  function captureEnv() { if (envRT) room.captureEnvironment(room.scene, { renderTarget: envRT }); return !!envRT; }
 
   // stone: ashlar courses, old stucco with patches, dressed mouldings; noise colour, grime streaks, rising damp; mirror when broken
   const stoneMat = (() => {
@@ -837,16 +871,22 @@ export function create(ctx) {
     const stucco = mix(tint.mul(big.mul(0.15).add(0.95)), tint.mul(vec3(0.62, 0.55, 0.5)).mul(mix(1, 0.75, joint)), peel);
     const dressedC = tint.mul(grain.mul(0.06).add(0.97));
     const base = ashlar.mul(isA).add(stucco.mul(isS)).add(dressedC.mul(isD));
-    const albedo = base.mul(grain.mul(0.12).add(0.95)).mul(float(1).sub(streak.mul(0.28))).mul(mix(1, 0.6, damp)).mul(big.mul(0.12).add(0.94));
+    const dW = tex(texWall, uvm.mul(0.55)).rgb, dWl = dot(dW, vec3(0.3, 0.55, 0.15));
+    const detailW = mix(vec3(1), dW.div(max(dWl, 0.05)).mul(dWl.div(0.42)).clamp(0.4, 1.8), uDetail.mul(0.6));   // ~0.42: the map's mean luma
+    const albedo = base.mul(grain.mul(0.12).add(0.95)).mul(float(1).sub(streak.mul(0.28))).mul(mix(1, 0.6, damp)).mul(big.mul(0.12).add(0.94)).mul(detailW);
     const height = joint.mul(-0.012).mul(isA.add(isS.mul(peel))).add(grain.mul(0.0025)).add(peel.mul(-0.003).mul(isS)).add(bh.mul(0.004).mul(isA));
     const p = fragProg(aFrag);
     const isMirror = step(fract(aFrag.w.mul(131.3)), uMirror).mul(smoothstep(0.05, 0.5, p));
-    const sAlb = mix(albedo, vec3(0.02), isMirror), sRough = mix(float(0.9).sub(damp.mul(0.45)).sub(isD.mul(0.1)), float(0.05), isMirror);
+    const sAlb = mix(albedo, vec3(0.02), isMirror), sRough = mix(float(0.9).sub(damp.mul(0.45)).sub(isD.mul(0.1)).add(tex(texWallR, uvm.mul(0.55)).r.sub(0.6).mul(0.3).mul(uDetail)).clamp(0.2, 1), float(0.05), isMirror);
     const sN = bumpN(height.mul(float(1).sub(isMirror)), 1.0);
-    m.colorNode = sAlb; m.roughnessNode = sRough; m.metalnessNode = isMirror; m.normalNode = sN;
+    // under the moon the stone loses its sodium warmth (it is the lamps that make it warm): the lit-by-sky albedo goes cool grey at night,
+    // the lamps' own light below still sees the warm stone
+    const sCool = mix(sAlb, vec3(dot(sAlb, vec3(0.3, 0.55, 0.15))).mul(vec3(0.55, 0.8, 1.45)), uNight.mul(0.85));
+    m.colorNode = sCool; m.roughnessNode = sRough; m.metalnessNode = isMirror; m.normalNode = sN;
     const R = reflectVector;
     const mirE = Fn(() => { const e = vec3(0).toVar(); If(isMirror.greaterThan(0.001), () => { e.assign(envRefl(R, Pw, 900).add(vec3(0.75, 0.82, 1.0).mul(pow(max(dot(R, uMoonDir), 0), 24).mul(1.6).mul(uRev))).mul(isMirror).mul(0.85)); }); return e; })();
-    m.emissiveNode = mirE.add(lampLight(sAlb, sRough, isMirror, sN, Pw));
+    const sLamp = lampLight(sAlb, sRough, isMirror, sN, Pw);
+    m.emissiveNode = mirE.add(sLamp).add(nightOn(sAlb, sLamp).mul(float(1).sub(isMirror)));
     return finish(m, false);
   })();
 
@@ -875,7 +915,8 @@ export function create(ctx) {
     const lit = step(aExt.y, uLit).mul(aInfo.w);
     const on = smoothstep(aExt.x, aExt.x.add(0.8), uTR);
     const p = fragProg(aFrag);
-    m.emissiveNode = vec3(1.0, 0.55, 0.22).mul(lit).mul(on).mul(louv.oneMinus().mul(isL)).mul(2.2).mul(uWin).mul(smoothstep(0.4, 0.0, p)).add(lampLight(dAlb, dRough, aInfo.z, dN, Pw));
+    const dLamp = lampLight(dAlb, dRough, aInfo.z, dN, Pw);
+    m.emissiveNode = vec3(1.0, 0.55, 0.22).mul(lit).mul(on).mul(louv.oneMinus().mul(isL)).mul(2.2).mul(uWin).mul(smoothstep(0.4, 0.0, p)).add(dLamp).add(nightOn(dAlb, dLamp));
     return finish(m, false);
   })();
 
@@ -930,12 +971,12 @@ export function create(ctx) {
     const roseE = rcol.mul(float(1).sub(clamp(lead, 0, 1).mul(0.85))).mul(mx_noise_float(vec3(uvm.mul(3), 0)).mul(0.3).add(0.8)).mul(0.3).mul(smoothstep(22, 24, uTR)).mul(uWin);
     // the lanterns: as bright as their lamp right now
     const lampW = uLamps.element(aInfo.y.toInt()).w;
-    const lampE = vec3(1.0, 0.7, 0.42).mul(lampW).mul(14);
+    const lampE = vec3(1.0, 0.58, 0.28).mul(lampW).mul(6.5);        // QA 24-11: a warm core, not a burnt-white globe (was ×14, paler)
     const R = reflectVector;
     const fr = mix(fresnel(dot(V.negate(), N), float(0.04)), float(0.85), smoothstep(0.0, 0.5, p));
-    const refl = envRefl(R, Pw, 1500).mul(fr);
+    const refl = envRefl(R, Pw, 1500).mul(fr).mul(uFake);
     m.colorNode = vec3(0.01);
-    m.roughnessNode = float(0.12);
+    m.roughnessNode = float(0.06);
     m.metalnessNode = float(0);
     m.emissiveNode = winE.add(dimRoom).mul(isWin).mul(alive).add(roseE.mul(isRose).mul(alive)).add(lampE.mul(isLamp)).add(refl.mul(float(1).sub(isLamp)));
     return finish(m, false);
@@ -952,7 +993,7 @@ export function create(ctx) {
     m.roughnessNode = float(0.04);
     m.metalnessNode = float(1);
     const sheen = pow(max(dot(R, uMoonDir), 0), 24).mul(2.2).add(pow(max(dot(R, uMoonDir), 0), 3).mul(0.05)).mul(uRev);   // glints of the moon as the panes turn
-    m.emissiveNode = envRefl(R, Pw, 2500).add(vec3(0.75, 0.82, 1.0).mul(sheen)).mul(fr).mul(tintT).mul(1.1);
+    m.emissiveNode = envRefl(R, Pw, 2500).mul(uFake).add(vec3(0.75, 0.82, 1.0).mul(sheen)).mul(fr).mul(tintT).mul(1.1);
     return finish(m, true);
   })();
 
@@ -970,10 +1011,13 @@ export function create(ctx) {
     const wear = mx_noise_float(vec3(W.x.mul(0.9), 3.1, W.y.mul(0.9)));
     const wet = clamp(smoothstep(-0.12, 0.22, big).add(joint.mul(0.6)).add(smoothstep(0.3, 0.6, wear).mul(0.3)), 0, 1).mul(uWet);
     const c1 = vec3(0.105, 0.092, 0.078), c2 = vec3(0.135, 0.125, 0.112);
-    const albedo = mix(c1, c2, sh).mul(grain.mul(0.25).add(0.9)).mul(mix(1, 0.45, joint)).mul(mix(1, 0.5, wet)).mul(wear.mul(0.1).add(1));
+    const fuv = vec2(fu.mul(len), fv.mul(rowW)).add(vec2(hash12(vec2(col, row)).mul(3.0), hash12(vec2(row, col)).mul(3.0))).mul(0.6);   // a different piece of stone on every slab
+    const dS = tex(texSlab, fuv).rgb, dSl = dot(dS, vec3(0.3, 0.55, 0.15));
+    const detailS = mix(vec3(1), dS.div(max(dSl, 0.05)).mul(dSl.div(0.4)).clamp(0.4, 1.8), uDetail.mul(0.7));
+    const albedo = mix(c1, c2, sh).mul(grain.mul(0.25).add(0.9)).mul(mix(1, 0.45, joint)).mul(mix(1, 0.5, wet)).mul(wear.mul(0.1).add(1)).mul(detailS);
     const tilt = vec2(hash12(vec2(col, row)).sub(0.5), hash12(vec2(row, col.add(5.0))).sub(0.5)).mul(0.006);
     const height = smoothstep(0.035, 0.0, edge).mul(-0.0025).add(fu.mul(len).mul(tilt.x)).add(fv.mul(rowW).mul(tilt.y)).add(grain.mul(0.0018).mul(float(1).sub(wet)));
-    const fRough = mix(float(0.62).add(grain.mul(0.12)), float(0.07), wet);
+    const fRough = mix(float(0.62).add(grain.mul(0.12)).add(tex(texSlabR, fuv).r.sub(0.6).mul(0.35).mul(uDetail)).clamp(0.3, 1), float(0.07), wet);
     const fN = bumpN(height, 1.0);
     m.colorNode = albedo; m.roughnessNode = fRough; m.metalnessNode = float(0); m.normalNode = fN;
     // fake reflections: what a puddle sees (facades, sky), and a long streak under every lamp
@@ -997,7 +1041,7 @@ export function create(ctx) {
     });
       return rf;
     })();
-    m.emissiveNode = refl.mul(fr).mul(wet.mul(0.9).add(0.1)).add(lampLight(albedo, fRough, float(0), fN, Pw));
+    m.emissiveNode = refl.mul(fr).mul(wet.mul(0.9).add(0.1)).mul(uFake.mul(0.5).add(0.5)).add(lampLight(albedo, fRough, float(0), fN, Pw));
     return finish(m);
   })();
 
@@ -1042,7 +1086,7 @@ export function create(ctx) {
 
   // lights: the fanals, the moon, the sky's ambient
   for (const L of lamps) { L.light.layers.set(31); object.add(L.light); }   // read by the atmos part; the renderer skips layer 31
-  const moon = new THREE.DirectionalLight(new THREE.Color(0.62, 0.72, 1.0), 0);
+  const moon = new THREE.DirectionalLight(new THREE.Color(0.58, 0.72, 1.0), 0);   // a cool moon against the sodium lamps
   moon.position.copy(uMoonDir.value).multiplyScalar(50); object.add(moon); object.add(moon.target);
   const hemi = new THREE.HemisphereLight(new THREE.Color(0.35, 0.45, 0.75), new THREE.Color(0.25, 0.17, 0.1), 0);
   object.add(hemi);
@@ -1063,7 +1107,7 @@ export function create(ctx) {
     const pr = input.params || P;
     const rv = +pr.reveal || 0, shv = +pr.shatter || 0;
     const tR = rv > 0 ? 8 + 17 * Math.min(1, rv) : shv > 0 ? Math.max(t, 30) : t;
-    const tS = shv > 0 ? 46 + 24 * Math.min(1, shv) : t;
+    const tS = shv > 0 ? 46 + 24 * Math.min(1, shv) : pr.noBreak ? Math.min(t, 45.99) : t;   // noBreak: the host breaks it into image tiles instead (T-034)
     const S = tS < 46 ? 0 : tS < 58 ? (tS - 46) / 12 : Math.min(2.6, 1 + ((tS - 58) / 12) * 1.25);
     const reveal = sm((tR - 8) / 17);
     const dark = 1 - 0.85 * sm((S - 0.55) / 1.5);
@@ -1079,8 +1123,12 @@ export function create(ctx) {
     uMirror.value = pr.mirror ?? 0.45;
     uWin.value = (pr.windowGlow ?? 1);
     uStars.value = pr.stars ?? 1;
+    const silK = Math.max(0, Math.min(1, pr.silhouette ?? 0)); uSil.value = silK; sky.visible = silK < 0.5; floor0.visible = silK < 0.5; object.position.y = -(pr.silDrop ?? 0) * silK;   // params.silDrop (m): the silhouette sinks so its rooftops sit low on the walls, the sky above
+    if (Array.isArray(pr.skyTint)) uSkyTint.value.fromArray(pr.skyTint); else uSkyTint.value.set(1, 1, 1);
+    const envK = (pr.env ?? 1) * reveal * dark; for (const m of envMats) m.envMapIntensity = envK;
     const moonK = (pr.moon ?? 1) * reveal * dark;
-    moon.intensity = 0.32 * moonK; hemi.intensity = 0.55 * moonK;
+    moon.intensity = 0.32 * moonK * (pr.moonKey ?? 1); hemi.intensity = 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1));   // the moon's key also fills the shadows with a cool sky
+    uPool.value = pr.pool ?? 1; uDetail.value = pr.detail ?? 1; uNight.value = pr.night ?? 0; uReach.value = pr.reach ?? 1;
     // hands warm the nearest lamp a little
     handNear.fill(0);
     if ((pr.handWarm ?? 0.5) > 0) for (const h of input.hands || []) {
@@ -1103,5 +1151,5 @@ export function create(ctx) {
   function setParams() { /* parameters are read live in update() */ }
   function dispose() { for (const g of geos) g.dispose(); for (const m of [stoneMat, detailMat, glassMat, mirrorMat, floorMat, skyMat]) m.dispose(); }
   if (typeof window !== 'undefined') window.__plaza = { lamps: NL, verts, meshes: object.children.length };   // lab checks only
-  return { object, update, setParams, dispose };
+  return { object, update, setParams, dispose, captureEnv };
 }
