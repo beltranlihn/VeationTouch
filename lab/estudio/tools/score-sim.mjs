@@ -11,6 +11,7 @@
 //            (the button, the call's TOK, packing, lifting with the phrase, stillness, raising, the echo, bringing it down)
 //   passive  hands resting where they are, never following
 //   strike   only taps (0.25 s down, 0.8–1.6 s up), anywhere
+// --reach m: nobody reaches above m (children: --reach 1.4): targets higher are ignored, hands never go above it.
 // --lidar p: every 0.1 s a hand is lost with probability p for 0.1–0.3 s (and comes back under a new stroke 1 time in 5).
 // --shrink: the group shrinks from its size to 2 people halfway through each interactive block (D8).
 import path from 'node:path';
@@ -22,7 +23,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const scorePath = path.resolve(arg('score', path.join(HERE, '../../experiments/ressonancia/score.js')));
 const { createScore } = await import(pathToFileURL(scorePath).href);
 const SIZES = arg('sizes', '1,2,4,8,15').split(',').map(Number), ACTS = arg('acts', 'hold,passive,strike').split(',');
-const LIDAR = Number(arg('lidar', '0.06')), SEED = Number(arg('seed', '1')), DT = 0.05, SHRINK = flag('shrink');
+const LIDAR = Number(arg('lidar', '0.06')), SEED = Number(arg('seed', '1')), DT = 0.05, SHRINK = flag('shrink'), REACH = Number(arg('reach', '2.2'));
 
 const LEN = [7.33, 6.483, 7.353, 6.411], W = 4, S0 = LEN.reduce((a, l, w) => { a.push(w ? a[w - 1] + LEN[w - 1] : 0); return a; }, []), PER = LEN.reduce((a, b) => a + b, 0);
 const wrap = (x) => ((x % PER) + PER) % PER, cd = (a, b) => { const d = wrap(a - b); return d > PER / 2 ? d - PER : d; };
@@ -40,7 +41,7 @@ function run(size, act, seed) {
   const people = Array.from({ length: nPeople }, (_, i) => {
     const home = i % W, s = centreS(home) + (rnd() - 0.5) * (LEN[home] - 2.5);
     const k = handsEach ?? (i < 3 ? 2 : 1);
-    return { i, home, s, gone: false, hands: Array.from({ length: k }, (_, j) => ({ off: j ? 0.6 : 0, y: 1.1 + rnd() * 0.3, down: true, stroke: strokeId++, lostUntil: -1, tapAt: rnd() * 1.5, claim: 0 })) };
+    return { i, home, s, gone: false, hands: Array.from({ length: k }, (_, j) => ({ off: j ? 0.6 : 0, y: REACH < 1.6 ? 0.8 + rnd() * 0.35 : 1.1 + rnd() * 0.3, down: true, stroke: strokeId++, lostUntil: -1, tapAt: rnd() * 1.5, claim: 0 })) };
   });
   const ev = {}, blocks = [], assists = new Set(), achs = {}, stageOrder = [];
   let t = 0, cur = '', curAt = 0, pass = 0, lastTick = 0, snap = null;
@@ -63,7 +64,7 @@ function run(size, act, seed) {
         if (!h.down || t < h.lostUntil) continue;
         if (h.newId) { h.stroke = strokeId++; h.newId = false; }
         const s = wrap(p.s + h.off), w = wallAt(s);
-        hands.push({ stroke: h.stroke, wall: w, dx: s - centreS(w), s, y: h.y, vx: 0, vy: 0, size: 0.12, speed: 0 });
+        hands.push({ stroke: h.stroke, wall: w, dx: s - centreS(w), s, y: Math.min(REACH, h.y), vx: 0, vy: 0, size: 0.12, speed: 0 });
       }
     }
     sc.step(DT, hands);
@@ -125,7 +126,7 @@ function policy(S, people, act, t, rnd) {
     return;
   }
   if (B === 'pom') {
-    if (S.phase === 'aleta') for (const p of people) for (const h of p.hands) lift(h, 1.8, 3);
+    if (S.phase === 'aleta') for (const p of people) for (const h of p.hands) lift(h, Math.min(REACH, 1.8), 3);
     return;   // still
   }
   if (B === 'festa') {
@@ -147,7 +148,7 @@ function onTargets(S, people, live, t) {
     const mine = p.hands[0].claim && live.find((x) => x.id === p.hands[0].claim);
     if (mine) { taken.add(mine.id); continue; }
     let best = null, bd = 1e9;
-    for (const x of live) { if (taken.has(x.id)) continue; const d = Math.abs(cd(x.s, p.s)); if (d < bd) { bd = d; best = x; } }
+    for (const x of live) { if (taken.has(x.id) || x.y > REACH) continue; const d = Math.abs(cd(x.s, p.s)); if (d < bd) { bd = d; best = x; } }
     p.hands[0].claim = best ? best.id : 0; if (best) taken.add(best.id);
   }
   for (const p of people) {
