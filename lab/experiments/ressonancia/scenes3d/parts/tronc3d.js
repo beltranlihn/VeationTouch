@@ -460,20 +460,25 @@ export function create(ctx) {
   // (fall3d: while the castell falls the porcelain sculpture is shown, it is what breaks) — but its solid meshes are not drawn.
   // Layout in castell metres (× SC in the tower's frame, like the sculpture): a pinya of three rings + a folre, a tronc of three per tier,
   // the dosos, the acotxador, the enxaneta. Mode (setMode): build (Tronc) · top (Pom: the same castell) · crowned (the enxaneta's arm up) · down.
-  const CAST = [];
+  const CAST = [], CLV = [];      // CLV: the bodies' own levels (y0, y1 in castell metres), for levels() in the human-scale mode
   {
     const r3 = rng(4401);
-    const tier = [1.05, 1.02, 1.02, 1.02, 1.02, 1.02];
+    // 25-11 (Art Director): the lower floors life-size in the foreground, the tower growing to ~3.4 m on the wall by COMPRESSING the
+    // upper floors (a forced perspective: each tier ×PERSP), never shrinking the whole tower; no room-rise in this mode
+    const PERSP = OLD ? 1 : 0.72;
+    const tier = [1.05, 1.02, 1.02, 1.02, 1.02, 1.02].map((v, L) => v * Math.pow(PERSP, L));
     let feet = 0;
     for (let L = 0; L < 6; L++) {
-      const s = tier[L], R0 = 0.33;
+      const s = tier[L], R0 = 0.33 * Math.max(0.55, s);
       for (let j = 0; j < 3; j++) { const a = Math.PI / 2 + (j * TAU) / 3; CAST.push({ lv: L + 1, x: Math.cos(a) * R0, z: Math.sin(a) * R0, y: feet, yaw: Math.atan2(Math.cos(a), Math.sin(a)), pose: 'lock', s, build: 0 }); }
       feet += 1.342 * s + 0.03;
     }
-    for (const sg of [-1, 1]) CAST.push({ lv: 7, x: sg * 0.17, z: 0, y: feet, yaw: Math.atan2(-sg, 0), pose: 'lock', s: 0.8, build: 1 });
-    const dsY = feet + 1.286 * 0.8 + 0.03;
-    CAST.push({ lv: 8, x: 0, z: -0.06, y: dsY, yaw: 0, pose: 'carry', s: 0.66, build: 2 });
-    CAST.push({ lv: 9, x: 0, z: -0.02, y: Math.max(dsY + 0.42, 9.8), yaw: 0, pose: 'stand', pose2: 'raise', s: 0.62, build: 2, enx: true });
+    const pd = Math.pow(PERSP, 6), pa = Math.pow(PERSP, 7), pe = Math.pow(PERSP, 8);
+    for (const sg of [-1, 1]) CAST.push({ lv: 7, x: sg * 0.17 * Math.max(0.5, pd), z: 0, y: feet, yaw: Math.atan2(-sg, 0), pose: 'lock', s: 0.8 * pd, build: 1 });
+    const dsY = feet + (1.286 * 0.8 + 0.03) * pd;
+    CAST.push({ lv: 8, x: 0, z: -0.06 * pa, y: dsY, yaw: 0, pose: 'carry', s: 0.66 * pa, build: 2 });
+    CAST.push({ lv: 9, x: 0, z: -0.02 * pe, y: OLD ? Math.max(dsY + 0.42, 9.8) : dsY + 0.42 * pa, yaw: 0, pose: 'stand', pose2: 'raise', s: 0.62 * pe, build: 2, enx: true });
+    for (const c of CAST) { const L = CLV[c.lv] || (CLV[c.lv] = { y0: 1e9, y1: -1e9 }); L.y0 = Math.min(L.y0, c.y); L.y1 = Math.max(L.y1, c.y + 1.7 * c.s); }
     const ringN = [10, 16, 22];
     for (let i = 0; i < 3; i++) {
       const rad = 0.73 + i * 0.44 + 0.1, off = 0.31 + i * 0.17;
@@ -485,12 +490,13 @@ export function create(ctx) {
     }
   }
   const bodies = P.bodies !== false && !lone();   // fall3d's private tower (parts: {}) falls as the sculpture: no bodies there
-  const kit = bodies ? createBodies({ THREE, TSL, room, max: Math.min(400, CAST.length * Math.min(NW, 4)) }) : null;
+  const kit = bodies ? createBodies({ THREE, TSL, room, max: Math.min(400, CAST.length * Math.min(NW, 4)), spots: ctx.parts?.plaza?.spots || null }) : null;   // the square's stage spots light the bodies in their beams
   if (kit) {
     world.add(kit.object);
     const fx = kit.tok('faixa'), pl = kit.tok('pedra-llum'), soft = fx.map((v, i) => v * 0.68 + pl[i] * 0.32);   // the faixa a little chalked by the light
     kit.setColors({ shirt: 'porcellana', skin: ['pedra-llum', 1.02], trousers: ['pedra-llum', 0.82], faixa: soft, hair: ['tinta-ombra', 1.6], crack: 'pedra-llum', shadow: 'tinta-ombra' });
     kit.uniforms.crack.value = 0.55;
+    kit.setSplat({ lit: 'porcellana', half: ['pedra-llum', 0.7], amb: ['tinta-ombra', 0.7] });
   }
   let lightMode = '';
   let castMode = 'build';
@@ -502,20 +508,21 @@ export function create(ctx) {
     let n = 0;
     const crowned = castMode === 'crowned';
     for (const t of towers) {
-      const visT = t.on && t.g.visible;
-      const phi = t.g.rotation.y, cp = Math.cos(phi), sp = Math.sin(phi), th = t.theta, ct = Math.cos(th), st = Math.sin(th);
+      const visT = t.on && t.g.visible, ringOnly = !visT && inTronc && !OLD && !col.on;   // a wall without a tower shows its pinya ring
+      const phi = Math.atan2(t.w.normal.x, t.w.normal.z), cp = Math.cos(phi), sp = Math.sin(phi), th = visT ? t.theta : 0, ct = Math.cos(th), st = Math.sin(th);
+      if (!visT) t.g.position.copy(t.w.centre).addScaledVector(t.w.normal, -TOWER_D).setY(0);
       for (const c of CAST) {
         const i = n++; if (i >= kit.count) break;
-        if (!visT || col.on) { kit.hide(i); continue; }
+        if ((!visT && !(ringOnly && c.lv === 0)) || col.on) { kit.hide(i); continue; }
         const S = t.st[c.lv];
         const shown = c.lv === 0 || (S.shown && !S.taken && (S.solid > 0.001 || S.forming || S.goneT >= 0));
         if (!shown || (S.goneT >= 1.6)) { kit.hide(i); continue; }
         // a floor that forms climbs into place with the lift; one that slips drops and goes
         // particles: a forming floor ASSEMBLES from streams (with the lift), a slipping one falls as dust; no body moves as a block
         let dy = 0, form = 1, fmode = 'gather';
-        if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, S.lift * 0.75 + S.solid * 0.5); dy = -(1 - form) * 0.15; }
+        if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, 0.3 + S.lift * 0.55 + S.solid * 0.5); dy = -(1 - form) * 0.15; }   // the next floor hovers half-formed until the hands lift it
         if (S.goneT >= 0) { form = Math.max(0, 1 - S.goneT / 1.4); fmode = 'dust'; }
-        if (c.lv === 0) form = 0.85 + 0.15 * Math.sin(time * 0.4 + c.x * 3 + c.z * 2);   // the pinya's mass breathes
+        if (c.lv === 0) form = 0.97 + 0.03 * Math.sin(time * 0.4 + c.x * 3 + c.z * 2);   // the pinya's mass breathes
         const lx = c.x * SC, ly = (c.y + dy) * SC, lz = c.z * SC;
         const tx = lx * ct - ly * st, ty = lx * st + ly * ct;                       // the lean (tower frame, about its z)
         _bp.set(t.g.position.x + cp * tx + sp * lz, ty, t.g.position.z - sp * tx + cp * lz);
@@ -523,7 +530,7 @@ export function create(ctx) {
         // arrive / leave: the particles gather / scatter (form below), no block movement
         const pose2 = c.enx ? (crowned ? 'raise' : 'stand') : c.pose;
         kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw, pose: c.pose === 'lock' && c.lv > 0 && S.forming && S.solid < 0.5 ? 'carry' : c.pose, pose2, mix: c.enx ? (crowned ? 1 : 0) : 1,
-          form: form * (1 - uAway.value), fmode, lod: c.lv > 0 ? 'near' : 'far', scale: c.s * SC, build: c.build, glow: S.flash * 0.6 + (c.enx && crowned ? 0.5 : 0), tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
+          form: form * (1 - uAway.value), fmode, lod: 'far', scale: c.s * SC, build: c.build, glow: S.flash * 0.6 + (c.enx && crowned ? 0.5 : 0), tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
       }
     }
     for (let i = n; i < kit.count; i++) kit.hide(i);
@@ -607,7 +614,7 @@ export function create(ctx) {
     }
 
     // ---- the rise: the room climbs with the forming floor (lift: the forming floor sits at the hands); reward: drawn back, all of it
-    const fl = Math.min(NL - 1, floors + 1), riseOn = pr.rise ?? 1;
+    const fl = Math.min(NL - 1, floors + 1), riseOn = pr.rise ?? (OLD ? 1 : 0);
     let target = (LV[fl].yc * SC - (liftOn ? FORM_Y : FORM_Y0)) * riseOn;
     pull += ((rewarding || (leave > 0 && pull > 0.01) ? 1 : 0) - pull) * ease(0.6, dt);
     if (pull > 0.001) target += (TOWER_H * SC * 0.5 - 1.2 - target) * smooth(0, 1, pull);
@@ -661,7 +668,7 @@ export function create(ctx) {
         if (s.goneT >= 4.2 && col.on) s.shown = false;
         U.floor.array[lv].set(s.solid, s.forming, s.goneT, s.flash);
         const vis = s.shown && !s.taken && built && !!t.solid[lv];
-        if (t.solid[lv]) { t.solid[lv].visible = vis && s.solid > 0.001 && s.goneT < 0 && (!kit || col.on); t.grain[lv].visible = vis && (!kit || col.on || (s.forming && s.solid < 1) || s.goneT >= 0 || t.U.lean.value.y > 0.05); }
+        if (t.solid[lv]) { t.solid[lv].visible = vis && s.solid > 0.001 && s.goneT < 0 && (!kit || col.on); t.grain[lv].visible = vis && (!kit || col.on || (OLD && ((s.forming && s.solid < 1) || s.goneT >= 0 || t.U.lean.value.y > 0.05))); }
       }
       // the lean: a damped spring towards lean·7°, weak trembles it
       let lean = S ? (S.lean?.[t.tw] || 0) : (pr.lean ?? 0) * (t.tw % 2 ? -1 : 1);
@@ -846,7 +853,8 @@ export function create(ctx) {
   function levels() {
     world.updateMatrixWorld(true);
     const y0 = world.matrixWorld.elements[13];
-    return towers.filter((t) => t.on).map((t) => ({ tower: t.tw, built: t.built, floors: LV.map((L, i) => ({ i, name: NAMES[i].toLowerCase(), y: y0 + L.yc * SC, h: L.h * SC, taken: !!t.st[i].taken, gone: !!t.st[i].gone })) }));
+    const lvOf = (L, i) => (!OLD && CLV[i] ? { yc: (CLV[i].y0 + CLV[i].y1) / 2, h: CLV[i].y1 - CLV[i].y0 } : L);
+    return towers.filter((t) => t.on).map((t) => ({ tower: t.tw, built: t.built, floors: LV.map((L0, i) => { const L = lvOf(L0, i); return { i, name: NAMES[i].toLowerCase(), y: y0 + L.yc * SC, h: L.h * SC, taken: !!t.st[i].taken, gone: !!t.st[i].gone }; }) }));
   }
 
   function setParams(p) { if (p && p !== P) Object.assign(P, p); }

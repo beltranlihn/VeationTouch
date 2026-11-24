@@ -10,7 +10,7 @@
 //     figure's weight onto the hand (it leans in, the palm warms in gold as it charges), and when it is held it STAYS (25 s after the
 //     hand leaves). In the pack stage the figures slide to the wall's centre (the score's 'pack') and the hands follow them.
 //   'ach:wallfull' / 'wall:<w>': the figures of that wall lock shoulder to shoulder (arms over the neighbours) and stay for the block.
-//   THE PINYA OF EACH WALL: rings of castellers round a point 5.2 m behind the wall's centre (the castell's foot), facing in. With
+//   THE PINYA OF EACH WALL: rings of castellers round a point 3.0 m behind the wall's centre (the castell's foot), facing in. With
 //     fill[w] they come in from a loose crowd to the rings and take the pinya's postures (arms locked, hands on the backs in front);
 //     'close' → everyone locks; the walls of the structure keep their pinya, the others loosen.
 // Study (no input.state): params fill, closed, arrive, leave, density, depth, pack, floor. One waiting figure per wall.
@@ -79,7 +79,7 @@ export function create({ THREE, TSL, room, params }) {
     const m = withScore ? 'scene' : 'self';
     if (m !== mode) { mode = m; kit.setLighting(m); }
     if (floor) floor.mesh.visible = !withScore && prm.floor !== false;
-    const D = prm.depth ?? 5.2;
+    const D = prm.depth ?? 3.0;   // the castell's foot: close, the same place as the Tronc's tower (2.3 m)
 
     // ---- the score's state (or the study stand-in)
     let closed = 0, structure = null;
@@ -109,6 +109,7 @@ export function create({ THREE, TSL, room, params }) {
       const want = smooth((f * 1.15 - c.order + 0.12) / 0.24);
       c.alive += (want - c.alive) * Math.min(1, dt / (want > c.alive ? 1.1 : 2.2));
       const al = c.alive;
+      if (al < 0.03) { kit.hide(c.i); continue; }                                  // not yet: no body, no dust
       footOf(c.w, D, foot);
       const r = c.r + (1 - al) * c.loose + (1 - there) * 3.5;
       const a = c.a + (1 - al) * c.la * 0.4;
@@ -116,8 +117,8 @@ export function create({ THREE, TSL, room, params }) {
       let yaw = Math.atan2(foot.x - x, foot.z - z) + (1 - al) * c.la;
       const pose = closedS > 0.5 ? 'lock' : c.pose;
       // particles (25-11): the loose crowd is half air — the pinya assembles as the wall fills, and breathes
-      kit.set(c.i, { pos: [x, 0, z], yaw, pose: 'stand', pose2: pose, mix: al * (0.35 + 0.65 * Math.max(fills[c.w], closedS)), scale: c.scale, build: c.build, tint: [c.tint, c.tint, c.tint], glow: 0,
-        form: (0.5 + 0.5 * al) * there, fmode: 'gather' });
+      kit.set(c.i, { pos: [x, 0, z], yaw, pose: 'stand', pose2: pose, mix: al * (0.35 + 0.65 * Math.max(fills[c.w], closedS)), scale: c.scale, build: c.build, tint: [c.tint * 0.6, c.tint * 0.6, c.tint * 0.62], glow: 0,
+        form: al * there, fmode: 'gather', pool: 0.18 });
     }
 
     // ---- hands → wall coordinates
@@ -180,7 +181,7 @@ export function create({ THREE, TSL, room, params }) {
       q.glow = Math.max(q.locked ? 0.28 : q.charge >= 1 ? 0.22 : q.charge * 0.35, q.glow - dt * 0.8);
       // arrive / retreat
       const go = q.stay > 0 || q.idle || q.locked;
-      q.app = go ? Math.min(1, q.app + dt / 0.65) : Math.max(0, q.app - dt / 2.2);      // assembly ≈ 0.3–0.8 s per particle (staggered); it dissolves slowly
+      q.app = go ? Math.min(1, q.app + dt / 1.4) : Math.max(0, q.app - dt / 2.5);      // it gathers at once and is whole in ≈ 1.4 s (from the ground and the hand inward); it dissolves slowly
       if (q.app <= 0 && !go) { q.on = false; kit.hide(q.i); continue; }
       if (q.locked) { q.lockK = Math.min(1, q.lockK + dt / 1.4); q.x += ((q.slot ?? q.x) - q.x) * Math.min(1, dt * 0.8); }
       // place: the palm on the wall plane at (x, y); the body faces into the room
@@ -199,7 +200,9 @@ export function create({ THREE, TSL, room, params }) {
       if (q.app < 0.999) { pose = 'palm'; pose2 = pp.m > 0 ? 'raise' : 'palm'; mix = pp.m; }   // assembled straight into the offered palm
       if (q.locked) { pose = 'palm'; pose2 = 'lock'; mix = q.lockK; }
       else if (!h && !q.idle && q.stay < 8) { pose = 'stand'; pose2 = 'palm'; mix = clamp01(q.stay / 8); }   // the arm comes down before it goes back
-      kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [1, 1, 1], form: e * there, fmode: 'gather', lod: 'near' });
+      // a waiting figure (an offered palm, nobody there yet) is a quieter suggestion: dimmer, not fully gathered; with a hand: whole, bright
+      const held = q.stroke !== null || q.locked || q.charge > 0.05, wk = held ? 1 : 0.45, wf = held ? 1 : 0.8;
+      kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: e * wf * there, fmode: 'gather', lod: 'near', pool: held ? 1 : 0.3 });
     }
     kit.update(dt);
   }

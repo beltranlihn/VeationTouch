@@ -87,7 +87,7 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [7000, 1600] } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [9000, 2000], blend: splatBlend = 'add', spots = null } = {}) {
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;
   const C = { ...BODY_COLORS, ...colors };
@@ -192,6 +192,17 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   }
   const shMesh = new THREE.Mesh(shGeo, shMat); shMesh.frustumCulled = false; shMesh.renderOrder = -5; shMesh.name = 'bodykit:shadows';
   object.add(shMesh);
+  // light pools (the Pinya's abstract world): a warm additive gaussian on the floor under a body, its strength = pool × form
+  const plGeo = new THREE.InstancedBufferGeometry();
+  { const q = new THREE.PlaneGeometry(1, 1); q.rotateX(-Math.PI / 2); plGeo.index = q.index; plGeo.setAttribute('position', q.attributes.position); plGeo.setAttribute('uv', q.attributes.uv); }
+  const plA = new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4); plA.setUsage(THREE.DynamicDrawUsage); plGeo.setAttribute('pA', plA); plGeo.instanceCount = 0;
+  const plMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  const uPool = uniform(new THREE.Vector3(...palLin('cal-fanal', 0.22)));
+  { const pa = attribute('pA', 'vec4'), pg = TSL.positionGeometry;
+    plMat.positionNode = vec3(pa.x.add(pg.x.mul(pa.z)), 0.006, pa.y.add(pg.z.mul(pa.z)));
+    const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
+    plMat.colorNode = uPool.mul(exp(d2.mul(-3.0)).sub(0.05).max(0)).mul(pa.w); }
+  const plMesh = new THREE.Mesh(plGeo, plMat); plMesh.frustumCulled = false; plMesh.renderOrder = -4; plMesh.name = 'bodykit:pools'; object.add(plMesh);
   const CS = room?.contactShadows ? room.contactShadows(max) : null;   // the room's contact discs (the chapter's shadow colour); the kit draws the cast
   if (CS) object.add(CS.mesh);
   let csUsed = 0, fakeCast = true;
@@ -201,20 +212,36 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     if (mode === 'scene') { uSelf.value = 0.35; uAlb.value = 0.95; fakeCast = false; } else { uSelf.value = 1; uAlb.value = 0.35; fakeCast = true; }
   }
 
-  // ================================================================================================ SPLATS (25-11, Beltrán: particles)
-  // Each body is drawn as N soft oriented splats sampled on its baked surface (area-weighted, random barycentric: a continuous volume,
-  // not the vertex lattice). Every splat is baked in the five poses (half-float texture, like the mesh), so the GPU blends poses the
-  // same way. One instanced quad per splat; the instance index gives (body, splat); the bodies' state is a small float texture written
-  // each frame. Lit per splat in the vertex stage (key from the upper left of the eye: warm; the far side falls to the chapter's deep
-  // blue; a cool rim), a gaussian footprint in the surface's plane, back-facing splats culled. They have a HOME: `form` 0..1 brings
-  // them in from the air (each with its own delay: a stream, stretched along its flight) or lets them fall as dust ('dust'); they breathe.
+  // ================================================================================================ SPLATS (25-11: «the body is light that
+  // accumulates where there is mass; read by density and a spotlight, never by local colour or outline» — Art Director's body spec)
+  // Each body = N round isotropic gaussians baked once from its SDF mesh, in all five poses (half-float texture; the GPU blends poses):
+  //   70 % CORE — sampled IN the volume (pushed inside the surface by up to the part's depth: torso/pelvis 11 cm, head 7.5, thighs 6.5,
+  //        limbs 3): dense torso, pelvis, head, thighs · 25 % SKIN — on the surface · 5 % AURA — 15–25 cm off the body, falling slowly.
+  //   Hands and feet are sampled at a quarter of the density: almost dissolved. No costume: one matter; the faixa is a slightly denser,
+  //   warmer band. Sizes 1.5–3 cm (core) / 4–8 cm (aura), low opacity, additive: the core accumulates to the chapter's light tone.
+  // Light, per splat (vertex stage): a warm high key from the upper left of the eye (lit side `lit`, half-shadow `half`, shadow falls to
+  // ~17 % and into `amb`, the night) + a cool backlight rim. Motion: every splat on a slow spring round its home (1–2 cm, 0.2–0.4 Hz), the
+  // torso breathes; `form` 0..1 gathers them from the ground inward and upward (feet first, 1.2–2 s at the caller's pace); 'dust' lets
+  // them fall with gravity. Nothing radial, nothing fast.
   const splatSets = [];   // { build, lod, N, rows, tex, bodyTex, bodyData, geo, mesh, count }
-  const uSize = uniform(1), uOpacity = uniform(0.9), uDrift = uniform(1), uFlow = uniform(1);
-  const uSKey = uniform(new THREE.Vector3(...palLin('cal-fanal', 1.25))), uSAmb = uniform(new THREE.Vector3(...palLin('blau-plaça', 0.55)));
-  const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.55))), uSGlow = uniform(0.18);
+  const uSize = uniform(1), uOpacity = uniform(1), uDrift = uniform(1), uFlow = uniform(1), uStreak = uniform(0);
+  const uLit = uniform(new THREE.Vector3(...palLin('cal-foc', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota', 0.75)));
+  const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 0.6)));
+  const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
+  const SPN = spots?.pos?.length ? Math.min(8, spots.pos.length) : 0;
+  const SPP = SPN ? TSL.uniformArray(spots.pos, 'vec4') : null, SPD = SPN ? TSL.uniformArray(spots.dir, 'vec4') : null, uSpotK = uniform(0.00025);   // plaza SPOT_K ≈ 2600 → ≈ 0.65 at the beam's heart
+  function partOf(p, reg, s) {        // rest pose (A-pose): density weight, max depth inside (m)
+    const x = Math.abs(p[0]), y = p[1];
+    if (reg < 0.5 && y < 1.3 * s) return [0.25, 0.01];                // hands
+    if (y < 0.14 * s) return [0.3, 0.012];                             // feet
+    if (reg < 0.5) return [1.0, 0.075];                                // head and neck
+    if (x < 0.2 && y > 0.85 * s && y < 1.5 * s) return [reg > 2.5 ? 1.0 : 0.85, 0.11];   // torso, pelvis (the faixa a little denser)
+    if (x < 0.2 && y > 0.42 * s && y <= 0.85 * s) return [0.75, 0.065]; // thighs
+    return [0.55, 0.03];                                               // arms, shins
+  }
   function* bakeSplats(r, B, b, l, vAux, vAux2) {
-    const N = splats[l] ?? 2000, rows = Math.ceil(N / TW), NP = POSES.length, idx = r.index, R0 = r.P[0];
+    const N = splats[l] ?? 2000, rows = Math.ceil(N / TW), NP = POSES.length, idx = r.index, R0 = r.P[0], s = B.s;
     const tri = idx.length / 3, cdf = new Float64Array(tri); let acc = 0;
     for (let t = 0; t < tri; t++) {
       const a = idx[t * 3] * 3, c = idx[t * 3 + 1] * 3, d = idx[t * 3 + 2] * 3;
@@ -225,11 +252,17 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     let sd = (seed * 7919 + b * 131 + l * 17) >>> 0;
     const rnd = () => { sd = (sd + 0x6d2b79f5) >>> 0; let t = sd; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
     const pick = [], toH = THREE.DataUtils.toHalfFloat;
-    for (let k = 0; k < N; k++) {
+    for (let k = 0, tries = 0; k < N && tries < N * 12; tries++) {
       const x = rnd() * acc; let lo = 0, hi = tri - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cdf[m] < x) lo = m + 1; else hi = m; }
       let u = rnd(), v = rnd(); if (u + v > 1) { u = 1 - u; v = 1 - v; }
-      pick.push([lo, 1 - u - v, u, v]);
+      const w0 = 1 - u - v, vi = idx[lo * 3 + (w0 >= u && w0 >= v ? 0 : u >= v ? 1 : 2)];
+      const [wt, dmax] = partOf([R0[vi * 3], R0[vi * 3 + 1], R0[vi * 3 + 2]], vAux[vi * 4 + 2], s);
+      if (rnd() > wt) continue;
+      const ty = rnd(), kind = ty < 0.7 ? 0 : ty < 0.95 ? 0.5 : 1;
+      const depth = kind === 0 ? -Math.pow(rnd(), 0.6) * dmax : kind === 0.5 ? -0.006 * rnd() : 0.15 + rnd() * 0.1;
+      pick.push([lo, w0, u, v, vi, kind, depth]); k++;
     }
+    while (pick.length < N) pick.push(pick[pick.length % Math.max(1, pick.length)] || [0, 1, 0, 0, idx[0], 0, 0]);
     yield;
     const data = new Uint16Array(TW * rows * (2 * NP + 2) * 4);
     const put = (blk, k, a, b2, c, d) => { const o = (blk * rows * TW + k) * 4; data[o] = toH(a); data[o + 1] = toH(b2); data[o + 2] = toH(c); data[o + 3] = toH(d); };
@@ -244,11 +277,11 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       }
       yield;
     }
-    // aux (from the vertex with the largest weight): region, ao, rnd, crack · aux2: hair, feet, breath, size jitter
+    // AX: region, ao, rnd, depth · AX2: kind (0 core · 0.5 skin · 1 aura), feet, breath, size jitter
     for (let k = 0; k < N; k++) {
-      const [t, w0, w1, w2] = pick[k], vi = idx[t * 3 + (w0 >= w1 && w0 >= w2 ? 0 : w1 >= w2 ? 1 : 2)];
-      put(2 * NP, k, vAux[vi * 4 + 2], vAux[vi * 4 + 3], rnd(), vAux[vi * 4]);
-      put(2 * NP + 1, k, vAux2[vi * 4 + 2], vAux2[vi * 4 + 3], vAux[vi * 4 + 1], rnd());
+      const q = pick[k], vi = q[4];
+      put(2 * NP, k, vAux[vi * 4 + 2], vAux[vi * 4 + 3], rnd(), q[6]);
+      put(2 * NP + 1, k, q[5], vAux2[vi * 4 + 3], vAux[vi * 4 + 1], rnd());
     }
     const tex = new THREE.DataTexture(data, TW, rows * (2 * NP + 2), THREE.RGBAFormat, THREE.HalfFloatType);
     tex.minFilter = tex.magFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.needsUpdate = true;
@@ -257,16 +290,16 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     bodyTex.minFilter = bodyTex.magFilter = THREE.NearestFilter; bodyTex.generateMipmaps = false; bodyTex.needsUpdate = true;
     const geo = new THREE.InstancedBufferGeometry(); geo.index = quad.index; geo.setAttribute('position', quad.attributes.position); geo.setAttribute('uv', quad.attributes.uv);
     geo.instanceCount = 0;
-    const spacing = Math.sqrt(acc / N);          // the samples' spacing on this body (m): the splat's size
-    const mesh = new THREE.Mesh(geo, splatMaterial(tex, bodyTex, N, rows, spacing));
+    const mesh = new THREE.Mesh(geo, splatMaterial(tex, bodyTex, N, rows, l));
     mesh.frustumCulled = false; mesh.name = `bodykit:splats:b${b}l${l}`; mesh.renderOrder = 2;
     object.add(mesh);
     yield;
     return { build: b, lod: l, N, rows, tex, bodyTex, bodyData, geo, mesh, count: 0 };
   }
-  function splatMaterial(tex, bodyTex, N, rows, spacing) {
+  function splatMaterial(tex, bodyTex, N, rows, lod) {
     const { instanceIndex, positionGeometry, cross, step, fract, select, cos } = TSL;
-    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    const solid = splatBlend === 'solid';
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: !solid, depthWrite: solid, side: THREE.DoubleSide, blending: splatBlend === 'alpha' || solid ? THREE.NormalBlending : THREE.AdditiveBlending });
     const NP = POSES.length;
     const ii = int(instanceIndex), bi = ii.div(int(N)), si = ii.mod(int(N));
     const B0 = textureLoad(bodyTex, ivec2(0, bi)), B1 = textureLoad(bodyTex, ivec2(1, bi)), B2 = textureLoad(bodyTex, ivec2(2, bi)), B3 = textureLoad(bodyTex, ivec2(3, bi));
@@ -274,70 +307,86 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const blk = (k) => textureLoad(tex, ivec2(tx, ty.add(k.mul(int(rows)))));
     const pa = int(B1.x).mul(2), pb = int(B1.y).mul(2);
     const pA = blk(pa).xyz, pB = blk(pb).xyz, nA = blk(pa.add(1)).xyz, nB = blk(pb.add(1)).xyz;
-    const AX = blk(int(2 * NP)), AX2 = blk(int(2 * NP + 1));          // AX: region, ao, rnd, crack · AX2: hair, feet, breath, jitter
-    const rr = AX.z, jit = AX2.w;
+    const AX = blk(int(2 * NP)), AX2 = blk(int(2 * NP + 1));
+    const rr = AX.z, depth = AX.w, kind = AX2.x, jit = AX2.w;
+    const aura = step(0.75, kind), core = float(1).sub(step(0.25, kind));
     const yaw = B0.w, cy = TSL.cos(yaw), sy = TSL.sin(yaw);
     const X = vec3(cy, 0, sy.negate()), F = vec3(sy, 0, cy);
     const rotY = (v) => X.mul(v.x).add(vec3(0, v.y, 0)).add(F.mul(v.z));
     const sc = B1.w;
-    let pl = mix(pA, pB, B1.z).add(vec3(0, Y0, 0));
     const nl = normalize(mix(nA, nB, B1.z));
-    // breath and drift (tiny, slow, each splat its own phase)
-    const ph = rr.mul(61.7), t = uTime;
-    const drift = vec3(sin(t.mul(0.61).add(ph)), sin(t.mul(0.83).add(ph.mul(1.7))), sin(t.mul(0.71).add(ph.mul(2.3)))).mul(0.0045).mul(uDrift);
-    pl = pl.add(drift).add(nl.mul(sin(t.mul(1.7).add(B0.x.mul(1.3)).add(B0.z.mul(0.7))).mul(AX2.z).mul(0.005)));
-    // home: form 0..1, each splat with its own delay (a stream); away = in the air behind and above (gather) or fallen (dust)
+    let pl = mix(pA, pB, B1.z).add(vec3(0, Y0, 0));
+    // home: inside the volume (core), on the skin, or off it (aura, falling slowly and fading on its cycle)
+    const t = uTime, ph = rr.mul(61.7);
+    const auraT = fract(t.mul(0.05).add(rr.mul(7.0)));
+    pl = pl.add(nl.mul(depth)).add(vec3(0, auraT.mul(-0.3).mul(aura), 0));
+    // the slow spring round home (1–2 cm, 0.2–0.4 Hz), the breath of the torso
+    const hz = fract(rr.mul(5.3)).mul(0.2).add(0.2).mul(6.2832);
+    const drift = vec3(sin(t.mul(hz).add(ph)), sin(t.mul(hz.mul(0.83)).add(ph.mul(1.7))), sin(t.mul(hz.mul(1.13)).add(ph.mul(2.3)))).mul(jit.mul(0.01).add(0.008)).mul(uDrift);
+    pl = pl.add(drift).add(nl.mul(sin(t.mul(1.25).add(B0.x.mul(1.3)).add(B0.z.mul(0.7))).mul(AX2.z).mul(0.008)));
+    // gathering: from the ground (and round the body's feet) inward and upward, feet first; dust: down with gravity
     const form = B3.x, dust = B3.y;
-    const k = clamp(form.mul(1.7).sub(rr.mul(0.7)), 0, 1), ke = k.mul(k).mul(float(3).sub(k.mul(2)));
+    const hy = clamp(pl.y.div(1.9), 0, 1);
+    const k = clamp(form.mul(1.45).sub(rr.mul(0.3)).sub(hy.mul(0.15)), 0, 1), ke = k.mul(k).mul(float(3).sub(k.mul(2)));
     const away = float(1).sub(ke);
-    const dirG = normalize(vec3(sin(rr.mul(91.3)), sin(rr.mul(53.1)).mul(0.5).add(0.45), cos(rr.mul(91.3)).sub(1.2)));      // mostly behind (-z) and up
-    const offG = dirG.mul(float(1.1).add(fract(rr.mul(13.7)).mul(2.4))).add(vec3(sin(t.mul(0.9).add(ph)), 0, cos(t.mul(0.9).add(ph))).mul(0.25).mul(away));
-    const offD = vec3(sin(ph).mul(0.35), pl.y.negate().add(0.02), cos(ph).mul(0.35));       // dust: down to the floor, spread a little
-    const off = mix(offG, offD, dust).mul(away).mul(uFlow);
-    const home = pl.add(off);
-    const C = rotY(home.mul(sc)).add(B0.xyz);
+    const ang = rr.mul(37.7), spread = fract(rr.mul(13.7)).mul(0.35).add(0.25);
+    const offG = vec3(TSL.sin(ang).mul(spread), pl.y.negate().mul(fract(rr.mul(3.9)).mul(0.25).add(0.7)), cos(ang).mul(spread));
+    const fallT = away.mul(away);
+    const offD = vec3(TSL.sin(ang).mul(0.18).mul(away), pl.y.negate().add(0.015).mul(fallT), cos(ang).mul(0.18).mul(away));
+    const off = mix(offG.mul(away), offD, dust).mul(uFlow);
+    const C = rotY(pl.add(off).mul(sc)).add(B0.xyz);
     const nW = rotY(nl);
-    // the footprint: a disc in the surface's plane, stretched along the stream while it flows
-    const flowing = away.mul(ke).mul(4).clamp(0, 1).mul(float(1).sub(dust));
-    const up0 = select(abs(nW.y).lessThan(0.92), vec3(0, 1, 0), vec3(1, 0, 0));
-    const t1 = normalize(cross(nW, up0)), t2 = cross(nW, t1);
-    const flowDir = normalize(rotY(offG).add(vec3(0, 0.0001, 0)));
-    const a1 = normalize(mix(t1, flowDir, flowing)), a2 = normalize(cross(nW, a1).add(t2.mul(0.001)));
+    // a round, isotropic gaussian facing the eye
     const toCam = normalize(cameraPosition.sub(C)), facing = dot(nW, toCam);
-    const vis = smoothstep(-0.25, 0.05, facing).max(away);                         // back-facing splats culled (not while they fly)
-    const r0 = float(spacing * 1.55).mul(jit.mul(0.7).add(0.65)).mul(sc).mul(uSize).mul(vis);
+    const right = normalize(cross(vec3(0, 1, 0), toCam).add(vec3(0.0001, 0, 0))), upv = cross(toCam, right);
+    const vis = mix(smoothstep(-0.35, 0.1, facing), float(1), core.max(aura)).max(away);     // skin splats behind the body are culled; core and aura are volume
+    const size = mix(mix(float(0.015), float(0.03), jit), mix(float(0.04), float(0.08), jit), aura).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.45);
+    const r0 = size.mul(2).mul(vis);
     const q = positionGeometry.xy;
-    m.positionNode = C.add(a1.mul(q.x.mul(r0).mul(float(1).add(flowing.mul(5))))).add(a2.mul(q.y.mul(r0)));
-    // colour: region albedo, lit per splat (warm key from the upper left of the eye, deep blue on the far side, cool rim), gold glow
-    const reg = AX.x, w0 = float(1).sub(smoothstep(0.35, 0.65, reg)), w3 = smoothstep(2.35, 2.65, reg);
-    const w2 = smoothstep(1.35, 1.65, reg).mul(float(1).sub(w3)), w1 = float(1).sub(w0).sub(w2).sub(w3).max(0);
-    let alb = uColor.skin.mul(w0).add(uColor.shirt.mul(w1)).add(uColor.trousers.mul(w2)).add(uColor.faixa.mul(w3));
-    alb = mix(alb, uColor.hair.mul(0.6), step(0.5, AX2.x));
-    alb = alb.mul(B2.xyz).mul(mix(float(0.45), float(1), AX.y));
+    m.positionNode = C.add(right.mul(q.x.mul(r0))).add(upv.mul(q.y.mul(r0)));
+    // light: warm high key from the upper left of the eye + cool backlight; shadow falls to ~17 % and into the night
+    const reg = AX.x, w3 = smoothstep(2.35, 2.65, reg);
     const tE = normalize(vec3(uEye.x.sub(C.x), 0, uEye.z.sub(C.z))), side = vec3(tE.z, 0, tE.x.negate());
-    const Lk = normalize(side.mul(-0.75).add(vec3(0, 0.85, 0)).add(tE.mul(0.45)));
-    const wrapK = clamp(dot(nW, Lk).mul(0.6).add(0.4), 0, 1);
-    const fres = pow(float(1).sub(abs(facing)), 2.5);
-    let colr = alb.mul(uSAmb.add(uSKey.mul(wrapK.mul(wrapK)))).add(uSRim.mul(fres)).add(alb.mul(uSKey).mul(uSGlow).mul(wrapK));
-    if (room?.flash) colr = colr.add(uColor.shirt.mul(room.flash(C)).mul(0.5));
-    colr = colr.add(uColor.glow.mul(B2.w).mul(1.4)).add(uColor.glow.mul(flowing).mul(0.12));
-    const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(float(1).sub(away.mul(0.45))), 'vSplA');
+    const Lk = normalize(side.mul(-0.7).add(vec3(0, 0.9, 0)).add(tE.mul(0.35)));
+    const lk = clamp(dot(nW, Lk).mul(0.65).add(0.3), 0, 1).mul(mix(float(0.75), float(1), AX.y));
+    const tone = mix(uHalf, uLit, smoothstep(0.25, 0.85, lk)).mul(B2.xyz);
+    let colr = mix(uSAmb, tone, smoothstep(0.02, 0.4, lk)).mul(lk.pow(1.2).mul(0.83).add(0.17)).mul(uSKey);
+    colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer
+    colr = colr.add(uSRim.mul(pow(float(1).sub(abs(facing)), 2)).mul(smoothstep(0.1, -0.5, dot(nW, tE)).add(0.25)));   // the backlight
+    if (room?.flash) colr = colr.add(uLit.mul(room.flash(C)).mul(0.35));
+    // the stage spots of the square (plaza.js part.spots, when given): what stands in a beam is lit by it
+    if (spots && SPP) {
+      let sp = float(0);
+      for (let i = 0; i < SPN; i++) {
+        const P4 = SPP.element(i), D4 = SPD.element(i), Lv = P4.xyz.sub(C), dl = Lv.length().max(0.01), Ln = Lv.div(dl);
+        const cone = smoothstep(D4.w, D4.w.add(0.04), dot(Ln.negate(), D4.xyz)), wr = clamp(dot(nW, Ln).mul(0.6).add(0.4), 0, 1);
+        sp = sp.add(P4.w.mul(cone).mul(wr));
+      }
+      colr = colr.add(uLit.mul(sp.mul(uSpotK)).mul(mix(float(0.6), float(1), AX.y)));
+    }
+    colr = colr.add(uColor.glow.mul(B2.w).mul(0.9)).add(uColor.glow.mul(uSGlow));
+    const opa = mix(mix(float(0.1), float(0.12), step(0.25, kind)), float(0.05), aura).mul(lod === 0 ? 1 : 1.6);
+    const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura);
+    const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(float(1).sub(away.mul(0.6))), 'vSplA');
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
     m.colorNode = vCol;
-    m.opacityNode = exp(d2.mul(-3.2)).sub(0.041).max(0).mul(vA);
-    m.alphaTest = 0.01;
+    m.opacityNode = exp(d2.mul(-4.0)).sub(0.018).max(0).mul(vA);
+    m.alphaTest = 0.002;
     return m;
   }
   function setSplat(o = {}) {
     if (o.size != null) uSize.value = o.size;
+    if (o.spot != null) uSpotK.value = o.spot;
     if (o.opacity != null) uOpacity.value = o.opacity;
     if (o.drift != null) uDrift.value = o.drift;
     if (o.flow != null) uFlow.value = o.flow;
+    if (o.streak != null) uStreak.value = o.streak;
     if (o.glow != null) uSGlow.value = o.glow;
-    if (o.key) uSKey.value.set(...tokLin(o.key));
+    if (o.key != null) uSKey.value = o.key;
+    if (o.lit) uLit.value.set(...tokLin(o.lit));
+    if (o.half) uHalf.value.set(...tokLin(o.half));
     if (o.amb) uSAmb.value.set(...tokLin(o.amb));
     if (o.rim) uSRim.value.set(...tokLin(o.rim));
-    if (o.blend) for (const P of splatSets) { P.mesh.material.blending = o.blend === 'add' ? THREE.AdditiveBlending : THREE.NormalBlending; P.mesh.material.needsUpdate = true; }
   }
 
   // ---- the bake, sliced in the background (≈ 4 ms per slice)
@@ -416,7 +465,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     if (!ready) return;
     for (const M of meshes) M.count = 0;
     for (const P of splatSets) P.count = 0;
-    let ns = 0, nc = 0;
+    let ns = 0, nc = 0, np = 0;
     const kx = _e.x, kz = _e.z;     // the key light is above the room's centre: the cast shadow points away from it
     for (let i = 0; i < max; i++) {
       const o = i * SZ; if (!S[o + 14]) continue;
@@ -428,6 +477,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       M.iA.array.set([x, y, z, S[o + 3]], k * 4); M.iB.array.set([S[o + 4], S[o + 5], S[o + 6], sc], k * 4); M.iC.array.set([S[o + 8], S[o + 9], S[o + 10], S[o + 11]], k * 4);
       const SP = splatSets.find((q) => q.build === M.build && q.lod === M.lod);
       if (SP) { const j = SP.count++, D = SP.bodyData; D.set([x, y, z, S[o + 3], S[o + 4], S[o + 5], S[o + 6], sc, S[o + 8], S[o + 9], S[o + 10], S[o + 11], S[o + 16], S[o + 17], S[o + 15], 0], j * 16); }
+      if (S[o + 18] > 0.001 && y < 0.05) plA.array.set([x, z, 1.9 * sc, S[o + 18] * S[o + 16]], (np++) * 4);
       if (y < 0.05 && ns < max * 2 - 1) {    // shadows only for bodies standing on the floor
         const lift = Math.max(0, y);
         // contact: round, tight, dark (sB: length, width, offset, soft) — the room's disc when it has them
@@ -442,6 +492,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     }
     for (const M of meshes) { M.geo.instanceCount = M.count; if (M.count) { M.iA.needsUpdate = M.iB.needsUpdate = M.iC.needsUpdate = true; } M.mesh.visible = M.count > 0; }
     for (const P of splatSets) { P.geo.instanceCount = P.count * P.N; P.mesh.visible = P.count > 0; if (P.count) P.bodyTex.needsUpdate = true; }
+    plGeo.instanceCount = np; plMesh.visible = np > 0; if (np) plA.needsUpdate = true;
     if (CS) { for (let i = nc; i < csUsed; i++) CS.clear(i); csUsed = nc; }
     shGeo.instanceCount = ns; if (ns) { shA.needsUpdate = shB.needsUpdate = true; }
     shMesh.visible = ns > 0;
@@ -462,6 +513,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     if (o.build != null) S[b + 12] = builds.includes(o.build) ? o.build : builds[0];
     if (o.scale != null && o.scale < 0.82 && builds.includes(2)) S[b + 12] = 2;   // a small body is a child (child proportions)
     if (o.lod != null) S[b + 13] = o.lod === 'auto' ? -1 : (o.lod === 'far' || o.lod === 1 ? 1 : 0); else if (!S[b + 14]) S[b + 13] = -1;
+    if (o.pool != null) S[b + 18] = o.pool;                      // a warm pool of light on the ground under the body (0..1)
     if (o.form != null) S[b + 16] = o.form;                      // splats: 0 = scattered ... 1 = assembled
     if (o.fmode != null) S[b + 17] = o.fmode === 'dust' || o.fmode === 1 ? 1 : 0;   // how they are away: 'gather' (in the air, streaming in) | 'dust' (fallen)
     S[b + 14] = o.visible === false ? 0 : 1;
