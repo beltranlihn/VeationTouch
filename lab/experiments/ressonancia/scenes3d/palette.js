@@ -65,7 +65,7 @@ export const PAL = {
   intro:   { tones: ['tinta', 'blau-plaça', 'cal-fanal'], accent: 'fanal', light: 'cal-fanal', shadow: 'tinta', ink: 'os', luma: 0.14, dark: true,
     story: 'The lanterns: first islands of lit lime', sky: { top: ['blau-plaça', 0.75], horizon: ['blau-plaça', 1.25], bottom: ['tinta', 0.9] } },
   brasa:   { tones: ['carbó', 'brasa', 'flama'], accent: 'or', light: 'flama', shadow: 'carbó', ink: 'os', luma: 0.15, dark: true,
-    story: 'The one chapter of fire over dark', sky: { top: ['carbó', 1.1], horizon: ['brasa', 0.32], bottom: ['carbó', 0.9] } },
+    story: 'The one chapter of fire over dark', sky: { top: ['carbó', 0.55], horizon: ['ombra', 0.5], bottom: ['carbó', 1.1] } },   // a dark warm smoky night: the red only comes from the fires
   pinya:   { tones: ['cal-foc', 'terracota', 'ombra'], accent: 'faixa', light: 'cal-foc', shadow: 'ombra', ink: 'tinta-text', luma: 0.35, dark: false,
     story: 'The square lit: bodies and lime in the bonfires\' light', sky: { top: ['tinta', 1.0], horizon: ['cal-foc', 0.62], bottom: ['ombra', 0.85] } },
   tronc:   { tones: ['porcellana', 'pedra-llum', 'tinta-ombra'], accent: 'or', light: 'porcellana', shadow: 'tinta-ombra', ink: 'tinta-text', luma: 0.45, dark: false,

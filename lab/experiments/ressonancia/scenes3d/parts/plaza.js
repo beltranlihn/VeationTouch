@@ -18,6 +18,11 @@
 // is a vertex-stage displacement and rotation (no CPU work per frame). Light: 16 point lights (the fanals), moon + hemisphere, no
 // shadows; the haze is an analytic single-scattering fog computed from the eye (the same for the four cameras, so no seam at the
 // corners): each lamp gets its volumetric halo for free. Wet floor: real specular + streaky fake reflections of every lamp.
+// STUDIO NIGHT 25-11 (VFX V8, plan 05 §2.7–2.8, D5b): THE LIT SQUARE. In Pinya and Tronc (input.state.block, or params.lit 0..1 with
+// params.litBlock) the same square turns to plaza light: lime facades (palette `cal-foc` / `porcellana`) under a low raking key with
+// REAL cast shadows (room.keyShadow: arcades and porches in shadow, the facades' shadows across the slabs), a cool sky fill, dry pale
+// slabs, the room's sky (room.sky) above and a thin air that grows with distance (never a veil on the foreground). No break while lit.
+import { lin as palLin } from '../palette.js';
 export function create(ctx) {
   const { THREE, TSL, room } = ctx;
   const P = ctx.params || {};
@@ -688,6 +693,9 @@ export function create(ctx) {
   const lampVec = Array.from({ length: NL }, () => new THREE.Vector4());
   const uLamps = uniformArray(lampVec, 'vec4');
   const LC = vec3(1.0, 0.6, 0.3);
+  // VFX V8: the lit square (0 = the night square … 1 = plaza light). Tones from palette.js (nobody writes a hex)
+  const uDay = uniform(0), uDayTone = uniform(new THREE.Vector3(...palLin('porcellana'))), uDayFloor = uniform(new THREE.Vector3(...palLin('pedra-llum'))), uDayAir = uniform(0.015);
+  const roomSky = room.sky ? room.sky : () => vec3(0.02, 0.025, 0.04);
 
   // ------------------------------------------------------------------------------------------------ TSL helpers
   const hash12 = (p) => { const q = fract(vec3(p.x, p.y, p.x).mul(0.1031)); const p3 = q.add(dot(q, q.yzx.add(33.33))); return fract(p3.x.add(p3.y).mul(p3.z)); };
@@ -776,7 +784,10 @@ export function create(ctx) {
         });
       });
     });
-    return vec4(col.rgb.mul(Tr).add(ins), col.a);
+    // VFX V8: in the lit square the air is the room's sky in that direction, thin near the walls and growing with distance
+    const Td = exp(max(dist.sub(9.0), 0).mul(uDayAir).negate());
+    const dayC = col.rgb.mul(Td).add(roomSky(dir).mul(float(1).sub(Td)));
+    return vec4(mix(col.rgb.mul(Tr).add(ins), dayC, uDay), col.a);
   });
   // bump from a procedural height (Mikkelsen's surface gradient, screen-space derivatives)
   const bumpN = (h, scale) => {
@@ -883,11 +894,12 @@ export function create(ctx) {
     // under the moon the stone loses its sodium warmth (it is the lamps that make it warm): the lit-by-sky albedo goes cool grey at night,
     // the lamps' own light below still sees the warm stone
     const sCool = mix(sAlb, vec3(dot(sAlb, vec3(0.3, 0.55, 0.15))).mul(vec3(0.55, 0.8, 1.45)), uNight.mul(0.85));
-    m.colorNode = sCool; m.roughnessNode = sRough; m.metalnessNode = isMirror; m.normalNode = sN;
+    const sDay = sAlb.div(max(dot(sAlb, vec3(0.3, 0.55, 0.15)), 0.02)).mul(0.24).mul(uDayTone);   // lime-washed: the stone's own variation, the chapter's tone
+    m.colorNode = mix(sCool, sDay, uDay.mul(float(1).sub(isMirror))); m.roughnessNode = sRough; m.metalnessNode = isMirror; m.normalNode = sN;
     const R = reflectVector;
     const mirE = Fn(() => { const e = vec3(0).toVar(); If(isMirror.greaterThan(0.001), () => { e.assign(envRefl(R, Pw, 900).add(vec3(0.75, 0.82, 1.0).mul(pow(max(dot(R, uMoonDir), 0), 24).mul(1.6).mul(uRev))).mul(isMirror).mul(0.85)); }); return e; })();
     const sLamp = lampLight(sAlb, sRough, isMirror, sN, Pw);
-    m.emissiveNode = mirE.add(sLamp).add(nightOn(sAlb, sLamp).mul(float(1).sub(isMirror)));
+    m.emissiveNode = mirE.add(sLamp).add(nightOn(sAlb, sLamp).mul(float(1).sub(isMirror))).mul(float(1).sub(uDay.mul(0.8)));
     return finish(m, false);
   })();
 
@@ -1020,7 +1032,8 @@ export function create(ctx) {
     const height = smoothstep(0.035, 0.0, edge).mul(-0.0025).add(fu.mul(len).mul(tilt.x)).add(fv.mul(rowW).mul(tilt.y)).add(grain.mul(0.0018).mul(float(1).sub(wet)));
     const fRough = mix(float(0.62).add(grain.mul(0.12)).add(tex(texSlabR, fuv).r.sub(0.6).mul(0.35).mul(uDetail)).clamp(0.3, 1), float(0.07), wet);
     const fN = bumpN(height, 1.0);
-    m.colorNode = albedo; m.roughnessNode = fRough; m.metalnessNode = float(0); m.normalNode = fN;
+    const fDay = albedo.div(max(dot(albedo, vec3(0.3, 0.55, 0.15)), 0.01)).mul(0.16).mul(uDayFloor).mul(mix(1, 0.6, joint));
+    m.colorNode = mix(albedo, fDay, uDay); m.roughnessNode = mix(fRough, max(fRough, 0.55), uDay); m.metalnessNode = float(0); m.normalNode = fN;
     // fake reflections: what a puddle sees (facades, sky), and a long streak under every lamp
     const V = viewDir();
     const R = vec3(V.x, V.y.negate(), V.z);
@@ -1042,13 +1055,14 @@ export function create(ctx) {
     });
       return rf;
     })();
-    m.emissiveNode = refl.mul(fr).mul(wet.mul(0.9).add(0.1)).mul(uFake.mul(0.5).add(0.5)).add(lampLight(albedo, fRough, float(0), fN, Pw));
+    m.emissiveNode = refl.mul(fr).mul(wet.mul(0.9).add(0.1)).mul(uFake.mul(0.5).add(0.5)).add(lampLight(albedo, fRough, float(0), fN, Pw)).mul(float(1).sub(uDay.mul(0.85)));
     return finish(m);
   })();
 
   const skyMat = (() => {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false });
-    m.colorNode = skyCol(normalize(positionWorld.sub(cameraPosition)));
+    const dS = normalize(positionWorld.sub(cameraPosition));
+    m.colorNode = mix(skyCol(dS), roomSky(dS), uDay);
     return finish(m);
   })();
 
@@ -1071,7 +1085,7 @@ export function create(ctx) {
     g.userData.r0 = g.boundingSphere.radius;
     geos.push(g);
     const mesh = new THREE.Mesh(g, mat);
-    mesh.matrixAutoUpdate = false;
+    mesh.matrixAutoUpdate = false; mesh.castShadow = true; mesh.receiveShadow = true;   // VFX V7: the lit square's key shadow
     object.add(mesh);
     return mesh;
   }
@@ -1081,7 +1095,7 @@ export function create(ctx) {
   }
   for (const k in B) B[k].length = 0;
   const floorGeo = new THREE.PlaneGeometry(160, 160); floorGeo.rotateX(-Math.PI / 2); geos.push(floorGeo);
-  const floor0 = new THREE.Mesh(floorGeo, floorMat); floor0.matrixAutoUpdate = false; object.add(floor0);
+  const floor0 = new THREE.Mesh(floorGeo, floorMat); floor0.matrixAutoUpdate = false; floor0.receiveShadow = true; object.add(floor0);
   const skyGeo = new THREE.SphereGeometry(300, 48, 24); geos.push(skyGeo);
   const sky = new THREE.Mesh(skyGeo, skyMat); sky.matrixAutoUpdate = false; sky.renderOrder = -10; sky.frustumCulled = false; object.add(sky);
 
@@ -1089,6 +1103,13 @@ export function create(ctx) {
   for (const L of lamps) { L.light.layers.set(31); object.add(L.light); }   // read by the atmos part; the renderer skips layer 31
   const moon = new THREE.DirectionalLight(new THREE.Color(0.58, 0.72, 1.0), 0);   // a cool moon against the sodium lamps
   moon.position.copy(uMoonDir.value).multiplyScalar(50); object.add(moon); object.add(moon.target);
+  // VFX V7/V8: the moon is also the lit square's key, with the room's one shadow map (updated once per frame, not ×4 walls)
+  if (room.keyShadow) room.keyShadow(moon, { extent: 34, far: 140 });
+  const moonDay = new THREE.Vector3(), moonNight = uMoonDir.value.clone(), _kc = new THREE.Color(), _md = new THREE.Vector3();
+  const LIT = { pinya: { dir: [-0.55, 0.42, -0.72], tone: 'cal-foc', floor: 'pedra-llum', key: 'cal-foc', k: 4.2, fill: 0.45, air: 0.01, lamps: 0.6 },
+                tronc: { dir: [0.45, 0.85, -0.35], tone: 'porcellana', floor: 'pedra-llum', key: 'porcellana', k: 5.0, fill: 0.5, air: 0.008, lamps: 0.12 } };
+  for (const c of Object.values(LIT)) { c.toneL = palLin(c.tone); c.floorL = palLin(c.floor); c.keyL = palLin(c.key); }
+  let dayK = 0, litCfg = LIT.tronc;
   const hemi = new THREE.HemisphereLight(new THREE.Color(0.35, 0.45, 0.75), new THREE.Color(0.25, 0.17, 0.1), 0);
   object.add(hemi);
 
@@ -1136,9 +1157,15 @@ export function create(ctx) {
     return bi;
   }
   function update(dt, input) {
-    const t = input.t ?? 0, time = input.time ?? 0;
+    let t = input.t ?? 0; const time = input.time ?? 0;
     const pr = input.params || P;
-    const rv = +pr.reveal || 0, shv = +pr.shatter || 0;
+    // VFX V8: lit in pinya / tronc (or params.lit), eased ≈ 1.5 s; while lit the square is whole and fully revealed
+    const blk = input.state?.block, cfg = LIT[blk] || null;
+    if (cfg) litCfg = cfg; else if (pr.litBlock && LIT[pr.litBlock]) litCfg = LIT[pr.litBlock];
+    const dayT = cfg ? 1 : input.state ? 0 : Math.max(0, Math.min(1, +pr.lit || 0));
+    dayK += (dayT - dayK) * Math.min(1, dt * 1.6); if (Math.abs(dayT - dayK) < 1e-3) dayK = dayT;
+    if (dayK > 0.001) t = Math.max(30, Math.min(t, 45));
+    const rv = +pr.reveal || 0, shv = dayK > 0.5 && !(input.leave > 0) ? 0 : +pr.shatter || 0;
     const tR = rv > 0 ? 8 + 17 * Math.min(1, rv) : shv > 0 ? Math.max(t, 30) : t;
     const tS = shv > 0 ? 46 + 24 * Math.min(1, shv) : pr.noBreak ? Math.min(t, 45.99) : t;   // noBreak: the host breaks it into image tiles instead (T-034)
     const S = tS < 46 ? 0 : tS < 58 ? (tS - 46) / 12 : Math.min(2.6, 1 + ((tS - 58) / 12) * 1.25);
@@ -1161,6 +1188,16 @@ export function create(ctx) {
     const envK = (pr.env ?? 1) * reveal * dark; for (const m of envMats) m.envMapIntensity = envK;
     const moonK = (pr.moon ?? 1) * reveal * dark;
     moon.intensity = 0.32 * moonK * (pr.moonKey ?? 1); hemi.intensity = 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1));   // the moon's key also fills the shadows with a cool sky
+    uDay.value = dayK;
+    if (dayK > 0) {
+      uDayTone.value.fromArray(litCfg.toneL); uDayFloor.value.fromArray(litCfg.floorL); uDayAir.value = litCfg.air;
+      moonDay.fromArray(litCfg.dir).normalize(); _md.copy(moonNight).lerp(moonDay, dayK).normalize(); moon.position.copy(_md).multiplyScalar(60);
+      const kc = litCfg.keyL, km = Math.max(kc[0], kc[1], kc[2], 1e-3); _kc.setRGB(kc[0] / km, kc[1] / km, kc[2] / km);
+      moon.color.setRGB(0.58, 0.72, 1.0).lerp(_kc, dayK); hemi.groundColor.setRGB(0.25, 0.17, 0.1).lerp(_kc, dayK * 0.5);
+      moon.intensity += (litCfg.k - moon.intensity) * dayK; hemi.intensity += (litCfg.fill - hemi.intensity) * dayK;
+      uWet.value *= 1 - 0.85 * dayK; uStars.value *= 1 - dayK; uWin.value *= 1 - 0.75 * dayK; uGlow.value *= 1 - 0.8 * dayK; uFog.value *= 1 - dayK;
+      for (const m of envMats) m.envMapIntensity = envK * (1 - 0.6 * dayK);
+    } else { moon.position.copy(moonNight).multiplyScalar(50); moon.color.setRGB(0.58, 0.72, 1.0); hemi.groundColor.setRGB(0.25, 0.17, 0.1); }
     uPool.value = pr.pool ?? 1; uDetail.value = pr.detail ?? 1; uNight.value = pr.night ?? 0; uReach.value = pr.reach ?? 1;
     // T-056: hands light lamps early; a new pass (the clock went back) restores the old schedule
     if (tR < prevT - 1) for (const L of lamps) L.t0 = L.t00;
@@ -1189,7 +1226,7 @@ export function create(ctx) {
       const on = ignite(tR - L.t0, i, time);
       const br = 1 - sm((S - lampD[i] + 0.06) / 0.22);                // it dies when its stone breaks, with a last flicker
       const fl = S > lampD[i] - 0.1 && br > 0.02 ? 0.6 + 0.4 * Math.sin(time * 41 + i) : 1;
-      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK;
+      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK);
       L.light.intensity = v * 26;
       lampVec[i].set(L.pos.x, L.pos.y, L.pos.z, v);
     }

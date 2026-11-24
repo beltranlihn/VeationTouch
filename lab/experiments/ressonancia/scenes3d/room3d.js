@@ -436,8 +436,8 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       air: { density: 0.018, height: 0.22, heightK: 0.5, start: 3.6, max: 0.7 } },
     intro:   { ev: 0.75, sat: 0.95, contrast: 1.0, lo: 'blau-plaça', loK: 0.3, hi: 'cal-fanal', hiK: 0.15, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.03, height: 0.25, heightK: 0.5, start: 3.6, max: 0.75, key: { dir: [0, 0.05, -1], token: 'fanal', k: 0.25 } } },
-    brasa:   { ev: 0.35, sat: 1.0, contrast: 1.04, lo: 'carbó', loK: 0.3, hi: 'flama', hiK: 0.12, lift: 'carbó', liftK: 0.7, ceil: 0.9, vTop: 0.15, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.045, height: 0.18, heightK: 0.55, start: 3.6, max: 0.8, key: { dir: [0, -0.05, 1], token: 'brasa', k: 0.35 } } },
+    brasa:   { ev: 0.35, sat: 0.95, contrast: 1.04, lo: 'carbó', loK: 0.3, hi: 'flama', hiK: 0.06, lift: 'carbó', liftK: 0.7, ceil: 0.9, vTop: 0.35, vBot: 0.2, bloom: 1, sky: 1,
+      air: { density: 0.03, height: 0.22, heightK: 0.6, start: 4.5, max: 0.7 } },   // smoke: dark, the fires light it (no colour veil)
     pinya:   { ev: 0.55, sat: 0.92, contrast: 1.05, lo: 'ombra', loK: 0.3, hi: 'cal-foc', hiK: 0.15, lift: 'ombra', liftK: 0.6, ceil: 0.88, vTop: 0.3, vBot: 0.15, bloom: 0.8, sky: 1,
       air: { density: 0.028, height: 0.2, heightK: 0.5, start: 3.6, max: 0.75, key: { dir: [0.4, 0.1, -1], token: 'cal-foc', k: 0.3 } } },
     tronc:   { ev: 0.6, sat: 0.88, contrast: 1.06, lo: 'tinta-ombra', loK: 0.35, hi: 'porcellana', hiK: 0.1, lift: 'tinta-ombra', liftK: 0.6, ceil: 0.88, vTop: 0.22, vBot: 0.12, bloom: 0.7, sky: 1,
@@ -659,6 +659,25 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   }
   const matter = { ceramic, body };
 
+  // ---- THE KEY SHADOW (plan 05 V7; 04 §2.3, §1.8): ONE light with a real shadow map per world — what gives the light worlds their depth
+  // (dark defined shadow over light ground). three's ShadowNode re-renders the map for EVERY camera of a frame (four walls = ×4): here the
+  // map is rendered once per frame (autoUpdate off, needsUpdate before the first wall). PCF soft, 2048², an orthographic box round the eye.
+  //   room.keyShadow(directionalLight, { extent: 30, size: 2048, radius: 4, bias, normalBias }) → { light, off() }
+  //   Casters / receivers opt in: mesh.castShadow = mesh.receiveShadow = true (keep casters few: the square, the tower, the crowd).
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const keyLights = new Set();
+  function keyShadow(light, { extent = 30, size = 2048, radius = 4, near = 1, far = 160, bias = -0.0005, normalBias = 0.04 } = {}) {
+    if (!light?.shadow) return null;
+    light.castShadow = true; light.shadow.mapSize.set(size, size);
+    const c = light.shadow.camera; if (c.isOrthographicCamera) { c.left = -extent; c.right = extent; c.top = extent; c.bottom = -extent; }
+    c.near = near; c.far = far; c.updateProjectionMatrix();
+    light.shadow.bias = bias; light.shadow.normalBias = normalBias; light.shadow.radius = radius;
+    light.shadow.autoUpdate = false; light.shadow.needsUpdate = true;
+    keyLights.add(light);
+    return { light, off() { keyLights.delete(light); } };
+  }
+  function shadowsOnce() { for (const L of keyLights) if (L.intensity > 0) L.shadow.needsUpdate = true; }
+
   // ---- contact shadows (plan 05 V3; 04 §2.3): what makes a thing STAND. One InstancedMesh of soft discs flat on the floor (+4 mm), in the
   // chapter's shadow colour (never black), no air. set(i, x, z, radius, k) — k 0..1 (0.5–0.7 under a figure); clear(i); the mesh goes
   // in the part's own object. Radius ≈ 0.6 × the figure's width.
@@ -724,8 +743,8 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     if (ENV.pending) bakeEnvironment();
     jitter();
     const tl = tiles.on && !!pass;
-    if (tl) { pass('out'); clearTo(stripOut); views(stripOut, scene, true); pass('in'); }
-    clearTo(strip); views(strip, scene, true);
+    if (tl) { pass('out'); shadowsOnce(); clearTo(stripOut); views(stripOut, scene, true); pass('in'); }
+    shadowsOnce(); clearTo(strip); views(strip, scene, true);
     let img = strip;
     if (tl) { renderer.setRenderTarget(comp); compQuad.render(renderer); img = comp; }
     overlayCount = overlay.children.length;
@@ -759,5 +778,5 @@ export async function createRoom3D(vt, canvas, opt = {}) {
 
   return { THREE, renderer, scene, overlay, clearColor, walls, eye, hands, wallPoint, render, setBloom,
     // T-048 (SIS): the shared system — see PARTS.md «What the room gives since T-048»
-    PALETTE, PAL, GRADE, setBackground, background: bg, setGrade, grade: gTo, gradeU: G, setAir, air: A, airSweep, sky: skyAt, matter, contactShadows, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
+    PALETTE, PAL, GRADE, setBackground, background: bg, setGrade, grade: gTo, gradeU: G, setAir, air: A, airSweep, sky: skyAt, matter, contactShadows, keyShadow, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
 }
