@@ -1,7 +1,7 @@
 {
   "id": "res-obra3d",
   "name": "Ressonància — the whole work in 3D",
-  "description": "The whole 10-minute work in 3D: the score walks the pass from the wait to the acta; each block shows its universe (a night square, a castell of light, fire, bodies, night, resonance), arriving and leaving as fragments, with hand targets and words on the walls that guide the public.",
+  "description": "The whole 10-minute work in 3D: the score walks the pass from the wait to the acta. Each block is its own universe (a trencadis threshold, the night square, fire on liquid chrome, a crowd of light, a collage tower, a city of lines, liquid gold, a glass dawn), crossing in image tiles, with hand targets and words on the walls that guide the public.",
   "entry": "index.html",
   "params": [
     {"key": "jump", "label": "Go to", "type": "select", "default": "none", "options": [["none", "—"], ["wait", "Wait"], ["intro", "Intro: La plaça"], ["brasa", "I. Brasa"], ["pinya", "II. Pinya"], ["tronc", "III. Tronc"], ["pom", "IV. Pom de dalt"], ["crown", "V. L'aleta: the crown"], ["festa", "V. La ressonància"], ["baixada", "La baixada"], ["fall", "The fall"], ["acta", "L'acta"]]},
@@ -30,7 +30,6 @@
     {"key": "t.brasa.relayReach", "label": "Brasa relay: jumps to a hand ahead within (m)", "type": "number", "min": 1, "max": 4, "step": 0.1, "default": 2.5, "unit": "m"},
     {"key": "t.brasa.relayRun", "label": "Brasa relay: running speed (m/s)", "type": "number", "min": 0.5, "max": 2.5, "step": 0.1, "default": 1.2, "unit": "m/s"},
     {"key": "t.brasa.relayStall", "label": "Brasa relay: no hand ahead → fetched after (s)", "type": "number", "min": 2, "max": 15, "step": 0.5, "default": 6, "unit": "s"},
-    {"key": "t.brasa.relayFetch", "label": "Brasa relay: fetched at (m/s)", "type": "number", "min": 0.3, "max": 2, "step": 0.1, "default": 0.9, "unit": "m/s"},
     {"key": "t.brasa.relayMax", "label": "Brasa relay: the lap closes by (s)", "type": "number", "min": 15, "max": 45, "step": 1, "default": 30, "unit": "s"},
     {"key": "t.brasa.relayNear", "label": "Brasa relay: on the hand within (m)", "type": "number", "min": 0.05, "max": 0.5, "step": 0.01, "default": 0.15, "unit": "m"},
     {"key": "t.pinya.pack.0", "label": "Pinya: packed from (0–1)", "type": "number", "min": 0.2, "max": 0.9, "step": 0.05, "default": 0.55},
