@@ -36,9 +36,16 @@ const verbOf = (S) => (S.block === 'pom' && S.phase === 'aleta' ? VERBS.aleta : 
  *  has ≤ 3 words and leaves once the verb is learned; the real floor and climber names stay as the label. */
 export function lines(S, acta, learned = false, warn = '') {
   const b = S.block;
+  // the chapter card is a LAYER (the score listens under it): 4 s, high, and the invitation of the play is already there below it
+  const cardNow = S.phase === 'title' && CARDS[b] && S.tp < CARD_S ? CARDS[b] : null;
+  const out = linesPlay(S, acta, learned, warn);
+  if (cardNow) out.card = cardNow;
+  return out;
+}
+function linesPlay(S, acta, learned, warn) {
+  const b = S.block;
   if (warn === 'fall') return { line: ['Manos al muro', ''] };      // the score warns before a fall / before giving up (analysis #19)
   if (warn === 'abandon') return { line: ['Volved al muro', ''] };
-  if (S.phase === 'title' && CARDS[b]) return S.tp < CARD_S ? { card: CARDS[b] } : {};
   if (b === 'wait') return { line: (S.reveal ?? 1) >= 1 ? ['Sostened el anillo para empezar', ''] : ['Tocad. Jugad con la sala.', ''] };   // strings agreed with ENT (voice)
   if (b === 'brasa') return S.phase === 'reward' ? {} : S.brasaStage === 'call' ? (learned ? {} : { line: ['Con el tambor', ''] }) : { line: ['Tocad el muro', ''] };   // by the score's stage (#18)
   if (b === 'pinya') return S.phase === 'reward' || learned ? {} : { line: ['Juntaos', ''] };   // follow the palm to the centre, pack together (#17)
@@ -250,7 +257,8 @@ export function createGuide({ THREE, TSL, room }) {
   }
 
   // ------------------------------------------------------------------ the words
-  const card = typo.slot({ placements: typo.onWalls(room, 2.1), renderOrder: 24, outDur: 0.5, plate: 0.5 });
+  const card = typo.slot({ placements: typo.onWalls(room, 2.68),   // high: the play's invitation stands under it from the first second
+    renderOrder: 24, outDur: 0.5, plate: 0.5 });
   // the instruction: one centred piece, its first line's caps at ~2.05 m, the label under it (always between 1.75 and 2.15 m)
   const line = typo.slot({ placements: typo.onWalls(room, 1.98), renderOrder: 23, outDur: 0.5, plate: 0.45, spread: 2.4 });
   object.add(card.object, line.object);
@@ -365,7 +373,7 @@ export function createGuide({ THREE, TSL, room }) {
     time0 = time; uTime.value = time; typo.setTime(time);
     const b = S.block, playing = S.phase !== 'title';
     const key = b + '|' + (b === 'tronc' ? +S.balance : 0) + '|' + S.buttons;
-    const wantT = on && playing && (b === 'wait' || b === 'pinya' || b === 'tronc' || b === 'pom') && !(b === 'tronc' && S.phase === 'reward') && S.phase !== 'aleta';   // l'aleta: no ring, only the ghost hands rising
+    const wantT = on && (b === 'wait' || b === 'pinya' || b === 'tronc' || b === 'pom') && !(b === 'tronc' && S.phase === 'reward') && S.phase !== 'aleta';   // l'aleta: no ring, only the ghost hands rising
     if (key !== guideKey) { guideA = ease(guideA, 0, dt, 5); let gone = true; for (const T of targets) if (T.used && T.asm > 0.04) gone = false; if (guideA < 0.03 && gone) { guideKey = key; for (const T of targets) { T.held = 0; T.burst = 0; T.arcPrev = 0; } } } else guideA = ease(guideA, wantT ? 1 : 0, dt, 3);
     const gb = guideKey.slice(0, guideKey.indexOf('|'));
     const verb = learning(S, dt);
@@ -447,13 +455,13 @@ export function createGuide({ THREE, TSL, room }) {
     // the wait: the instruction is the lintel inscription of ENT-F's doorway (keystone ~1.95 m): one line centred at 2.12 m. It moves
     // only while no words are up (never slides in view)
     if (!line.up) line.object.position.y = b === 'wait' ? 2.12 - 1.98 : 0;
-    line.step(dtT, { gain: warn ? 1 : gain, hold: hold || cardUp, mask, gate: waveGate });
+    line.step(dtT, { gain: warn ? 1 : gain, hold, mask, gate: waveGate });
     if (warn) for (const t of line.texts) { t.U.sweepK.value = 1; t.U.sweep.value = ((time0 * 0.9) % 1.6) - 0.3; }   // the warning pulses
     // the walls outside the structure: «Ayudad desde aquí» (they count at 50 %), while the structure's walls carry the invitation
-    const outOn = on && structureOnly && !warn && S.phase === 'play' && !learnedNow && (b === 'tronc' || b === 'pom' || b === 'baixada');
+    const outOn = on && structureOnly && !warn && S.phase !== 'reward' && !learnedNow && (b === 'tronc' || b === 'pom' || b === 'baixada');
     lineOut.want(outOn ? 'o|ayudad' : '', outOn ? lineItems(['Ayudad desde aquí', '']) : null);
     for (const t of lineOut.texts) t.U.plate.value = plateK ?? 0.45;
-    lineOut.step(dtT, { gain, hold: hold || cardUp, mask: (w) => !inS[w], gate: waveGate });
+    lineOut.step(dtT, { gain, hold, mask: (w) => !inS[w], gate: waveGate });
   }
   function dispose() {
     ringGeo.dispose(); discGeo.dispose(); tileGeo.dispose(); handTex.dispose(); gq.dispose(); for (const G of ghosts) for (const H of G.h) H.mesh.material.dispose();

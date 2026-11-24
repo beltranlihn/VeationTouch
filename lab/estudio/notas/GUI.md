@@ -198,3 +198,7 @@ Regla: la guía enseña EXACTAMENTE lo que mide `score.js`. Respaldos: `guide3d.
   festa: 0 errores; estados forzados (Tronc fuera de estructura, bajada con mano, llamada de la Brasa, aviso de caída) en WebGPU y
   WebGL2 sin errores: `caps-gui/c8-guide-batch.png`.
 Textos nuevos (para voces): «Juntaos» · «Con el tambor» · «Ayudad desde aquí» · «Manos al muro» · «Volved al muro».
+- ~16:00 · **Cartela como capa**: la cartela (4 s) sube a 2,68 m y la invitación, el anillo y la mano fantasma del juego aparecen
+  debajo desde el primer segundo (ya no esperan a que se vaya). **Avisos**: Pom forzado sin manos con `state.warn = 'fall'` →
+  «Manos al muro» en los cuatro muros con el pulso, WebGPU y WebGL2 sin errores. Respaldo `guide3d.T046.js.bak`. Evidencia:
+  `caps-gui/c9-card-layer.png`, `c9-warn-pom.png`.
