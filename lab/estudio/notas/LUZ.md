@@ -39,3 +39,10 @@ intensidad 0 al salir y no las devuelve al volver: una receta añadida se quedar
   (`room.makeHalo`, ≤ 0,2) y filo frío de la receta (#9FB4D8); reflejo del fuego y del cielo ×2. Las 12 columnas pequeñas y las otras 4
   gotas grandes no se dibujan.
 - 0 errores WebGPU y WebGL2.
+
+## 4. Pinya — `pinya3d.js` · hoja `luz/t053-pinya.jpg` (ARTE r5)
+- Fuera los bloques de colores del suelo junto a la mano (`CUBES_ON = false`: las piezas que el agarre sacaba de los cuerpos). Las
+  fibras, el destello en la palma, el peso de los cuerpos hacia la mano, el tambaleo al sostener y la elevación siguen igual.
+- La calma (muros sin manos): primera fila al 45 % de la despierta (era 28 %): P2/P3 ya no se leen negros.
+- El brazo de galaxia al 70 %.
+- 0 errores WebGPU y WebGL2. `pinya3d/body.js` sin tocar.

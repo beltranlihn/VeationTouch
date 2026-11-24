@@ -235,7 +235,7 @@ export function create({ THREE, TSL, room, params }) {
     const ao = vAo.mul(0.6).add(0.4), low = smoothstep(0.04, 0.8, vH).mul(0.8).add(0.2);
     const speck = smoothstep(0.88, 0.9, vCo.w);
     const base = mix(tc(TQ), mix(tc(CO), vec3(1.0, 0.86, 0.78), 0.2), speck).mul(mix(float(0.7), float(1.15), vCo.z));
-    const lum = mix(float(0.045), float(0.16), vWake).mul(rim.mul(1.6).add(0.3)).mul(ao).mul(low).mul(uLight).mul(vC4.w.mul(2.4).add(1));   // the calm light (a breath round the crowd)
+    const lum = mix(float(0.072), float(0.16), vWake).mul(rim.mul(1.6).add(0.3)).mul(ao).mul(low).mul(uLight).mul(vC4.w.mul(2.4).add(1));   // the calm light (a breath round the crowd) — T-053 (ARTE r5): the calm at 45 % of the awake (was 28 %: P2/P3 read black)
     let col = base.mul(lum);
     const twk = pow(sin(uTime.mul(vCo.z.mul(2.5).add(0.6)).add(vCo.w.mul(60))).mul(0.5).add(0.5), 30);
     col = col.mul(twk.mul(2.5).mul(vWake.mul(0.7).add(0.3)).add(1));
@@ -649,11 +649,14 @@ export function create({ THREE, TSL, room, params }) {
     const th = r() * Math.PI * 2, strand = Math.floor(r() * 5), ph = (strand * 2 * Math.PI) / 5 + 7 * th, rm = 1.0 + 0.45 * Math.sin(2 * th + strand);
     const jit = r() < 0.3 ? 0.55 : 0.1, g = () => (r() + r() + r() - 1.5) * jit, Rr = 16 + 2.2 * Math.sin(2 * th + 0.7), yc = 7.8 + 1.4 * Math.sin(3 * th + 1.1);
     o[0] = Math.cos(th) * (Rr + Math.cos(ph) * rm) + g(); o[1] = yc + Math.sin(ph) * rm + g(); o[2] = Math.sin(th) * (Rr + Math.cos(ph) * rm) + g(); o[3] = strand % 3 === 0 ? 1 : 0;
-  }, 0.03, 0.04));
+  }, 0.03, 0.028));   // T-053 (ARTE r5): the galaxy arm at 70 % (the people are the hero)
 
   // ================================================================================================== the data cubes (physical)
   const NNEAR_W = 0;   // art 14:30: no floating floor tiles any more; the mass is the pieces a touch shakes out of the bodies   // art bible §4: few near pieces (≤ 8 a wall, 8–30 cm); the wire cubes only in an ordered grid far behind
   const cubes = [];
+  // T-053 (ARTE r5): no coloured blocks on the floor by the hand — the pieces a grip shook out of the bodies are off (the fibres, the
+  // lean, the flash and the lift still answer at once). true brings them back.
+  const CUBES_ON = false;
   {
     const r = rng(2024);
     walls.forEach((w, wi) => {
@@ -838,14 +841,14 @@ export function create({ THREE, TSL, room, params }) {
         list.sort((a, b) => a[0] - b[0]); for (let i = 0; i < 5; i++) s.hooks.push(list[i][1]);
         // the touch shakes the bodies: they lurch towards the hand, and pieces of them fly out and fall (mass, at once)
         for (const c of s.hooks) c.lv += 1.6;
-        if (prm.cubes !== false) for (let i = 0; i < 6; i++) shake(s.hooks[i % s.hooks.length], h.wall, 1);
+        if (CUBES_ON && prm.cubes !== false) for (let i = 0; i < 6; i++) shake(s.hooks[i % s.hooks.length], h.wall, 1);
         s.shakeT = time;
         // cubes near the hand fall at once
         hf.copy(h.pos).applyMatrix4(invF); hn.copy(h.normal).transformDirection(invF);
         for (const c of cubes) if (c.near && c.state !== 1 && planeDist(c.pos, hf, hn) < 1.15) knock(c, hn, 1);
       }
       s.on = true; s.held = 0.35; s.wall = h.wall; s.world.copy(h.pos);
-      if (time - s.shakeT > 1.3 && s.hooks.length && prm.cubes !== false) { s.shakeT = time; for (let i = 0; i < 2; i++) shake(s.hooks[(i + Math.floor(time)) % s.hooks.length], h.wall, 0.75); for (const c of s.hooks) c.lv += 0.5 * Math.sin(time * 3.1 + c.seed * 9); }   // held: the grip keeps pulling, the bodies stagger, a piece falls now and then
+      if (time - s.shakeT > 1.3 && s.hooks.length && prm.cubes !== false) { s.shakeT = time; if (CUBES_ON) for (let i = 0; i < 2; i++) shake(s.hooks[(i + Math.floor(time)) % s.hooks.length], h.wall, 0.75); for (const c of s.hooks) c.lv += 0.5 * Math.sin(time * 3.1 + c.seed * 9); }   // held: the grip keeps pulling, the bodies stagger, a piece falls now and then
       hl.copy(h.pos).applyMatrix4(inv); s.pos.lerp(hl, Math.min(1, dt * 10)); s.nrm.copy(h.normal).transformDirection(inv); s.aw = Math.atan2(h.pos.z, h.pos.x);
       hf.copy(h.pos).applyMatrix4(invF); hn.copy(h.normal).transformDirection(invF);
       for (const c of cubes) if (c.near && c.state === 0 && planeDist(c.pos, hf, hn) < 0.45) knock(c, hn, 0.7);    // a moving hand sweeps
@@ -936,7 +939,7 @@ export function create({ THREE, TSL, room, params }) {
 
     // ---- the cubes: float, fall, bounce, rest, return
     impacts.length = 0;
-    const useCubes = prm.cubes !== false;
+    const useCubes = CUBES_ON && prm.cubes !== false;
     for (let w = 0; w < NW; w++) {   // a wall that fills: its cubes rain down, staggered along the wall
       const ts = time - shower[w];
       if (ts >= 0 && ts < 2.2 && useCubes) for (const c of cubes) if (c.near && c.state === 0 && c.wallI === w && ts > c.seed * 2) knock(c, hn.copy(walls[w].normal).transformDirection(invF), 0.6);
