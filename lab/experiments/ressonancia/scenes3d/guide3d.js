@@ -193,7 +193,7 @@ export function createGuide({ THREE, TSL, room }) {
       const light = fill.mul(keep).add(beat).add(hand.mul(keep.mul(0.5).add(0.5))).mul(vis);
       const shade = inDisc.mul(0.55).add(float(1).sub(smoothstep(R, R * 1.5, r)).mul(0.12)).mul(vis);
       const m = new THREE.MeshBasicNodeMaterial(OVER);
-      m.colorNode = vec3(0.82, 0.79, 0.74).mul(light).add(frost.mul(vis)); m.opacityNode = max(shade, 0);
+      m.colorNode = vec3(0.82, 0.79, 0.74).mul(0.8).mul(light)   /* art round 5: bone at 80 % */.add(frost.mul(vis)); m.opacityNode = max(shade, 0);
       const mesh = new THREE.Mesh(discGeo, m); mesh.renderOrder = 19; group.add(mesh);
     }
     // --- the glass ring
@@ -240,7 +240,8 @@ export function createGuide({ THREE, TSL, room }) {
       // a tile comes in while its share of the progress fills and waits just off its slot (e ≤ 0.82); it SNAPS home when the share is full
       const lock = tclamp(U.arc.mul(NTILE).sub(idx), 0, 1), snapped = step(0.999, lock), e = mix(ease3(tclamp(lock.mul(1.25), 0, 1)).mul(0.82), float(1), snapped), ie = float(1).sub(e);
       const bk = tclamp(U.burst.mul(1.5).sub(r1.mul(0.5)), 0, 1);
-      const w = rad.mul(Math.PI * 2 / NTILE * 0.8).mul(r1.mul(0.12).add(0.92)), hh = float(0.04).mul(r2.mul(0.25).add(0.88));
+      const w = rad.mul(Math.PI * 2 / NTILE * 0.8 * 0.6).mul(r1.mul(0.12).add(0.92))   // art round 5: segments at 60 % width
+     , hh = float(0.04).mul(r2.mul(0.25).add(0.88));
       const pg = positionGeometry;
       const jit = vec2(sin(r3.mul(40.0).add(pg.x.mul(7.0)).add(pg.y.mul(13.0))), cos(r2.mul(31.0).add(pg.x.mul(11.0)).add(pg.y.mul(5.0)))).mul(0.07);
       const since = U.arc.mul(NTILE).sub(idx).sub(1.0), pop = exp(max(since, 0).mul(-9.0)).mul(snapped);
@@ -328,8 +329,8 @@ export function createGuide({ THREE, TSL, room }) {
       L('0,90', xl, ZY0, 'left', 0.55, 0.3), L('1,60', xl, ZY1, 'left', 0.55, 0.3)];
   }
   function stepFine(dt, b, on) {
-    const want = on && b !== 'intro' ? (LABELS[b] || '') : '';
-    FINE.a = ease(FINE.a, want ? 1 : 0, dt, 1.5); fineA.value = FINE.a; fineObj.visible = FINE.a > 0.003;
+    const want = on && b !== 'intro' && b !== 'wait' ? (LABELS[b] || '') : '';   // art round 5: none in the wait, half in the pom
+    FINE.a = ease(FINE.a, want ? (b === 'pom' ? 0.5 : 1) : 0, dt, 1.5); fineA.value = FINE.a; fineObj.visible = FINE.a > 0.003;
     if (want !== FINE.label) {                                                    // the old labels go out of focus, then the new come in
       FINE.out = Math.min(1, FINE.out + dt / 0.5);
       if (!FINE.label || FINE.out >= 1) {
@@ -518,7 +519,7 @@ export function createGuide({ THREE, TSL, room }) {
     const L = g.line && (g.line[0] || g.line[1]) ? g.line : null;   // (an empty invitation with a label: the floor's / climber's name alone)
     line.want(L ? 'l|' + L.join('|') : '', L ? lineItems(L) : null);
     // readability (audit 24-11): the dark plates under the words are stronger where the world behind is busy (Tronc, Pom: 60 %)
-    const plateK = b === 'tronc' || b === 'pom' ? 0.6 : null;
+    const plateK = b === 'tronc' || b === 'pom' || b === 'baixada' ? 0.6 : null;   // art round 5: baixada too (white porcelain behind)
     for (const t of card.texts) t.U.plate.value = plateK ?? 0.5;
     for (const t of line.texts) t.U.plate.value = plateK ?? 0.45;
     card.step(dtT, { hold, gate: waveGate });
@@ -536,7 +537,8 @@ export function createGuide({ THREE, TSL, room }) {
     const mask = (w) => !!warn || !structureOnly || inS[w];   // a warning goes on every wall
     // the wait: the instruction is the lintel inscription of ENT-F's doorway (keystone ~1.95 m): one line centred at 2.12 m. It moves
     // only while no words are up (never slides in view)
-    if (!line.up) line.object.position.y = b === 'wait' ? 2.12 - 1.98 : 0;
+    if (!line.up) line.object.position.y = b === 'wait' ? 2.12 - 1.98 : (b === 'tronc' && S.phase !== 'title') || b === 'baixada' ? 2.30 - 1.98 : 0;   // art round 5 (not under Tronc's card: there the 60 % plate): above the porcelain in tronc / baixada
+    if (!lineOut.up) lineOut.object.position.y = (b === 'tronc' && S.phase !== 'title') || b === 'baixada' ? 2.30 - 1.98 : 0;
     line.step(dtT, { gain: warn ? 1 : gain, hold, mask, gate: waveGate });
     if (warn) for (const t of line.texts) { t.U.sweepK.value = 1; t.U.sweep.value = ((time0 * 0.9) % 1.6) - 0.3; }   // the warning pulses
     // the walls outside the structure: «Ayudad desde aquí» (they count at 50 %), while the structure's walls carry the invitation
