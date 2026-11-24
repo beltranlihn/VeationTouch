@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-lk-nodemo>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -65,7 +65,7 @@ let sp = {}; try { sp = JSON.parse(q.get('soundParams') || '{}'); } catch { sp =
 const OPTS = {
   from: [['wait', 'La espera'], ['intro', 'Intro'], ['brasa', 'I · Brasa'], ['pinya', 'II · Pinya'], ['tronc', 'III · Tronc'], ['pom', 'IV · Pom de dalt'], ['crown', 'La coronación'], ['festa', 'La ressonància'], ['baixada', 'La baixada'], ['fall', 'La caída'], ['acta', "L'acta"]],
   lang: [['es', 'Español'], ['en', 'English']],
-  people: [['2', '2'], ['6', '6'], ['15', '15']],
+  people: [['0', '0 (sólo yo)'], ['2', '2'], ['6', '6'], ['15', '15']],
   q3: [['medium', 'Media (portátil)'], ['high', 'Alta (la sala)']],
 };
 const now = { from: q.get('from') || 'wait', lang: sp.lang || 'es', people: q.get('people') || '6', q3: q.get('q3') || 'high' };

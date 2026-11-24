@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-lk-nodemo>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -54,7 +54,7 @@
 <canvas id="c"></canvas>
 <div id="view"></div>
 <canvas id="v3d"></canvas>
-<div id="ui3d"><button id="bIn" class="on">Dentro</button><button id="bOut">Fuera</button><button id="bHand">Mano</button><span class="hint" id="hint3d">Arrastra para mirar · rueda: campo de visión · V cambia de vista · clic en un muro = una mano (Mayús + arrastrar la mantiene)</span></div>
+<div id="ui3d"><button id="bIn" class="on">Dentro</button><button id="bOut">Fuera</button><button id="bHand" class="on">Mano</button><span class="hint" id="hint3d">Mantén pulsado en un muro = una mano (arrastra para moverla) · Mayús + clic la deja fija · botón derecho o flechas: mirar · rueda: campo de visión · V vista · L sensación LiDAR</span></div>
 <div id="bar"><div id="now"><span id="block">—</span><span id="clock">0:00</span></div><div id="track"></div><div id="head"></div></div>
 <div id="start"><h1>RESSONÀNCIA</h1><p>La obra dentro de la sala, en 3D: mírala desde el centro o desde fuera</p>
 <div class="card" id="chooser">
@@ -74,7 +74,7 @@ let sp = {}; try { sp = JSON.parse(q.get('soundParams') || '{}'); } catch { sp =
 const OPTS = {
   from: [['wait', 'La espera'], ['intro', 'Intro'], ['brasa', 'I · Brasa'], ['pinya', 'II · Pinya'], ['tronc', 'III · Tronc'], ['pom', 'IV · Pom de dalt'], ['crown', 'La coronación'], ['festa', 'La ressonància'], ['baixada', 'La baixada'], ['fall', 'La caída'], ['acta', "L'acta"]],
   lang: [['es', 'Español'], ['en', 'English']],
-  people: [['2', '2'], ['6', '6'], ['15', '15']],
+  people: [['0', '0 (sólo yo)'], ['2', '2'], ['6', '6'], ['15', '15']],
   q3: [['medium', 'Media (portátil)'], ['high', 'Alta (la sala)']],
 };
 const now = { from: q.get('from') || 'wait', lang: sp.lang || 'es', people: q.get('people') || '6', q3: q.get('q3') || 'high' };

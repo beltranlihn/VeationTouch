@@ -348,3 +348,14 @@ Capturas en `scratchpad/int/t034/`.
   `stage.put/lift` del arnés (s = fracción de la tira, t = 1 − altura).
 - Comprobado: 0 errores (obra WebGPU y WebGL2), `scratchpad/int/t045/dentro2.png` (esquina, Pom continuo), `fuera-gl2.png`,
   `hand.png` (mano puesta desde el 3D en P4 a 0,72 m → la brasa responde; `vt.hands()` la muestra en P4 478,368).
+
+## T-046 — «tocaba y no pasaba nada» (P0 1–5 del análisis)
+- `harness/kit.js` (aditivo): un puntero sobre `[data-lk-ignore]` no crea manos del kit; `<html data-lk-nodemo>` apaga las manos demo.
+  Resto de piezas del laboratorio: sin cambios. Respaldo `kit.T046.js.bak`.
+- `res-obra/autopilot.js`: el puntero en cada fila visible es una mano donde se ve (`s = from + x/ancho·(to − from)`, `t = y/alto`),
+  Mayús + clic fija/quita; marcadores sobre las filas (las tuyas cian, las del público ámbar); `people=0` = sólo yo (nadie más toca).
+- `review.html` y `sala3d.html`: «0 (sólo yo)» en Personas, sin manos demo.
+- `sala3d.js`: modo Mano por defecto (mantener = mano, arrastrar la mueve), mirar con botón derecho o flechas, Mayús + clic fija,
+  L = LiDAR (la tecla del kit); sin mano parásita.
+- Prueba (people=0): clic en P2 a 1,2 m en la fila visible → una sola mano, P2, ym 1,20, s 0,6342 t 0,68 (vt: P2 2282,310); igual en
+  sala3d «Dentro» mirando a P2 (s 0,6342, t 0,68, ym 1,2), y al soltar 0 manos. WebGPU y WebGL2: 0 errores.

@@ -3,7 +3,7 @@
 // in the Ressonància, hold while the castell comes down. Hands go through the lab harness's stage (window.__labRoom.stage.put /
 // lift), so the visual piece and the sound piece both see them, exactly as they would see real hands. Not part of the piece.
 const q = new URLSearchParams(location.search);
-const PEOPLE = Math.min(15, Math.max(2, Number(q.get('people')) || 6));
+const PEOPLE = q.get('people') === '0' ? 0 : Math.min(15, Math.max(2, Number(q.get('people')) || 6));   // 0 = «sólo yo»: no virtual audience (T-046)
 let PACE = 1; try { PACE = Number(JSON.parse(q.get('params') || '{}').pace) || 1; } catch { /* no params */ }   // the pace is the piece's own parameter: ?params={"pace":2}
 const rnd = (() => { let a = 0x51ab; return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; })();
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -21,6 +21,7 @@ function row(from, to, label) {
   r.appendChild(v);
   for (const w of ROOM.walls) { const c = (w.x + w.w / 2) / ROOM.strip.width; if (c >= from && c < to) { const t = document.createElement('div'); t.className = 'tag'; t.textContent = w.id; t.style.left = `${((c - from) / (to - from)) * 100}%`; r.appendChild(t); } }
   view.appendChild(r);
+  ownPointer(r, from, to);
   const fit = () => {
     const W = innerWidth, k = W / ((to - from) * ROOM.strip.width), h = ROOM.strip.height * k;
     const avail = (innerHeight - 64 - 16 - 6) / 2, s = Math.min(1, avail / h);
@@ -30,7 +31,50 @@ function row(from, to, label) {
   addEventListener('resize', fit); fit();
   v.play().catch(() => {});
 }
+// T-046 (Beltrán: «tocaba y no pasaba nada»): the pointer on a visible row is a hand where it is seen. The row spans [from, to) of the
+// strip: s = from + x/width · (to − from), t = y/height; the kit ignores pointers here ([data-lk-ignore]). Shift + click pins a hand (or
+// unpins the one under it). Every hand gets a marker on the rows: yours cyan, the virtual audience's amber.
+const own = new Map(); let pinN = 0;
+function ownPointer(r, from, to) {
+  r.dataset.lkIgnore = ''; r.style.cursor = 'crosshair'; r.style.touchAction = 'none';
+  const at = (e) => { const b = r.getBoundingClientRect(); return { s: from + ((e.clientX - b.left) / b.width) * (to - from), t: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height)) }; };
+  r.addEventListener('pointerdown', (e) => {
+    const p = at(e);
+    if (e.shiftKey) {
+      let hit = null, bd = 1e9;
+      for (const [k, h] of own) if (k.startsWith('mepin')) { const d = Math.hypot((((h.s - p.s + 0.5) % 1) + 1) % 1 - 0.5, (h.t - p.t) * H / ROOM.perimeter); if (d < bd) { bd = d; hit = k; } }
+      if (hit && bd * ROOM.perimeter < 0.45) { stage.lift(hit); own.delete(hit); } else { const k = 'mepin' + (pinN++); stage.put(k, p.s, p.t); own.set(k, p); }
+      return;
+    }
+    try { r.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer */ }
+    const k = 'me' + e.pointerId; stage.put(k, p.s, p.t); own.set(k, p);
+    window.__lastOwnHand = { key: k, s: +p.s.toFixed(4), t: +p.t.toFixed(4) };   // lab checks
+  });
+  r.addEventListener('pointermove', (e) => { const k = 'me' + e.pointerId; if (!own.has(k)) return; const p = at(e); stage.put(k, p.s, p.t); own.set(k, p); });
+  const up = (e) => { const k = 'me' + e.pointerId; if (own.has(k)) { stage.lift(k); own.delete(k); } };
+  r.addEventListener('pointerup', up); r.addEventListener('pointercancel', up);
+}
 row(0, half, 'P4 · P1'); row(half, 1, 'P2 · P3');
+{ // the markers
+  const rows = [...view.querySelectorAll('.row')], spans = [[0, half], [half, 1]], pool = rows.map(() => []);
+  const css = (own) => `position:absolute;pointer-events:none;border-radius:50%;transform:translate(-50%,-50%);${own ? 'width:22px;height:22px;border:2px solid #4FC3E8;box-shadow:0 0 8px rgba(79,195,232,.6)' : 'width:9px;height:9px;background:rgba(229,181,103,.75)'}`;
+  const draw = () => {
+    rows.forEach((r, i) => {
+      const [from, to] = spans[i], w = r.clientWidth, h = r.clientHeight; let n = 0;
+      for (const hd of stage.hands()) {
+        if (hd.demo) continue;
+        const s = ((hd.s % 1) + 1) % 1; if (s < from || s >= to) continue;
+        const mine = !String(hd.key).startsWith('auto');
+        let d = pool[i][n]; if (!d) { d = document.createElement('div'); r.appendChild(d); pool[i].push(d); }
+        if (d.dataset.own !== String(mine)) { d.style.cssText = css(mine); d.dataset.own = String(mine); }
+        d.style.display = ''; d.style.left = `${((s - from) / (to - from)) * w}px`; d.style.top = `${hd.t * h}px`; n++;
+      }
+      for (let k = n; k < pool[i].length; k++) pool[i][k].style.display = 'none';
+    });
+    requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
+}
 
 // ---------------------------------------------------------------- the timeline at the bottom
 const NAMES = { wait: 'Waiting', intro: 'Intro · La plaça', brasa: 'I · Brasa', pinya: 'II · Pinya — Força', tronc: 'III · Tronc — Equilibri', pom: 'IV · Pom de dalt — Valor', crown: "V · L'aleta — the crown", festa: 'V · La ressonància', baixada: 'La baixada — Seny', fall: 'The fall', acta: "L'acta" };
@@ -73,7 +117,8 @@ function tick() {
   if (key !== mode) { mode = key; modeT = 0; } else modeT += dt;
   const sw = structure();
 
-  if (b === 'wait') {                                 // two visitors walk up and hold the walls
+  if (PEOPLE === 0) { /* «sólo yo»: nobody else touches */ }
+  else if (b === 'wait') {                            // two visitors walk up and hold the walls
     if (modeT > 2) { hold(people[0], 0, 0, 1.25); hold(people[1], 1, 0, 1.25); } else liftAll();
     for (const p of people.slice(2)) for (const h of p.hands) lift(h);
   } else if (b === 'intro' || b === 'crown' || b === 'acta' || b === 'fall' || phase === 'title') {

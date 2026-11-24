@@ -110,7 +110,7 @@
     const rnd = mulberry(q.has('seed') ? Number(q.get('seed')) : (Date.now() ^ 0x9e3779b9));
     const S = {
       overlay: !CAPTURE && (opt.fixedStrip ? q.get('overlay') !== '0' : q.has('strip')),
-      strip: !!opt.fixedStrip || q.has('strip'), body: q.has('body'), help: false, demo: opt.demo !== false && q.get('demo') !== '0',
+      strip: !!opt.fixedStrip || q.has('strip'), body: q.has('body'), help: false, demo: opt.demo !== false && q.get('demo') !== '0' && !document.documentElement.hasAttribute('data-lk-nodemo'),   // <html data-lk-nodemo>: a page can switch the demo hands off
       group: Math.max(1, Number(q.get('group')) || 1), lidar: q.has('lidar'), soundOn: true, fps: 60, cursor: true,
     };
     const hands = new Map(); let seq = 1, pinSeq = 1, lastInput = performance.now(), levels = null;
@@ -143,6 +143,7 @@
     addEventListener('pointerdown', (e) => {
       if (e.target.closest?.('.lk-help,.lk-params,.lk-vol')) return;
       lastInput = performance.now(); onFirstGesture();
+      if (e.target.closest?.('[data-lk-ignore]')) return;              // a page that maps its own pointer to hands (review rows, the 3D room)
       const p = fromEvent(e); if (!p.ok) return;
       if (e.shiftKey) { // pin / unpin
         let hit = null, bd = 1e9;

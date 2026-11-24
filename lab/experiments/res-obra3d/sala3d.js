@@ -83,7 +83,7 @@ person(-1.7, -1.9, 1.7, 0); person(2.3, 0.6, 1.72, -Math.PI / 2); person(0.9, 2.
 
 // ---------------------------------------------------------------- cameras: inside and outside
 const cam = new THREE.PerspectiveCamera(80, 1, 0.05, 200);
-const view = { mode: 'in', yaw: 0, pitch: 0.05, fov: 80, oYaw: 0.7, oPitch: 0.55, oDist: 16, hand: false };
+const view = { mode: 'in', yaw: 0, pitch: 0.05, fov: 80, oYaw: 0.7, oPitch: 0.55, oDist: 16, hand: true };
 function place() {
   if (view.mode === 'in') {
     cam.fov = view.fov; cam.position.set(0, 1.6, 0);
@@ -102,11 +102,12 @@ addEventListener('resize', resize); resize();
 const bIn = document.getElementById('bIn'), bOut = document.getElementById('bOut'), bHand = document.getElementById('bHand'), hint = document.getElementById('hint3d');
 function setMode(m) {
   view.mode = m; bIn.classList.toggle('on', m === 'in'); bOut.classList.toggle('on', m === 'out');
-  hint.textContent = m === 'in' ? 'Arrastra para mirar · rueda: campo de visión · V cambia de vista · clic en un muro = una mano (Mayús + arrastrar la mantiene)'
-    : 'Arrastra para girar alrededor · rueda: acercar · V cambia de vista · clic en un muro = una mano';
+  hint.textContent = m === 'in' ? 'Mantén pulsado en un muro = una mano (arrastra para moverla) · Mayús + clic la deja fija · botón derecho o flechas: mirar · rueda: campo de visión · V vista · L sensación LiDAR'
+    : 'Mantén pulsado en un muro = una mano · botón derecho o flechas: girar alrededor · rueda: acercar · V vista · L sensación LiDAR';
   place();
 }
 function setHand(on) { view.hand = on; bHand.classList.toggle('on', on); cv.classList.toggle('hand', on); }
+setHand(true);
 bIn.onclick = () => setMode('in'); bOut.onclick = () => setMode('out'); bHand.onclick = () => setHand(!view.hand);
 addEventListener('keydown', (e) => {
   if (e.target?.tagName === 'INPUT') return;
@@ -134,30 +135,45 @@ function toStage(hp) {
   const id = wallInfo[hp.i].id, Rw = ROOM.walls.find((w) => w.id === id) || ROOM.walls[hp.i];
   return { s: (Rw.x + hp.u * Rw.w) / ROOM.strip.width, t: 1 - hp.v };
 }
+// T-046: hand mode by default — press and hold on a wall = a hand while held, dragging moves it; look round / orbit with the RIGHT button
+// (or the arrow keys); Shift + click pins a hand (or unpins the one under it). «Mano» off = the left button looks round as well.
+// The kit ignores pointers on this canvas ([data-lk-ignore]): no parasitic second hand. L = LiDAR feel (the kit's own key).
+cv.dataset.lkIgnore = ''; document.getElementById('ui3d').dataset.lkIgnore = '';
+cv.addEventListener('contextmenu', (e) => e.preventDefault());
 let drag = null, handSeq = 0;
-const tapTimers = new Map();
+const pins = new Map();
 cv.addEventListener('pointerdown', (ev) => {
   try { cv.setPointerCapture(ev.pointerId); } catch { /* a synthetic pointer */ }
-  const handMode = view.hand || ev.shiftKey, hp = hit(ev);
-  drag = { x: ev.clientX, y: ev.clientY, moved: 0, hand: null, handMode };
-  if (handMode && hp) { const key = 'v3d' + (handSeq++); const s = toStage(hp); stage.put(key, s.s, s.t); drag.hand = key; }
+  const hp = hit(ev), look = ev.button === 2 || !view.hand;
+  drag = { x: ev.clientX, y: ev.clientY, hand: null, look };
+  if (look || !hp) { drag.look = true; return; }
+  const s = toStage(hp);
+  if (ev.shiftKey) {                                                // pin / unpin
+    let best = null, bd = 1e9;
+    for (const [k, p] of pins) { const d = Math.hypot((((p.s - s.s + 0.5) % 1) + 1) % 1 - 0.5, (p.t - s.t) * wallInfo[0].h / ROOM.perimeter) * ROOM.perimeter; if (d < bd) { bd = d; best = k; } }
+    if (best && bd < 0.45) { stage.lift(best); pins.delete(best); } else { const k = 'v3dpin' + (handSeq++); stage.put(k, s.s, s.t); pins.set(k, s); }
+    drag = null; return;
+  }
+  const key = 'v3d' + (handSeq++); stage.put(key, s.s, s.t); drag.hand = key;
+  window.__lastOwnHand = { key, s: +s.s.toFixed(4), t: +s.t.toFixed(4), wall: wallInfo[hp.i].id, ym: +(hp.v * wallInfo[hp.i].h).toFixed(2) };   // lab checks
 });
 cv.addEventListener('pointermove', (ev) => {
   if (!drag) return;
-  const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y; drag.x = ev.clientX; drag.y = ev.clientY; drag.moved += Math.abs(dx) + Math.abs(dy);
-  if (drag.handMode) { if (drag.hand) { const hp = hit(ev); if (hp) { const s = toStage(hp); stage.put(drag.hand, s.s, s.t); } } return; }
+  const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y; drag.x = ev.clientX; drag.y = ev.clientY;
+  if (drag.hand) { const hp = hit(ev); if (hp) { const s = toStage(hp); stage.put(drag.hand, s.s, s.t); } return; }
+  if (!drag.look) return;
   if (view.mode === 'in') { const k = (view.fov / 80) * 0.004; view.yaw += dx * k; view.pitch = Math.max(-1.2, Math.min(1.2, view.pitch + dy * k)); }
   else { view.oYaw -= dx * 0.006; view.oPitch = Math.max(0.05, Math.min(1.45, view.oPitch + dy * 0.005)); }
   place();
 });
-cv.addEventListener('pointerup', (ev) => {
-  if (!drag) return;
-  if (drag.hand) stage.lift(drag.hand);
-  else if (drag.moved < 5) {                                        // a click: a hand there for 0.8 s
-    const hp = hit(ev);
-    if (hp) { const key = 'v3d' + (handSeq++), s = toStage(hp); stage.put(key, s.s, s.t); tapTimers.set(key, setTimeout(() => { stage.lift(key); tapTimers.delete(key); }, 800)); }
-  }
-  drag = null;
+const endDrag = () => { if (drag?.hand) stage.lift(drag.hand); drag = null; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+addEventListener('keydown', (e) => {                                // the arrows look round (inside) / orbit (outside)
+  const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; if (!k) return;
+  e.preventDefault();
+  if (view.mode === 'in') { view.yaw += k[0] * -0.08; view.pitch = Math.max(-1.2, Math.min(1.2, view.pitch + k[1] * -0.05)); }
+  else { view.oYaw += k[0] * 0.08; view.oPitch = Math.max(0.05, Math.min(1.45, view.oPitch + k[1] * -0.05)); }
+  place();
 });
 cv.addEventListener('wheel', (ev) => {
   ev.preventDefault();
