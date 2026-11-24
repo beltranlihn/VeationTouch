@@ -82,7 +82,7 @@ function linesPlay(S, acta, learned, warn) {
   // the acta's wall line («Dejad vuestra mano», 3–15 s) is drawn by parts/actatext (it sits under the castell, the ring of prints round it)
   if (b === 'crown') return S.t > 3 && S.t < 14 ? { card: ['V', 'Coronado', acta?.castell || "L'aleta"] } : {};
   if (b === 'festa') return S.t < 7 ? { card: ['', CT('block:festa'), ''] } : S.festaStage === 'echo' ? { line: [S.focus && S.focus.kind === 'echo' ? CT('focus:echo') : CT('stage:festa:echo'), ''] } : S.festaStage === 'call' ? { line: [CT('stage:festa:call'), ''] } : {};
-  if (b === 'baixada') return { line: [learned ? '' : CT('block:baixada'), ''] };   // the floors' names go down in the achievement layer
+  if (b === 'baixada') return S.baixadaStage === 'free' ? { line: [CT('stage:baixada:free'), ''] } : { line: [learned ? '' : CT('block:baixada'), ''] };   // the free coda asks nothing   // the floors' names go down in the achievement layer
   if (b === 'fall') return S.t > 2 ? { card: ['', 'Ha caído', 'Quedan las brasas'] } : {};
   return {};
 }
@@ -563,7 +563,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
     if (warn) for (const t of line.texts) { t.U.sweepK.value = 1; t.U.sweep.value = ((time0 * 0.9) % 1.6) - 0.3; }   // the warning pulses
     // the walls outside the structure: «Ayudad desde aquí» (they count at 50 %), while the structure's walls carry the invitation
     const outOn = on && structureOnly && !warn && S.phase !== 'reward' && !learnedNow && (b === 'tronc' || b === 'pom' || b === 'baixada');
-    const outWord = CUES['title:tronc'].others;   // «Sostened la luz»: the target is «la luz» in the voice and the text, everywhere
+    const outWord = b === 'tronc' ? CUES['title:tronc'].others : 'Sostened la luz';   // the Tronc's targets are blocks; elsewhere the target is «la luz»
     lineOut.want(outOn ? 'o|' + outWord : '', outOn ? lineItems([outWord, '']) : null);
     lineOut.step(dtT, { gain, hold: hold || cardUp, mask: (w) => !inS[w], gate: waveGate });
   }

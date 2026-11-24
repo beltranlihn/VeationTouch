@@ -80,7 +80,8 @@
     "v-baixada-warn": "[urgent, low] No lo soltéis.",
     "v-fall": "[softly, consoling] Ha caído. La pinya lo ha recogido.",
     "v-acta-print": "[warmly] Dejad vuestra mano en el muro.",
-    "v-warn-return": "[softly, calling] Volved al muro. La pinya os necesita."
+    "v-warn-return": "[softly, calling] Volved al muro. La pinya os necesita.",
+    "v-baixada-free": "[warmly, relieved] Lo habéis bajado. La plaza es vuestra."
   },
   "voice": "Mía Evans (ElevenLabs voice library, peninsular Spanish, Qvbf0AoA7UZSgJUp8Ba5)",
   "model": "eleven_v4",
@@ -169,7 +170,8 @@
     "v-baixada-warn": 1.52,
     "v-fall": 3.03,
     "v-acta-print": 2.06,
-    "v-warn-return": 3.34
+    "v-warn-return": 3.34,
+    "v-baixada-free": 3.19
   },
   "stt": {
     "v-wait": "Poned las manos sobre el muro para empezar",
@@ -251,7 +253,8 @@
     "v-baixada-warn": "No lo soltéis",
     "v-fall": "Ha caído. La piña lo ha recogido",
     "v-acta-print": "Dejad vuestra mano en el muro",
-    "v-warn-return": "Volved al muro la piña os necesita"
+    "v-warn-return": "Volved al muro la piña os necesita",
+    "v-baixada-free": "Lo habéis bajado. La plaza es vuestra"
   },
   "tts_text": {
     "v-cierre-descarregat": "[warmly] Descarregát. Levantado, coronado y bajado sin caer.",
@@ -307,7 +310,8 @@
     "v-baixada-warn": "NqBRamcFlLVThT3cFGdL",
     "v-fall": "O0wLZg0mHtNpuuOTdtX4",
     "v-acta-print": "sE0k5bu3J4xM5cueFwre",
-    "v-warn-return": "pdi7DH4BbVb5zvdjyGyY"
+    "v-warn-return": "pdi7DH4BbVb5zvdjyGyY",
+    "v-baixada-free": "qzVmhrpGfU6spY0XG6BB"
   },
   "notes_2026_11_25": "Studio night (05-plan §3): new lines with the same voice (Mía Evans), model eleven_v4, settings 0.5/0.8, mp3_44100_128, language_code es; made by lab/estudio/tools/gen-voice.mjs; checked with scribe_v1 (stt). request_ids kept for regeneration."
 }

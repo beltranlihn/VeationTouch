@@ -70,6 +70,7 @@ export const LINES = {
   'v-festa-call': ['[joyful] Y ahora, todos a la vez.'],
   'v-festa-bloom': ['[awed, full voice] Esto es la ressonància.'],
   // Baixada, fall, acta
+  'v-baixada-free': ['[warmly, relieved] Lo habéis bajado. La plaza es vuestra.'],   // 25-11: the baixada's free coda (8 s)
   'v-baixada-ok': ['[softly, warm] Bien. Otro más.'],
   'v-baixada-warn': ['[urgent, low] No lo soltéis.'],
   'v-fall': ['[softly, consoling] Ha caído. La pinya lo ha recogido.'],
