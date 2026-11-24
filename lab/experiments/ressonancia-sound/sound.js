@@ -282,12 +282,13 @@ export default async function start(host) {
     if (vo && t < vo.end) {
       if (polite || kind === 'hint') return false;
       if (kind === 'ach') { if (vo.end - t > 1.5) return false; at = Math.max(at, vo.end + 0.15); }
+      else if (t - vo.at < 0.6 && vo.end - t <= 3.5) at = Math.max(at, vo.end + 0.15);   // two lines of one instant (the colla + the call): one after the other, never cut
       else { if (CUELOG && t < vo.end - 0.3) CUELOG.push({ t: Math.round(S.clock * 10) / 10, cut: vo.name, by: name }); vo.h.stop(0.15); }
     }
     let dest = voiceBus;
     if (wall >= 0 && voiceWall[wall % NW]) { dest = G(1, voiceWall[wall % NW]); dest.connect(G(0.25, voiceBus)); }
     const h = play(name, { gain: L.voice, dest, at }); if (!h) return false;
-    vo = { h, end: h.end, name, wall }; if (once && !name.startsWith('v-wait')) saidThisPass.add(name);
+    vo = { h, end: h.end, name, wall, at }; if (once && !name.startsWith('v-wait')) saidThisPass.add(name);
     const from = Math.max(t, at - 0.35);
     duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(L.duck, from, 0.15); duck.gain.setTargetAtTime(1, h.end + 0.3, 0.7);
     genDuck.offset.cancelScheduledValues(t); genDuck.offset.setTargetAtTime(L.genDuck, from, 0.15); genDuck.offset.setTargetAtTime(1, h.end + 0.3, 0.7);

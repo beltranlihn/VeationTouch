@@ -58,7 +58,7 @@ export const CUES = {
   'ach:wallfull': { voice: 'v-pinya-wall', where: 'ach', energy: 'warm', text: 'Aguanta', place: 'ach', kind: 'ach' },
   'focus:next': { voice: 'v-pinya-other', where: 'focus', energy: 'warm', text: 'Ahora aquí', place: 'focus', kind: 'task' },
   'assist:on:pinya': { voice: 'v-colla-2', where: 'focus', energy: 'warm', text: 'La colla os ayuda', place: 'ach', kind: 'ach' },
-  'ach:close': { voice: 'v-pinya-3', where: 'room', energy: 'warm', text: null, kind: 'ach', then: { key: 'struct', after: 2.2 } },
+  'ach:close': { voice: 'v-pinya-3', where: 'room', energy: 'warm', text: null, kind: 'ach', then: { key: 'struct', after: 0.2 } },   // the name ~2.5 s after the event (§3.2: +2.2 s)
   'struct': { voice: { 1: 'v-struct-1', 2: 'v-struct-2', 3: 'v-struct-3', 4: 'v-struct-4' }, where: 'room', energy: 'warm', text: STRUCT_NAME, place: 'structure', kind: 'ach', cap: 0.22 },
   // ---- 3.3 III · Tronc
   'title:tronc': { voice: 'v-tronc-lift', where: 'room', energy: 'warm', text: 'Levantad los bloques', place: 'structure', kind: 'card', card: ['III', 'Tronc', 'Equilibrio'], others: 'Levantad los bloques' },   // the Tronc's targets are blocks (25-11); the voice: «Ahora, levantad. Cada piso sube con vuestras manos.»
