@@ -177,3 +177,24 @@ Evidencia: `caps-gui/c7-t043-tronc-wobble-aleta.png` (Levantad / Sujetad la base
   bloque (`learned.pinya / tronc / pom / aleta / baixada`, ENT T-042). Ahora lee esas claves; la Brasa (sin clave) sigue con el reloj.
   En la Pinya la palma es la diana desde el principio: el anillo sólo enseña durante la cartela y 6 s de juego y se disuelve.
   Prueba en la obra (estado forzado): `learned.tronc = true` → anillos rotos en < 4,5 s; sin errores.
+
+## 24-11 · lote de la guía tras la prueba de Beltrán (análisis §5: #7 #11d #12 #13 #14 #17 #18 #19 #21) — ~15:45
+Regla: la guía enseña EXACTAMENTE lo que mide `score.js`. Respaldos: `guide3d.T045.js.bak`, `parts/introtext.T045.js.bak`.
+- #7 intro: fuera «Poned las manos sobre el muro» (sólo «Ressonància»).
+- #12 bajada: sin anillo; mano fantasma `updown` 1,0 → 1,6 → 1,0 m (baja 0,60 m a ~0,34 m/s, ciclo 5 s) junto a la mano real.
+- #13 Tronc: fuera el anillo de pulso de 2,4 s; mano fantasma `phrase` guiada por `S.phraseT` (baja a recibir en `gather`, sube en
+  `rise`, quieta arriba en `lock`). La banda es de 3D-FE / TRO-F.
+- #14 espera: el anillo se enciende sólo con manos a |dx| ≤ 0,55 m (la prueba del score).
+- #17 Pinya: «Juntaos» (se va con `learned.pinya`); mano fantasma `gather` (dos manos hacia el centro).
+- #18 Brasa: por `brasaStage`: `spark` «Tocad el muro»; `call` «Con el tambor» hasta `learned.brasa`; la mano fantasma cae en el TOK
+  (`call.at`) en los muros que llaman (`from`, `to`; `to = −1` = los cuatro).
+- #21 ressonància: en cada frente (`fronts[]`), mano fantasma `tap` en el muro de llegada desde 0,8 s antes de `arrive`.
+- #11d: en Tronc / Pom / bajada, los muros fuera de la estructura llevan «Ayudad desde aquí» (hasta aprender), su anillo (Tronc,
+  Pom) y sus manos fantasma.
+- #19 avisos: `state.warn` ('fall' | 'abandon') o los eventos `warn:fall` / `warn:abandon` → «Manos al muro» / «Volved al muro» en
+  los cuatro muros, con el barrido latiendo y las manos fantasma latiendo. **Petición a INT**: pasar `events: frameEvents` a
+  `guide.update(...)` (hoy no le llegan eventos; con `state.warn` ya funciona).
+- Pruebas: `index.html?sound=ressonancia-sound&demo=0` con 0, 1 y 4 manos (`group`) saltando a wait, brasa, pinya, tronc, baixada y
+  festa: 0 errores; estados forzados (Tronc fuera de estructura, bajada con mano, llamada de la Brasa, aviso de caída) en WebGPU y
+  WebGL2 sin errores: `caps-gui/c8-guide-batch.png`.
+Textos nuevos (para voces): «Juntaos» · «Con el tambor» · «Ayudad desde aquí» · «Manos al muro» · «Volved al muro».

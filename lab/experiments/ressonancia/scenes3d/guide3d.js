@@ -26,19 +26,22 @@ const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate)
 
 // T-043 (PLAN-INTERACCION.md): each interactive block teaches ONE verb. state.learned[verb] (ENT, T-038) says the group has it;
 // until the score publishes it, the guide keeps a stand-in (15 s of play with hands on the wall).
-export const VERBS = { brasa: 'tocar', pinya: 'sostener', tronc: 'subir', pom: 'quietos', aleta: 'alzar', baixada: 'bajar' };
+export const VERBS = { brasa: 'tocar', pinya: 'juntar', tronc: 'subir', pom: 'quietos', aleta: 'alzar', baixada: 'bajar' };
 // the ghost hands' gesture for each verb ('base': the Tronc's wobble, hands down to the tower's foot)
-export const GESTURES = { tocar: 'tap', sostener: 'still', subir: 'rise', quietos: 'still', alzar: 'raise', bajar: 'lower', base: 'lower' };
+// the guide teaches EXACTLY what score.js measures: subir follows the Tronc's phrase (S.phraseT), bajar goes up then down ≥ 0.40 m
+export const GESTURES = { tocar: 'tap', juntar: 'gather', subir: 'phrase', quietos: 'still', alzar: 'raise', bajar: 'updown', base: 'lower' };
 export const CARD_S = 4;                       // the chapter card stays 4 s (the play goes on under it)
 const verbOf = (S) => (S.block === 'pom' && S.phase === 'aleta' ? VERBS.aleta : VERBS[S.block]);
 /** The words for now: { card: [numeral, name, value] } or { line: [invitation, label] } or {}. No counters anywhere; an invitation
  *  has ≤ 3 words and leaves once the verb is learned; the real floor and climber names stay as the label. */
-export function lines(S, acta, learned = false) {
+export function lines(S, acta, learned = false, warn = '') {
   const b = S.block;
+  if (warn === 'fall') return { line: ['Manos al muro', ''] };      // the score warns before a fall / before giving up (analysis #19)
+  if (warn === 'abandon') return { line: ['Volved al muro', ''] };
   if (S.phase === 'title' && CARDS[b]) return S.tp < CARD_S ? { card: CARDS[b] } : {};
   if (b === 'wait') return { line: (S.reveal ?? 1) >= 1 ? ['Sostened el anillo para empezar', ''] : ['Tocad. Jugad con la sala.', ''] };   // strings agreed with ENT (voice)
-  if (b === 'brasa') return S.phase === 'reward' ? {} : !learned ? { line: ['Tocad el muro', ''] } : S.waves < 3 ? { line: ['Ahora, juntos', ''] } : {};
-  if (b === 'pinya') return S.phase === 'reward' ? {} : { line: ['Buscad un círculo y sostenedlo', ''] };   // as before (its step comes later), without the counter
+  if (b === 'brasa') return S.phase === 'reward' ? {} : S.brasaStage === 'call' ? (learned ? {} : { line: ['Con el tambor', ''] }) : { line: ['Tocad el muro', ''] };   // by the score's stage (#18)
+  if (b === 'pinya') return S.phase === 'reward' || learned ? {} : { line: ['Juntaos', ''] };   // follow the palm to the centre, pack together (#17)
   if (b === 'tronc') {
     if (S.phase === 'reward') return {};
     const fl = S.floors ? FLOOR_NAMES[S.floors - 1] : '';
@@ -295,7 +298,7 @@ export function createGuide({ THREE, TSL, room }) {
       const mesh = new THREE.Mesh(gq, m); mesh.renderOrder = 23; mesh.visible = false; mesh.quaternion.copy(basis[wi]); object.add(mesh);
       return { mesh, a };
     };
-    return { want: 'still', wantS: 0, gesture: 'still', s: 0, ph: Math.random(), extAt: -1e9, anchor: 0, h: [mk(), mk()] };
+    return { want: 'still', wantS: 0, gesture: 'still', s: 0, ph: Math.random(), extAt: -1e9, anchor: 0, phraseT: 0, tapDt: 9, h: [mk(), mk()] };
   });
   function ghost(wall, gesture, strength = 1) { const G = ghosts[wall]; if (!G) return; G.want = gesture; G.wantS = clamp(strength, 0, 1); G.extAt = time0; }
   const sstep = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
@@ -303,7 +306,7 @@ export function createGuide({ THREE, TSL, room }) {
     for (let wi = 0; wi < NW; wi++) {
       const G = ghosts[wi], w = room.walls[wi];
       if (G.want !== G.gesture) { G.s = ease(G.s, 0, dt, 6); if (G.s < 0.02) { G.gesture = G.want; G.ph = 0; } } else G.s = ease(G.s, G.wantS, dt, 2);
-      const T = G.gesture === 'raise' ? 6 : 3.2; G.ph = (G.ph + dt / T) % 1;
+      const T = G.gesture === 'raise' ? 6 : G.gesture === 'updown' ? 5 : 3.2; G.ph = (G.ph + dt / T) % 1;
       const ph = G.ph, env = sstep(ph / 0.15) * (1 - sstep((ph - 0.8) / 0.2)), e = sstep((ph - 0.15) / 0.5);
       for (let k = 0; k < 2; k++) {
         const H = G.h[k];
@@ -313,6 +316,16 @@ export function createGuide({ THREE, TSL, room }) {
         else if (G.gesture === 'lower') y = 1.55 - 0.45 * e;
         else if (G.gesture === 'base') y = 1.3 - 0.5 * e;             // down to the tower's foot (< 0.95 m)
         else if (G.gesture === 'raise') y = 1.2 + 0.8 * e;
+        else if (G.gesture === 'phrase') {                            // the Tronc's phrase (4.8 s): down to receive, up, hold
+          const p = G.phraseT; a = 1;
+          y = p < 0.25 ? 1.5 - 0.45 * sstep(p / 0.25) : p < 0.75 ? 1.05 + 0.45 * sstep((p - 0.25) / 0.5) : 1.5;
+        } else if (G.gesture === 'updown') {                          // the descent: go up to take it (1.0 → 1.6), then bring it down (≥ 0.40 m, slowly)
+          y = ph < 0.1 ? 1.0 : ph < 0.35 ? 1.0 + 0.6 * sstep((ph - 0.1) / 0.25) : ph < 0.5 ? 1.6 : 1.6 - 0.6 * sstep((ph - 0.5) / 0.35);
+          a = sstep(ph / 0.08) * (1 - sstep((ph - 0.9) / 0.1));
+        } else if (G.gesture === 'tapAt') {                           // land on the beat: visible from 0.8 s before the moment, presses at it
+          const d = G.tapDt; a = sstep((d + 0.8) / 0.3) * (1 - sstep((d - 0.15) / 0.3));
+          sc = 1 - 0.16 * Math.max(0, 1 - Math.abs(d) / 0.15);
+        }
         else if (G.gesture === 'still') { a = 0.75 + 0.25 * Math.sin(time0 * 0.8 + wi); }
         else if (G.gesture === 'gather') { x = (k ? 1 : -1) * (0.9 - 0.72 * e); }
         if (k === 1 && G.gesture !== 'gather') a = 0;
@@ -323,28 +336,36 @@ export function createGuide({ THREE, TSL, room }) {
     }
   }
   // the learned stand-in (until state.learned exists): 15 s of play with hands on the wall
-  const SCORE_KEYS = new Set(['pinya', 'tronc', 'pom', 'aleta', 'baixada']);
+  const SCORE_KEYS = new Set(['brasa', 'pinya', 'tronc', 'pom', 'aleta', 'baixada', 'festa']);
   let learnBlock = '', learnT = 0, learnedNow = false, learnedK = 0, playT = 0;
   function learning(S, dt) {
     const lb = S.block + (S.phase === 'aleta' ? ':aleta' : ''); if (lb !== learnBlock) { learnBlock = lb; learnT = 0; playT = 0; }
     const verb = verbOf(S);
     if (S.phase === 'play' || S.phase === 'aleta') { playT += dt; if (S.hands > 0) learnT += dt; }
-    // the score's keys are the block names (ENT T-042: learned.pinya / tronc / pom / aleta / baixada); the Brasa has none: a timer
+    // the score's keys are the block names (ENT: learned.brasa / pinya / tronc / pom / aleta / baixada / festa)
     const L = S.learned && typeof S.learned === 'object' ? S.learned : null, key = S.block === 'pom' && S.phase === 'aleta' ? 'aleta' : S.block;
     learnedNow = !!verb && (SCORE_KEYS.has(key) && L ? !!L[key] : learnT >= 15);
     return verb;
   }
+  let warnKind = '', warnUntil = -1;
+  // walls outside the castell's structure still have a role (#11d): their own line
+  const lineOut = typo.slot({ placements: typo.onWalls(room, 1.98), renderOrder: 23, outDur: 0.5, plate: 0.45 });
+  object.add(lineOut.object);
+  const nearX = (hands, wi) => { for (const h of hands) if (h.wall === wi && Math.abs((h.u - 0.5) * room.walls[wi].width) <= 0.55) return true; return false; };   // the score's test for the start ring
   let structureOnly = false; const inS = [];
   // the new chapter's words enter on a wall once the host's tile wave has passed it (+0.3 s, in typo3d's slot). room.tileFront(wall)
   // is INT/RND-F's (T-028); until it exists (or when it does not answer a number) every wall is open at once.
   // ASSUMED contract (to confirm against PARTS.md when it lands): tileFront(w) >= 1 once the front has passed wall w.
   const waveGate = (w) => { if (typeof room.tileFront !== 'function') return true; const f = room.tileFront(w); return !(typeof f === 'number') || f >= 1; };
-  function update(dt, { state: S, hands = [], time = 0, on = true, acta = null, hold = false, pace = 1 }) {
+  function update(dt, { state: S, hands = [], time = 0, on = true, acta = null, hold = false, pace = 1, events = null }) {
+    // warnings (#19): the score's state.warn ('fall' | 'abandon') or its events 'warn:fall' / 'warn:abandon' (if the host passes events)
+    if (events) for (const e of events) if (e === 'warn:fall' || e === 'warn:abandon') { warnKind = e.slice(5); warnUntil = time + 4; }
+    const warn = S.warn || (time < warnUntil ? warnKind : '');
     const dtT = dt * Math.max(1, pace);   // the words' motion follows the score's clock: at a fast rehearsal pace a card still lands
     time0 = time; uTime.value = time; typo.setTime(time);
     const b = S.block, playing = S.phase !== 'title';
     const key = b + '|' + (b === 'tronc' ? +S.balance : 0) + '|' + S.buttons;
-    const wantT = on && playing && (b === 'wait' || b === 'pinya' || b === 'tronc' || b === 'pom' || b === 'baixada') && !(b === 'tronc' && S.phase === 'reward') && S.phase !== 'aleta';   // l'aleta: no ring, only the ghost hands rising
+    const wantT = on && playing && (b === 'wait' || b === 'pinya' || b === 'tronc' || b === 'pom') && !(b === 'tronc' && S.phase === 'reward') && S.phase !== 'aleta';   // l'aleta: no ring, only the ghost hands rising
     if (key !== guideKey) { guideA = ease(guideA, 0, dt, 5); let gone = true; for (const T of targets) if (T.used && T.asm > 0.04) gone = false; if (guideA < 0.03 && gone) { guideKey = key; for (const T of targets) { T.held = 0; T.burst = 0; T.arcPrev = 0; } } } else guideA = ease(guideA, wantT ? 1 : 0, dt, 3);
     const gb = guideKey.slice(0, guideKey.indexOf('|'));
     const verb = learning(S, dt);
@@ -362,11 +383,11 @@ export function createGuide({ THREE, TSL, room }) {
     const walls = S.walls || [];
     for (let w = 0; w < NW; w++) {
       const sw = !!walls[w];
-      if (gb === 'wait') put(w, 0, 1, S.count[w] > 0 && revealNow >= 1, near(hands, w, 0), 0, S.start || 0, dt);
+      if (gb === 'wait') put(w, 0, 1, nearX(hands, w) && revealNow >= 1, near(hands, w, 0), 0, S.start || 0, dt);   // lit only where the score counts (#14)
       else if (gb === 'pinya') { const offs = S.buttons >= 3 ? 3 : S.buttons === 2 ? 2 : 1; for (let k = 0; k < offs; k++) { const o = offs === 3 ? (k - 1) * 1.1 : offs === 2 ? (k ? 0.7 : -0.7) : 0; const nh = near(hands, w, o); put(w, o, 1, nh, nh, 0, S.fill[w], dt); } }
-      else if (gb === 'tronc' && sw) { const beat = 1 + (1 - S.beat) * 2; if (S.balance) { put(w, -0.65, 1, S.left[w] && near(hands, w, -0.65), near(hands, w, -0.65), beat, S.floorProgress, dt); put(w, 0.65, 1, S.right[w] && near(hands, w, 0.65), near(hands, w, 0.65), beat, S.floorProgress, dt); } else put(w, 0, 1, S.count[w] > 0, near(hands, w, 0), beat, S.floorProgress, dt); }
-      else if (gb === 'pom' && sw) put(w, 0, w === S.lightWall ? 1 : w === S.nextWall ? 0.8 : 0.4, S.count[w] > 0, near(hands, w, 0), 0, w === S.lightWall ? S.climb : 0, dt);
-      else if (gb === 'baixada' && sw) put(w, 0, 1, S.count[w] > 0, near(hands, w, 0), 0, 0, dt);
+      else if (gb === 'tronc') { const beat = 0;   // no 2.4 s pulse ring: the Tronc is lift and level (#13); off the structure the ring teaches too (#11d)
+        if (!sw) { put(w, 0, 0.6, S.count[w] > 0, near(hands, w, 0), beat, 0, dt); continue; } if (S.balance) { put(w, -0.65, 1, S.left[w] && near(hands, w, -0.65), near(hands, w, -0.65), beat, S.floorProgress, dt); put(w, 0.65, 1, S.right[w] && near(hands, w, 0.65), near(hands, w, 0.65), beat, S.floorProgress, dt); } else put(w, 0, 1, S.count[w] > 0, near(hands, w, 0), beat, S.floorProgress, dt); }
+      else if (gb === 'pom') put(w, 0, !sw ? 0.4 : w === S.lightWall ? 1 : w === S.nextWall ? 0.8 : 0.4, S.count[w] > 0, near(hands, w, 0), 0, w === S.lightWall ? S.climb : 0, dt);
     }
     // the ghost hands: teaching at the start of the block (in the ring, or beside a real hand), then help that grows while the group has
     // not got it (state.assist when the score gives it), gone once learned. L'aleta: hands rising slowly under the enxaneta, always.
@@ -377,21 +398,30 @@ export function createGuide({ THREE, TSL, room }) {
       const sG = aleta || wob ? 0.85 : learnedNow ? 0 : teach ? 1 : assist;
       for (let w = 0; w < NW; w++) {
         if (time0 - ghosts[w].extAt < 0.5) continue;                 // a part / the host asked for this wall
-        const mine = !(b === 'tronc' || b === 'pom' || b === 'baixada') || !S.structure || !!walls[w];
+        const mine = true;                                           // every wall (#11d)
         let anchor = 0;                                              // beside the first real hand on the wall (towards the centre)
         for (const h of hands) if (h.wall === w) { const xm = (h.u - 0.5) * room.walls[w].width; anchor = xm + (xm > 0 ? -0.45 : 0.45); break; }
         ghosts[w].anchor = ease(ghosts[w].anchor, anchor, dt, 2);
         const g = wob ? (w === S.wobbleWall ? 'base' : null) : GESTURES[verb];
         ghosts[w].want = g || ghosts[w].want; ghosts[w].wantS = mine && g ? sG : 0;
         if (aleta || wob) ghosts[w].anchor = 0;                  // under the enxaneta / at the tower's foot: the wall's centre
+        ghosts[w].phraseT = S.phraseT ?? 0;
+        if (b === 'brasa' && S.brasaStage === 'call' && S.call) {   // the call: a hand lands on the TOK on the calling walls
+          const C = S.call, on2 = C.to === -1 || w === C.from || w === C.to;
+          ghosts[w].want = 'tapAt'; ghosts[w].tapDt = (S.clock ?? 0) - C.at; ghosts[w].wantS = on2 && !learnedNow ? 1 : 0; ghosts[w].anchor = 0;
+        }
       }
+    } else if (b === 'festa' && on) {                                  // the echo (#21): on the arrival wall, a hand lands 0.8 s before the front
+      for (let w = 0; w < NW; w++) { if (time0 - ghosts[w].extAt < 0.5) continue; ghosts[w].want = 'tapAt'; ghosts[w].wantS = 0; ghosts[w].anchor = 0; ghosts[w].tapDt = 9; }
+      for (const f of S.fronts || []) { const G = ghosts[f.to]; if (!G || time0 - G.extAt < 0.5) continue; const d = (S.clock ?? 0) - f.arrive; if (d > -0.8 && d < 0.5 && Math.abs(d) < Math.abs(G.tapDt)) { G.tapDt = d; G.wantS = f.ghost ? 0.6 : 0.9; } }
     } else for (let w = 0; w < NW; w++) if (time0 - ghosts[w].extAt >= 0.5) ghosts[w].wantS = 0;
+    if (warn) for (let w = 0; w < NW; w++) if (time0 - ghosts[w].extAt >= 0.5) { ghosts[w].want = 'still'; ghosts[w].wantS = 0.6 + 0.4 * Math.abs(Math.sin(time0 * 3)); ghosts[w].anchor = 0; }   // the visual pulse of a warning
     stepGhosts(dt);
     // the targets not placed this frame break where they were
     for (let i = nT; i < MAXT; i++) { const T = targets[i]; T.asm = ease(T.asm, 0, dt, 4); T.U.asm.value = T.asm; T.group.visible = T.asm > 0.004; T.held = 0; }
 
     // the words; from the Tronc on, the instructions belong to the walls that carry the castell
-    const g = on ? lines(S, acta, learnedNow) : {};
+    const g = on ? lines(S, acta, learnedNow, warn) : {};
     structureOnly = (b === 'tronc' || b === 'pom' || b === 'baixada') && S.structure > 0 && S.structure < NW;
     for (let w = 0; w < NW; w++) inS[w] = !!walls[w];
     card.want(g.card ? 'c|' + g.card.join('|') : '', g.card ? cardItems(g.card) : null);
@@ -413,16 +443,22 @@ export function createGuide({ THREE, TSL, room }) {
     else if (b === 'baixada') { let need = 0, ok = 0; for (let w = 0; w < NW; w++) if (walls[w]) { need++; if (S.count[w] > 0) ok++; } doing = need ? ok / need : 0; }
     gain *= 1 - 0.55 * doing;
     const cardUp = card.up;
-    const mask = (w) => !structureOnly || inS[w];
+    const mask = (w) => !!warn || !structureOnly || inS[w];   // a warning goes on every wall
     // the wait: the instruction is the lintel inscription of ENT-F's doorway (keystone ~1.95 m): one line centred at 2.12 m. It moves
     // only while no words are up (never slides in view)
     if (!line.up) line.object.position.y = b === 'wait' ? 2.12 - 1.98 : 0;
-    line.step(dtT, { gain, hold: hold || cardUp, mask, gate: waveGate });
+    line.step(dtT, { gain: warn ? 1 : gain, hold: hold || cardUp, mask, gate: waveGate });
+    if (warn) for (const t of line.texts) { t.U.sweepK.value = 1; t.U.sweep.value = ((time0 * 0.9) % 1.6) - 0.3; }   // the warning pulses
+    // the walls outside the structure: «Ayudad desde aquí» (they count at 50 %), while the structure's walls carry the invitation
+    const outOn = on && structureOnly && !warn && S.phase === 'play' && !learnedNow && (b === 'tronc' || b === 'pom' || b === 'baixada');
+    lineOut.want(outOn ? 'o|ayudad' : '', outOn ? lineItems(['Ayudad desde aquí', '']) : null);
+    for (const t of lineOut.texts) t.U.plate.value = plateK ?? 0.45;
+    lineOut.step(dtT, { gain, hold: hold || cardUp, mask: (w) => !inS[w], gate: waveGate });
   }
   function dispose() {
     ringGeo.dispose(); discGeo.dispose(); tileGeo.dispose(); handTex.dispose(); gq.dispose(); for (const G of ghosts) for (const H of G.h) H.mesh.material.dispose();
     for (const T of targets) T.group.traverse((o) => { if (o.material) o.material.dispose(); });
-    for (const s of [card, line]) s.dispose();
+    for (const s of [card, line, lineOut]) s.dispose();
   }
   return { object, update, dispose, ghost, targets, layers: { card, line }, get learned() { return learnedNow; } };
 }

@@ -2,7 +2,8 @@
 // One text per wall, 2 cm behind the wall plane, so the words sit exactly on the wall for every visitor. Each word ASSEMBLES from
 // glyph-tiles that fly in and lock (tracking opening, a light sweep) and BREAKS into tiles that drift up when it goes.
 // Timeline on input.t (the intro, 70 s): 53–64 the motto, one wall after another, 2 s apart (Fuerza · Equilibrio · Valor · Seny, the
-// Catalan under each); 63.8–79 «Ressonància» on every wall with «Poned las manos sobre el muro» (the host sends t = 76 → 79 as it leaves).
+// Catalan under each); 63.8–79 «Ressonància» on every wall (the host sends t = 76 → 79 as it leaves). No «put your hands on the wall» here: nothing
+// counts until the Brasa (analysis #7), and the Brasa says it.
 import { typo } from '../typo3d.js';
 
 const MOTTO = [['Fuerza', 'força'], ['Equilibrio', 'equilibri'], ['Valor', 'valor'], ['Seny', 'seny']];
@@ -20,7 +21,7 @@ export function create({ THREE, room }) {
     return t;
   });
   const title = typo.text({ placements: typo.onWalls(room, 2.05), renderOrder: 10, plate: 0.4, spread: 2.0, depth: 0.45 });
-  title.set([{ text: 'Ressonància', font: 'serif', size: 0.68, y: 0.14, track: 0.02, color: INK }, { text: 'Poned las manos sobre el muro', font: 'sans', size: 0.15, y: -0.34, track: 0.03, alpha: 0.8, color: SOFT, edge: 0.5, delay: 0.4 }]);
+  title.set([{ text: 'Ressonància', font: 'serif', size: 0.68, y: 0.14, track: 0.02, color: INK }]);
   title.alpha.fill(1); object.add(title.object);
   // a word's life on the intro's clock: assemble from s (35 ms a letter, 0.9 s each), stand, break from e; the sweep crosses once it stands
   function drive(t, txt, s, e, outDur = 0.6) {
