@@ -67,7 +67,7 @@ export const CUES = {
   'focus:lean': { alias: 'ach:lean' },
   'ach:level': { voice: 'v-tronc-level', where: 'focus', energy: 'soft', text: 'Recta', place: 'ach', kind: 'ach' },
   'level': { alias: 'ach:level' },
-  'wobble': { voice: 'v-tronc-wobble', where: 'focus', energy: 'urgent', text: 'Sujetad la base', place: 'focus', kind: 'task', y: 1.0 },
+  'wobble': { voice: 'v-tronc-wobble', where: 'focus', energy: 'urgent', text: 'Sujetad la base', place: 'focus', kind: 'task', y: 1.0, repeat: true, cooldown: 30 },   // every tremble, on its wall (≥ 30 s apart)
   'ach:steady': { voice: 'v-tronc-steady', where: 'ach', energy: 'warm', text: 'La pinya aguanta', place: 'ach', kind: 'ach' },
   'ach:slip': { voice: 'v-tronc-slip', where: 'ach', energy: 'urgent', text: null, kind: 'ach', breakFloor: true, repeat: true, cooldown: 12 },   // the floor's name breaks and falls
   'assist:on:tronc': { voice: 'v-colla-1', where: 'room', energy: 'warm', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 600 },
