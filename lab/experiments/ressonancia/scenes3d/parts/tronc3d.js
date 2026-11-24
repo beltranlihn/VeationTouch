@@ -97,9 +97,8 @@ export function create(ctx) {
   }
   // light: museum recipe in tower space (+z towards the room)
   const KEY = normalize(vec3(0.32, 0.88, 0.5)), RIM_L = normalize(vec3(-0.8, 0.25, -0.55)), RIM_R = normalize(vec3(0.75, 0.35, -0.55)), FILL = normalize(vec3(-0.25, -0.1, 1));
-  function glaze(h) {     // trencadís palette (linear)
-    return select(h.lessThan(0.22), vec3(0.016, 0.06, 0.40), select(h.lessThan(0.42), vec3(0.025, 0.40, 0.38), select(h.lessThan(0.58), vec3(0.75, 0.38, 0.025),
-      select(h.lessThan(0.74), vec3(0.85, 0.82, 0.74), select(h.lessThan(0.88), vec3(0.05, 0.28, 0.07), vec3(0.62, 0.06, 0.035))))));
+  function glaze(h) {     // trencadís of the faixes: cobalt #2146B0, ochre #E3A32B, white (art direction, round 5)
+    return select(h.lessThan(0.45), vec3(0.015, 0.06, 0.43), select(h.lessThan(0.7), vec3(0.77, 0.37, 0.025), vec3(0.85, 0.82, 0.74)));
   }
   const h31 = (q) => fract(sin(dot(q, vec3(127.1, 311.7, 74.7))).mul(43758.5453));
   // trencadís on the sash: a cheap 3D cell pattern (2×2×2 neighbourhood) → tile colour and grout
@@ -606,7 +605,12 @@ export function create(ctx) {
       if (t.halo) { _v.copy(t.g.position).setY((LV[fl].yc + 0.5) * SC - rise); room.placeHalo(t.halo, _v, 2.5); t.halo.set({ intensity: 0.12 * (0.7 + 0.3 * reward) * decor * (1 - uAway.value * 0.5) }); t.halo.mesh.visible = decor > 0.01; }
       else { const hy = Math.max(2.6, room.eye.y + 1.2); _v.copy(t.g.position).setY(hy).addScaledVector(t.w.normal, -4).sub(room.eye).normalize(); halo.array[t.tw].set(_v.x, _v.y, _v.z, (0.6 + 0.4 * reward) * decor); }
     }
-    for (const t of towers) if (!t.on) { halo.array[t.tw].w = 0; if (t.halo) t.halo.mesh.visible = false; }
+    // a wall without a tower keeps the same soft halo (round 5: no empty grey wall)
+    const anyOn = towers.some((t) => t.on);
+    for (const t of towers) if (!t.on) {
+      halo.array[t.tw].w = 0;
+      if (t.halo) { _v.copy(t.w.centre).addScaledVector(t.w.normal, -TOWER_D).setY(4.2); room.placeHalo(t.halo, _v, 2.5); t.halo.set({ intensity: 0.07 * decor * (1 - uAway.value * 0.5) * (inTronc && anyOn ? 1 : 0) }); t.halo.mesh.visible = decor > 0.01 && inTronc && anyOn; }
+    }
     object.updateMatrixWorld();
 
     // ---- brushes: the hands on a tower's wall, picked on the sculpture
@@ -688,7 +692,8 @@ export function create(ctx) {
       const dW = Math.max(0.5, -_v.copy(t.w.centre).sub(room.eye).dot(t.w.normal)), dT = dW + t.dist, sc = dT / dW;
       r.g.scale.setScalar(sc); r.g.position.set(RULER_X * sc, 0, 0.6);
       r.line.position.y = 0; r.line.scale.y = (TOWER_H * SC + 1) / sc;
-      for (let lv = 0; lv < NL; lv++) { const y = LV[lv].yc * SC / sc; r.labs[lv].position.y = y; r.ticks[lv].position.set(0, y, 0); }
+      let last = 1e9;                                    // names ≥ 0.14 m apart on the wall: from the top down, a crowded lower name is left out
+      for (let lv = NL - 1; lv >= 0; lv--) { const y = LV[lv].yc * SC / sc; r.labs[lv].position.y = y; r.ticks[lv].position.set(0, y, 0); const ok = last - y >= 0.14; r.labs[lv].visible = ok; if (ok) last = y; }
     }
 
     // ---- the foot of the walls without a tower: grains drift to the nearest tower
