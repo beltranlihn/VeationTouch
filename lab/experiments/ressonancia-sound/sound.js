@@ -288,7 +288,7 @@ export default async function start(host) {
   // a cue of the table: once a pass unless it repeats (then its cooldown); its follow-up (`then`) after the line ends
   const cueAt = new Map(); let cueTimers = [];
   // lab only (?cuelog in the page's URL): every cue the script reached, said or not, in window.__cueLog (QA's ×8 pass)
-  const CUELOG = typeof location !== 'undefined' && /[?&]cuelog/.test(location.search) ? (globalThis.__cueLog = []) : null;
+  const CUELOG = typeof location !== 'undefined' && /[?&]cuelog/.test(location.search) ? (globalThis.__cueLog = []) : null;
   function cue(key, evArg = '') {
     const r = resolve(key, S); if (!r) return false;
     const c = r.cue, t = performance.now() / 1000, last = cueAt.get(r.key);
