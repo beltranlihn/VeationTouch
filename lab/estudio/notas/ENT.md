@@ -600,3 +600,7 @@ lecho del Pom a 0,06, viento ×0,15, el hilo como tono sostenido y el latido; `h
 un destello y 1,5 s a cero; cada huella = un toque cálido grave (D pentatónica) y un golpe suave al sub (más flojo en ráfagas).
 Voz nueva propuesta (no grabada; necesita el sí de Vicente): «The square holds its breath.» al empezar el aliento.
 **Cadena de muro del acta:** «Dejad vuestra mano» (EN «Leave your hand»), de 3 a 15 s (`printOpen`).
+**T-050b (tuning, POS):** `tuning.js` (×2 idénticos) +12 umbrales: `pinya.nearFull/.nearZero`, `tronc.base`, `pom.climb.0/.1/.2`,
+`pom.relay.every/.ready/.falter`, `pom.gust`, `pom.breakCost`, `print.rest`; «sala»: nearFull 2,1 · nearZero 3,3 · base 0,22 · ready 1,2 ·
+falter 1,8 · gust 0,5 · breakCost 0,03 · print.rest 0,6. `res-obra3d/manifest.json` regenerado desde `manifestParams()` (58 parámetros;
+los 37 de antes idénticos). `PRUEBA-SALA.md`: tabla de `t.…` (49) y filas Pom / acta. Respaldos `*.T050.bak`.

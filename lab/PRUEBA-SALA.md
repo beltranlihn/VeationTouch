@@ -57,7 +57,7 @@ En el catálogo aparecerán también «Ressonància» (el mosaico antiguo), «Re
 | **Renderer** | auto (WebGPU) / WebGL2 | **no**: Stop + Play |
 | **Mode** | auto (= sala dentro de la app) / room / lab. En sala la página ignora los interruptores de laboratorio de la URL | **no** |
 | **Thresholds preset** | **Lab** = los valores de la partitura (empezar aquí) · **Room** = arranque tolerante (ventanas más anchas, quórums más bajos, «quieto» más permisivo) | sí |
-| `t.…` (37) | cada umbral de la partitura (tabla abajo). **Un valor movido a mano manda sobre el preset** | sí |
+| `t.…` (49) | cada umbral de la partitura (tabla abajo). **Un valor movido a mano manda sobre el preset** | sí |
 
 Los valores se guardan en el perfil. Al cambiar uno, la consola de la página escribe `res-obra3d: thresholds {…}` con los efectivos.
 **Apuntar siempre el valor bueno** en la hoja (§6): es lo que el estudio pasará a `TIMES` en `score.js`.
@@ -76,11 +76,18 @@ Umbrales (por defecto = partitura; entre paréntesis, el preset Room si cambia):
 | `t.brasa.early` · `t.brasa.late` · `t.brasa.max` | 0,5 (0,7) · 0,7 (1,0) · 75 s | ventana de la llamada alrededor del TOK · duración máxima |
 | `t.pinya.pack.0` · `.1` | 0,55 (0,45) · 0,9 (0,8) | desde cuándo «apretados» empieza a llenar · lleno |
 | `t.pinya.hold` · `t.pinya.net` | 3 s · 40 s | sostener el círculo · desde cuándo ayuda la colla |
+| `t.pinya.nearFull` · `.nearZero` | 1,8 m (2,1) · 3 m (3,3) | el grupo apretado cuenta entero hasta esta distancia del centro del muro · nada desde aquí |
 | `t.tronc.rise` | 0,33 m (0,25) | **subida relativa que cuenta como levantar** |
 | `t.tronc.foot` · `t.tronc.wobble` | 0,95 m (1,1) · 5 s (7) | temblor: manos por debajo de esta altura lo sujetan · tiempo para sujetarlo |
 | `t.tronc.help` · `t.tronc.gain` | 0,5 · 0,72 | ayuda de los muros sin torre · velocidad de subida |
+| `t.tronc.base` | 0,15 m (0,22) | una mano que no sube y se movió menos que esto en 1 s es **base** (sujeta la torre) |
 | `t.pom.still` | 0,15 m (0,22) | **«quieto» = se movió menos de esto en 1 s** |
 | `t.pom.empty` | 20 s | sala vacía en el Pom → cae (aviso a los 10) |
+| `t.pom.climb.0` · `t.pom.relay.every` | 38 s · 4 s | **relevo**: duración con la mano quieta (incluye la cartela) · salta a la siguiente mano quieta cada |
+| `t.pom.relay.ready` · `t.pom.relay.falter` | 1 s (1,2) · 1,2 s (1,8) | una mano quieta está lista para recibirla tras · si la que la tiene se mueve, vuelve a la anterior tras |
+| `t.pom.climb.1` · `t.pom.gust` | 16 s · 0,35 m (0,5) | **aliento**: duración a toda velocidad (más manos quietas = más rápido) · moverse más que esto en 1 s = racha |
+| `t.pom.climb.2` · `t.pom.breakCost` | 10 s · 0,06 (0,03) | **silencio**: duración · lo que cuesta cada movimiento (parte de la subida) |
+| `t.print.rest` | 0,5 s (0,6) | **acta**: una mano apoyada este tiempo deja su huella (entre 3 y 15 s) |
 | `t.aleta.rise` · `t.aleta.high` | 0,28 m (0,22) · 1,6 m | alzar cuenta desde esta subida · o mano por encima de 1,6 m |
 | `t.aleta.quorum` · `t.aleta.window` | 0,6 (0,45) · 10 s | parte de las manos que corona · corona igualmente a los 10 s |
 | `t.festa.early` · `.late` | 0,5 (0,7) · 0,7 (1,0) | ventana de la llamada final |
@@ -103,11 +110,11 @@ que el muro: si una mano no aparece en Live, es el sensor, no la obra.
 | **I. Brasa** | tocar → brasas; luego la **llamada** («Con el tambor»): tok… tok… **TOK**, golpear el muro en el TOK. Tres llamadas: un muro, dos opuestos, los cuatro | respuesta inmediata del sonido al tocar; ola grande si se acierta el TOK; golpear a destiempo NO da ola | `t.brasa.early`, `t.brasa.late`, `t.hand.moved`, `t.hand.recent` | aciertos/llamadas; ¿se siente justo con el retraso de la imagen (~200 ms)? |
 | **II. Pinya** | «Juntaos»: palma con palma, luego **apretarse** hombro con hombro cerca del centro del muro y sostener | los círculos se llenan según lo apretados (no por tiempo); sostener 3 s cierra; manos separadas NO cierran | `t.pinya.pack.0/.1`, `t.hand.span`, `t.hand.size`, `t.pinya.hold`, `t.pinya.net` | **cuántas manos ve Live en una fila apretada** (oclusión); P3 (antebrazo = manos más anchas) |
 | **III. Tronc** | «Levantad»: **subir la mano deslizándola por el muro** ~30 cm en cada frase (reunir → subir → encajar, 4,8 s); un lado más alto inclina la torre; en el penúltimo piso, temblor: «Sujetad la base» = manos abajo | con manos quietas sube muy despacio; subiendo, un piso por frase; la torre se inclina hacia el lado bajo; el temblor se salva bajando las manos | `t.tronc.rise`, `t.tronc.gain`, `t.tronc.help`, `t.tronc.foot`, `t.tronc.wobble` | **estabilidad de la altura** (¿±10 cm a 10 Hz?); manos en fila subiendo: ¿se pierden?; pisos en 60 s |
-| **IV. Pom de dalt** | «Quietos»: manos apoyadas y quietas. Tres subidas: relevo (la luz pasa a la siguiente mano quieta, en cualquier muro), aliento (toda la sala quieta), silencio (nadie se mueve) | la luz sube con la quietud; moverse la hace titubear; sala vacía 20 s → cae (aviso a los 10) | **`t.pom.still`**, `t.pom.empty` | **temblor de una mano «quieta» en el S2E** (si sale «inquieta» sin moverse, subir `still`); adulto + niño |
+| **IV. Pom de dalt** | «Quietos»: manos apoyadas y quietas. Tres subidas: **relevo** (la luz nace bajo la mano más quieta y salta cada 4 s a otra mano quieta, en cualquier muro, dejando un hilo de oro; si la mano que la tiene se mueve, titubea y vuelve), **aliento** (toda la sala quieta; más manos quietas = más rápido; un golpe brusco = racha, no cae), **silencio** (casi sin sonido; nadie se mueve; un movimiento se oye: «ah»), luego 1,5 s de silencio y l'aleta | relevo ~32 s tras la cartela (campana en el muro que la recibe); aliento ~15 s en grupo, ~20 s solo; silencio 10 s; sala vacía 20 s → cae (aviso a los 10) | **`t.pom.still`**, `t.pom.empty`, `t.pom.relay.every/.ready/.falter`, `t.pom.climb.0/.1/.2`, `t.pom.gust`, `t.pom.breakCost` | **temblor de una mano «quieta» en el S2E** (si sale «inquieta» sin moverse, subir `still`); ¿la luz salta a manos que se ven en Live?; adulto + niño |
 | **V. L'aleta** (corona) | sin texto: la voz pide alzar la mano. **Alzar la mano** ≥ 28 cm o por encima de 1,6 m | corona antes y más ancha si la mayoría alza; si nadie, corona a los 10 s, estrecha | `t.aleta.rise`, `t.aleta.high`, `t.aleta.quorum`, `t.aleta.window` | con 5+ personas alzando: ¿cuántas manos ve Live? (sombras del sensor arriba) |
 | **V. La ressonància** (festa) | libre 20 s; luego **eco**: tocar → un frente cruza al muro de enfrente (~3 s); tocar ese muro cuando llega lo devuelve doblado; al final la **llamada** final y el florecimiento | el eco se ve y se oye cruzar; si nadie devuelve, la sala lo devuelve a los 12 s; **florece siempre**, más grande con unísono | `t.festa.window`, `t.festa.travel`, `t.festa.ghost`, `t.festa.early/.late` | ¿se ve el frente desde el centro?; ¿el eco se oye en el muro correcto con el mapa real de audio (P2 y P3 comparten canal)? |
 | **La baixada** | «Bajadlo despacio»: manos arriba y **bajarlas despacio** juntas; soltar todo = caída | cada bajada ≥ 35 cm baja dos pisos; despacio limpio, rápido cruje; soltar 10 s → carregat (cae) | `t.baixada.lower`, `t.baixada.gentle`, `t.baixada.empty`, `t.baixada.outside` | segundos hasta descarregat; ¿cruje sin querer? |
-| **Caída / L'acta** | apoyar la mano un momento (entre 3 y 15 s del acta) | el castell se disuelve; el acta «X de Y · descarregat/carregat», cuatro valores; cada mano apoyada ≥ 0,5 s deja una **huella** (si T-050 llegó) | — | ¿se leen las palabras a 3 m?; huellas en el muro correcto; vuelve a la espera sola |
+| **Caída / L'acta** | apoyar la mano un momento (entre 3 y 15 s del acta) | el castell se disuelve; el acta «X de Y · descarregat/carregat», cuatro valores; cada mano apoyada ≥ 0,5 s deja una **huella** de oro que se queda (máx. 60; «Dejad vuestra mano») | `t.print.rest` | ¿se leen las palabras a 3 m?; huellas en el muro correcto; vuelve a la espera sola |
 
 Al final: **un pase completo** con el grupo, sin tocar el panel (Go to «—», Pace 1), cronometrado (objetivo ~10 min).
 
