@@ -129,7 +129,7 @@ export function createScore(nWalls, opt = {}) {
   let breaksThis = 0, holderId = null, holdT = 0, goneT = 0, gustAt = -1e9, breakAt = -1e9, falterAt = -1e9, cracksB = 0;   // T-050 the pom's climbs; the bajada's cracks (Seny)
   const printed = new Set();                                                                                // T-050 the strokes that left a print
   // per stroke: a baseline height and a short history (for the displacement in the last second); allocated once per stroke
-  const HIST = 56, track = new Map(), strokePool = [];
+  const HIST = 56, track = new Map(), strokePool = [], lostTr = [];
   let maxDisp = 0, aletaBase = new Map(), aletaRose = new Map();
   let palmAt = -1e9, stillRun = 0, unisonSum = 0, frontId = 0, lastEcho = -1e9, festaEndAt = -1;
   const downsW = zeros(0), frontAt = zeros(-1e9);
@@ -139,7 +139,9 @@ export function createScore(nWalls, opt = {}) {
   function follow(h, now, dt) {
     let tr = track.get(h.stroke);
     const hasY = typeof h.y === 'number' && isFinite(h.y), y = hasY ? h.y : 0, hasS = typeof h.s === 'number' && isFinite(h.s);
-    if (!tr) { tr = { y0: y, land: now, ht: new Float64Array(HIST), hx: new Float32Array(HIST), hy: new Float32Array(HIST), n: 0, i: 0, last: -1e9, disp: 0, y, hasY, su: hasS ? h.s : h.dx || 0, s: hasS ? h.s : 0 }; track.set(h.stroke, tr); }
+    if (!tr) { tr = { y0: y, land: now, ht: new Float64Array(HIST), hx: new Float32Array(HIST), hy: new Float32Array(HIST), n: 0, i: 0, last: -1e9, disp: 0, y, hasY, su: hasS ? h.s : h.dx || 0, s: hasS ? h.s : 0 }; track.set(h.stroke, tr);
+      if (hasS) for (let i = lostTr.length - 1; i >= 0; i--) { const L = lostTr[i]; if (Math.abs(cdP(L.s, h.s)) < 0.4 && Math.abs(L.y - y) < 0.4) { tr.still = L.still; tr.land = L.land; lostTr.splice(i, 1); break; } }   // the sensor split a resting hand: it does not «arrive» again
+    }
     // the position along the room: the perimeter `s`, unwrapped (crossing a corner or the P3|P4 seam is not a jump); dx without s
     if (hasS) { const ds = h.s - tr.s; tr.su += Math.abs(ds) > 5 ? 0 : ds; tr.s = h.s; } else tr.su = h.dx || 0;
     const x = tr.su;
@@ -423,7 +425,12 @@ export function createScore(nWalls, opt = {}) {
       o.stroke = h.stroke; o.wall = h.wall; o.y = tr.y; o.y0 = tr.y0; o.rise = tr.y - tr.y0; o.disp = tr.disp; o.dy = tr.dy; S.strokes.push(o);
       o.dx = h.dx || 0; o.s = typeof h.s === 'number' && isFinite(h.s) ? h.s : 0; o.size = h.size > 0 ? h.size : T.hand.size; o.still = tr.still;
     }
-    for (const k of track.keys()) if (!seen.has(k)) track.delete(k);
+    for (const [k, tr] of track) if (!seen.has(k)) {   // 25-11 (§4.3 edge fix): remember a lost hand for 1 s, so a new stroke where it was inherits its stillness
+      if (lostTr.length >= 32) lostTr.shift();
+      lostTr.push({ s: tr.s, y: tr.y, still: tr.still || 0, land: tr.land, at: now });
+      track.delete(k);
+    }
+    while (lostTr.length && now - lostTr[0].at > 1) lostTr.shift();
     for (let w = 0; w < W; w++) {
       const a = wallHands[w];
       if (!a.length) { S.yMed[w] = S.yL[w] = S.yR[w] = S.span[w] = S.rise[w] = 0; spanN[w] = 0; spanTotal[w] = 0; continue; }
