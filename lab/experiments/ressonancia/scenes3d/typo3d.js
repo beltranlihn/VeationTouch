@@ -313,7 +313,9 @@ function slot({ placements, outDur = 0.5, ...opt } = {}) {
     get up() { return st[0].asm * (1 - st[0].out) > 0.04 || st[1].asm * (1 - st[1].out) > 0.04; },
     // gate(i): may the new words start on placement i yet? (the host's tile wave has passed that wall). A wall held back starts
     // 0.3 s after its gate opens; the others are not delayed.
-    step(dt, { gain = 1, hold = false, mask = null, gate = null } = {}) {
+    // mask(i): true / false or a number 0..1 (25-11: the wall that calls at 100 %, the others at 30 %); lead(i): seconds this
+    // placement starts after the first (25-11: the words enter first on the wall that calls)
+    step(dt, { gain = 1, hold = false, mask = null, gate = null, lead = null } = {}) {
       const c = st[cur];
       if (c.key !== wantKey) {
         if (c.key && c.out < 1) c.out = Math.min(1, c.out + dt / outDur);
@@ -322,7 +324,7 @@ function slot({ placements, outDur = 0.5, ...opt } = {}) {
           cur = 1 - cur; const nx = st[cur];
           nx.key = wantKey; nx.asm = 0; nx.out = 0; nx.since = 0;
           if (wantKey) T[cur].set(wantItems);
-          lagS.fill(0); held.fill(0);
+          lagS.fill(0); held.fill(0); if (lead) for (let w = 0; w < lagS.length; w++) lagS[w] = Math.max(0, +lead(w) || 0);
         }
       }
       const n = st[cur];
@@ -336,7 +338,7 @@ function slot({ placements, outDur = 0.5, ...opt } = {}) {
       }
       T[cur].lags.set(lagS);
       gainNow += (gain - gainNow) * (1 - Math.exp(-dt * 2.5));
-      for (let w = 0; w < wallA.length; w++) wallA[w] += ((mask ? (mask(w) ? 1 : 0) : 1) - wallA[w]) * (1 - Math.exp(-dt * 3));
+      for (let w = 0; w < wallA.length; w++) wallA[w] += ((mask ? Number(mask(w)) || 0 : 1) - wallA[w]) * (1 - Math.exp(-dt * 3));
       for (let i = 0; i < 2; i++) {
         const s = st[i], t = T[i];
         t.U.asm.value = s.asm; t.U.out.value = i === cur ? s.out : Math.max(s.out, s.key ? 0 : 1);

@@ -60,7 +60,7 @@ export const CUES = {
   'ach:close': { voice: 'v-pinya-3', where: 'room', energy: 'warm', text: null, kind: 'ach', then: { key: 'struct', after: 2.2 } },
   'struct': { voice: { 1: 'v-struct-1', 2: 'v-struct-2', 3: 'v-struct-3', 4: 'v-struct-4' }, where: 'room', energy: 'warm', text: STRUCT_NAME, place: 'structure', kind: 'ach', cap: 0.22 },
   // ---- 3.3 III · Tronc
-  'title:tronc': { voice: 'v-tronc-lift', where: 'room', energy: 'warm', text: 'Levantad', place: 'structure', kind: 'card', card: ['III', 'Tronc', 'Equilibrio'], others: 'Empujad desde aquí' },
+  'title:tronc': { voice: 'v-tronc-lift', where: 'room', energy: 'warm', text: 'Levantad', place: 'structure', kind: 'card', card: ['III', 'Tronc', 'Equilibrio'], others: 'Sostened la luz' },   // walls without the tower: the target is «la luz» everywhere (voice: «Dejad la mano sobre la luz»)
   'ach:floor': { voice: { 2: 'v-floor-2', 3: 'v-floor-3', 4: 'v-floor-4', 5: 'v-floor-5', 6: 'v-floor-6', 7: 'v-floor-7', 8: 'v-floor-8', 9: 'v-floor-9' }, where: 'busy', energy: 'lift', text: FLOOR_NAME, place: 'structure', kind: 'ach', repeat: true, rise: true },
   'ach:lean': { voice: 'v-tronc-2', where: 'focus', energy: 'soft', text: 'Los dos lados', place: 'focus', kind: 'task' },
   'focus:lean': { alias: 'ach:lean' },

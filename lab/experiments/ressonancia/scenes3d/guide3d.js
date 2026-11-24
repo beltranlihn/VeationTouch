@@ -21,13 +21,17 @@
 // the chapter card is centred at 1.95 m and the consigna waits for it to leave; the ink is the chapter's (palette.js PAL[b].ink:
 // bone on the dark chapters, dark ink on the light ones). NO backing plates (director 25-11: they read as dirty patches on the wall):
 // legibility comes from the ink, the size and a tight soft glyph halo. The consigna steps aside from the chapter's hero object
-// (CONSIGNA_X: the brasa's drop, the tower). The fine instrument layer (rulers, «+», grid, «P4», «1,25 m») and the mono labels are
+// (CONSIGNA_X: the brasa's drop, the tower).
+// N6 (25-11): the consigna is at 100 % on the wall that calls (S.focus) and enters there first; the other walls carry a 30 % echo,
+// 0.6 s later. ACHIEVEMENTS (cues.js kind 'ach' with a text): a word in gold (palette ACH) 0.35 m above the achievement's point, or
+// on the castell's walls / all walls, 2.5 s, then it breaks into tiles. The floors' names rise with the tower (0.9 → 2.0 m) and fall
+// with it in the baixada; a floor lost breaks its name. The fine instrument layer (rulers, «+», grid, «P4», «1,25 m») and the mono labels are
 // GONE. The rings are drawn by targets3d.js (Tech/QA) from S.targets: the guide draws none (option rings: true brings them back as a
 // fallback only).
 import { FLOOR_NAMES, CLIMBERS } from '../score.js';
-import { CUES } from '../cues.js';
+import { CUES, cueKey, resolve, FLOOR_NAME } from '../cues.js';
 import { typo, OVER } from './typo3d.js';
-import { chapter } from './palette.js';
+import { chapter, ACH } from './palette.js';
 const CT = (k) => (CUES[k] && typeof CUES[k].text === 'string' ? CUES[k].text : '');   // a cue's text (the table wins)
 
 // [numeral, name, value]
@@ -84,10 +88,10 @@ function linesPlay(S, acta, learned, warn) {
 }
 // ink: the chapter's (palette.js): bone at 90 % on the dark chapters (under the bloom's threshold), dark ink on the light ones
 const inkOf = (b) => { const c = chapter(b); return c.dark === false ? c.lin.ink.slice() : c.lin.ink.map((v) => v * 0.9); };
-let INK = inkOf('wait');
+let INK = inkOf('wait'), INK_A = 0.92;   // light chapters: the darkest ink at full opacity (director 25-11: ≥ 4.5:1)
 export const TEXT = { line: 1.62, lineCap: 0.18, labelCap: 0.14, card: 1.95, max: 22 };   // D7 (05-plan §3): metres; caps = 0.667 x size
 // the consigna's offset along the wall (m from its centre) where the chapter has a hero object at the centre: the text stands beside it
-const CONSIGNA_X = { brasa: -1.75, tronc: -2.7, baixada: -2.7 };
+const CONSIGNA_X = { brasa: -1.75, tronc: -2.0, baixada: -2.0 };   // ±2.7 hit the plaza's lamp posts and the corners of the narrow walls
 // the card: the numeral first (0.2 s ahead), the name (caps ≈ 0.31 m), the hairline drawn from the centre out, the value rising
 // from behind its baseline
 function cardItems(C) {
@@ -101,8 +105,8 @@ function cardItems(C) {
 const lineItems = (L) => {
   const it = [];
   // T-048: the words come into focus one by one (typo3d reveal 'blur', 60 ms per word)
-  if (L[0]) it.push({ text: L[0], font: 'sans', size: TEXT.lineCap / 0.667, y: 0, track: 0.02, alpha: 0.92, color: INK, edge: 0.5, reveal: 'blur' });
-  if (L[1]) it.push({ text: L[1], font: 'sans', size: TEXT.labelCap / 0.667, y: L[0] ? 0.33 : 0, track: 0.06, alpha: 0.8, color: INK, edge: 0.5, delay: 0.15, reveal: 'blur' });
+  if (L[0]) it.push({ text: L[0], font: 'sans', size: TEXT.lineCap / 0.667, y: 0, track: 0.02, alpha: INK_A, color: INK, edge: 0.5, reveal: 'blur' });
+  if (L[1]) it.push({ text: L[1], font: 'sans', size: TEXT.labelCap / 0.667, y: L[0] ? 0.33 : 0, track: 0.06, alpha: INK_A * 0.88, color: INK, edge: 0.5, delay: 0.15, reveal: 'blur' });
   return it;
 };
 
@@ -394,6 +398,48 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
   // walls outside the castell's structure still have a role (#11d): their own line
   const lineOut = typo.slot({ placements: typo.onWalls(room, TEXT.line), renderOrder: 23, outDur: 0.5, plate: 0, halo: 0.3, flash: room.flash });
   object.add(lineOut.object);
+  // ------------------------------------------------------------------ N6: the achievement layer
+  const achSlot = typo.slot({ placements: typo.onWalls(room, 0), renderOrder: 25, outDur: 0.6, plate: 0, halo: 0.35, flash: room.flash });
+  object.add(achSlot.object);
+  const achBase = typo.onWalls(room, 0), achRight = room.walls.map((w) => w.right.clone()), achS0 = [];
+  { let a = 0; for (const w of room.walls) { achS0.push(a); a += w.width; } }
+  const ACH_X = 2.3;                                       // the castell's walls: the word beside the tower (the other side of the consigna)
+  let achShow = null, achPend = null, achUntil = -1, achKey = '', achN = 0, structAt = -1;
+  const achMask = new Float32Array(NW), achX = new Float32Array(NW), achY = new Float32Array(NW);
+  function achieve(S, ev, time) {
+    if (ev === 'ach:close') structAt = time + 2.2;                     // the structure's name follows «El círculo se ha cerrado»
+    const k = ev === 'struct' ? 'struct' : cueKey(ev, S); if (!k) return;
+    const r = resolve(k, S); if (!r) return;
+    const c = r.cue;
+    if (c.breakFloor) { if (achShow && achShow.floor) { achPend = null; achUntil = time; } return; }   // a lost floor: its name breaks
+    if (c.kind !== 'ach' || !r.text) return;
+    const text = String(r.text), cap = Math.max(c.cap || 0, 0.18), floor = !!c.rise;   // 0.18 m: 0.14 was lost at room scale (capture 25-11)
+    const a = S.ach || {}, walls = (S.castell && S.castell.walls && S.castell.walls.length) ? S.castell.walls : null;
+    achMask.fill(0);
+    if (c.place === 'ach' && a.wall >= 0 && a.wall < NW) {
+      const w = a.wall, W = room.walls[w];
+      achMask[w] = 1; achX[w] = clamp((typeof a.s === 'number' ? a.s - achS0[w] : W.width / 2) - W.width / 2, -W.width / 2 + 1, W.width / 2 - 1);
+      achY[w] = clamp((a.y || 1.4) + 0.35, 1.2, 2.1);
+    } else {
+      const on = c.place === 'structure' && walls ? walls : [...Array(NW).keys()];
+      const n = typeof r.n === 'number' ? r.n : 0;
+      for (const w of on) { achMask[w] = 1; achX[w] = floor || c.place === 'structure' ? ACH_X : 0; achY[w] = floor ? 0.9 + clamp((n - 1) / 8, 0, 1) * 1.1 : c.place === 'structure' ? 1.95 : 1.95; }
+    }
+    achPend = { key: k + '|' + (++achN), items: [{ text, font: 'serif', size: cap / 0.667, y: 0, track: 0.02, color: ACH.lin.slice(), alpha: 1, edge: 0.5 }], mask: achMask.slice(), x: achX.slice(), y: achY.slice(), floor };
+  }
+  function stepAch(dt, S, events, time) {
+    if (events) for (const e of events) if (e.startsWith('ach:') || e.startsWith('assist:on:') || e === 'relay:assist') achieve(S, e, time);
+    if (structAt >= 0 && time >= structAt) { structAt = -1; achieve(S, 'struct', time); }
+    if (achPend && achShow && achKey) { achKey = ''; }                // a new word: the old one breaks first
+    if (achShow && time >= achUntil && achKey) achKey = '';           // 2.5 s, then it breaks into tiles
+    if (achPend && !achSlot.up) {                                      // never slides in view: placed while nothing is up
+      achShow = achPend; achPend = null; achKey = achShow.key; achUntil = time + 2.5;
+      for (const t of achSlot.texts) t.P.forEach((P, w) => { P.mesh.position.copy(achBase[w].position).addScaledVector(achRight[w], achShow.x[w]).setY(achShow.y[w]); });
+    }
+    achSlot.want(achKey, achKey && achShow ? achShow.items : null);
+    for (const t of achSlot.texts) t.U.halo.value = chapter(S.block).dark === false ? 0.65 : 0.35;   // gold over light: a darker halo
+    achSlot.step(dt, { mask: (w) => (achShow ? achShow.mask[w] : 0) });
+  }
   const nearX = (hands, wi) => { for (const h of hands) if (h.wall === wi && Math.abs((h.u - 0.5) * room.walls[wi].width) <= 0.55) return true; return false; };   // the score's test for the start ring
   let structureOnly = false; const inS = [];
   // the new chapter's words enter on a wall once the host's tile wave has passed it (+0.3 s, in typo3d's slot). room.tileFront(wall)
@@ -422,7 +468,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
     for (let k = 0; k < 3; k++) { for (let c = 0; c < 3; c++) palNow[k][c] = ease(palNow[k][c], pal[k][c], dt, 2); PAL[k].value.setRGB(palNow[k][0], palNow[k][1], palNow[k][2]); }
     { const a = accentOf(b); for (let c = 0; c < 3; c++) accNow[c] = ease(accNow[c], a[c], dt, 1.5); ACC.value.set(accNow[0], accNow[1], accNow[2]);
       for (const sl of [card, line, lineOut]) for (const t of sl.texts) t.U.lamp.value.set(0.5 + 0.5 * accNow[0], 0.5 + 0.5 * accNow[1], 0.5 + 0.5 * accNow[2]); }
-    INK = inkOf(b); const lightCh = chapter(b).dark === false;   // the next words laid out take the chapter's ink
+    INK = inkOf(b); const lightCh = chapter(b).dark === false; INK_A = lightCh ? 1 : 0.92;   // the next words laid out take the chapter's ink
     nT = 0;
     for (const T of targets) T.used = false;
     softNow = gb === 'pinya' || gb === 'tronc' || gb === 'baixada' ? 1 : 0;
@@ -475,7 +521,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
     const L = g.line && (g.line[0] || g.line[1]) ? g.line : null;   // (an empty invitation with a label: the floor's / climber's name alone)
     line.want(L ? 'l|' + L.join('|') : '', L ? lineItems(L) : null);
     // 25-11: no plates; a tight soft halo (lighter on the light chapters, where the ink is dark)
-    for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.12 : 0.3; }
+    for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : 0.3; }
     card.step(dtT, { hold, gate: waveGate });
     // the wait's words come with the button (reveal) and thin out as the hands start the pass
     const st = b === 'wait' ? Math.min(1, S.start || 0) : 0;
@@ -486,26 +532,33 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
     else if (b === 'tronc' && S.phase === 'play') { let need = 0, ok = 0; for (let w = 0; w < NW; w++) if (walls[w]) { need++; if (S.balance ? S.left[w] && S.right[w] : S.count[w] > 0) ok++; } doing = need ? ok / need : 0; }
     else if (b === 'pom') doing = S.lightWall >= 0 && S.count[S.lightWall] > 0 && !S.restless ? 1 : 0;
     else if (b === 'baixada') { let need = 0, ok = 0; for (let w = 0; w < NW; w++) if (walls[w]) { need++; if (S.count[w] > 0) ok++; } doing = need ? ok / need : 0; }
-    gain *= 1 - 0.55 * doing;
+    gain *= 1 - (chapter(b).dark === false ? 0.2 : 0.55) * doing;   // on light chapters the words never fade to grey
     const cardUp = card.up;
-    const mask = (w) => !!warn || !structureOnly || inS[w];   // a warning goes on every wall
+    // N6: the wall that calls carries the consigna at 100 % and first; the others an echo at 30 %, 0.6 s later (not for the calls to
+    // all, l'aleta, the wait's invitation or a warning)
+    const fw = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;
+    const allCall = !!warn || (b === 'brasa' && S.brasaStage === 'call') || (b === 'festa' && S.festaStage === 'call') || S.phase === 'aleta' || (b === 'wait' && (S.reveal ?? 1) < 1);
+    const focusOn = fw >= 0 && !allCall;
+    const mask = (w) => (!!warn || !structureOnly || inS[w] ? (focusOn && w !== fw ? 0.3 : 1) : 0);   // a warning goes on every wall
+    const lead = focusOn ? (w) => (w === fw ? 0 : 0.6) : null;
     // the wait: the instruction is the lintel inscription of ENT-F's doorway (keystone ~1.95 m): one line centred at 2.12 m. It moves
     // only while no words are up (never slides in view)
     // 25-11: the consigna stands at 1.62 m everywhere (D7), beside the chapter's hero, and waits while the chapter card is up
     if (!line.up) placeX(line, CONSIGNA_X[b] || 0);
     if (!lineOut.up) placeX(lineOut, CONSIGNA_X[b] || 0);
-    line.step(dtT, { gain: warn ? 1 : gain, hold: hold || (cardUp && !warn), mask, gate: waveGate });
+    line.step(dtT, { gain: warn ? 1 : gain, hold: hold || (cardUp && !warn), mask, gate: waveGate, lead });
+    stepAch(dtT, S, events, time);
     if (warn) for (const t of line.texts) { t.U.sweepK.value = 1; t.U.sweep.value = ((time0 * 0.9) % 1.6) - 0.3; }   // the warning pulses
     // the walls outside the structure: «Ayudad desde aquí» (they count at 50 %), while the structure's walls carry the invitation
     const outOn = on && structureOnly && !warn && S.phase !== 'reward' && !learnedNow && (b === 'tronc' || b === 'pom' || b === 'baixada');
-    const outWord = b === 'tronc' ? CUES['title:tronc'].others : 'Ayudad desde aquí';
+    const outWord = CUES['title:tronc'].others;   // «Sostened la luz»: the target is «la luz» in the voice and the text, everywhere
     lineOut.want(outOn ? 'o|' + outWord : '', outOn ? lineItems([outWord, '']) : null);
     lineOut.step(dtT, { gain, hold: hold || cardUp, mask: (w) => !inS[w], gate: waveGate });
   }
   function dispose() {
     ringGeo.dispose(); discGeo.dispose(); tileGeo.dispose(); handTex.dispose(); gq.dispose(); for (const G of ghosts) for (const H of G.h) H.mesh.material.dispose();
     for (const T of targets) T.group.traverse((o) => { if (o.material) o.material.dispose(); });
-    for (const s of [card, line, lineOut]) s.dispose();
+    for (const s of [card, line, lineOut, achSlot]) s.dispose();
   }
-  return { object, update, dispose, ghost, targets, layers: { card, line }, get learned() { return learnedNow; } };
+  return { object, update, dispose, ghost, targets, layers: { card, line, ach: achSlot }, get learned() { return learnedNow; } };
 }
