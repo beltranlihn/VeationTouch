@@ -1,0 +1,49 @@
+# score-sim baseline — score.js of 7a056a2 (before I2–I7), seed 1, lidar 0.06, 2026-11-24T23:52+01:00
+score-sim: ..\..\..\..\..\..\..\AppData\Local\Temp\claude\0d0952916712c4dc\14159594-89e2-41f9-9960-8581d22a8da8\scratchpad\score-base.js · seed 1 · lidar 0.06
+size act    total  castell    outcome     results  help[blocks where the colla helped]
+ 1 hold     602 s  pilar de 7 descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 61 · pinya 58 · tronc 137 · pom 102 · crown 25 · festa 76 · baixa 32 · acta 40
+      today: waves 3/7 calls · relay help 0 · struct 1 · floors 7 slip 0/1 · pom breaks 0 falters 0 · aleta 100% · echo 25 ghost 0 · bloom 1.00 · cracks 0
+ 2 hold     587 s  pilar de 7 descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 61 · pinya 58 · tronc 132 · pom 93 · crown 25 · festa 76 · baixa 32 · acta 40
+      today: waves 3/7 calls · relay help 0 · struct 1 · floors 7 slip 0/1 · pom breaks 0 falters 0 · aleta 100% · echo 54 ghost 0 · bloom 1.00 · cracks 0
+ 4 hold     592 s  4 de 7     descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 63 · pinya 58 · tronc 137 · pom 85 · crown 25 · festa 76 · baixa 37 · acta 40
+      today: waves 3/7 calls · relay help 2 · struct 4 · floors 7 slip 0/1 · pom breaks 0 falters 0 · aleta 88% · echo 108 ghost 0 · bloom 1.00 · cracks 0
+ 8 hold     584 s  4 de 7     descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 63 · pinya 58 · tronc 137 · pom 84 · crown 25 · festa 76 · baixa 31 · acta 40
+      today: waves 3/7 calls · relay help 2 · struct 4 · floors 7 slip 0/1 · pom breaks 0 falters 0 · aleta 100% · echo 96 ghost 0 · bloom 1.00 · cracks 0
+15 hold     572 s  4 de 7     descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 63 · pinya 58 · tronc 127 · pom 79 · crown 25 · festa 76 · baixa 33 · acta 40
+      today: waves 3/7 calls · relay help 2 · struct 4 · floors 7 slip 0/1 · pom breaks 0 falters 0 · aleta 89% · echo 95 ghost 0 · bloom 1.00 · cracks 0
+ 1 passive  633 s  pilar de 4 descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 63 · pinya 58 · tronc 145 · pom 110 · crown 25 · festa 76 · baixa 46 · acta 40
+      today: waves 3/7 calls · relay help 1 · struct 1 · floors 4 slip 1/1 · pom breaks 0 falters 0 · aleta 0% · echo 4 ghost 0 · bloom 0.90 · cracks 0
+ 2 passive  622 s  pilar de 4 descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 62 · pinya 58 · tronc 145 · pom 99 · crown 25 · festa 76 · baixa 47 · acta 40
+      today: waves 3/7 calls · relay help 1 · struct 1 · floors 5 slip 1/1 · pom breaks 0 falters 0 · aleta 0% · echo 12 ghost 0 · bloom 0.94 · cracks 0
+ 4 passive  619 s  4 de 4     descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 64 · pinya 58 · tronc 145 · pom 95 · crown 25 · festa 76 · baixa 47 · acta 40
+      today: waves 3/7 calls · relay help 2 · struct 4 · floors 5 slip 1/1 · pom breaks 0 falters 0 · aleta 0% · echo 62 ghost 0 · bloom 1.00 · cracks 0
+ 8 passive  618 s  3 de 4     descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 64 · pinya 58 · tronc 145 · pom 94 · crown 25 · festa 76 · baixa 47 · acta 40
+      today: waves 3/7 calls · relay help 2 · struct 3 · floors 5 slip 1/1 · pom breaks 0 falters 0 · aleta 0% · echo 62 ghost 0 · bloom 1.00 · cracks 0
+15 passive  636 s  4 de 4     descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 64 · pinya 78 · tronc 145 · pom 91 · crown 25 · festa 76 · baixa 47 · acta 40
+      today: waves 3/7 calls · relay help 2 · struct 4 · floors 5 slip 1/1 · pom breaks 0 falters 0 · aleta 0% · echo 114 ghost 0 · bloom 1.00 · cracks 0
+ 1 strike   692 s  pilar de 3 descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 64 · pinya 100 · tronc 145 · pom 126 · crown 25 · festa 76 · baixa 46 · acta 40
+      today: waves 3/7 calls · relay help 1 · struct 1 · floors 3 slip 0/0 · pom breaks 0 falters 0 · aleta 100% · echo 17 ghost 0 · bloom 1.00 · cracks 0
+ 2 strike   690 s  pilar de 4 descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 64 · pinya 100 · tronc 145 · pom 124 · crown 25 · festa 76 · baixa 46 · acta 40
+      today: waves 3/7 calls · relay help 1 · struct 1 · floors 4 slip 1/1 · pom breaks 0 falters 0 · aleta 100% · echo 30 ghost 0 · bloom 1.00 · cracks 0
+ 4 strike   675 s  2 de 4     descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 64 · pinya 100 · tronc 145 · pom 109 · crown 25 · festa 76 · baixa 46 · acta 40
+      today: waves 3/7 calls · relay help 2 · struct 2 · floors 4 slip 1/1 · pom breaks 0 falters 0 · aleta 100% · echo 66 ghost 0 · bloom 1.00 · cracks 0
+ 8 strike   668 s  2 de 4     descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 64 · pinya 100 · tronc 145 · pom 101 · crown 25 · festa 76 · baixa 47 · acta 40
+      today: waves 3/7 calls · relay help 2 · struct 2 · floors 5 slip 1/1 · pom breaks 0 falters 0 · aleta 67% · echo 72 ghost 0 · bloom 1.00 · cracks 0
+15 strike   657 s  4 de 5     descarregat brasa=- pinya=- tronc=- pom=- crown=- festa=undefined baix=-  help[]
+      intro 70 · brasa 64 · pinya 100 · tronc 145 · pom 90 · crown 25 · festa 76 · baixa 47 · acta 40
+      today: waves 3/7 calls · relay help 1 · struct 4 · floors 6 slip 1/1 · pom breaks 0 falters 0 · aleta 75% · echo 118 ghost 0 · bloom 1.00 · cracks 0
+(15 passes in 2.9 s)
