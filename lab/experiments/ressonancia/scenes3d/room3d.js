@@ -659,6 +659,33 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   }
   const matter = { ceramic, body };
 
+  // ---- THE GROUND THAT GOES ON (plan 05 V4; 04 §1.5): a floor at y = 0 at REAL scale, so the room's floor seems to continue into the image.
+  // CC0 maps of assets/cc0 in world-space UV (one texture tile = `metres`), max anisotropy (the texture gradient IS the floor's depth cue),
+  // tinted by a palette token, wet patches (roughness down to `wetRough`), receives the key shadow, takes the air. A disc of `radius` m.
+  //   const g = room.ground({ tile: 'old_mosaic_floor', metres: 1.6, color: 'pedra-llum', wet: 0.3 }); part.object.add(g.mesh);
+  const texCache = new Map(), texLoader = new THREE.TextureLoader();
+  const ccTex = (name, map, srgb) => {
+    const key = name + map; if (texCache.has(key)) return texCache.get(key);
+    const t = texLoader.load(new URL(`./assets/cc0/${name}/${name}_${map}_1k.jpg`, import.meta.url).href);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.anisotropy = renderer.getMaxAnisotropy ? Math.min(16, renderer.getMaxAnisotropy() || 8) : 8;
+    texCache.set(key, t); return t;
+  };
+  function ground({ tile = 'old_mosaic_floor', metres = 1.6, color = 'pedra-llum', tint = 0.7, wet = 0.25, wetRough = 0.12, radius = 80, y = 0 } = {}) {
+    const mat = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
+    const tuv = positionWorld.xz.div(metres);
+    const dif = texture(ccTex(tile, 'diff', true), tuv).rgb, rgh = texture(ccTex(tile, 'rough', false), tuv).r;
+    const tc = vec3(...colOf(color)), dl = dot(dif, vec3(0.2126, 0.7152, 0.0722));
+    mat.colorNode = mix(dif, dif.div(max(dl, 0.02)).mul(0.5).mul(tc).mul(dl.add(0.25)), float(tint));   // the map's detail, the chapter's tone
+    const wz = smoothstep(0.15, 0.55, mx_noise_float(vec3(positionWorld.x.mul(0.35), 0.7, positionWorld.z.mul(0.35)))).mul(wet);
+    mat.roughnessNode = mix(clamp(rgh.mul(0.6).add(0.35), 0.3, 1), float(wetRough), wz);
+    mat.normalMap = ccTex(tile, 'nor_gl', false); mat.normalScale = new THREE.Vector2(1, 1);
+    if (envMap) { mat.envMap = envMap; mat.envMapIntensity = 0.6; }
+    const mesh = new THREE.Mesh(new THREE.CircleGeometry(radius, 96).rotateX(-Math.PI / 2), mat);
+    mesh.position.y = y; mesh.receiveShadow = true; mesh.name = 'room:ground';
+    return { mesh, material: mat };
+  }
+
   // ---- THE KEY SHADOW (plan 05 V7; 04 §2.3, §1.8): ONE light with a real shadow map per world — what gives the light worlds their depth
   // (dark defined shadow over light ground). three's ShadowNode re-renders the map for EVERY camera of a frame (four walls = ×4): here the
   // map is rendered once per frame (autoUpdate off, needsUpdate before the first wall). PCF soft, 2048², an orthographic box round the eye.
@@ -778,5 +805,5 @@ export async function createRoom3D(vt, canvas, opt = {}) {
 
   return { THREE, renderer, scene, overlay, clearColor, walls, eye, hands, wallPoint, render, setBloom,
     // T-048 (SIS): the shared system — see PARTS.md «What the room gives since T-048»
-    PALETTE, PAL, GRADE, setBackground, background: bg, setGrade, grade: gTo, gradeU: G, setAir, air: A, airSweep, sky: skyAt, matter, contactShadows, keyShadow, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
+    PALETTE, PAL, GRADE, setBackground, background: bg, setGrade, grade: gTo, gradeU: G, setAir, air: A, airSweep, sky: skyAt, matter, contactShadows, keyShadow, ground, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
 }
