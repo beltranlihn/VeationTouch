@@ -46,3 +46,16 @@ intensidad 0 al salir y no las devuelve al volver: una receta añadida se quedar
 - La calma (muros sin manos): primera fila al 45 % de la despierta (era 28 %): P2/P3 ya no se leen negros.
 - El brazo de galaxia al 70 %.
 - 0 errores WebGPU y WebGL2. `pinya3d/body.js` sin tocar.
+
+## 5. Espera — `umbral3d.js` · hoja `luz/t053-wait.jpg` (ARTE r5; capítulo aprobado: toque mínimo)
+- Mosaico en reposo ×0,75 (el color jugado se queda al 100 %); el faro con tope (foco 1,25 → 0,5, el bajo 0,8 → 0,45): en P3 ya no
+  queda la mancha de teselas casi blancas.
+- Las esquirlas sueltas de la cresta, a la mitad (probabilidad 0,34 → 0,17); los hilos de los móviles al 40 %.
+- 0 errores WebGPU y WebGL2.
+
+## 6. Caída — `fall3d.js`: sin cambios (ARTE r5: «limpia»). Comprobado bajada → caída (carregat) con la bajada nueva: 0 errores.
+
+## Comprobaciones finales
+`res-3d-study?part=` festa3d, baixada3d, brasa3d, pinya3d, umbral3d, fall3d: 0 errores. Obra: corona (t 2,5 / 7 / 14), festa,
+bajada, brasa, pinya y espera en WebGPU y WebGL2: 0 errores. Sin medir fps (silencioso). Pendiente de mirar en la sala: el nivel real
+de la bruma de la bajada (aditiva, muy baja en lineal) y el halo de la gota de la Brasa a escala 1.

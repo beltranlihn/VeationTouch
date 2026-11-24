@@ -168,7 +168,7 @@ export function create(ctx) {
       const H = crest(s.cu), af = archF(s.cu, s.y);
       if (af < 0) continue;                                                             // an arch: open
       let loose = 0;
-      if (s.y > H) { if (s.mother || s.y > H + 1.9 || rnd() > 0.34 * (1 - (s.y - H) / 1.9)) continue; loose = 1; }
+      if (s.y > H) { if (s.mother || s.y > H + 1.9 || rnd() > 0.17 * (1 - (s.y - H) / 1.9)) continue; loose = 1; }   // T-053 (ARTE r5): the shards floating off the crest at half (was 0.34)
       else if (!s.mother && (rnd() < 0.018 || (H - s.y < 0.45 && rnd() < 0.3))) continue;   // a missing piece; a ragged crest
       let poly = []; const a0 = rr(0, 6.28);
       for (let k = 0; k < 8; k++) poly.push([Math.cos(a0 + k * 0.7854) * 1.0, Math.sin(a0 + k * 0.7854) * 1.0]);
@@ -308,7 +308,7 @@ export function create(ctx) {
       const button = smoothstep(1.35, 0.9, x).mul(smoothstep(0.6, 0.9, y)).mul(smoothstep(1.9, 1.6, y));
       quiet = max(quiet, max(words, button).mul(step(dn, -0.0001)));
     }
-    const dim = float(1).sub(quiet.mul(0.6));
+    const dim = float(1).sub(quiet.mul(0.6)).mul(mix(float(0.75), float(1), kc));   // T-053 (ARTE r5): the mosaic at rest ×0.75 (the played colour stays full)
     const fade = reflection ? exp(positionWorld.y.mul(0.42)).mul(0.6) : float(1);
     m.colorNode = topCol.mul(top).add(backCol.mul(back)).add(vec3(0.42, 0.15, 0.065).mul(side)).add(vec3(0.042, 0.037, 0.032).mul(bed)).mul(dim).mul(fade);
     m.metalnessNode = top.mul(topMir).add(back.mul(backMir));
@@ -940,7 +940,7 @@ export function create(ctx) {
       } else { threadPos[o] = threadPos[o + 3] = s.p.x; threadPos[o + 1] = threadPos[o + 4] = 50; threadPos[o + 2] = threadPos[o + 5] = s.p.z; }
     }
     threadGeo.attributes.position.needsUpdate = true;
-    threadMat.opacity = 0.3 * arrive * (1 - leave);
+    threadMat.opacity = 0.12 * arrive * (1 - leave);   // T-053 (ARTE r5): the threads at 40 %
 
     // ---- chips
     for (let i = 0; i < CHIPS; i++) {
@@ -1000,7 +1000,7 @@ export function create(ctx) {
     ember.material.color.setRGB(2.6 * farK, 0.62 * farK, 0.13 * farK);
     farMesh.visible = farK > 0.01; for (const h of hazes) h.visible = farK > 0.01;
     floorMesh.material.opacity = 0.7 * smooth(0, 0.3, farK); floorMesh.visible = farK > 0.005; heroRefl.visible = farK > 0.05;
-    hemi.intensity = 0.46 * farK; key.intensity = 1.25 * farK; beam.intensity = 1.25 * farK; beam2.intensity = 0.8 * farK;   // capped: near the walls the lighthouse leaves a sheen, not a white patch
+    hemi.intensity = 0.46 * farK; key.intensity = 1.25 * farK; beam.intensity = 0.5 * farK; beam2.intensity = 0.45 * farK;   // T-053 (ARTE r5): the mosaic at rest ×0.75, the lighthouse capped (≈ 1.5 m of near-white tiles in P3)   // capped: near the walls the lighthouse leaves a sheen, not a white patch
     for (const l of rims) { l.position.set(Math.cos(l.userData.a) * 12.5, 1.2, Math.sin(l.userData.a) * 12.5); l.intensity = 5 * farK; }
   }
 
