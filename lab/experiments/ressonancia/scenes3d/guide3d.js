@@ -313,10 +313,14 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     const cand = SPOTS[b] || SPOTS.other, half = Math.max(0.6, (text || '').length * 0.06), T = Array.isArray(S.targets) ? S.targets : [];
     for (let w = 0; w < NW; w++) {
       const Wd = room.walls[w].width; let best = cand[0], bs = -1e9;
-      for (let k = 0; k < cand.length; k++) {
-        const x = clamp(cand[k], -Wd / 2 + half + 0.35, Wd / 2 - half - 0.35);
+      // Art Director 25-11: the consigna stands ABOVE the targets it refers to (their centre on this wall), when they live under its band
+      let sx = 0, sn = 0; for (const g of T) { if (g.wall !== w || (g.y || 1.2) + (g.r || 0.22) >= 1.45) continue; sx += typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; sn++; }
+      const near = sn ? [clamp(sx / sn, -Wd / 2 + half + 0.35, Wd / 2 - half - 0.35)] : [];
+      const all = near.length ? near.concat(cand) : cand;
+      for (let k = 0; k < all.length; k++) {
+        const x = clamp(all[k], -Wd / 2 + half + 0.35, Wd / 2 - half - 0.35);
         let gap = 9; for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < 1.45) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
-        const sc = Math.min(gap, 1.5) - k * 0.05;   // clear of every target that reaches the text's band; then the preferred spot
+        const sc = Math.min(gap, 0.4) - k * 0.05 + (near.length && k === 0 ? 0.3 : 0);   // clear of every target that reaches the text's band; above its own targets first
         if (sc > bs) { bs = sc; best = x; }
       }
       spotXs[w] = best;
