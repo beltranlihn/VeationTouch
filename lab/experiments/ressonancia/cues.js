@@ -50,7 +50,7 @@ export const CUES = {
   'tg:charge': { voice: 'v-hold', where: 'ach', energy: 'soft', text: null, kind: 'hint' },                                   // the first target charging, once a pass
   'stage:brasa:call': { voice: 'v-brasa-2', where: 'room', energy: 'soft', text: 'Todos a la vez', place: 'all', kind: 'task' },
   'call:late': { voice: 'v-brasa-hold', where: 'focus', energy: 'soft', text: 'Posad la mano', place: 'focus', kind: 'task' },   // a call open 8 s (sound's clock)
-  'ach:wave': { voice: { 1: 'v-brasa-wave' }, where: 'room', energy: 'lift', text: WAVE_NAME, place: 'ach', kind: 'ach', repeat: true },
+  'ach:wave': { voice: { 1: 'v-brasa-wave' }, only: 'brasa', where: 'room', energy: 'lift', text: WAVE_NAME, place: 'ach', kind: 'ach', repeat: true },   // the festa's waves: text only
   'ach:awake': { voice: 'v-brasa-awake', where: 'room', energy: 'warm', text: 'Despierta', place: 'all', kind: 'ach', colla: 'v-colla-1' },   // by: colla → «La colla os ayuda» first
   // ---- 3.2 II · Pinya
   'title:pinya': { voice: 'v-pinya-task', where: 'room', energy: 'warm', text: 'Palma con palma', place: 'focus', kind: 'card', card: ['II', 'Pinya', 'Fuerza'] },
@@ -79,7 +79,7 @@ export const CUES = {
   'ach:arrived': { voice: { 0: 'v-pom-arrived-0', 1: 'v-pom-arrived-1' }, where: 'room', energy: 'whisper', text: CLIMBER_NAME, place: 'ach', kind: 'ach', repeat: true },
   'climber:1': { voice: 'v-pom-breath', where: 'room', energy: 'whisper', text: 'Contened el aliento', place: 'focus', kind: 'task' },
   'climber:2': { voice: 'v-pom-silence', where: 'room', energy: 'whisper', text: 'Enxaneta', place: 'focus', kind: 'task' },
-  'hush': { voice: 'v-pom-hush', where: 'arg', energy: 'whisper', text: null, kind: 'hint', repeat: true, cooldown: 15 },          // 'gust:w' / 'hush:break:w' / ach:break
+  'hush': { voice: 'v-pom-hush', where: 'arg', energy: 'whisper', text: null, kind: 'hint', repeat: true, cooldown: 30 },          // 'gust:w' / 'hush:break:w' / ach:break
   'ach:break': { alias: 'hush' },
   'pom:near': { voice: 'v-pom-3', where: 'room', energy: 'whisper', text: null, kind: 'hint' },                                 // climb > 0.7 (score's hint 'still')
   'aleta': { voice: 'v-aleta-raise', where: 'room', energy: 'soft', text: 'Levantad la mano', place: 'all', kind: 'task', then: { key: 'aleta:yours', after: 0.6 } },
@@ -135,7 +135,7 @@ export function cueKey(ev, S) {
   if (k === 'focus') return S && S.focus ? 'focus:' + S.focus.kind : null;
   if (k === 'tg') return arg.startsWith('charge') ? 'tg:charge' : null;
   if (k === 'gust' || k === 'hush') return 'hush';
-  if (k === 'hint') return arg === 'still' ? 'pom:near' : null;
+  if (k === 'hint') return null;   // the score's hints are silent now (pom:near is the sound's clock: climb > 0.7 in the silence)
   return CUES[ev] ? ev : null;
 }
 

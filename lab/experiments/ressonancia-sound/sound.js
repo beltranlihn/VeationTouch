@@ -282,13 +282,13 @@ export default async function start(host) {
     if (vo && t < vo.end) {
       if (polite || kind === 'hint') return false;
       if (kind === 'ach') { if (vo.end - t > 1.5) return false; at = Math.max(at, vo.end + 0.15); }
-      else if (t - vo.at < 0.6 && vo.end - t <= 3.5) at = Math.max(at, vo.end + 0.15);   // two lines of one instant (the colla + the call): one after the other, never cut
+      else if ((t - vo.at < 1.5 && vo.end - t <= 3.5) || (vo.kind === 'card' && vo.end - t <= 4)) at = Math.max(at, vo.end + 0.15);   // lines of one moment queue; a narration is never cut in its last 4 s
       else { if (CUELOG && t < vo.end - 0.3) CUELOG.push({ t: Math.round(S.clock * 10) / 10, cut: vo.name, by: name }); vo.h.stop(0.15); }
     }
     let dest = voiceBus;
     if (wall >= 0 && voiceWall[wall % NW]) { dest = G(1, voiceWall[wall % NW]); dest.connect(G(0.25, voiceBus)); }
     const h = play(name, { gain: L.voice, dest, at }); if (!h) return false;
-    vo = { h, end: h.end, name, wall, at }; if (once && !name.startsWith('v-wait')) saidThisPass.add(name);
+    vo = { h, end: h.end, name, wall, at, kind }; if (once && !name.startsWith('v-wait')) saidThisPass.add(name);
     const from = Math.max(t, at - 0.35);
     duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(L.duck, from, 0.15); duck.gain.setTargetAtTime(1, h.end + 0.3, 0.7);
     genDuck.offset.cancelScheduledValues(t); genDuck.offset.setTargetAtTime(L.genDuck, from, 0.15); genDuck.offset.setTargetAtTime(1, h.end + 0.3, 0.7);
@@ -304,9 +304,10 @@ export default async function start(host) {
     const c = r.cue, t = performance.now() / 1000, last = cueAt.get(r.key);
     if (last != null && (!c.repeat || (c.cooldown && t - last < c.cooldown / pace))) return false;
     const wall = cueWall(c, S, evArg);
-    let ok = !r.voice;
+    const voice = c.only && S.block !== c.only ? null : r.voice;   // a line that belongs to one chapter (the brasa's «Eso es. La plaza despierta.»)
+    let ok = !voice;
     if (r.key === 'ach:awake' && r.by === 'colla' && c.colla) say(c.colla, { delay: 0.2, kind: 'ach', once: false });   // «La colla os ayuda.» first
-    if (r.voice) ok = say(r.voice, { delay: c.delay ?? 0.3, wall, kind: c.kind || 'task', polite: c.kind === 'hint', once: !c.repeat });
+    if (voice) ok = say(voice, { delay: c.delay ?? 0.3, wall, kind: c.kind || 'task', polite: c.kind === 'hint', once: !c.repeat });
     if (CUELOG) CUELOG.push({ t: Math.round(S.clock * 10) / 10, block: S.block, key: r.key, voice: r.voice, said: ok, wall, text: r.text, dur: Math.round((buffers.get(r.voice)?.buf.duration || 0) * 10) / 10 });
     if (ok) cueAt.set(r.key, t);
     if (ok && c.then) {
