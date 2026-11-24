@@ -800,6 +800,7 @@ export function create({ THREE, TSL, room, params }) {
   // ring reflect it) and stand reflected in the liquid. Their group turns very slowly round the room (≤ 1.5°/s).
   const NFAR0 = 8, NCOL = 12, NFAR = NFAR0 + NCOL;   // 5 a wall: 3 near, 2 far
   const farGroup = new THREE.Group(); world.add(farGroup);
+  const heroDrop = [], heroHalo = [];
   const farMesh = [];
   {
     const r = rng(123), aF = new Float32Array(NFAR * 4), aG = new Float32Array(NFAR * 4);
@@ -807,12 +808,17 @@ export function create({ THREE, TSL, room, params }) {
       if (i >= NFAR0) {                               // a chrome column / drop rising out of the liquid among the embers
         const k = i - NFAR0; ringPoint((k + 0.25 + 0.5 * r()) / NCOL * PER, 2.5 + 3 * r(), _v);
         aF[i * 4] = _v.x; aF[i * 4 + 1] = _v.z; aF[i * 4 + 2] = 0.22 + 0.1 * r(); aF[i * 4 + 3] = 2 + 1.6 + 0.9 * r();
+        aF[i * 4 + 2] = 0;   // T-053 (ARTE r5): the small columns are not drawn (radius 0): the big drop of each wall is the hero
         aG[i * 4] = r(); aG[i * 4 + 1] = (r() - 0.5) * 0.08; aG[i * 4 + 2] = r(); aG[i * 4 + 3] = r();
         continue;
       }
       const a = (i + 0.2 + r() * 0.6) / NFAR0 * Math.PI * 2 + 0.4, rad = 40 + r() * 20;
       aF[i * 4] = Math.cos(a) * rad; aF[i * 4 + 1] = Math.sin(a) * rad; aF[i * 4 + 2] = 2.2 + 1.2 * r(); aF[i * 4 + 3] = 18 + r() * 12;
       aG[i * 4] = r(); aG[i * 4 + 1] = (r() - 0.5) * 0.25; aG[i * 4 + 2] = r(); aG[i * 4 + 3] = r();
+      // T-053: ONE big drop per wall (seen at u ≈ 0.7 of it, clear of the text and the button), with air round it; the rest not drawn
+      const hw = i >> 1;
+      if (i % 2 || hw >= NW) aF[i * 4 + 2] = 0;
+      else { ringPoint(cum[hw] + walls[hw].width * 0.7, 0, _v); const dx = _v.x - eye.x, dz = _v.z - eye.z, dl = Math.hypot(dx, dz) || 1; aF[i * 4] = eye.x + dx / dl * rad; aF[i * 4 + 1] = eye.z + dz / dl * rad; heroDrop.push([aF[i * 4], aF[i * 4 + 3] * 0.32, aF[i * 4 + 1]]); }
     }
     const src = new THREE.CylinderGeometry(1, 1, 1, 28, 90, false), geo = new THREE.InstancedBufferGeometry();
     geo.setIndex(src.getIndex()); geo.setAttribute('position', src.getAttribute('position')); geo.setAttribute('normal', src.getAttribute('normal'));
@@ -855,15 +861,20 @@ export function create({ THREE, TSL, room, params }) {
         const Lf = normalize(vec3(P.x.negate(), 0.12, P.z.negate()));
         const lit = vec3(1.0, 0.36, 0.1).mul(fireLightK()).mul(pow(max(dot(N, Lf), 0), 1.5)).mul(exp(P.y.div(-10.0))).mul(0.05).mul(smoothstep(15.0, 40.0, length(P.xz)));
         void lit;
-        const c = fireOnly.mul(CHROME).mul(12.0).add(fireSpec(P, R, 40.0).mul(0.8)).add(vec3(0.0015, 0.0014, 0.0016)).add(vec3(0.012, 0.013, 0.018).mul(smoothstep(0.3, 1.0, R.y)))
+        const c = fireOnly.mul(CHROME).mul(24.0).add(fireSpec(P, R, 40.0).mul(1.6))   // T-053 (ARTE r5): the reflection ×2 (they read as matte bottles).add(vec3(0.0015, 0.0014, 0.0016)).add(vec3(0.012, 0.013, 0.018).mul(smoothstep(0.3, 1.0, R.y)))
           .add(vec3(0.1, 0.14, 0.26).mul(pow(rim, 1.5)).mul(0.5)).add(vec3(0.35, 0.46, 0.69).mul(0.09).mul(exp(abs(R.y).mul(-10.0))))   // a cold silver horizon across the mirror
-          .add(skyEnv(R).mul(select(R.y.greaterThan(0), float(0.8), float(0))));
+          .add(skyEnv(R).mul(select(R.y.greaterThan(0), float(1.6), float(0))))
+          .add(vec3(0.35, 0.45, 0.69).mul(pow(rim, 0.75)).mul(0.35));   // T-053: the recipe's cool rim (#9FB4D8) on the silhouette
         const vis = float(1).sub(U.wait).mul(smoothstep(0.2, 0.8, U.arrive)).mul(float(1).sub(smoothstep(0.2, 0.7, U.leave)));
         return c.mul(vis).mul(mirror ? CHROME.mul(U.refl).mul(0.45) : float(1));
       })();
       m.fog = false;
       const mesh = new THREE.Mesh(geo, m); mesh.frustumCulled = false; mesh.renderOrder = mirror ? -1 : 0;
       farGroup.add(mesh); farMesh.push(mesh);
+    }
+    if (room.makeHalo && room.placeHalo) for (const hp of heroDrop) {   // T-053: the soft halo behind each hero drop (ember, ≤ 0.2)
+      const h = room.makeHalo({ color: [1, 0.5, 0.22], radius: 11, intensity: 0 }); farGroup.add(h.mesh);
+      room.placeHalo(h, new THREE.Vector3(hp[0], hp[1], hp[2]), 6); heroHalo.push(h);
     }
   }
 
@@ -1081,7 +1092,7 @@ export function create({ THREE, TSL, room, params }) {
   }
 
   // ---- T-029: the liquid, the tiles, the drops (CPU)
-  const HANG = 64, _cw = [0, 0, 0, 0]; let callOnK = 0, nHang = 0, farAcc = 0, lift = 0, liftV = 0, splashN = 0, trailT = 0, impacts = 0;
+  const HANG = 0, _cw = [0, 0, 0, 0]; let callOnK = 0, nHang = 0, farAcc = 0, lift = 0, liftV = 0, splashN = 0, trailT = 0, impacts = 0;
   const fx = []; for (let i = 0; i < 16; i++) fx.push({ t: -1, wall: 0, u: 0, force: 0 });   // 'fx:impact' for the sound (wave 2)
   let fxI = 0;
   const _q = new THREE.Quaternion(), _ax = new THREE.Vector3(), _t = new THREE.Vector3(), _img = new THREE.Vector3();
@@ -1220,6 +1231,7 @@ export function create({ THREE, TSL, room, params }) {
   }
   for (const t of tiles) placeTile(t, 0);
   for (let i = HANG; i < NT; i++) { tiles[i].mode = 0; tiles[i].timer = 1e9; }   // the rest: a pool for the tiles a hand breaks off
+  // T-053 (ARTE r5): HANG 0 (was 64) — no red tiles floating at hand height (read as confetti); a landing hand still breaks one off under it
 
   // ---- sound (wave 2): physical impacts to the sound piece (ressonancia-sound › impact()) on the work's BroadcastChannel; ≤ 16 a second
   let fxBc = null; try { fxBc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { fxBc = null; }
@@ -1510,6 +1522,7 @@ export function create({ THREE, TSL, room, params }) {
     updatePlumes(time, level * (1 - cool * 0.5), arrive);
     U.chrome.value = Math.max(0, Number(P.chrome ?? 1)) * (1 - 0.85 * waitK);
     U.refl.value = Math.max(0, Number(P.reflect ?? 1)) * smoother(arrive / 0.6) * (1 - 0.7 * waitK);
+    { const hk = 0.2 * (1 - waitK) * clamp01((arrive - 0.2) / 0.6) * (1 - clamp01((leave - 0.2) / 0.5)); for (const h of heroHalo) { h.set({ intensity: hk }); h.mesh.visible = hk > 0.002; } }
     farGroup.rotation.y = (farGroup.rotation.y + dt * (Number(P.turn ?? 1.2) * Math.PI / 180) * (0.3 + 0.7 * level) * (1 - waitK)) % (Math.PI * 2);
     U.quiet.value = Math.min(0.85, (0.36 + 0.35 * Math.min(1, awakeEnv) + 0.25 * clamp01((crowdN - 1) / 6)) * (1 - waitK) * Math.max(0, Number(P.quiet ?? 1)));
     U.nE.value = nE;
@@ -1527,6 +1540,7 @@ export function create({ THREE, TSL, room, params }) {
     setParams(p) { if (p && p !== P) Object.assign(P, p); },
     dispose() {
       for (const m of [floorMesh, ...flameMesh, ...sparkMesh, ...devilMesh, shardMesh, smokeMesh, airMesh, ...tileMesh, ...dropMesh, ...farMesh, hazeMesh]) { m.geometry.dispose(); m.material.dispose(); }
+      for (const h of heroHalo) h.mesh.material.dispose();   // (the halo's plane is the room's, shared)
       heatTex.dispose();
       try { fxBc?.close(); } catch { /* closed */ }
       for (const b of [bufP, bufV, bufK]) b.value?.dispose?.();

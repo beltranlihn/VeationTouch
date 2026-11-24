@@ -31,3 +31,11 @@ intensidad 0 al salir y no las devuelve al volver: una receta añadida se quedar
 - Bruma del amanecer `#1A1326` al pie de cada muro (aditiva sobre el plano del muro, 0 → 1,2 m): el negro puro de la silueta se levanta.
 - Fuera las rayas pixel-sort del cielo bajo.
 - 0 errores WebGPU y WebGL2.
+
+## 3. Brasa — `brasa3d.js` · hoja `luz/t053-brasa.jpg` (ARTE r5)
+- Fuera las tejas rojas que flotaban a la altura de las manos (`HANG` 64 → 0): quedan las brasas del suelo. La interacción sigue: una mano
+  que aterriza arranca una teja bajo ella que cae, salpica y suena (el frente de la ola ya no tiene tejas que tirar).
+- Un protagonista por muro: UNA gota grande de cromo por muro (vista a u ≈ 0,7, fuera del texto y del botón), con halo de brasa detrás
+  (`room.makeHalo`, ≤ 0,2) y filo frío de la receta (#9FB4D8); reflejo del fuego y del cielo ×2. Las 12 columnas pequeñas y las otras 4
+  gotas grandes no se dibujan.
+- 0 errores WebGPU y WebGL2.
