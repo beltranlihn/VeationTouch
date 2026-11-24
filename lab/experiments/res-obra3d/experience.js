@@ -57,8 +57,8 @@ const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate)
 const TR = 4;                                                      // a part's arrive / leave, s (5 before T-028: the tiles carry the change now)
 
 // ------------------------------------------------------------------------------------------------ the parts
-const NAMES = ['umbral3d', 'atmos', 'plaza', 'castell', 'tronc3d', 'fall3d', 'introtext', 'actatext', 'brasa3d', 'pinya3d', 'pom3d', 'festa3d', 'baixada3d'];
-const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d', 'pom3d', 'festa3d', 'baixada3d', 'fall3d', 'tronc3d']);
+const NAMES = ['umbral3d', 'atmos', 'porxada', 'plaza', 'castell', 'tronc3d', 'fall3d', 'introtext', 'actatext', 'brasa3d', 'pinya3d', 'pom3d', 'festa3d', 'baixada3d'];
+const CHAPTERS = new Set(['porxada', 'umbral3d', 'brasa3d', 'pinya3d', 'pom3d', 'festa3d', 'baixada3d', 'fall3d', 'tronc3d']);
 const parts = {}, byName = {}, list = [];
 const only = LAB ? q.get('parts') : null;                                       // lab: ?parts=plaza,castell loads only those
 async function exists(url) { try { const r = await fetch(url, { method: 'HEAD' }); return r.ok; } catch { return false; } }
@@ -174,7 +174,10 @@ let fallSet = ['atmos'];
 // mode of each block (setMode below, on every block change). Only once tronc3d has setMode: before that, nothing changes here.
 const CASTELL_MODE = { tronc: 'build', pom: 'top', crown: 'crowned', festa: 'crowned', baixada: 'down' };
 const castellKept = () => (typeof parts.tronc3d?.part.setMode === 'function' ? ['tronc3d'] : []);
-function wanted(b) {
+// 05-plan V5 (VFX): layer 0, the porxada (columns at the corners, lintels), in intro, Brasa, Pinya, Tronc and the bajada — when it exists
+const PORX = new Set(['intro', 'brasa', 'pinya', 'tronc', 'baixada']);
+function wanted(b) { const W = wantedBase(b); return has('porxada') && PORX.has(b) ? ['porxada', ...W] : W; }
+function wantedBase(b) {
   switch (b) {
     case 'wait': return has('umbral3d') ? ['umbral3d'] :   // the threshold (ENT, T-026) has its own floor, horizon and lights
                          has('brasa3d') ? ['brasa3d', 'atmos'] : ['atmos'];
