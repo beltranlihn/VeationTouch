@@ -106,12 +106,18 @@ function cardItems(C) {
   return it;
 }
 // the instruction: ONE centred line (caps 0.18 m, <= 22 characters) at 1.62 m; the label (a name) ABOVE it at ~1.95 m (the targets live at 0.9–1.4 m), caps 0.14 m, Geist too
+let WRAP = false;
+const splitLine = (t) => { const mid = t.length / 2; let k = -1, d = 1e9; for (let i = 0; i < t.length; i++) if (t[i] === ' ' && Math.abs(i - mid) < d) { d = Math.abs(i - mid); k = i; } return [t.slice(0, k), t.slice(k + 1)]; };
+const longest = (t) => (WRAP && t && t.length > 14 && t.indexOf(' ') > 0 ? Math.max(...splitLine(t).map((x) => x.length)) : (t || '').length);
 const lineItems = (L) => {
   const it = [];
   // T-048: the words come into focus one by one (typo3d reveal 'blur', 60 ms per word)
   // Art Director 25-11: Vicente's card IS the type system — the consigna in Instrument Serif, on the card's hairlines; the label in
   // its italic. Caps 0.18 m (Instrument Serif caps ≈ 0.70 em).
-  if (L[0]) it.push({ text: L[0], font: 'serif', size: TEXT.lineCap / 0.7, y: 0, track: 0.015, alpha: INK_A, color: INK, rules: 0.32, reveal: 'blur' });
+  // beside the castell (WRAP) a long consigna goes on two lines, the hairlines on the first: it fits between the tower and the corner
+  const two = WRAP && L[0] && L[0].length > 14 && L[0].indexOf(' ') > 0 ? splitLine(L[0]) : null;
+  if (two) { it.push({ text: two[0], font: 'serif', size: TEXT.lineCap / 0.7, y: 0.13, track: 0.015, alpha: INK_A, color: INK, rules: 0.32, reveal: 'blur' }); it.push({ text: two[1], font: 'serif', size: TEXT.lineCap / 0.7, y: -0.13, track: 0.015, alpha: INK_A, color: INK, reveal: 'blur', delay: 0.1 }); }
+  else if (L[0]) it.push({ text: L[0], font: 'serif', size: TEXT.lineCap / 0.7, y: 0, track: 0.015, alpha: INK_A, color: INK, rules: 0.32, reveal: 'blur' });
   if (L[1]) it.push({ text: L[1], font: 'italic', size: TEXT.labelCap / 0.7, y: L[0] ? 0.34 : 0, track: 0.02, alpha: INK_A * 0.9, color: INK, delay: 0.15, reveal: 'blur' });
   return it;
 };
@@ -311,7 +317,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
   const lineS0 = []; { let a = 0; for (const w of room.walls) { lineS0.push(a); a += w.width; } }
   const lineX = new Float32Array(room.walls.length), lineXT = new Float32Array(room.walls.length), spotXs = new Float32Array(room.walls.length);
   function spotX(S, b, text) {
-    const cand = SPOTS[b] || SPOTS.other, half = 0.4 + (text || '').length * 0.036   /* serif caps 0.18 m ≈ 0.072 m a character, + the hairlines */, T = Array.isArray(S.targets) ? S.targets : [];
+    const cand = SPOTS[b] || SPOTS.other, half = 0.4 + longest(text) * 0.036   /* serif caps 0.18 m ≈ 0.072 m a character, + the hairlines */, T = Array.isArray(S.targets) ? S.targets : [];
     for (let w = 0; w < NW; w++) {
       const Wd = room.walls[w].width; let best = cand[0], bs = -1e9;
       // Art Director 25-11: the consigna stands ABOVE the targets it refers to (their centre on this wall), when they live under its band
@@ -498,7 +504,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     for (let k = 0; k < 3; k++) { for (let c = 0; c < 3; c++) palNow[k][c] = ease(palNow[k][c], pal[k][c], dt, 2); PAL[k].value.setRGB(palNow[k][0], palNow[k][1], palNow[k][2]); }
     { const a = accentOf(b); for (let c = 0; c < 3; c++) accNow[c] = ease(accNow[c], a[c], dt, 1.5); ACC.value.set(accNow[0], accNow[1], accNow[2]);
       for (const sl of [card, line, lineOut]) for (const t of sl.texts) t.U.lamp.value.set(0.5 + 0.5 * accNow[0], 0.5 + 0.5 * accNow[1], 0.5 + 0.5 * accNow[2]); }
-    INK = inkOf(b); const lightCh = chapter(b).dark === false; INK_A = lightCh ? 1 : 0.92;   // the next words laid out take the chapter's ink
+    INK = inkOf(b); const lightCh = chapter(b).dark === false; INK_A = lightCh ? 1 : 0.92; WRAP = !!HERO_HALF[b];   // the next words laid out take the chapter's ink
     nT = 0;
     for (const T of targets) T.used = false;
     softNow = gb === 'pinya' || gb === 'tronc' || gb === 'baixada' ? 1 : 0;
