@@ -94,7 +94,7 @@ export const TEXT = { line: 1.62, lineCap: 0.18, labelCap: 0.14, card: 1.95, max
 const CONSIGNA_X = { brasa: -1.75, tronc: -2.0, baixada: -2.0 };   // ±2.7 hit the plaza's lamp posts and the corners of the narrow walls
 // where the consigna may stand on a wall (m from its centre), in order of preference: beside the chapter's hero, never on a target
 // (S.targets): each wall takes the candidate farthest from its targets (only while its words are not up: words never slide in view)
-const HERO_HALF = { tronc: 1.45, baixada: 1.45, pom: 1.1 };   // the tower stands at the centre of the castell's walls: the text keeps out of it
+const HERO_HALF = { tronc: 0.9, baixada: 0.9, pom: 0.8 };   // the tower stands at the centre of the castell's walls: the text keeps out of it
 const SPOTS = { brasa: [-1.75, -2.5, 1.9, 2.5], tronc: [-2.0, 2.0, -2.6, 2.6], baixada: [-2.0, 2.0, -2.6, 2.6], other: [0, -1.7, 1.7, -2.5, 2.5] };
 // the card: the numeral first (0.2 s ahead), the name (caps ≈ 0.31 m), the hairline drawn from the centre out, the value rising
 // from behind its baseline
@@ -311,17 +311,17 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
   const lineS0 = []; { let a = 0; for (const w of room.walls) { lineS0.push(a); a += w.width; } }
   const lineX = new Float32Array(room.walls.length), lineXT = new Float32Array(room.walls.length), spotXs = new Float32Array(room.walls.length);
   function spotX(S, b, text) {
-    const cand = SPOTS[b] || SPOTS.other, half = Math.max(0.6, (text || '').length * 0.06), T = Array.isArray(S.targets) ? S.targets : [];
+    const cand = SPOTS[b] || SPOTS.other, half = 0.4 + (text || '').length * 0.036   /* serif caps 0.18 m ≈ 0.072 m a character, + the hairlines */, T = Array.isArray(S.targets) ? S.targets : [];
     for (let w = 0; w < NW; w++) {
       const Wd = room.walls[w].width; let best = cand[0], bs = -1e9;
       // Art Director 25-11: the consigna stands ABOVE the targets it refers to (their centre on this wall), when they live under its band
       let sx = 0, sn = 0; for (const g of T) { if (g.wall !== w || (g.y || 1.2) + (g.r || 0.22) >= 1.45) continue; sx += typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; sn++; }
-      const near = sn ? [clamp(sx / sn, -Wd / 2 + half + 0.35, Wd / 2 - half - 0.35)] : [];
+      const near = sn ? [clamp(sx / sn, -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25)] : [];
       const all = near.length ? near.concat(cand) : cand;
       for (let k = 0; k < all.length; k++) {
-        let x = clamp(all[k], -Wd / 2 + half + 0.35, Wd / 2 - half - 0.35);
+        let x = clamp(all[k], -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25);
         const hh = HERO_HALF[b] && S.walls && S.walls[w] ? HERO_HALF[b] + half : 0;   // beside the tower, on the side it leans to
-        if (hh && Math.abs(x) < hh) x = clamp((x < 0 || (x === 0 && k % 2 === 0) ? -1 : 1) * hh, -Wd / 2 + half + 0.35, Wd / 2 - half - 0.35);
+        if (hh && Math.abs(x) < hh) x = clamp((x < 0 || (x === 0 && k % 2 === 0) ? -1 : 1) * hh, -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25);
         let gap = 9; for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < 1.45) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
         const sc = Math.min(gap, 0.4) - k * 0.05 + (near.length && k === 0 ? 0.3 : 0);   // clear of every target that reaches the text's band; above its own targets first
         if (sc > bs) { bs = sc; best = x; }
