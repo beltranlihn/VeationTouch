@@ -46,7 +46,7 @@ export const TIMES = {                       // seconds
   hand: { size: 0.12, base: 6, span: 2 },   // the default hand width (m), how slowly a hand's baseline follows it (s), the narrowest packing window (m)
   crown: 25,
   festa: { min: 60, target: 76, max: 84, free: 20, echo: 48, travel: 3, ghost: 12, echoLife: 8, calls: 4, gap: 0.8, lead: 1.0, pause: 2.5, callMax: 7, fracs: [0.35, 0.45, 0.55, 0.65] },   // 25-11: free (rings) → echo (targets that wait) → 4 calls → bloom
-  baixada: { min: 30, target: 40, max: 50, empty: 10, lower: 0.35, gentle: 0.4, net: 12, drop: 3, outside: 0.5 },   // 24-11: the group brings it down (net: the clock lowers it in the last 12 s)
+  baixada: { min: 30, target: 40, max: 50, empty: 10, net: 12, drop: 3, rungs: [1.5, 1.2, 0.9, 0.6], kidRungs: [1.3, 1.0, 0.7] },   // 25-11: ladders down, two floors each (net: the clock lowers it in the last 12 s)
   fall: 12, acta: 40,
 };
 
@@ -817,33 +817,33 @@ export function createScore(nWalls, opt = {}) {
         TG.clear(); downT = 0; go('baixada');
       }
     } else if (S.block === 'baixada') {
-      // La bajada = BRING IT DOWN (24-11, plan step 3). The hands on the structure's walls carry the band down: a descent is complete
-      // when their median drop from the highest point since it began reaches B.lower; it brings down two floors. Gentle (≤ B.gentle m/s)
-      // is clean; abrupt, or letting go, CRACKS. B.drop descents dropped in a row (all hands gone from the tower mid-descent) = carregat.
-      // The clock only lowers it as a net in the last B.net s; the last floor never comes down before `min`.
-      // 24-11 (#11b): EVERY hand counts; the ones on walls without the tower at B.outside
+      // La bajada = BRING IT DOWN on LADDERS (25-11, D3b, plan 05 §4.3, A16, B7). Ladders that go DOWN (1.5 → 1.2 → 0.9 → 0.6 m; a
+      // child's 1.3 → 1.0 → 0.7): each one held rung by rung (≈ 1 s a rung: the charge sets the pace, no speed is judged) brings two
+      // floors down. It CRACKS only when the room lets go in the middle of a ladder (no wall held for linger + 1 s): two floors drop at
+      // once; B.drop of those in a row = carregat. The clock lowers it only as a net in the last B.net s (named); the last floor never
+      // comes down before `min`.
       const anyHeld = S.held.some((v) => v);
-      if (S.t < dt * 1.5) { descentMax.clear(); crackedThis = false; dropT = 0; S.descents = 0; S.dropped = 0; downT = 0; cracksB = 0; }
+      if (S.t < dt * 1.5) { crackedThis = false; dropT = 0; S.descents = 0; S.dropped = 0; downT = 0; cracksB = 0; offered = false; }
+      if (!offered) { offer({ mode: 'ladder', kind: 'down', rungs: B.rungs, kidRungs: B.kidRungs }); offered = true; }
       if (emptyFor >= B.empty / 2 && S.floors > 2 && S.warn !== 'fall') { S.warn = 'fall'; emit('warn:fall'); }   // half the deadline: it creaks
       if (!anyHeld && emptyFor >= B.empty && S.floors > 2) { fall('carregat'); return S; }
-      const drops = [], dropsOut = [];
-      for (const o of S.strokes) {
-        const m = Math.max(descentMax.get(o.stroke) ?? o.y, o.y); descentMax.set(o.stroke, m);
-        (S.walls[o.wall] ? drops : dropsOut).push(m - o.y);
-        if (o.dy < -B.gentle && !crackedThis && S.lowerK > 0.1) { crackedThis = true; cracksB++; emit('crack'); creak(); }
-      }
-      for (const k of descentMax.keys()) if (!strokes.has(k)) descentMax.delete(k);
-      if (drops.length || dropsOut.length) S.lowerK = clamp(Math.max(drops.length ? median(drops) : 0, dropsOut.length ? median(dropsOut) * B.outside : 0) / B.lower, 0, 1);   // the tower's hands, or the others at half
       for (let w = 0; w < W; w++) if (S.count[w]) S.band[w] += (S.yMed[w] - S.band[w]) * (1 - Math.exp(-dt * 6));
       const lowerFloors = (n) => { for (let i = 0; i < n && S.floors > (S.t < B.min ? 1 : 0); i++) { S.floors--; emit('down'); achieve('down', S.floors, -1, S.assistOn ? 'colla' : 'group'); } };
-      // let go in the middle of a descent: it drops (two floors, a crack); three in a row and it falls
-      if (S.lowerK > 0.15 && !S.hands) { dropT += dt; if (dropT >= 1) { dropT = 0; S.dropped++; cracksB++; emit('crack'); creak(); lowerFloors(2); S.lowerK = 0; descentMax.clear(); crackedThis = false; if (S.dropped >= B.drop) { fall('carregat'); return S; } } } else dropT = 0;
-      if (S.lowerK >= 1) {                                      // a descent, complete
-        S.descents++; if (!crackedThis) S.dropped = 0; emit('lower'); if (!crackedThis) achieve('clean', S.descents, -1, 'group'); learn('baixada'); lowerFloors(2);
-        S.lowerK = 0; descentMax.clear(); for (const o of S.strokes) descentMax.set(o.stroke, o.y); crackedThis = false;
+      // how far down the most advanced ladder is (the image lowers the band with it)
+      let mid = false, k = 0;
+      for (const t of TG.list) if (t.mode === 'ladder' && t.rung > 0 && t.state !== 'done') { mid = true; k = Math.max(k, (t.rung + t.charge) / B.rungs.length); }
+      S.lowerK += (k - S.lowerK) * (1 - Math.exp(-dt * 4));
+      // let go in the middle of a ladder: it drops (two floors, a crack); B.drop in a row and it falls
+      if (mid && !anyHeld) {
+        dropT += dt;
+        if (dropT >= 1) { dropT = 0; S.dropped++; cracksB++; crackedThis = true; emit('crack'); creak(); lowerFloors(2); offered = false; if (S.dropped >= B.drop) { fall('carregat'); return S; } }
+      } else dropT = 0;
+      for (const t of tgLadders) {                             // a ladder, complete
+        S.descents++; if (!crackedThis) { S.dropped = 0; achieve('clean', S.descents, t.wall, 'group', t.s, t.y); } emit('lower'); learn('baixada'); lowerFloors(2);
+        crackedThis = false;
       }
       if (S.t >= B.max - B.net) { downT += dt; const every = Math.max(0.6, (B.max - S.t) / Math.max(1, S.floors + 0.5)); if (downT >= every) { downT = 0; lowerFloors(1); } }   // the net
-      if (S.floors === 0 || S.t >= B.max) { S.floors = 0; S.outcome = 'descarregat'; S.result.baixada = S.castell.cracks ? 'cruixit' : 'net'; S.castell.state = 'down'; finish(); go('acta'); }
+      if (S.floors === 0 || S.t >= B.max) { S.floors = 0; TG.clear(); S.outcome = 'descarregat'; S.result.baixada = S.castell.cracks ? 'cruixit' : S.descents ? 'net' : 'ajudada'; S.castell.state = 'down'; finish(); go('acta'); }   // ajudada: only the clock brought it down
       S.progress = 1 - S.floors / Math.max(1, S.stats.maxFloors);
     } else if (S.block === 'fall') {
       S.progress = S.t / T.fall; if (S.t >= T.fall) { S.floors = 0; finish(); go('acta'); }
