@@ -175,10 +175,28 @@ const short = (r) => {
     + `\n      today: waves ${r.snap.waves ?? '-'}/${r.ev.wave || 0} calls · relay help ${r.ev['relay:assist'] || 0} · struct ${r.snap.structure ?? '-'} · floors ${r.ev.floor || 0} slip ${r.ev.slip || 0}/${r.ev.wobble || 0} · pom breaks ${r.ev['hush:break'] || 0} falters ${r.ev.falter || 0} · aleta ${Math.round((r.snap.aleta || 0) * 100)}% · echo ${r.snap.echo ?? '-'} ghost ${r.ev.ghost || 0} · bloom ${(r.snap.bloom || 0).toFixed(2)} · cracks ${r.ev.crack || 0}`;
 };
 console.log(`score-sim: ${path.relative(process.cwd(), scorePath)} · seed ${SEED} · lidar ${LIDAR}${SHRINK ? ' · shrink' : ''}`);
-console.log('size act    total  castell    outcome     results  help[blocks where the colla helped]');
+if (!flag('table')) {
+  console.log('size act    total  castell    outcome     results  help[blocks where the colla helped]');
+  for (const r of rows) {
+    console.log(short(r));
+    if (flag('events')) console.log('      ach: ' + Object.entries(r.achs).map(([k, v]) => k + '×' + v).join(' ') + '\n      stages: ' + r.stages.join(' '));
+  }
+}
+// THE MATRIX (plan 05 §6.1): per block, A = the group's own ending, B = the smaller one / with the colla; «+c» = the colla helped (named)
+const AB = {
+  brasa: (r) => (r.result.brasa ? (r.result.brasa === 'encesa' ? 'A' : 'B') : '?'),
+  pinya: (r) => (r.result.pinya ? (r.result.pinya.by === 'group' ? 'A' : 'B') + r.result.pinya.n : '?'),
+  tronc: (r) => (r.result.tronc ? (r.result.tronc.by === 'group' ? 'A' : 'B') + r.result.tronc.own + '+' + r.result.tronc.colla : '?'),
+  pom: (r) => (r.result.pom ? (r.result.pom === 'net' ? 'A' : 'B') : '?'),
+  crown: (r) => (r.castell.crown ? (r.castell.crown === 'ample' ? 'A' : 'B') : '?'),
+  festa: (r) => (r.result.festa ? (r.result.festa >= 3 ? 'A' : 'B') + r.result.festa : '?'),
+  baixada: (r) => (r.result.baixada ? (r.result.baixada === 'net' ? 'A' : 'B') : '?'),
+};
+const pad = (s, n) => String(s).padEnd(n);
+console.log('\n' + pad('act', 8) + pad('size', 5) + Object.keys(AB).map((k) => pad(k, 10)).join('') + pad('total', 7) + 'castell');
 for (const r of rows) {
-  console.log(short(r));
-  if (flag('events')) console.log('      ach: ' + Object.entries(r.achs).map(([k, v]) => k + '×' + v).join(' ') + '\n      stages: ' + r.stages.join(' '));
+  console.log(pad(r.act, 8) + pad(r.size, 5) + Object.entries(AB).map(([k, f]) => pad(f(r) + (r.assists.includes(k === 'crown' ? '-' : k) ? '+c' : ''), 10)).join('')
+    + pad(Math.round(r.total) + 's', 7) + r.acta + (r.outcome !== 'descarregat' ? ' ' + r.outcome : '') + (r.abandoned ? ' ABANDON' : ''));
 }
 console.log(`(${rows.length} passes in ${((Date.now() - t0) / 1000).toFixed(1)} s)`);
 if (arg('json')) { const fs = await import('node:fs'); fs.writeFileSync(arg('json'), JSON.stringify(rows, null, 1)); }
