@@ -175,8 +175,9 @@ function wanted(b) {
                          has('brasa3d') ? ['brasa3d', 'atmos'] : ['atmos'];
     case 'intro': return ['plaza', 'atmos', 'castell', 'introtext'];
     case 'brasa': return has('brasa3d') ? ['brasa3d', 'atmos'] : ['atmos'];
-    case 'pinya': return has('pinya3d') ? ['pinya3d', 'atmos'] : ['castell', 'atmos'];
-    case 'tronc': return has('tronc3d') ? ['tronc3d', 'atmos'] : ['plaza', 'castell', 'atmos'];   // T-032 (3D-FE): the assemblage tower carries its own light bodies
+    // 05-plan D5b: the LIT square (plaza.js V8 turns to plaza light by itself in pinya / tronc) behind the crowd and the tower
+    case 'pinya': return has('pinya3d') ? ['plaza', 'pinya3d', 'atmos'] : ['plaza', 'castell', 'atmos'];
+    case 'tronc': return has('tronc3d') ? ['plaza', 'tronc3d', 'atmos'] : ['plaza', 'castell', 'atmos'];   // T-032 (3D-FE): the assemblage tower carries its own light bodies
     case 'baixada':                                                  // 3D-FE: the group's tower (tronc3d) is brought down floor by floor (3D-PO, takeFloor)
       if (has('tronc3d')) return has('baixada3d') ? ['plaza', 'tronc3d', 'baixada3d'] : ['tronc3d', 'atmos'];   // plaza as a black silhouette against 3D-PO's dawn (far layer)   // director 24-11: no night square over the dawn; 3D-PO hides tronc3d's floors itself
       return has('baixada3d') ? ['plaza', 'castell', 'baixada3d', 'atmos'] : ['plaza', 'castell', 'atmos'];
@@ -501,7 +502,7 @@ function frame(dt) {
         if (e.home === 'fall') { if (S.block === 'fall') e.fallK = clamp(S.t / 9, 0, 1); sh = Math.max(sh, e.fallK); }
         p.shatter = sh; p.reveal = 0;
         const dim = e.state === 'out' && S.block === 'acta' ? 1 - smooth(Math.min(1, e.leave * 2)) : 1;   // its light goes first: the next universe's words read at once
-        e.mood = ease(e.mood ?? 1, e.home === 'baixada' || e.home === 'fall' ? 0.18 : e.home === 'tronc' ? 0.2 : 1, dt, 1.2);   // tronc: stone and ceramic, the castell the brightest thing   // the baixada: the square goes into night
+        e.mood = ease(e.mood ?? 1, e.home === 'baixada' || e.home === 'fall' ? 0.18 : 1, dt, 1.2);   // 25-11 (VFX): tronc keeps its lamps — the lit square (plaza V8) is the tronc's light now (was 0.2)   // the baixada: the square goes into night
         const night = (e.mood - 0.18) / 0.82;   // 0 in the baixada's night … 1 elsewhere
         p.lamps = (e.base.lamps ?? 1) * dim * e.mood; p.sky = (e.base.sky ?? 1) * dim * (0.15 + 0.85 * night); p.windows = (e.base.windows ?? 0.45) * dim * (0.15 + 0.85 * night); p.moon = (e.base.moon ?? 1) * (0.12 + 0.88 * night);
         p.glow = (e.base.glow ?? 0.3) * e.mood; p.haze = (e.base.haze ?? 1) * (0.2 + 0.8 * night);
