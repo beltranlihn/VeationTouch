@@ -22,6 +22,9 @@
 // params.litBlock) the same square turns to plaza light: lime facades (palette `cal-foc` / `porcellana`) under a low raking key with
 // REAL cast shadows (room.keyShadow: arcades and porches in shadow, the facades' shadows across the slabs), a cool sky fill, dry pale
 // slabs, the room's sky (room.sky) above and a thin air that grows with distance (never a veil on the foreground). No break while lit.
+// BRASA (VFX 25-11): in block 'brasa' the square is the night of fire — the fanals almost out, the sky the room's smoky dark, and up to
+// NFI fires (part.setFires(list, posOf, kOf), fed by brasa3d's hand-lit fires) light the facades and slabs in flame colour, with their glow
+// in the air.
 import { lin as palLin } from '../palette.js';
 export function create(ctx) {
   const { THREE, TSL, room } = ctx;
@@ -693,6 +696,9 @@ export function create(ctx) {
   const lampVec = Array.from({ length: NL }, () => new THREE.Vector4());
   const uLamps = uniformArray(lampVec, 'vec4');
   const LC = vec3(1.0, 0.6, 0.3);
+  const NFI = 8, fireVec = Array.from({ length: NFI }, () => new THREE.Vector4(0, -50, 0, 0)), uFires = uniformArray(fireVec, 'vec4');
+  const FC = vec3(...palLin('flama')).mul(1.0).add(vec3(...palLin('brasa')).mul(0.4));   // the colour of the fire's light (palette tokens)
+  const uNightK = uniform(0);                                         // brasa: 1 = the room's dark sky instead of the moonlit one
   // VFX V8: the lit square (0 = the night square … 1 = plaza light). Tones from palette.js (nobody writes a hex)
   const uDay = uniform(0), uDayTone = uniform(new THREE.Vector3(...palLin('porcellana'))), uDayFloor = uniform(new THREE.Vector3(...palLin('pedra-llum'))), uDayAir = uniform(0.015);
   const roomSky = room.sky ? room.sky : () => vec3(0.02, 0.025, 0.04);
@@ -784,6 +790,15 @@ export function create(ctx) {
         });
       });
     });
+    Loop(NFI, ({ i }) => {                                            // the fires' glow in the smoke
+      const L = uFires.element(i);
+      const rel = L.xyz.sub(E), s0 = dot(rel, dir), h2 = dot(rel, rel).sub(s0.mul(s0));
+      If(L.w.greaterThan(0.002).and(h2.lessThan(36.0)), () => {
+        const h = sqrt(max(h2, 0.02));
+        const integ = atan(Ls.sub(s0).div(h)).sub(atan(s0.negate().div(h))).div(h);
+        ins.addAssign(FC.mul(L.w.mul(integ).mul(0.0035).mul(uNightK)));
+      });
+    });
     // VFX V8: in the lit square the air is the room's sky in that direction, thin near the walls and growing with distance
     const Td = exp(max(dist.sub(9.0), 0).mul(uDayAir).negate());
     const dayC = col.rgb.mul(Td).add(roomSky(dir).mul(float(1).sub(Td)));
@@ -811,6 +826,15 @@ export function create(ctx) {
     const shin = float(2).div(a2.mul(a2)).sub(2).min(700);
     const f0 = mix(vec3(0.04), albedo, metal);
     const kd = albedo.mul(float(1).sub(metal)).mul(1 / Math.PI);
+    Loop(NFI, ({ i }) => {                                            // VFX 25-11: the hand-lit fires of the Brasa, flickering
+      const L = uFires.element(i);
+      const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv);
+      If(L.w.greaterThan(0.002).and(d2.lessThan(900.0)), () => {
+        const Ld = Lv.mul(d2.inverseSqrt()), ndl = max(dot(Nw, Ld), 0);
+        const fl = sin(uTime.mul(11.0).add(L.x.mul(3.1))).mul(sin(uTime.mul(7.3).add(L.z.mul(2.3)))).mul(0.18).add(0.9);
+        acc.addAssign(FC.mul(L.w.mul(26).mul(fl).div(d2.add(0.6))).mul(ndl).mul(kd).mul(smoothstep(900.0, 60.0, d2)));
+      });
+    });
     Loop(NL, ({ i }) => {
       const L = uLamps.element(i);
       const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv);
@@ -1062,7 +1086,7 @@ export function create(ctx) {
   const skyMat = (() => {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false });
     const dS = normalize(positionWorld.sub(cameraPosition));
-    m.colorNode = mix(skyCol(dS), roomSky(dS), uDay);
+    m.colorNode = mix(skyCol(dS), roomSky(dS), max(uDay, uNightK));
     return finish(m);
   })();
 
@@ -1109,7 +1133,11 @@ export function create(ctx) {
   const LIT = { pinya: { dir: [-0.55, 0.42, -0.72], tone: 'cal-foc', floor: 'pedra-llum', key: 'cal-foc', k: 4.2, fill: 0.45, air: 0.01, lamps: 0.6 },
                 tronc: { dir: [0.45, 0.85, -0.35], tone: 'porcellana', floor: 'pedra-llum', key: 'porcellana', k: 5.0, fill: 0.5, air: 0.008, lamps: 0.12 } };
   for (const c of Object.values(LIT)) { c.toneL = palLin(c.tone); c.floorL = palLin(c.floor); c.keyL = palLin(c.key); }
-  let dayK = 0, litCfg = LIT.tronc;
+  let dayK = 0, litCfg = LIT.tronc, nightK = 0;
+  // VFX 25-11: the Brasa's fires light the square. setFires(list, posOf(item) → Vector3, kOf(item) → 0..~1.2); the first NFI count
+  function setFires(list, posOf, kOf) {
+    for (let i = 0; i < NFI; i++) { const it = list && list[i]; if (it) { const p = posOf(it); fireVec[i].set(p.x, p.y + 0.5, p.z, Math.max(0, kOf(it))); } else fireVec[i].w = 0; }
+  }
   const hemi = new THREE.HemisphereLight(new THREE.Color(0.35, 0.45, 0.75), new THREE.Color(0.25, 0.17, 0.1), 0);
   object.add(hemi);
 
@@ -1189,6 +1217,8 @@ export function create(ctx) {
     const moonK = (pr.moon ?? 1) * reveal * dark;
     moon.intensity = 0.32 * moonK * (pr.moonKey ?? 1); hemi.intensity = 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1));   // the moon's key also fills the shadows with a cool sky
     uDay.value = dayK;
+    nightK += (((blk === 'brasa' || (!input.state && pr.brasa)) ? 1 : 0) - nightK) * Math.min(1, dt * 1.5); uNightK.value = nightK;
+    if (nightK > 0) { uStars.value *= 0.3; uWin.value *= 1 - 0.5 * nightK; moon.intensity *= 1 - 0.75 * nightK; hemi.intensity *= 1 - 0.75 * nightK; for (const m of envMats) m.envMapIntensity *= 1 - 0.6 * nightK; }
     if (dayK > 0) {
       uDayTone.value.fromArray(litCfg.toneL); uDayFloor.value.fromArray(litCfg.floorL); uDayAir.value = litCfg.air;
       moonDay.fromArray(litCfg.dir).normalize(); _md.copy(moonNight).lerp(moonDay, dayK).normalize(); moon.position.copy(_md).multiplyScalar(60);
@@ -1226,7 +1256,7 @@ export function create(ctx) {
       const on = ignite(tR - L.t0, i, time);
       const br = 1 - sm((S - lampD[i] + 0.06) / 0.22);                // it dies when its stone breaks, with a last flicker
       const fl = S > lampD[i] - 0.1 && br > 0.02 ? 0.6 + 0.4 * Math.sin(time * 41 + i) : 1;
-      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK);
+      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK);
       L.light.intensity = v * 26;
       lampVec[i].set(L.pos.x, L.pos.y, L.pos.z, v);
     }
@@ -1234,5 +1264,5 @@ export function create(ctx) {
   function setParams() { /* parameters are read live in update() */ }
   function dispose() { for (const g of geos) g.dispose(); for (const m of [stoneMat, detailMat, glassMat, mirrorMat, floorMat, skyMat]) m.dispose(); }
   if (typeof window !== 'undefined') window.__plaza = { lamps: NL, verts, meshes: object.children.length, lit: () => lamps.filter((L) => L.t0 <= prevT).length, byHand: () => lampsLitByHand };   // lab checks only
-  return { object, update, setParams, dispose, captureEnv };
+  return { object, update, setParams, dispose, captureEnv, setFires };
 }

@@ -32,6 +32,12 @@
 // Study (no input.state): progress from the host, params.arrive / leave, params.phase, params.wave / awake (rising edge = trigger),
 //   params.waveEvery (s, automatic waves), params.autoWave (two hands within 0.9 s make a wave, as the score does).
 // Sizes in metres; nothing allocated per frame; no readPixels.
+// STUDIO NIGHT 25-11 (VFX, plan 05 §5.6 Brasa a–c): (a) THE FIRE CATCHES UNDER THE HAND — a flame of ~1.2 m rises in the wall plane
+//   (0.6 m behind it) within 0.3–0.6 s of a hand landing (the sound answers at once), holds while the hand stays, and sinks to an ember
+//   that glows on for ~60 s (16 hearths; a new hand near a burning one feeds it). (b/c) IN THE SQUARE AT NIGHT: when the plaza part is
+//   shown with this one (the host's Brasa set), the liquid chrome floor, its reflections, the far monoliths and the liquid's haze go,
+//   the world does not sink, and every hand-lit fire lights the square's facades and slabs (parts.plaza.setFires). The air and the
+//   smoke are the room's (setAir: a dark smoky night).
 
 import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 const NC = 512;                         // heat cells round the perimeter
@@ -48,7 +54,7 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smoother = (v) => { const s = clamp01(v); return s * s * s * (s * (s * 6 - 15) + 10); };
 function rng(seed) { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
-export function create({ THREE, TSL, room, params }) {
+export function create({ THREE, TSL, room, params, parts }) {
   const P = params || {};
   const {
     Fn, uniform, uniformArray, instancedArray, instanceIndex, attribute, varying, positionWorld, positionGeometry, uv, texture,
@@ -964,6 +970,83 @@ export function create({ THREE, TSL, room, params }) {
     }
   }
 
+  // ------------------------------------------------------------------------------------------------ 5f. the hand fires (VFX 25-11, Brasa a)
+  // MAXF hearths, each NPF analytic flame sprites (vertex stage, no state): fA = (x, y, z, strength), fB = (height, width, age, ember),
+  // fC = (the wall's right x, z, 0, 0). Flame = white-gold at the root → orange → red tongues; ember = a low red bed with a few licks.
+  const MAXF = 16, NPF = 640;
+  const fA = Array.from({ length: MAXF }, () => new THREE.Vector4(0, -50, 0, 0)), fB = Array.from({ length: MAXF }, () => new THREE.Vector4(1.2, 0.5, 0, 0)), fC = Array.from({ length: MAXF }, () => new THREE.Vector4(1, 0, 0, 0));
+  const uFA = uniformArray(fA, 'vec4'), uFB = uniformArray(fB, 'vec4'), uFC = uniformArray(fC, 'vec4');
+  const handFireMesh = (() => {
+    const r = rng(977), aR = new Float32Array(MAXF * NPF * 4), aI = new Float32Array(MAXF * NPF * 4);
+    for (let i = 0; i < MAXF * NPF; i++) { aR[i * 4] = r(); aR[i * 4 + 1] = r(); aR[i * 4 + 2] = r(); aR[i * 4 + 3] = r(); aI[i * 4] = Math.floor(i / NPF); }
+    const g = quadGeo(MAXF * NPF, { aR, aI });
+    const m = additive();
+    const R4 = attribute('aR', 'vec4'), I4 = attribute('aI', 'vec4'), t = U.time;
+    const fi = I4.x.toInt(), A = uFA.element(fi), B = uFB.element(fi), C = uFC.element(fi);
+    const r1 = R4.x, r2 = R4.y, r3 = R4.z, r4 = R4.w;
+    const grow = smoothstep(0.0, 0.5, B.z);                                   // 0 → 1 in 0.3–0.6 s: the flame rises (the sound is instant)
+    const str = A.w, emb = B.w;
+    const age = fract(t.mul(r1.mul(0.8).add(0.75)).add(r2.mul(17.0)));
+    const tongue = mx_noise_float(vec3(A.x.mul(0.7).add(r3.mul(3.0)), t.mul(1.6), A.z.mul(0.7))).mul(0.35).add(0.75);
+    const hgt = B.x.mul(grow).mul(tongue).mul(mix(float(1), float(0.22), emb)).mul(min(str.mul(1.6), 1.0));
+    const lat = r3.sub(0.5).mul(B.y).mul(float(1).sub(age.mul(0.75)));          // wide at the root, a tongue at the top
+    const dep = r4.sub(0.5).mul(0.35).mul(float(1).sub(age.mul(0.6)));
+    const sway = age.mul(age).mul(0.2);
+    const right = vec3(C.x, 0, C.y), back = vec3(C.y, 0, C.x.negate());
+    const p = A.xyz.add(right.mul(lat.add(sin(t.mul(2.7).add(r2.mul(40.0)).add(age.mul(4.0))).mul(sway)))).add(back.mul(dep)).add(vec3(0, age.mul(hgt), 0));
+    const size = float(0.07).add(r4.mul(0.09)).mul(float(1).sub(age.mul(0.45))).mul(grow.mul(0.6).add(0.4)).mul(mix(float(1), float(0.6), emb));
+    const T = pow(float(1).sub(age), 1.2).mul(1.45).mul(min(str, 1.2)).mul(mix(float(1), float(0.55), emb));
+    const E = smoothstep(0.0, 0.07, age).mul(pow(float(1).sub(age), 1.6)).mul(0.11).mul(str);
+    m.vertexNode = select(str.greaterThan(0.01), billboard(p, size, size.mul(2.6)), HIDE);
+    const vC = varying(fireRamp(T).mul(E));
+    const q = uv().sub(0.5);
+    m.colorNode = vC.mul(exp(q.x.mul(q.x).mul(-18).add(q.y.mul(q.y).mul(-9))));
+    m.fog = false;
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 4; mesh.name = 'brasa:handFires';
+    world.add(mesh); return mesh;
+  })();
+  // CPU side of the hand fires
+  const fires = Array.from({ length: MAXF }, (_, i) => ({ i, on: false, stroke: null, born: 0, last: 0, str: 0, emb: 0, pos: new THREE.Vector3(), wall: 0 }));
+  const fireOut = [];   // for the square: [{ pos, k }]
+  function lightFire(h, time) {
+    const W = walls[h.wall];
+    _v2.copy(h.pos).addScaledVector(W.normal, -0.6); _v2.y = Math.max(0.15, h.pos.y - 0.55);   // the root ~0.55 m under the hand, 0.6 m behind the wall
+    let best = null;
+    for (const F of fires) if (F.on && F.pos.distanceTo(_v2) < 0.8) { best = F; break; }      // feed a fire already there
+    if (!best) { best = fires.find((F) => !F.on) || fires.reduce((a, b) => (a.str + (a.emb ? 0 : 1) < b.str + (b.emb ? 0 : 1) ? a : b)); best.born = time; best.str = Math.max(best.on ? best.str : 0, 0.05); best.pos.copy(_v2); }
+    best.on = true; best.stroke = h.stroke; best.last = time; best.wall = h.wall;
+    fC[best.i].set(W.right.x, W.right.z, 0, 0);
+  }
+  function stepFires(dt, time, hs) {
+    for (const F of fires) {
+      if (!F.on) continue;
+      let held = false;
+      for (const h of hs) if (h.stroke === F.stroke) { held = true; F.last = time; _v2.copy(h.pos).addScaledVector(walls[h.wall].normal, -0.6); _v2.y = Math.max(0.15, h.pos.y - 0.55); F.pos.lerp(_v2, 1 - Math.exp(-dt / 0.8)); break; }
+      const since = time - F.last;                                   // 0 while held; the flame sinks to an ember in ~5 s, the ember lives ~60 s
+      const tgt = held ? 1 : since < 5 ? 1 - 0.75 * smoother(since / 5) : 0.25 * (1 - smoother((since - 5) / 55));
+      F.str += (tgt - F.str) * (1 - Math.exp(-dt / (held ? 0.25 : 0.6)));
+      F.emb += ((held ? 0 : smoother((since - 1) / 5)) - F.emb) * (1 - Math.exp(-dt / 0.8));
+      if (!held && since > 60 && F.str < 0.01) { F.on = false; F.str = 0; F.stroke = null; }
+      const k = F.str * (1 - U.leave.value) * crowdK;
+      fA[F.i].set(F.pos.x, F.pos.y - lift, F.pos.z, k); fB[F.i].set(1.25, 0.55, time - F.born, F.emb);
+    }
+    for (const F of fires) if (!F.on) fA[F.i].w = 0;
+    // the square's fire light: the strongest few
+    fireOut.length = 0;
+    for (const F of fires) if (F.on && F.str > 0.02) fireOut.push(F);
+    fireOut.sort((a, b) => b.str - a.str);
+    const plaza = parts?.plaza;
+    if (plaza?.setFires) plaza.setFires(fireOut, (F) => F.pos, (F) => F.str * (0.35 + 0.65 * (1 - F.emb)) * (1 - U.leave.value));
+  }
+  // (b/c) in the square: the liquid world's floor, reflections, monoliths and haze go
+  const liquidOnly = [];
+  let inPlazaK = -1;
+  function setInPlaza(on) {
+    if (on === inPlazaK) return; inPlazaK = on;
+    if (!liquidOnly.length) { world.traverse((o) => { if (o.isMesh && o.renderOrder === -1) liquidOnly.push(o); }); liquidOnly.push(floorMesh, farGroup); if (typeof hazeMesh !== 'undefined' && hazeMesh) liquidOnly.push(...[].concat(hazeMesh)); }
+    for (const o of liquidOnly) if (o) o.visible = !on;
+  }
+
   // ------------------------------------------------------------------------------------------------ 6. the air on the wall planes
   const HP = []; for (let i = 0; i < 16; i++) HP.push(new THREE.Vector4());
   const uHP = uniformArray(HP, 'vec4');
@@ -1383,7 +1466,9 @@ export function create({ THREE, TSL, room, params }) {
     fxT += dt; if (fxT > 1) { fxT = 0; fxN = 0; }
     U.seed.value = (frame * 2654435761) >>> 0;
     // ---- the room sinks into the liquid as the ring wakes (the world rises; ≤ 3 cm/s, soft accelerations); none in the wait
-    const liftT = Math.max(0, Number(P.sink ?? 0.5)) * smoother(Math.min(1, level * 1.15)) * (1 - waitK);
+    const plazaOn = !!(parts?.plaza?.object?.visible) && P.inPlaza !== false;   // the host shows the square with the fire (Brasa set)
+    setInPlaza(plazaOn);
+    const liftT = plazaOn ? 0 : Math.max(0, Number(P.sink ?? 0.5)) * smoother(Math.min(1, level * 1.15)) * (1 - waitK);
     if (frame <= 2 || (!S && time < 4)) { lift = liftT; liftV = 0; }
     else { const want = Math.max(-0.03, Math.min(0.03, (liftT - lift) * 0.6)); liftV += (want - liftV) * (1 - Math.exp(-dt / 0.9)); lift += liftV * dt; }
     world.position.y = lift; U.lift.value = lift;
@@ -1433,6 +1518,7 @@ export function create({ THREE, TSL, room, params }) {
         slot.flash = cont ? slot.flash : 1; slot.jet = cont ? 0 : 0.6;
         if (!cont) {
           newDown = true;
+          if (waitK < 0.5) lightFire(h, time);   // VFX 25-11 (a): the fire catches under the hand
           { const W = walls[h.wall]; _v.copy(h.pos).addScaledVector(W.normal, -0.5); addRipple(_v.x, _v.z, 0.014, time); }
           const n = h.normal, wk = 1 - 0.75 * waitK;
           emit(Math.max(24, 60 * gH) * wk, h.pos.x - n.x * 0.03, h.pos.y - lift, h.pos.z - n.z * 0.03, 0.03, -n.x * 0.4, 0.9, -n.z * 0.4, 0.8, 1.0, 3.0, 0.4, 0.9, 1.6, 0.6, 1.2);   // a small burst at the hand, at once
@@ -1488,11 +1574,13 @@ export function create({ THREE, TSL, room, params }) {
         }
       }
       slot.px = h.pos.x; slot.py = h.pos.y; slot.pz = h.pos.z;
+      if (!newDown) for (const F of fires) if (F.on && F.stroke !== h.stroke && F.pos.distanceToSquared(h.pos) < 1.0 && time - F.last > 0.25 && time - F.last < 0.9) F.stroke = h.stroke;   // the sensor gave the same hand a new stroke
       if (nh < 16) { HP[nh].set(h.pos.x, h.pos.y - lift, h.pos.z, slot.flash * gHs); nh++; }
       slot.flash *= Math.exp(-dt / 0.18);
     }
     for (const x of hands) if (!x.seen && x.stroke !== null) { const u = recentUps[upI]; u.s = x.s; u.y = x.y ?? 1.2; u.t = time; upI = (upI + 1) % recentUps.length; x.stroke = null; }
     U.nH.value = nh;
+    stepFires(dt, time, hs);
 
     // ---- the chapter's level, waves, awake, reward
     const target = phase === 'reward' ? 1 : 0.0 + progress;
@@ -1650,7 +1738,7 @@ export function create({ THREE, TSL, room, params }) {
     U.flames.value = Number(P.flames ?? 1); U.heat.value = Number(P.heat ?? 1); U.devils.value = Number(P.devils ?? 1) * (0.35 + 0.65 * crowdK);
     // (a crowd: the devils dimmer; the bed too, so many hands are no brighter than ~4)
     U.crowd.value = 0.6 + 0.4 * crowdK;
-    U.haze.value = Number(P.haze ?? 1); U.wait.value = waitK; U.breath.value = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(breathPh * Math.PI * 2)); U.smoke.value = Math.max(0, Number(P.smoke ?? 1)); smokeMesh.visible = U.smoke.value > 0;
+    U.haze.value = Number(P.haze ?? 1) * (inPlazaK === true ? 0.35 : 1); U.wait.value = waitK; U.breath.value = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(breathPh * Math.PI * 2)); U.smoke.value = Math.max(0, Number(P.smoke ?? 1)); smokeMesh.visible = U.smoke.value > 0;
     updatePlumes(time, level * (1 - cool * 0.5), arrive);
     U.chrome.value = Math.max(0, Number(P.chrome ?? 1)) * (1 - 0.85 * waitK);
     U.refl.value = Math.max(0, Number(P.reflect ?? 1)) * smoother(arrive / 0.6) * (1 - 0.7 * waitK);
