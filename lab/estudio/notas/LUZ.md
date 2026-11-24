@@ -20,3 +20,14 @@ intensidad 0 al salir y no las devuelve al volver: una receta añadida se quedar
 - Capa lejana: 900 → 405 esquirlas, al 73 % de brillo.
 - Zona tranquila: elipse radial suave (centro 1,8 m, 4 × 2,4 m) en oscuro cálido `#120C06`, velo al 60 %; ya no es un rectángulo índigo.
 - Interacciones intactas (impulsos, ecos, llamada, florecimiento, aleta, pico). 0 errores WebGPU y WebGL2.
+
+## 2. Bajada — `baixada3d.js` · hoja `luz/t053-baixada.jpg` (ARTE r5, lo más urgente)
+- **El blanco sobre blanco**: la porcelana detrás de «Bajadlo despacio» era el corro de la pinya de **tronc3d** (TRON), que se veía cuando
+  el tronc del pase tenía < 3 pisos (`takeFloor` da < 150 piezas: baixada3d dibuja sus propios anillos y DEVOLVÍA los pisos a tronc3d).
+  Ahora los pisos se quedan ocultos también en ese caso (se devuelven igual con `releaseTronc()` al acabar/al siguiente pase) y se ve
+  sólo la torre de vidrio propia. Sin tocar tronc3d. En un pase real con tronc construido no cambia nada (ya se ocultaban).
+- Vidrio: techo de luminancia 0,7 (fuera el blanco quemado) y 0,3 dentro de las zonas tranquilas; contorno a la mitad; la mano ilumina
+  los filos cercanos (`room.flash`, acento rosa de la bajada).
+- Bruma del amanecer `#1A1326` al pie de cada muro (aditiva sobre el plano del muro, 0 → 1,2 m): el negro puro de la silueta se levanta.
+- Fuera las rayas pixel-sort del cielo bajo.
+- 0 errores WebGPU y WebGL2.

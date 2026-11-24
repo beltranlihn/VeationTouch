@@ -51,6 +51,8 @@ export function create(ctx) {
 
   // -------------------------------------------------------------------------------------------- uniforms, groups
   const uTime = uniform(0), uA = uniform(20), uWorld = uniform(1), uGain = uniform(1), uDomeIn = uniform(1), uDrain = uniform(0);
+  // T-053: the shared system — the chapter's accent for the hands' light on the glass edges («la mano es una linterna»)
+  const ACC = vec3(...(room.PALETTE?.baixada?.accent || [0.93, 0.47, 0.56])), FL = (p) => (room.flash ? room.flash(p) : float(0));
   const sunV = new THREE.Vector3(0.75, -0.03, 0.66).normalize(), uSun = uniform(sunV);
   const SEA = new THREE.Vector2(0.75, 0.66).normalize(), uSea = uniform(SEA);
   const object = new THREE.Group(); object.name = 'baixada3d';
@@ -99,7 +101,7 @@ export function create(ctx) {
     const cloud = mix(lil.mul(0.5).add(ros.mul(0.25)), mix(ros, warm, east).mul(0.7), lit.mul(east.mul(0.7).add(0.3))).mul(c0).mul(band).mul(0.6);
     const row = floor(y.mul(220.0)), h = hash12(vec2(row, 3.0)), a0 = hash12(vec2(row, 9.0)).mul(6.283).sub(3.1416), len = hash12(vec2(row, 5.0)).mul(0.8).add(0.15);
     const fa = az.sub(a0).div(len), inS = step(0.0, fa).mul(step(fa, 1.0)).mul(step(0.955, h)).mul(smoothstep(0.02, 0.05, y)).mul(smoothstep(0.32, 0.18, y));
-    const sorted = mix(lil, mix(ros, warm, east), pow(fa.clamp(0, 1), 2.0)).mul(inS).mul(0.3);
+    const sorted = mix(lil, mix(ros, warm, east), pow(fa.clamp(0, 1), 2.0)).mul(inS).mul(0.0);   // T-053: no pixel-sort streaks (ARTE-3 §3)
     const stars = step(0.997, hash13(floor(dir.mul(300)))).mul(smoothstep(0.4, 0.8, y)).mul(east.oneMinus()).mul(0.4);
     return sky.add(cloud).add(sorted).add(vec3(stars));
   });
@@ -184,6 +186,25 @@ export function create(ctx) {
     var greenhouses = new THREE.Mesh(g, m); greenhouses.frustumCulled = false; world.add(greenhouses);
   }
 
+  // -------------------------------------------------------------------------------------------- T-053 (ARTE r5): dawn haze at the foot
+  // The square's silhouette made the bottom ~45 % of each wall pure black: a haze #1A1326 on the wall plane, full at the floor, gone by
+  // 1.2 m (additive: it lifts the black, the sky above is untouched). Never #000 (ARTE-3).
+  {
+    const pos = [], hv = [], idx = [], _q = new THREE.Vector3();
+    walls.forEach((w, i) => {
+      const o = pos.length / 3, vt = Math.min(1, 1.3 / w.height);
+      for (const [uu, vv] of [[0, 0], [1, 0], [1, vt], [0, vt]]) { room.wallPoint(i, uu, vv, _q).addScaledVector(w.normal, -0.004); pos.push(_q.x, _q.y, _q.z); hv.push(vv * w.height); }
+      idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('aH', new THREE.Float32BufferAttribute(hv, 1)); g.setIndex(idx); geos.push(g);
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    const hH = varying(attribute('aH', 'float'));
+    m.colorNode = vec3(0.0103, 0.0065, 0.0185).mul(smoothstep(1.2, 0.0, hH)).mul(uDomeIn);
+    m.fog = false; mats.push(m);
+    const haze = new THREE.Mesh(g, m); haze.frustumCulled = false; haze.renderOrder = 20; object.add(haze);
+  }
+
   // -------------------------------------------------------------------------------------------- glass shards (one InstancedMesh)
   // Every shard of the work's dawn: the castells' rings, the rain, the chips, the debris, the near layer. Physical glass (MeshPhysical:
   // clear-coat, iridescence, room.envMap) with its colour as a soft glow and a bright rim; per instance: colour + alpha, flare.
@@ -207,15 +228,18 @@ export function create(ctx) {
       const refl = skyCol(vec3(R.x, abs(R.y).add(0.01), R.z)).mul(fres).mul(1.6);
       const tint = mix(K.xyz, vec3(0.35, 0.3, 0.4), uDrain.mul(F4.y));
       const film = mix(v3(C.aqua), v3(C.rose), fract(cs.mul(3.0).add(F4.z)));
-      const rim = mix(v3(C.sun), film, 0.45).mul(edge.mul(0.5));
+      const rim = mix(v3(C.sun), film, 0.45).mul(edge.mul(0.25));   // T-053 (ARTE r5): the outline at half (it read as wire)
       // ARTE round 3: the glass BENDS the horizon inside each shard (what is behind, seen along a ray bent by the shard's face), a glint
       // towards the east, the rim; a caught shard flares in its floor's colour
       const Nf = select(dot(V, N).greaterThan(0), N.negate(), N);
       const bent = domeCol(normalize(V.sub(Nf.mul(0.42)))).mul(mix(vec3(1), tint, 0.4));
       const sunH = normalize(vec3(uSun.x, 0.06, uSun.z)), glint = pow(max(dot(R, sunH), 0.0), 120).mul(3.0);
       const col = mix(bent, refl.div(fres.max(0.05)).mul(0.9), fres).add(rim).add(vec3(1.0, 0.9, 0.75).mul(glint)).add(tint.mul(F4.x.mul(1.3)));
-      const q = colDim(0.7);
-      return vec4(col.mul(uGain).mul(float(1).sub(uDrain.mul(F4.y).mul(0.7))).mul(q), K.w.mul(float(0.8).add(edge.mul(0.2)).add(F4.x.mul(0.2))).min(1).mul(q.mul(0.5).add(0.5)));
+      const q = colDim(0.7), qz = float(1).sub(colDim(1.0));
+      // T-053 (ARTE r5): no burnt white — luminance ceiling 0.7, and 0.3 behind the text / button (the quiet zones)
+      const c1 = col.mul(uGain).mul(float(1).sub(uDrain.mul(F4.y).mul(0.7))).mul(q), lum = dot(c1, vec3(0.2126, 0.7152, 0.0722));
+      const c2 = c1.mul(min(float(1), mix(float(0.7), float(0.3), qz).div(lum.add(1e-4))));
+      return vec4(c2.add(ACC.mul(FL(positionWorld)).mul(edge).mul(0.4)), K.w.mul(float(0.8).add(edge.mul(0.1)).add(F4.x.mul(0.2))).min(1).mul(q.mul(0.5).add(0.5)));
     })();
     m.fog = false; mats.push(m);
     const mesh = new THREE.InstancedMesh(g, m, NSH); mesh.frustumCulled = false; mesh.renderOrder = 6;
@@ -491,7 +515,8 @@ export function create(ctx) {
         // a tronc that was hardly built (a rehearsal jump) gives too few pieces for a tower: give them back and draw our own rings
         const lvs = new Set(troncList.map((t) => t[0]));
         if (troncList.length >= 150 && lvs.size >= 4) { mode = 'tronc'; placeTronc(); prevFloors = -1; }   // a real castell: ≥ 3 floors above the plinth
-        else { troncHidden = false; if (mode === 'tronc') { mode = 'rings'; castle.built = ''; G0 = 0; } try { for (let i = 0; i <= 9; i++) tp.giveFloor(i); } catch { /* older tronc3d */ } }
+        // T-053 (ARTE r5): … but they stay HIDDEN (a white porcelain pinya at the text's height read «white on white»); given back by releaseTronc()
+        else { troncList.length = 0; if (mode === 'tronc') { mode = 'rings'; castle.built = ''; G0 = 0; } }
       } else if (troncHidden && ((passGone && !leavingToFall) || (S && S.block !== 'baixada' && S.block !== 'fall') || !S)) releaseTronc();
       // leaving INTO THE FALL the floors stay taken (fall3d owns what comes next; giving them back would flash the old tower for a frame):
       // they go back with releaseTronc() — called by the host at the next pass, or by this part when it arrives again
