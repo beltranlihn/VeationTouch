@@ -143,7 +143,8 @@ descarregat» y los cuatro valores, tipografía que se monta con teselas.
 
 ## 5. Guía (texto, voz y manos fantasma)
 
-- **Escalera de enseñanza:** la sala muestra el gesto → responde a la primera mano en < 100 ms → la voz invita (≤ 7 palabras) → manos
+- **Escalera de enseñanza:** la sala muestra el gesto → responde a la primera mano (el sonido al instante; la imagen en ~150 ms, el
+  retraso de reproducción del runtime, ~200–250 ms con proyector) → la voz invita (≤ 7 palabras) → manos
   fantasma de luz hacen el gesto junto a las reales → la colla ayuda pasado el tiempo. Cuando la mitad del grupo hace el gesto
   (`learned`), el texto y las manos fantasma de ese gesto no vuelven.
 - **Sin contadores** («2 de 4 muros», «piso 8» desaparecieron). Sí lo diegético: los nombres reales de los pisos, «3 de 7».

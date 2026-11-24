@@ -59,7 +59,10 @@ the same wording as `res-obra`), drawn into canvas textures on a soft dark plate
 - Lab switches: `?tiles=0` (the old crossing), `?eye=0`, `?aa=taa` (temporal AA instead of MSAA; also params `tiles`, `eye`, `aa`).
 
 ## Solo path
-As in res-obra: the score sets every goal by the group it estimates (2 people minimum); one or two visitors can play the whole pass.
+As in res-obra, the score sets every goal by the group it estimates — but it estimates **at least 2 people**, so today a single
+visitor cannot complete every goal (analysis 24-11, §5 #10: the Brasa call and the echo need hands on more than one wall). The fix
+(estimate the group from 1: `need = 1`, `needWalls = 1` when the peak of hands is ≤ 2; the echo front returns to the same or the next
+wall) belongs to the score (ENT) and is pending. With two or more visitors the whole pass can be played.
 
 ## Group path
 As in res-obra: 2–15 people; Pinya asks for more walls and more circles, the castell stands on the walls the group held.
@@ -83,6 +86,22 @@ it this page runs its own score.
 
 ## Requests to the studio
 - Same as res-obra: a channel between a visual piece and its sound piece (the BroadcastChannel is a lab workaround).
+- **Two instances publish twice** (analysis §5 #26). In the app the page runs twice (the room instance and the viewer); both post
+  `fx:impact` and `ctl` on the BroadcastChannel (8 parts and `experience.js`), so the sound hears every impact and every jump twice.
+  Proposed lab patch, for the studio to decide: only the room instance publishes (`vt.sink !== 'viewer'`). In the medium term the
+  official visual ↔ sound channel above removes the need.
+- **A common stroke id for the visual and the sound piece** (§5 #27). `experiences/runtime.js` gives each piece its own stroke ids, so
+  the two pieces cannot tell that they are hearing / seeing the same hand. Request: one `stroke` shared by both pieces (or the sound
+  piece receives the same ids as the visual one).
+- (§5 #28, folding duplicate hands: today only in the visual host; ENT is moving it into `score.step`, shared by both pieces. No
+  studio action.)
+- **D-10 · the visual hands arrive ~150 ms late, by design.** The runtime plays the hands of a visual piece back 150 ms late
+  (`experiences/runtime.js`); with the frame and the projector the image answers a hand in ~200–250 ms. The sound piece gets `down`
+  at once. So «an answer in < 100 ms» holds for the sound only; the image answers as fast as the runtime allows. For the studio:
+  nothing to change unless the room's playback delay is meant to be tunable.
+- **D-09 · exceptions to the lab contract, decided by Vicente — the studio's OK is needed.** All the work's visible text is in Spanish
+  (castellers' words in Catalan), not English; and the sound piece uses ElevenLabs-generated samples and voices
+  (`ressonancia-sound/audio/*.mp3`, ~19 MB) instead of synthesis only. Both are deliberate for this work (RESSONANCIA.md §9.6).
 - room3d.js: nothing blocking. Nice to have: a per-object "skip in this wall's view" (the guide and texts are drawn by all four cameras;
   they are culled by each camera's frustum, so the cost is small).
 
