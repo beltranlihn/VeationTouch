@@ -170,6 +170,10 @@ function readHands() {
 
 // ------------------------------------------------------------------------------------------------ which parts, block by block
 let fallSet = ['atmos'];
+// 05-plan M4 (Modelado): the SAME castell persists from the Tronc to the coronation — tronc3d stays on in pom / crown / festa, in the
+// mode of each block (setMode below, on every block change). Only once tronc3d has setMode: before that, nothing changes here.
+const CASTELL_MODE = { tronc: 'build', pom: 'top', crown: 'crowned', festa: 'crowned', baixada: 'down' };
+const castellKept = () => (typeof parts.tronc3d?.part.setMode === 'function' ? ['tronc3d'] : []);
 function wanted(b) {
   switch (b) {
     case 'wait': return has('umbral3d') ? ['umbral3d'] :   // the threshold (ENT, T-026) has its own floor, horizon and lights
@@ -182,8 +186,8 @@ function wanted(b) {
     case 'baixada':                                                  // 3D-FE: the group's tower (tronc3d) is brought down floor by floor (3D-PO, takeFloor)
       if (has('tronc3d')) return has('baixada3d') ? ['plaza', 'tronc3d', 'baixada3d'] : ['tronc3d', 'atmos'];   // plaza as a black silhouette against 3D-PO's dawn (far layer)   // director 24-11: no night square over the dawn; 3D-PO hides tronc3d's floors itself
       return has('baixada3d') ? ['plaza', 'castell', 'baixada3d', 'atmos'] : ['plaza', 'castell', 'atmos'];
-    case 'pom': return has('pom3d') ? ['pom3d'] : ['plaza', 'castell', 'atmos'];
-    case 'crown': case 'festa': return has('festa3d') ? ['festa3d'] : ['plaza', 'castell', 'atmos'];
+    case 'pom': return has('pom3d') ? ['pom3d', ...castellKept()] : ['plaza', 'castell', 'atmos'];
+    case 'crown': case 'festa': return has('festa3d') ? ['festa3d', ...castellKept()] : ['plaza', 'castell', 'atmos'];
     case 'fall': return fallSet;
     case 'acta': return ['actatext', 'atmos'];
     default: return ['atmos'];
@@ -438,6 +442,7 @@ function frame(dt) {
         }                                       // from the pom (intent): fall3d arrives as usual (it assembles the group's castell) while pom3d leaves
       }
     }
+    if (CASTELL_MODE[VB] && typeof parts.tronc3d?.part.setMode === 'function') { try { parts.tronc3d.part.setMode(CASTELL_MODE[VB]); } catch (err) { console.info('res-obra3d: tronc3d.setMode skipped (' + err.message + ')'); } }
     lastBlock = VB;
   }
 
