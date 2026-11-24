@@ -45,7 +45,7 @@ for (const block of blocks) {
   let out = '', err = '';
   child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { err += d; });
   const guard = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, max + 5000);
-  const code = await new Promise((r) => child.on('exit', r));
+  const code = await new Promise((r) => child.on('close', r));
   clearTimeout(guard); release();
   const line = out.split(/\r?\n/).find((l) => l.startsWith('MEASURE ')) || 'MEASURE ' + JSON.stringify({ error: 'no output', code, stderr: err.slice(-300) });
   let o; try { o = JSON.parse(line.slice(8)); } catch { o = { error: line }; }
