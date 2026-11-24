@@ -744,10 +744,12 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       const back = w.normal.clone().add(wp.normal).multiplyScalar(-0.5);           // into the world, away from both walls
       const c = new THREE.Mesh(colG, pm); c.position.copy(w.pa).addScaledVector(back, 0.62); c.position.y = 0;
       c.lookAt(c.position.x + back.x, 0, c.position.z + back.z); c.castShadow = true; porx.group.add(c);
-      // the lintel: along the wall, 0.35 m deep, its underside at 3.7 m, just behind the wall plane (a thin dark band at the very top)
-      const L = new THREE.Mesh(new THREE.BoxGeometry(w.width + 1.4, 0.5, 0.35).translate(0, 0.25, 0), pm);
-      L.position.copy(w.centre).addScaledVector(w.normal, -0.3); L.position.y = 3.7;
-      L.lookAt(L.position.x - w.normal.x, 3.7, L.position.z - w.normal.z); L.castShadow = true; porx.group.add(L);
+      // the springers: a short beam from each corner (1.1 m), underside at 3.72 m, just behind the wall — never a full-width band
+      for (const [end, sgn] of [[w.pa, 1], [w.pb, -1]]) {
+        const L = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.5, 0.3).translate(0, 0.25, 0), pm);
+        L.position.copy(end).addScaledVector(w.right, sgn * 0.45).addScaledVector(w.normal, -0.28); L.position.y = 3.72;
+        L.lookAt(L.position.x - w.normal.x, 3.72, L.position.z - w.normal.z); L.castShadow = true; porx.group.add(L);
+      }
     }
     porx.group.visible = false; scene.add(porx.group);
   }

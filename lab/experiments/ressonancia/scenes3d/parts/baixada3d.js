@@ -96,9 +96,9 @@ export function create(ctx) {
     const yy = max(y, 0.0);
     const lil = v3(C.lilac).mul(0.62), ros = v3(C.rose).mul(0.72), warm = v3(C.sun);   // VFX 25-11: palette (was lilac / coral)
     const sky0 = mix(mix(v3(C.top), lil, smoothstep(0.5, 0.14, yy)), ros, smoothstep(0.16, 0.0, yy));
-    const glowE = warm.mul(pow(east, 2.0)).mul(exp(yy.div(0.07).negate()).mul(0.38).add(exp(yy.div(0.22).negate()).mul(0.1)));
+    const glowE = warm.mul(pow(east, 2.0)).mul(exp(yy.div(0.07).negate()).mul(0.7).add(exp(yy.div(0.22).negate()).mul(0.18)));
     // ARTE round 4: a LUMINOUS EAST WALL (P1) in peach #FFD0A8, rising well up the sky, the sun's glow concentrated low at its azimuth
-    const peachE = vec3(1.0, 0.63, 0.39).mul(pow(east, 1.5)).mul(exp(yy.div(0.28).negate()).mul(0.26));
+    const peachE = vec3(1.0, 0.63, 0.39).mul(pow(east, 1.5)).mul(exp(yy.div(0.28).negate()).mul(0.45));
     const sunG = vec3(1.0, 0.85, 0.62).mul(pow(max(dot(dir, uSun), 0.0), 60).mul(0.22));
     const sky = sky0.add(glowE).add(peachE).add(sunG);
     const cn = (q) => mx_noise_float(vec3(az.mul(2.4), q.mul(13.0), uTime.mul(0.008)));
@@ -184,9 +184,11 @@ export function create(ctx) {
       const win = step(abs(f.x.sub(0.5)), 0.12).mul(step(abs(f.y.sub(0.55)), 0.17)).mul(step(0.95, hash12(cl.add(vSZ.xy)))).mul(step(an.y, 0.5)).mul(step(2.5, vY)).mul(vT.x.oneMinus());
       const sil = vec3(0.012, 0.008, 0.02).add(vec3(1.0, 0.62, 0.42).mul(toSun.mul(0.05)));
       // pure black silhouettes (director, 24-11): no lit faces, rims or windows; only the far town sinks into the low sky
-      const col = vec3(0).add(sil.mul(0.0)).add(rim.mul(0.0)).add(win.mul(0.0));
-      const dist = length(positionWorld.sub(cameraPosition)), f2 = exp(dist.mul(-0.004));     // only the far town fades into the low sky
-      return vec4(mix(skyCol(vec3(V.x, 0.02, V.z)).mul(0.45), col, f2.mul(0.8).add(0.2)).mul(uWorld).mul(uGain).mul(colDim(0.75)), 1);
+      // VFX 25-11: albergínia silhouettes in LAYERS — the square (18–28 m) deep (~0.08), the old town beyond sinking into the dawn mist;
+      // a thin warm rim where a face looks at the sun
+      const col = vec3(...palLin('albergínia', 0.32)).add(rim.mul(vec3(...palLin('alba-rosa'))).mul(0.35)).add(sil.mul(0.0)).add(win.mul(0.0));
+      const dist = length(positionWorld.sub(cameraPosition)), f2 = exp(dist.sub(20.0).max(0).mul(-0.016));
+      return vec4(mix(skyCol(vec3(V.x, 0.03, V.z)).mul(0.8), col, f2.mul(0.92).add(0.08)).mul(uWorld).mul(uGain).mul(colDim(0.75)), 1);
     })();
     m.fog = false; mats.push(m);
     var greenhouses = new THREE.Mesh(g, m); greenhouses.frustumCulled = false; world.add(greenhouses);
@@ -245,7 +247,10 @@ export function create(ctx) {
       // T-053 (ARTE r5): no burnt white — luminance ceiling 0.7, and 0.3 behind the text / button (the quiet zones)
       const c1 = col.mul(uGain).mul(float(1).sub(uDrain.mul(F4.y).mul(0.7))).mul(q), lum = dot(c1, vec3(0.2126, 0.7152, 0.0722));
       const c2 = c1.mul(min(float(1), mix(float(0.7), float(0.3), qz).div(lum.add(1e-4))));
-      return vec4(c2.add(ACC.mul(FL(positionWorld)).mul(edge).mul(0.4)), K.w.mul(float(0.8).add(edge.mul(0.1)).add(F4.x.mul(0.2))).min(1).mul(q.mul(0.5).add(0.5)));
+      // VFX 25-11: glass DUST that catches the first sun — a speck of warm light, brighter as it turns to the sun
+      const catchS = pow(max(dot(R, sunH), 0.0), 10.0).mul(2.2).add(0.28);
+      const dust = v3(C.sun).mul(catchS).add(tint.mul(F4.x.mul(1.3))).mul(q);
+      return vec4(dust.add(ACC.mul(FL(positionWorld)).mul(0.4)), K.w.mul(0.9).mul(q.mul(0.5).add(0.5)));
     })();
     m.fog = false; mats.push(m);
     const mesh = new THREE.InstancedMesh(g, m, NSH); mesh.frustumCulled = false; mesh.renderOrder = 6;
@@ -277,7 +282,7 @@ export function create(ctx) {
     if (alpha <= 0.003) { shard.mesh.setMatrixAt(i, _zero); shard.sCa[i * 4 + 3] = 0; return; }
     _ax.set(S_.ax[i], S_.ay[i], S_.az[i]); if (_ax.lengthSq() < 1e-6) _ax.set(0, 1, 0); _ax.normalize();
     _qt.setFromAxisAngle(_ax, S_.an[i]); _ps.set(S_.x[i], S_.y[i], S_.z[i]);
-    const sd = S_.sd[i], s = S_.s[i]; _sc.set(s * (0.6 + 0.5 * ((sd * 7.31) % 1)), s * (0.5 + 0.6 * ((sd * 13.7) % 1)), 1);
+    const sd = S_.sd[i], s = S_.s[i] * 0.24; _sc.set(s * (0.6 + 0.5 * ((sd * 7.31) % 1)), s * (0.5 + 0.6 * ((sd * 13.7) % 1)), 1);
     _m4.compose(_ps, _qt, _sc); shard.mesh.setMatrixAt(i, _m4);
     shard.sCa[i * 4] = S_.r[i]; shard.sCa[i * 4 + 1] = S_.g[i]; shard.sCa[i * 4 + 2] = S_.b[i]; shard.sCa[i * 4 + 3] = alpha;
     shard.sFa[i * 4] = S_.fl[i]; shard.sFa[i * 4 + 1] = S_.st[i] === 1 || S_.st[i] === 2 ? 1 : 0.3; shard.sFa[i * 4 + 2] = S_.sd[i];
