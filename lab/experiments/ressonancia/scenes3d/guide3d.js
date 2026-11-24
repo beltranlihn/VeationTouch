@@ -57,7 +57,14 @@ function linesPlay(S, acta, learned, warn) {
     if (S.wobble > 0) return { line: ['Sujetad la base', fl] };          // the tower trembles: hands to its foot
     return { line: [learned ? '' : 'Levantad', fl] };
   }
-  if (b === 'pom') return S.phase === 'aleta' ? {} : { line: [learned ? '' : 'Quietos', CLIMBERS[S.climber] || ''] };   // l'aleta: no words
+  if (b === 'pom') {                                                 // l'aleta: no words
+    if (S.phase === 'aleta') return {};
+    // T-051 (POV): three climbs (state.pomStage, POS T-050) — the relay asks for still hands; the breath holds it; the silence has no words
+    if (S.pomStage === 'breath') return { line: ['Contened el aliento', CLIMBERS[S.climber] || ''] };
+    if (S.pomStage === 'silence') return { line: ['', CLIMBERS[S.climber] || ''] };
+    return { line: [learned ? '' : 'Quietos', CLIMBERS[S.climber] || ''] };
+  }
+  // the acta's wall line («Dejad vuestra mano», 3–15 s) is drawn by parts/actatext (it sits under the castell, the ring of prints round it)
   if (b === 'crown') return S.t > 3 && S.t < 14 ? { card: ['V', 'Coronado', acta?.castell || "L'aleta"] } : {};
   if (b === 'festa') return S.t < 7 ? { card: ['', 'La plaza es vuestra', ''] } : {};
   if (b === 'baixada') return { line: [learned ? '' : 'Bajadlo despacio', S.floors ? FLOOR_NAMES[S.floors - 1] : ''] };   // the floors' names going down

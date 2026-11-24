@@ -38,5 +38,30 @@
     "Intent"
    ]
   ]
+ },
+ {
+  "key": "prints",
+  "label": "Stand-in prints",
+  "type": "number",
+  "min": 0,
+  "max": 120,
+  "step": 1,
+  "default": 0
+ },
+ {
+  "key": "lang",
+  "label": "Invite language",
+  "type": "select",
+  "default": "es",
+  "options": [
+   [
+    "es",
+    "Español"
+   ],
+   [
+    "en",
+    "English"
+   ]
+  ]
  }
 ]

@@ -66,10 +66,12 @@ export function create(ctx) {
   const uTime = uniform(0), uA = uniform(1.6), uLift = uniform(0), uWorld = uniform(1), uShiver = uniform(0), uLeave = uniform(0);
   const uArrive = uniform(1), uStars = uniform(1), uLines = uniform(1), uGard = uniform(1), uGold = uniform(1), uQ = uniform(0);
   const uBell = uniform(0), uCalm = uniform(0), uYawCS = uniform(new THREE.Vector2(1, 0));
+  const uGust = uniform(0), uRelayK = uniform(0), uSil = uniform(0);   // T-051: the breath's gust, the relay's weight, the silence
   const SEA = new THREE.Vector2(0.7, 0.714).normalize(), uSea = uniform(SEA);        // the sea lies towards +x+z (city frame)
   const DIAG = new THREE.Vector2(Math.cos(2.1), Math.sin(2.1)), DIAG_D = 235;        // the Diagonal: normal and offset (city frame)
   const uDiag = uniform(DIAG);
   const GOLD = vec3(1.0, 0.66, 0.28), WHITE = vec3(0.86, 0.9, 1.0);
+  const LINES_K = 0.6;   // ART r5: every white line ×0.6 (the masts of the light compensate)
   const PITCH = 133.3, BA = 56.5, BCUT = 98.9, BIN = 31.5, BCUTI = 52.0;            // Cerdà's block: 113 m, chamfers, courtyard
   const HAZE = vec3(0.0035, 0.0045, 0.0085);
 
@@ -81,7 +83,7 @@ export function create(ctx) {
 
   // THE QUIET ZONES (GUI / ARTE): at each wall's centre nothing behind the text or the button brighter than ~35 %: colDim(k) is 1
   // elsewhere and 1 − k there. The wall is the one this camera looks through (its z axis is the wall's normal).
-  const colDim = (strength = 0.6) => {
+  const colDim = (strength = 0.7) => {   // ART r5: lines at 30 % behind the text and the button
     const V = positionWorld.sub(cameraPosition), camZ = cameraWorldMatrix.element(2).xyz;
     let de = float(3.5), cr = float(0), rx = float(1), rz = float(0);
     for (const w of walls) {
@@ -165,7 +167,7 @@ export function create(ctx) {
     }
     { const a = node(cc0), hA = has(cc0), dA = length(P2.sub(a)); pads.assign(lineAA(abs(dA.sub(0.07)), fwc, 1.5).mul(hA)); nd.assign(smoothstep(fwc.mul(2.0), 0.0, dA).mul(hA)); }
     const skyK = smoothstep(0.08, 0.16, y).mul(smoothstep(0.95, 0.6, y)).mul(below.oneMinus()).mul(uStars);
-    const consts = WHITE.mul(tr.mul(0.16).add(pads.mul(0.3))).add(GOLD.mul(nd.mul(1.6))).mul(skyK);
+    const consts = WHITE.mul(tr.mul(0.16).add(pads.mul(0.3))).add(GOLD.mul(nd.mul(1.6))).mul(skyK).mul(0.3);   // ART r5: constellations at 30 %
     return mix(g.add(vec3(starsOn)), HAZE.mul(0.4), below).add(WHITE.mul(contour.mul(uLines))).add(GOLD.mul(mtLights.mul(0.6))).add(consts);
   });
   const groundCol = Fn(([dir]) => {
@@ -245,7 +247,7 @@ export function create(ctx) {
     const dir = normalize(positionWorld.sub(cameraPosition));
     const cell = floor(dir.mul(9.0)), h = hash13(cell.add(vec3(3.1, 7.7, 1.3)));
     const a = smoothstep(h.mul(0.75), h.mul(0.75).add(0.12), uDomeIn);
-    return vec4(mix(domeCol(dir).mul(uWorld.mul(0.85).add(0.15)), hazeCol(), hazeA()).mul(colDim(0.65)), a);
+    return vec4(mix(domeCol(dir).mul(uWorld.mul(0.85).add(0.15)), hazeCol(), hazeA()).mul(colDim(0.7)), a);
   })();
   domeMat.fog = false; mats.push(domeMat);
   const dome = new THREE.Mesh(new THREE.SphereGeometry(330, 64, 32), domeMat);
@@ -256,7 +258,7 @@ export function create(ctx) {
   const faceLines = (u, v, dEdge, style, fw, top) => {
     // hierarchy: structural edges thick and bright (2.8 px), floors fine (1 px), detail hairline (0.6 px) and dim
     // ARTE: three weights — silhouettes and edges 2.8 px at 90 % · floors and windows 1.5 px at 45 % · circuit traces 1.5 px at 22 %
-    const edge = lineAA(dEdge, fw, 2.8).mul(0.9).add(lineAA(dEdge, fw, 8.0).mul(0.04));
+    const edge = lineAA(dEdge, fw, 2.8).mul(0.9);   // ART r5: no glow round the lines
     const floors = max(plines(v, 3.3, fw, 1.5), plines(v.add(0.32), 3.3, fw, 1.5).mul(0.5));   // the slab: two lines
     // windows: an outline in each bay; a few lit (cool white), rare gold
     const g = vec2(u.div(2.4), v.div(3.3)), cl = floor(g), f = fract(g);
@@ -265,7 +267,7 @@ export function create(ctx) {
     const rect = max(lineAA(abs(wx.sub(0.27)), fwx, 1.5).mul(step(wy, 0.29)), lineAA(abs(wy.sub(0.28)), fwy, 1.5).mul(step(wx, 0.28)));
     const inside = step(wx, 0.27).mul(step(wy, 0.28)), hh = hash12(cl.add(vec2(5.0, 3.0)));
     const winFade = smoothstep(0.06, 0.2, fwx).oneMinus();
-    const win = rect.mul(0.45).mul(winFade).add(float(0.015).mul(winFade.oneMinus()));
+    const win = rect.mul(0.35).mul(winFade).add(float(0.015).mul(winFade.oneMinus()));
     const lit = inside.mul(step(0.9, hh)).mul(0.035);
     const warm = inside.mul(step(0.975, hh)).mul(0.55);
     const fins = plines(u, 0.9, fw, 1.5).mul(0.22).add(plines(u, 4.5, fw, 1.5).mul(0.45)).add(floors.mul(0.45));
@@ -388,7 +390,7 @@ export function create(ctx) {
       const spill = (G) => { const d = vP.sub(G.xyz), b = uBloom.element(max(G.w, 0.0).toInt()).x, r2 = b.mul(18).add(14); return exp(dot(d, d).div(r2).negate()).mul(b.mul(0.5).add(0.5)); };
       const warmK = min(spill(vG1).add(spill(vG2)).mul(uGard), 1.6);
       const ink = mix(WHITE, GOLD.mul(1.25), min(warmK, 1.0)).mul(warmK.mul(0.7).add(1));
-      return vec4(mix(base.add(ink.mul(L.x.mul(uLines))).add(GOLD.mul(L.y)).add(GOLD.mul(warmK.mul(0.022))).mul(k).add(HAZE.mul(float(1).sub(fogK(dist)).mul(uWorld))), hazeCol(), hazeA()).mul(colDim(0.65)), 1);
+      return vec4(mix(base.add(ink.mul(L.x.mul(uLines))).add(GOLD.mul(L.y)).add(GOLD.mul(warmK.mul(0.022))).mul(k).add(HAZE.mul(float(1).sub(fogK(dist)).mul(uWorld))), hazeCol(), hazeA()).mul(colDim(0.7)), 1);
     })();
     m.fog = false; mats.push(m);
     var canyon = new THREE.Mesh(g, m); canyon.frustumCulled = false; city.add(canyon);
@@ -453,7 +455,7 @@ export function create(ctx) {
         col.assign(WHITE.mul(ln.add(party).add(circuit(vL, 5.0, fr).mul(0.08)).mul(uLines)).add(GOLD.mul(dots)).add(vec3(0.003, 0.008, 0.004).mul(gardensOn)));
       });
       const dist = length(positionWorld.sub(cameraPosition)), f = exp(dist.mul(-0.0055));
-      return vec4(mix(col.add(vec3(0.0015)).mul(f).add(HAZE.mul(f.oneMinus())).mul(uWorld), hazeCol(), hazeA()).mul(colDim(0.65)), 1);
+      return vec4(mix(col.add(vec3(0.0015)).mul(f).add(HAZE.mul(f.oneMinus())).mul(uWorld), hazeCol(), hazeA()).mul(colDim(0.7)), 1);
     })();
     m.fog = false; mats.push(m);
     var blockMesh = new THREE.Mesh(g, m); blockMesh.frustumCulled = false; city.add(blockMesh);
@@ -564,7 +566,9 @@ export function create(ctx) {
     g.setAttribute('wA', AA); g.setAttribute('wB', BB); g.instanceCount = 0; geos.push(g);
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
     const A = attribute('wA', 'vec4'), Bq = attribute('wB', 'vec4');
-    const va = modelViewMatrix.mul(vec4(A.xyz, 1)), vb = modelViewMatrix.mul(vec4(Bq.xyz, 1));
+    // T-051 the breath: a gust shakes the lines (a travelling sway, stronger high up and far away)
+    const sway = (p) => p.add(vec3(sin(uTime.mul(7.0).add(p.y.mul(0.35)).add(p.x.mul(0.21))), sin(uTime.mul(5.3).add(p.x.mul(0.3))).mul(0.3), cos(uTime.mul(6.1).add(p.y.mul(0.3)).add(p.z.mul(0.19)))).mul(uGust.mul(length(p.xz).mul(0.018).add(0.08))));
+    const va = modelViewMatrix.mul(vec4(sway(A.xyz), 1)), vb = modelViewMatrix.mul(vec4(sway(Bq.xyz), 1));
     const v = mix(va, vb, positionGeometry.x);
     const d = normalize(vb.xy.sub(va.xy).add(vec2(0.00001, 0))), perp = vec2(d.y.negate(), d.x);
     const w = max(float(0.006), v.z.negate().mul(0.0011));
@@ -672,7 +676,8 @@ export function create(ctx) {
     thrMat.vertexNode = select(uQ.greaterThan(q0), clip, vec4(0, 0, 2, 1));
     const fresh = exp(uQ.sub(q1).max(0).mul(-25)).mul(2.0).add(1);
     const shimmer = sin(q0.mul(900).sub(uTime.mul(1.2))).mul(0.2).add(0.8);
-    const vI = varying(fresh.mul(shimmer).mul(uBell.mul(1.5).add(1)).mul(uGold).mul(uWorld).mul(0.55));
+    const silK = select(q0.lessThan(2.0), float(1).sub(uSil.mul(0.75)), float(1).sub(uSil.mul(0.3)));   // T-051: in the silence only her thread
+    const vI = varying(fresh.mul(shimmer).mul(uBell.mul(1.5).add(1)).mul(uGold).mul(uWorld).mul(0.55).mul(silK));
     const vSd = varying(positionGeometry.y);
     thrMat.colorNode = Fn(() => vec4(GOLD.mul(vI).mul(exp(vSd.mul(vSd).mul(-2.2))).mul(1.1), 1))();
     thrMat.fog = false; mats.push(thrMat);
@@ -693,24 +698,28 @@ export function create(ctx) {
     TA.needsUpdate = true; TB.needsUpdate = true;
     // the masts: three rails, rings every 1.35 m (a castell's floor), a diagonal brace per ring — a castell drawn as a circuit
     masts.reset();
-    const top = climb.A1 + TOPR[2] + 1.5, R = 0.42;
+    const top = climb.A1 + TOPR[2] + 1.5, R = 0.42, MK = 1 / LINES_K;   // the masts (the light's building) keep their light
     for (const w of climb.order) {
       const th = towerAng(w), cx = Math.cos(th) * TR, cz = Math.sin(th) * TR;
       for (let y = -3; y < top; y += 1.35) {
         const y2 = Math.min(top, y + 1.35);
         for (let k = 0; k < 3; k++) {
           const a = th + k * TAU / 3, b = a + TAU / 3;
-          masts.add(cx + Math.cos(a) * R, y, cz + Math.sin(a) * R, cx + Math.cos(a) * R, y2, cz + Math.sin(a) * R, 0.30);
-          masts.add(cx + Math.cos(a) * R, y2, cz + Math.sin(a) * R, cx + Math.cos(b) * R, y2, cz + Math.sin(b) * R, 0.16);
+          masts.add(cx + Math.cos(a) * R, y, cz + Math.sin(a) * R, cx + Math.cos(a) * R, y2, cz + Math.sin(a) * R, 0.30 * MK);
+          masts.add(cx + Math.cos(a) * R, y2, cz + Math.sin(a) * R, cx + Math.cos(b) * R, y2, cz + Math.sin(b) * R, 0.16 * MK);
         }
         const k = Math.floor((y + 3) / 1.35) % 3, a = th + k * TAU / 3, b = a + TAU / 3;
-        masts.add(cx + Math.cos(a) * R, y, cz + Math.sin(a) * R, cx + Math.cos(b) * R, y2, cz + Math.sin(b) * R, 0.09);
+        masts.add(cx + Math.cos(a) * R, y, cz + Math.sin(a) * R, cx + Math.cos(b) * R, y2, cz + Math.sin(b) * R, 0.09 * MK);
       }
     }
     masts.done();
   }
   // dynamic glows: 3 climbers, beacon, 4 bells, the enxaneta's hand
   const glows = billboards(9, world, { depthTest: false });
+  // T-051 (ARTE-3): the soft halo behind the hero — the light that climbs
+  const halo = room.makeHalo && room.placeHalo ? room.makeHalo({ color: [1, 0.8, 0.52], radius: 2.2, intensity: 0 }) : null;
+  if (halo) object.add(halo.mesh);
+  const _hp = new THREE.Vector3();
   glows.mesh.renderOrder = 8;
 
   // -------------------------------------------------------------------------------------------- tiles and petals (physics, one draw)
@@ -827,7 +836,7 @@ export function create(ctx) {
   // -------------------------------------------------------------------------------------------- the hands, on the wall planes
   // One instanced sprite per element (T-008 step 0): kind 0 a hand (halo, gold heart, gathered stars), kind 1 a ripple, kind 2 a
   // constellation line between still hands < 2 m apart. Each sprite carries its wall's normal: a camera draws only its own wall's.
-  const MAXH = 16, MAXS = 24, MAXR = 16, NSP = (MAXH + MAXR) * 2 + MAXS * 2 + MAXH + 4;   // + l'aleta: rays, the enxanetes
+  const MAXH = 16, MAXS = 24, MAXR = 16, NSP = (MAXH + MAXR) * 2 + MAXS * 2 + MAXH + 4 + 720;   // + l'aleta: rays, the enxanetes; + T-051 the relay (thread, nodes, light)
   const HV = Array.from({ length: MAXH }, () => new THREE.Vector4()), SV = Array.from({ length: MAXS }, () => new THREE.Vector4()), SW = Array.from({ length: MAXS }, () => new THREE.Vector4()), RV = Array.from({ length: MAXR }, () => new THREE.Vector4());
   const spG = new THREE.InstancedBufferGeometry();
   spG.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3)); spG.setIndex([0, 1, 2, 0, 2, 3]);
@@ -849,7 +858,7 @@ export function create(ctx) {
         const st = vD.x.mul(vD.x).mul(float(3).sub(vD.x.mul(2))), pres = vD.y;
         const r = st.mul(0.32).add(0.16);
         c.addAssign(vec3(0.17, 0.16, 0.14).mul(pres.mul(st.mul(0.65).add(0.35))).mul(exp(d2.div(r.mul(r)).negate())).mul(0.5));
-        c.addAssign(GOLD.mul(st.mul(pres).mul(exp(d2.mul(-1100))).mul(1.4)));
+        c.addAssign(GOLD.mul(st.mul(pres).mul(exp(d2.mul(-1100))).mul(float(1.4).sub(uRelayK.mul(1.0)))));
         // a fine square of line round a still hand (the circuit answers): it draws itself as stillness grows
         const sq = max(abs(vL.x), abs(vL.y)), fw = fwidth(sq).add(0.0001), side = st.mul(0.16).add(0.1);
         c.addAssign(WHITE.mul(float(1).sub(smoothstep(fw, fw.mul(2.5), abs(sq.sub(side)))).mul(st.mul(pres).mul(0.14))));
@@ -870,7 +879,7 @@ export function create(ctx) {
         const shown = smoothstep(vD.x.add(0.02), vD.x.sub(0.02), yn), head = exp(yn.sub(vD.x).div(0.03).pow(2).negate()).mul(step(vD.x, 0.99));
         const flow = sin(yn.mul(40).sub(uTime.mul(6))).mul(0.15).add(0.85);
         c.addAssign(GOLD.mul(core.mul(shown).mul(flow).mul(1.3).add(head.mul(exp(ax2.mul(-12))).mul(2.0))).mul(vD.y));
-      }).Else(() => {
+      }).ElseIf(vK.lessThan(4.5), () => {
         // L'ALETA: the enxaneta's light-silhouette at the top of the wall (head, body, legs, an arm that rises with vD.x)
         const P = vL, fw = fwidth(P.x).add(0.0005);
         const seg = (a, b) => { const pa = P.sub(a), ba = b.sub(a), h = clamp(dot(pa, ba).div(dot(ba, ba)), 0, 1); return length(pa.sub(ba.mul(h))); };
@@ -883,6 +892,23 @@ export function create(ctx) {
         const line = float(1).sub(smoothstep(fw.mul(1.2), fw.mul(2.6), d)), glow = exp(d.mul(-28)).mul(0.35);
         const palm = exp(length(P.sub(hand)).mul(-30)).mul(vD.x).mul(1.5);
         c.addAssign(GOLD.mul(line.mul(1.4).add(glow).add(palm)).mul(vD.y));
+      }).ElseIf(vK.lessThan(5.5), () => {
+        // T-051 THE RELAY: the light under the hand that holds it (vD.x strength, vD.y falter 0..1, vD.z breath phase).
+        // A hot core, a soft gold air, one 1 px ring that breathes, a faint cross; faltering, it flickers and the ring breaks up
+        const r = sqrt(d2), fw = fwidth(r).add(0.0005);
+        const fl = float(1).sub(vD.y.mul(0.45).mul(sin(uTime.mul(23.0)).mul(0.5).add(0.5)));
+        const core = exp(d2.mul(-2600)).mul(2.4).add(exp(d2.mul(-180)).mul(0.5));
+        const air = exp(d2.mul(-14)).mul(0.16);
+        const rr = float(0.11).add(sin(vD.z).mul(0.015));
+        const ring = float(1).sub(smoothstep(fw.mul(0.6), fw.mul(1.8), abs(r.sub(rr)))).mul(float(1).sub(vD.y.mul(step(0.0, sin(atan(vL.y, vL.x).mul(9.0).add(uTime.mul(6.0))))))).mul(0.55);
+        const cross = exp(abs(vL.y).mul(-900)).mul(exp(abs(vL.x).mul(-14))).add(exp(abs(vL.x).mul(-900)).mul(exp(abs(vL.y).mul(-14)))).mul(0.22);
+        c.addAssign(GOLD.mul(core.add(air).add(ring).add(cross)).mul(fl).mul(vD.x).add(vec3(1.0, 0.92, 0.8).mul(exp(d2.mul(-9000)).mul(vD.x).mul(0.8))));
+      }).Else(() => {
+        // T-051: a node of the thread (a hand that carried the light): a small gold star (vD.x strength, vD.y landing flash)
+        const cross = exp(abs(vL.y).mul(-1400)).mul(exp(abs(vL.x).mul(-40))).add(exp(abs(vL.x).mul(-1400)).mul(exp(abs(vL.y).mul(-40)))).mul(0.35);
+        const dot = exp(d2.mul(-7000)).mul(1.3).add(exp(d2.mul(-400)).mul(0.12));
+        const ring = exp(sqrt(d2).sub(vD.y.oneMinus().mul(0.25).add(0.02)).div(0.006).pow(2).negate()).mul(vD.y).mul(0.6);
+        c.addAssign(GOLD.mul(cross.add(dot).add(ring)).mul(vD.x));
       });
       return vec4(c.mul(uWorld.mul(0.7).add(0.3)), 1);
     })();
@@ -1004,6 +1030,8 @@ export function create(ctx) {
   const rip = Array.from({ length: MAXR }, () => ({ s: 0, y: 0, age: 99, amp: 0 }));
   const bells = Array.from({ length: 4 }, () => ({ x: 0, y: 0, z: 0, age: 99 }));
   const addRip = (s, y, a) => { let b = rip[0]; for (const r of rip) if (r.age > b.age) b = r; b.s = s; b.y = y; b.age = 0; b.amp = a; };
+  let kRel = 0, kBr = 0, kSil = 0, gust = 0, wasMoving = 0, wasRestless = false;
+  const live = [];
   let aletaT = 0, frame = 0, qShown = -1, agit = 0, raise = 0, prevQ = 0, crownK = 0;
   let Acur = -1, Avel = 0, yaw = 0, prevLift = 0, prevYaw = 0, maxYawRate = 0, maxAcc = 0, falls = 0, blooms = 0;
   const _p = new THREE.Vector3(), order = [];
@@ -1024,6 +1052,155 @@ export function create(ctx) {
     }
     falls += n;
   }
+
+  // -------------------------------------------------------------------------------------------- T-051: three different climbs
+  // RELAY (dosos): the gold light is born under the stillest hand; after HOLD s of stillness it FLIES in an arc (1.5 s) to the next still
+  // hand anywhere in the room (round the corners, along the walls); a fine gold THREAD stays between all the hands that carried it — the
+  // group's constellation on the walls. If the hand that holds it moves, it falters (flickers) and slips back to the previous one.
+  // Perimeter coordinates (s, y) on the wall planes. The score's state (POS, T-050) drives holder and handoffs when it gives them;
+  // otherwise a stand-in here (the same rules).
+  const HOLD = 3.0, MAXPATH = 48;
+  const relay = { on: false, s: 0, y: 1.25, holder: null, hold: 0, falter: 0, wait: 0, fly: null, path: [], fade: [], landT: -9, k: 0 };
+  const dS = (a, b) => { let d = b - a; d -= PER * Math.round(d / PER); return d; };
+  const arcH = (y0, y1, dist) => Math.max(0.06, Math.min(0.12 + 0.1 * dist, 0.75, Math.max(0, 1.72 - Math.max(y0, y1))));
+  const arcAt = (s0, y0, d, y1, e, out) => { const dist = Math.hypot(d, y1 - y0); out.s = s0 + d * e; out.y = y0 + (y1 - y0) * e + arcH(y0, y1, dist) * Math.sin(Math.PI * e); return out; };
+  const _ap = { s: 0, y: 0 }, _aq = { s: 0, y: 0 };
+  function relayReset() { relay.on = false; relay.fly = null; relay.path.length = 0; relay.fade.length = 0; relay.holder = null; relay.hold = 0; relay.falter = 0; }
+  function launch(toS, toY, to, back) {
+    const d = dS(relay.s, toS);
+    relay.fly = { s0: relay.s, y0: relay.y, d, y1: toY, t: 0, dur: back ? 0.9 : 1.5, back, to };
+    relay.hold = 0; relay.wait = 0;
+  }
+  function pushPath(s, y) {
+    const L = relay.path[relay.path.length - 1];
+    if (L && Math.hypot(dS(L.s, s), L.y - y) < 0.12) { L.flash = 1; return; }
+    relay.path.push({ s: ((s % PER) + PER) % PER, y, flash: 1 });
+    if (relay.path.length > MAXPATH) relay.path.shift();
+  }
+  // live: [{ stroke, s, y, still }] — the hands now. holdT: seconds of stillness before she moves on (the score's pace when it gives one)
+  function relayStep(dt, live, holdT) {
+    const R = relay;
+    const pick = (minStill, notStroke, fromS, fromY, minD) => {
+      let best = null, bs = -1;
+      for (const h of live) {
+        if (h.stroke === notStroke || h.still < minStill) continue;
+        const d = Math.hypot(dS(fromS, h.s), h.y - fromY); if (d < minD) continue;
+        const seen = R.path.some((p) => Math.hypot(dS(p.s, h.s), p.y - h.y) < 0.3);
+        const sc = h.still + Math.min(d, 8) / 8 * 0.25 + (seen ? 0 : 0.4);
+        if (sc > bs) { bs = sc; best = h; }
+      }
+      return best;
+    };
+    if (!R.on) {
+      const b = pick(0.6, null, 0, 0, -1);
+      if (b) { R.on = true; R.s = b.s; R.y = b.y; R.holder = b.stroke; R.hold = 0; R.falter = 0; R.path.length = 0; pushPath(b.s, b.y); R.landT = 0; }
+      return;
+    }
+    if (R.fly) {
+      const f = R.fly; f.t += dt / f.dur;
+      const e = f.t >= 1 ? 1 : f.t * f.t * (3 - 2 * f.t);
+      arcAt(f.s0, f.y0, f.d, f.y1, e, _ap); R.s = _ap.s; R.y = _ap.y;
+      if (f.t >= 1) { R.s = ((R.s % PER) + PER) % PER; R.holder = f.to; if (!f.back) pushPath(R.s, R.y); R.fly = null; R.landT = 0; R.falter = 0; addRip(R.s, R.y, 0.6); }
+      return;
+    }
+    const H = R.holder != null ? live.find((h) => h.stroke === R.holder) : null;
+    if (H && H.still >= 0.5) {
+      const d = Math.hypot(dS(R.s, H.s), H.y - R.y);
+      if (d > 0.3) { launch(H.s, H.y, H.stroke, false); return; }      // the hand rested somewhere else: the light follows it there
+      const r = 1 - Math.exp(-dt * 3); R.s += dS(R.s, H.s) * r; R.y += (H.y - R.y) * r;
+      R.falter = Math.max(0, R.falter - dt * 2); R.hold += dt;
+      if (R.hold >= holdT) { const n = pick(0.8, H.stroke, R.s, R.y, 0.35); if (n) launch(n.s, n.y, n.stroke, false); }
+    } else if (H) {                                                       // the holder moves: she falters, then slips back
+      R.falter = Math.min(1, R.falter + dt * 1.6); R.hold = 0;
+      if (R.falter >= 1 && R.path.length >= 2) {
+        const a = R.path.pop(), b = R.path[R.path.length - 1];
+        R.fade.push({ a, b, life: 1 });
+        let to = null, bd = 0.5; for (const h of live) { const dd = Math.hypot(dS(b.s, h.s), h.y - b.y); if (dd < bd && h.stroke !== R.holder) { bd = dd; to = h.stroke; } }
+        launch(b.s, b.y, to, true);
+      }
+    } else {                                                              // nobody holds it: it waits, trembling, for a still hand
+      R.wait += dt; R.falter = Math.min(0.7, R.falter + dt); R.holder = null;
+      const n = R.wait > 0.5 ? pick(0.8, null, R.s, R.y, -1) : null;
+      if (n) launch(n.s, n.y, n.stroke, false);
+    }
+  }
+  // the same driven by the score (POS T-050, notas/ENT.md › T-050): pomHolder / pomFrom / pomFly / pomFalter / pomThread[] / pomHandoff.
+  // Positions { wall, dx, y } (wall index, m from the wall's centre to the right, m from the floor). The score's stroke ids are the
+  // sound's, not the image's: only positions are used.
+  const posS = (q) => (q && walls[q.wall] ? { s: cum[q.wall] + walls[q.wall].width / 2 + (q.dx ?? 0), y: q.y ?? 1.25 } : null);
+  let prevFly = 1;
+  function relayFromScore(S, dt) {
+    const R = relay, th = Array.isArray(S.pomThread) ? S.pomThread : [];
+    // the thread: one node per hand that carried the light (in order); new ones flash
+    if (th.length < R.path.length) R.path.length = th.length;
+    for (let i = 0; i < th.length; i++) {
+      const q = posS(th[i]); if (!q) continue;
+      if (!R.path[i]) R.path[i] = { s: q.s, y: q.y, flash: 1 };
+      else { R.path[i].s += dS(R.path[i].s, q.s) * Math.min(1, dt * 6); R.path[i].y += (q.y - R.path[i].y) * Math.min(1, dt * 6); }
+    }
+    const H = posS(S.pomHolder);
+    if (!H) { R.on = R.path.length > 0; R.fly = null; R.falter = 0; R.skipLast = false; R.lightOff = true; return; }
+    R.on = true; R.lightOff = false;
+    const fly = S.pomFly ?? 1, F = posS(S.pomFrom), back = !!S.pomHandoff?.back;
+    if (fly < 1 && F) {
+      const e = fly * fly * (3 - 2 * fly), d = dS(F.s, H.s);
+      arcAt(F.s, F.y, d, H.y, e, _ap); R.s = _ap.s; R.y = _ap.y;
+      R.fly = { s0: F.s, y0: F.y, d, y1: H.y, t: fly, back };
+      const L = R.path[R.path.length - 1];
+      R.skipLast = !back && !!L && R.path.length > 1 && Math.hypot(dS(L.s, H.s), L.y - H.y) < 0.2;
+      R.flyNew = R.skipLast;
+    } else {
+      if (prevFly < 1 && R.fly) {                                        // she lands: a ring; a revisit's arc fades away
+        addRip(H.s, H.y, back ? 0.35 : 0.6); R.landT = 0;
+        if (!R.flyNew && !back) R.fade.push({ a: { s: R.fly.s0 + R.fly.d, y: R.fly.y1 }, b: { s: R.fly.s0, y: R.fly.y0 }, life: 1 });
+        const L = R.path[R.path.length - 1]; if (L && R.flyNew) L.flash = 1;
+      }
+      R.fly = null; R.skipLast = false;
+      const k = R.landT < 0.05 ? 1 : 1 - Math.exp(-dt * 4);
+      R.s += dS(R.s, H.s) * k; R.y += (H.y - R.y) * k;
+    }
+    prevFly = fly;
+    R.falter = S.pomFalter ?? 0;
+  }
+  // a thread piece on the wall planes, split where it turns a corner (s2 unwrapped relative to s1)
+  function wallSeg(s1, y1, s2, y2, wgt) {
+    let a = s1, ya = y1; const dir = s2 >= s1 ? 1 : -1;
+    for (let g = 0; g < 6; g++) {
+      const probe = a + dir * 1e-4, k = Math.floor(probe / PER), wi = wallAt(probe - k * PER);
+      const start = k * PER + cum[wi], end = start + walls[wi].width, bnd = dir > 0 ? end : start;
+      if (dir > 0 ? s2 <= bnd : s2 >= bnd) { lineSprite(wi, a, ya, s2, y2, wgt); return; }
+      const t = (bnd - a) / (s2 - a), yb = ya + (y2 - ya) * t;
+      lineSprite(wi, a, ya, bnd - dir * 0.0005, yb, wgt);
+      a = bnd + dir * 0.0005; ya = yb;
+    }
+  }
+  function arcThread(s0, y0, s1, y1, e1, wgt) {
+    const d = dS(s0, s1), N = 7;
+    arcAt(s0, y0, d, y1, 0, _ap);
+    for (let i = 1; i <= N; i++) {
+      const e = Math.min(e1, i / N);
+      arcAt(s0, y0, d, y1, e, _aq); wallSeg(_ap.s, _ap.y, _aq.s, _aq.y, wgt);
+      _ap.s = _aq.s; _ap.y = _aq.y;
+      if (e >= e1) break;
+    }
+  }
+  function relayDraw(dt, time, k, kT) {
+    const R = relay; if (kT < 0.005 || !R.on) return;
+    const P = R.path, wT = 0.55 * kT;
+    for (let i = 1; i < P.length - (R.skipLast ? 1 : 0); i++) arcThread(P[i - 1].s, P[i - 1].y, P[i].s, P[i].y, 1, wT);
+    for (let i = R.fade.length - 1; i >= 0; i--) { const f = R.fade[i]; f.life -= dt / 1.2; if (f.life <= 0) { R.fade.splice(i, 1); continue; } arcThread(f.b.s, f.b.y, f.a.s, f.a.y, 1, wT * f.life * f.life); }
+    if (R.fly && !R.fly.back) {
+      const f = R.fly, e = f.t * f.t * (3 - 2 * f.t);
+      arcThread(f.s0, f.y0, f.s0 + f.d, f.y1, e, wT * 1.3);                  // the thread drawn behind her as she flies
+      for (let j = 1; j <= 5; j++) { const ej = Math.max(0, e - j * 0.035); arcAt(f.s0, f.y0, f.d, f.y1, ej, _ap); roundSprite(6, _ap.s, _ap.y, 0.08, k * 0.5 * (1 - j / 6), 0, 0, 0); }
+    }
+    for (const n of P) { n.flash = Math.max(0, (n.flash || 0) - dt / 1.4); roundSprite(6, n.s, n.y, 0.3, kT * 0.75, n.flash, 0, 0); }
+    if (k < 0.005 || R.lightOff) return;
+    const fj = R.falter, js = fj * 0.02 * Math.sin(time * 31), jy = fj * 0.016 * Math.sin(time * 27 + 1.3);
+    R.landT += dt;
+    const born = Math.min(1, R.landT / 0.25 + (R.fly ? 1 : 0));
+    roundSprite(5, R.s + js, R.y + jy, 0.6, k * (0.6 + 0.4 * born), fj, time * 1.7, 0);
+  }
   function update(dt, input) {
     dt = Math.min(Math.max(dt || 1 / 60, 0), 0.1); frame++;
     const time = input.time ?? 0, pr = input.params || P, S = input.state || null;
@@ -1042,6 +1219,13 @@ export function create(ctx) {
       if (pr.climber >= 0 || pr.climb >= 0) progress = (climber + cl) / 3;
       restless = !!pr.restless;
     }
+    // ---- T-051: which climb (the score's pomStage, else by climber: dosos relay · acotxador breath · enxaneta silence)
+    const STG = ['relay', 'breath', 'silence'];
+    let stage = S ? (S.pomStage || STG[Math.min(2, climber | 0)]) : (pr.stage && pr.stage !== 'auto' ? pr.stage : STG[Math.min(2, climber | 0)]);
+    if (S && (S.phase === 'aleta' || S.phase === 'reward')) stage = '';
+    const ek = 1 - Math.exp(-dt * 1.5);
+    kRel += ((stage === 'relay' ? 1 : 0) - kRel) * ek; kBr += ((stage === 'breath' ? 1 : 0) - kBr) * ek; kSil += ((stage === 'silence' ? 1 : 0) - kSil) * ek;
+    uRelayK.value = kRel; uSil.value = kSil;
     climb.A1 = pr.height > 0 ? Math.max(30, Math.min(120, pr.height)) : 90;   // metres (0 = 90 m); below 30 m there is no rise (and the haze would sit at the eye): clamped
     if (order.join(',') !== climb.order.join(',')) climb.order = order.slice();
     build();
@@ -1067,14 +1251,17 @@ export function create(ctx) {
     const spin = ((pr.spin ?? 90) * Math.PI) / 180;
     const yawT = spin * clamp01(lift / (climb.A1 - 1.6));
     const yr = (3 * Math.PI / 180) * dt;                               // the turn never exceeds 3°/s (comfort limit 6°/s)
-    yaw = frame <= 1 ? yawT : yaw + Math.max(-yr, Math.min(yr, yawT - yaw)); city.rotation.y = yaw; uYawCS.value.set(Math.cos(yaw), Math.sin(yaw));
+    yaw = frame <= 1 ? yawT : yaw + Math.max(-yr, Math.min(yr, yawT - yaw)); city.rotation.y = yaw; city.rotation.x = uGust.value * 0.010 * Math.sin(time * 4.1 + 1); city.rotation.z = uGust.value * 0.013 * Math.sin(time * 5.3); uYawCS.value.set(Math.cos(yaw), Math.sin(yaw));
     if (frame > 2 && dt > 0) maxYawRate = Math.max(maxYawRate, Math.abs(yaw - prevYaw) / dt * 180 / Math.PI);
     const dLift = lift - prevLift, dYaw = yaw - prevYaw; prevLift = lift; prevYaw = yaw;
     uQ.value = qShown;
     // ---- arrivals: the bell of light
     const events = input.events;
-    const ring = (n) => { let b = bells[0]; for (const x of bells) if (x.age > b.age) b = x; pathPos(n, 1, _p); b.x = _p.x; b.y = _p.y; b.z = _p.z; b.age = 0; uBell.value = 1; if (n === 2) raise = Math.max(raise, 0.001); };
+    const ring = (n) => { let b = bells[0]; for (const x of bells) if (x.age > b.age) b = x; pathPos(n, 1, _p); b.x = _p.x; b.y = _p.y; b.z = _p.z; b.age = 0; b.amp = 1; uBell.value = 1; if (n === 2) raise = Math.max(raise, 0.001); };
     if (S && events) { for (const e of events) if (typeof e === 'string' && e.startsWith('arrived:')) ring(+e.slice(8) || 0); }
+    const hush = () => { let b = bells[0]; for (const x of bells) if (x.age > b.age) b = x; b.x = lightP.x; b.y = lightP.y; b.z = lightP.z; b.age = 0; b.amp = 0.3; gust = Math.max(gust, 0.18); };
+    if (S && events) for (const e of events) { if (typeof e !== 'string') continue; if (e.startsWith('hush:break')) hush(); else if (e.startsWith('gust')) gust = Math.max(gust, 0.9); }
+    if (S && S.pomGust > 0) gust = Math.max(gust, Math.min(1, S.pomGust));
     else if (!S) { if (Math.floor(qShown) > Math.floor(prevQ) && qShown - prevQ < 0.5) ring(Math.floor(qShown) - 1); if (qShown >= 2.995 && prevQ < 2.995) ring(2); }
     prevQ = qShown;
     if (done) raise = Math.max(raise, 0.001);
@@ -1093,7 +1280,7 @@ export function create(ctx) {
     uFallLeave.value = fallLeave ? 1 : 0;
     uWorld.value = sm((arrive - 0.45) / 0.45) * (1 - sm((leave - 0.05) / 0.35));
     canyon.visible = blockMesh.visible = uWorld.value > 0.02;   // opaque black volumes: not before they show
-    uStars.value = pr.stars ?? 1; uLines.value = pr.lines ?? 1; uGard.value = pr.gardens ?? 1; uGold.value = pr.gold ?? 1;
+    uStars.value = pr.stars ?? 1; uLines.value = (pr.lines ?? 1) * LINES_K * (1 - 0.6 * kSil); uGard.value = pr.gardens ?? 1; uGold.value = pr.gold ?? 1;
     uShiver.value = agit;
     // ---- the gardens in the room's frame (for the hands)
     const cy = Math.cos(yaw), sy = Math.sin(yaw);
@@ -1139,7 +1326,7 @@ export function create(ctx) {
         }
         if (best >= 0) { bloomT[best] = Math.max(bloomT[best], sm((st.still - 0.3) / 0.5)); if (st.garden !== best) { st.garden = best; blooms++; } }
         // petals from the hand itself, a few (the answer is always there, even with no garden in view)
-        st.petal += dt * 3 * st.still;
+        st.petal += dt * 3 * st.still * (1 - 0.85 * kSil);
         while (st.petal >= 1) {
           st.petal -= 1; const w = walls[h.wall];
           _q.copy(h.pos).addScaledVector(w.normal, -(0.3 + rnd() * 0.5)).addScaledVector(w.right, (rnd() - 0.5) * 0.5); _q.y += 0.2 + rnd() * 0.4;
@@ -1149,14 +1336,28 @@ export function create(ctx) {
       if (nH < MAXH) { HV[nH].set(st.s, st.y, 1, st.still); nH++; }
     }
     for (const p of pool) if (p.seen !== frame) p.stroke = null;
+    // T-051: the hands for the relay, and a gust (breath) / a break of the hush (silence) when someone moves
+    live.length = 0; for (const p of pool) if (p.stroke != null && p.seen === frame) live.push({ stroke: p.stroke, s: p.s, y: p.y, still: p.still });
+    const restNow = S ? !!S.restless : moving > 0;
+    if (!S) { if (restNow && !wasRestless) { if (kBr > 0.5) gust = Math.max(gust, 0.85); if (kSil > 0.5) hush(); } if (kBr > 0.5 && moving > wasMoving) gust = Math.max(gust, 0.7); }
+    wasRestless = restNow; wasMoving = moving;
+    gust = Math.max(0, gust - dt * 0.55); uGust.value = gust * gust;
     let nS = 0;
     for (let i = 0; i < nH && nS < MAXS; i++) for (let j = i + 1; j < nH && nS < MAXS; j++) {
       const si = HV[i].w, sj = HV[j].w; if (si < 0.3 || sj < 0.3) continue;
       let dx = HV[j].x - HV[i].x; dx -= PER * Math.round(dx / PER); const dy = HV[j].y - HV[i].y, d = Math.hypot(dx, dy); if (d > 2) continue;
       SV[nS].set(HV[i].x, HV[i].y, HV[i].x + dx, HV[j].y); const f = (Math.min(si, sj) - 0.3) / 0.7; SW[nS].set(f * f * (1 - Math.pow(d / 2, 3)) * 0.5, 0, 0, 0); nS++;
     }
+    if (kRel > 0.5) nS = 0;                                              // in the relay the thread IS the constellation
     let nR = 0; for (const r of rip) { r.age += dt; if (r.age < 3.5 && nR < MAXR) { RV[nR].set(r.s, r.y, r.age, r.amp); nR++; } }
     fillHands(nH, nS, nR);
+    // ---- T-051 the relay: step (the score's holder/handoffs when it gives them; else the stand-in) and draw
+    if (S && Array.isArray(S.pomThread)) relayFromScore(S, dt);
+    else if (stage === 'relay') relayStep(dt, live, HOLD);
+    // the thread stays (the group's constellation) through the breath, fainter in the silence; the light itself only in the relay
+    { const g = uWorld.value * (1 - sm((leave - 0.05) / 0.3)); relayDraw(dt, time, kRel * g, Math.max(kRel, 0.4 * kBr, 0.18 * kSil) * g); }
+    if (!S && qShown < 0.03 && relay.path.length > 1) relayReset();
+    spG.instanceCount = nSp; for (const a of [SA, SB, SN, SD]) a.needsUpdate = true;
     // ---- L'ALETA (T-042, ENT's T-039): phase 'aleta' of the pom (8 s after the reward). The enxaneta raises her hand at the top of every
     // structure wall; each visitor hand that rose ≥ 0.28 m from its baseline (state.strokes: y0, rise), or is above 1.6 m, sends a gold ray
     // up the wall to the top, wider the more hands rose (aletaHands; aletaWidth when the crown comes). Study: params.aleta (0..1, −1 off).
@@ -1197,7 +1398,7 @@ export function create(ctx) {
       bloom[g] = b + (t - b) * (1 - Math.exp(-dt * (t > b ? 2.2 : 0.35)));
       bloomV[g].x = bloom[g];
       if (bloom[g] > 0.5 && b <= 0.5 && time - bloomSnd[g] > 2) { bloomSnd[g] = time; _fx.set(gW[g * 3], gW[g * 3 + 1], gW[g * 3 + 2]); fxAt(_fx, Math.min(1, 0.4 + t * 0.5), 'petal', 'bloom'); }
-      if (bloom[g] > 0.15 && rnd() < dt * 14 * bloom[g]) {
+      if (bloom[g] > 0.15 && rnd() < dt * 14 * bloom[g] * (1 - 0.85 * kSil)) {
         const G = gardens[g];
         const a = (rnd() - 0.5) * G.tl, ca = Math.cos(G.ang), sa = Math.sin(G.ang);
         const lx = G.x - sa * a, lz = G.z + ca * a, ly = G.y + 1 + rnd() * 2;
@@ -1237,10 +1438,11 @@ export function create(ctx) {
       alive++;
     }
     // ---- ambient tiles: hung behind the walls, streaming down with the rise
-    const ak = (pr.tiles ?? 1) > 0 ? uWorld.value : 0;
+    const ak = ((pr.tiles ?? 1) > 0 ? uWorld.value : 0) * (1 - 0.8 * kSil);   // the silence: fewer moving motes
     for (let i = 0; i < NA; i++) {
       const a = amb[i], o = i * 4;
       ambPos(a, lift, _h);
+      if (uGust.value > 0.001) _h.addScaledVector(walls[a.w].right, uGust.value * 0.35 * Math.sin(time * 6.3 + i * 1.7)).y += uGust.value * 0.12 * Math.sin(time * 8.1 + i);   // the gust blows them
       const yy = (_h.y - YMIN) / SPAN, edge = sm(yy / 0.12) * sm((1 - yy) / 0.12);
       const back = a.hide > time ? 0 : sm((time - a.hide) / 1.5);
       tPa[o] = _h.x; tPa[o + 1] = _h.y; tPa[o + 2] = _h.z; tPa[o + 3] = a.size;
@@ -1264,23 +1466,28 @@ export function create(ctx) {
       if (i < ci) { pathPos(i, 1, _p); const b = 0.35 * (0.85 + 0.15 * Math.sin(time * 1.3 + i)); glows.set(i, _p.x, _p.y, _p.z, 0.3, 1.0 * b * 2.4, 0.8 * b * 2.4, 0.5 * b * 2.4, 1); }
       else if (i === ci) {
         pathPos(i, cc, _p); _p.x += agit * 0.02 * Math.sin(time * 17); _p.y += agit * 0.02 * Math.sin(time * 13);
+        _p.x += uGust.value * 0.22 * Math.sin(time * 9.0); _p.z += uGust.value * 0.18 * Math.cos(time * 7.7);   // a gust swings her; she holds on
         const b = flick * (0.9 + 0.1 * Math.sin(time * 1.3)) * (fallLeave ? 1 - sm(leave / 0.2) : 1 + crownK * 0.35 + leave * 1.0) * (pr.gold ?? 1);
-        glows.set(i, _p.x, _p.y, _p.z, 0.42 + 0.12 * crownK + leave * 0.6, 1.0 * b * 3.2, 0.8 * b * 3.2, 0.5 * b * 3.2, 1); lightP.copy(_p); lightOn = 1;
+        const sz = (0.42 + 0.12 * crownK + leave * 0.6) * (1 - 0.45 * kSil), bs = b * (1 - 0.15 * kSil);
+        glows.set(i, _p.x, _p.y, _p.z, sz, 1.0 * bs * 3.2, 0.82 * bs * 3.2, 0.55 * bs * 3.2, 1); lightP.copy(_p); lightOn = 1;
       } else glows.set(i, 0, 0, 0, 0, 0, 0, 0, 1);
     }
     {
       const n = climb.order.length, sf = cc * n, k = Math.min(n - 1, Math.floor(sf)), f = sf - k;
       let b = 0;
       if (k < n - 1 && !done) { b = sm((f - 0.4) / 0.32) * (1 - sm((f - 0.92) / 0.08)); pathPos(ci, (k + 1) / n, _p); }
-      if (b === 0) glows.set(3, 0, 0, 0, 0, 0, 0, 0, 0); else glows.set(3, _p.x, _p.y, _p.z, 1.6, 0.5 * b, 0.32 * b, 0.12 * b, 0);
+      b *= 1 - kSil;
+      if (kSil > 0.02 && !done) { pathPos(ci, cc, _p); const L = kSil * 0.9; glows.set(3, _p.x, _p.y - 1.1, _p.z, 1.3, 0.55 * L, 0.45 * L, 0.3 * L, 3); }   // the silence: one thin light rising (a streak under her)
+      else if (b === 0) glows.set(3, 0, 0, 0, 0, 0, 0, 0, 0); else glows.set(3, _p.x, _p.y, _p.z, 1.6, 0.5 * b, 0.32 * b, 0.12 * b, 0);
     }
-    for (let j = 0; j < 4; j++) { const bl = bells[j]; bl.age += dt; const a = bl.age, L = a < 3 ? (1 - a / 3) : 0; glows.set(4 + j, bl.x, bl.y, bl.z, L > 0 ? 0.4 + a * 1.6 : 0, 1.0 * L * 1.2, 0.7 * L * 1.2, 0.35 * L * 1.2, 2); }
+    for (let j = 0; j < 4; j++) { const bl = bells[j]; bl.age += dt; const a = bl.age, L = (a < 3 ? (1 - a / 3) : 0) * (bl.amp ?? 1); glows.set(4 + j, bl.x, bl.y, bl.z, L > 0 ? 0.4 + a * 1.6 : 0, 1.0 * L * 1.2, 0.7 * L * 1.2, 0.35 * L * 1.2, 2); }
     if (raise > 0) { pathPos(2, 1, _p); const h = sm(raise) * 0.32; glows.set(8, _p.x, _p.y + h + 0.05, _p.z, Math.max(0.01, h), 2.4 * sm(raise), 1.6 * sm(raise), 0.7 * sm(raise), 3); }
     else glows.set(8, 0, 0, 0, 0, 0, 0, 0, 3);
     if (fallLeave) { const kf = 1 - sm(leave / 0.2); for (let i = 0; i < 9; i++) for (let c = 0; c < 3; c++) glows.aC[i * 4 + c] *= kf; }
     glows.AP.needsUpdate = true; glows.AC.needsUpdate = true;
+    if (halo) { _hp.set(lightP.x, lightP.y - lift, lightP.z); room.placeHalo(halo, _hp, 1.5); halo.set({ intensity: 0.13 * uWorld.value * lightOn * (1 - 0.4 * kSil) * (fallLeave ? 1 - sm(leave / 0.2) : 1) }); }
     pathPos(2, 1, _p); _p.y -= lift; uBreak.value.copy(_p).sub(EYE).normalize();
-    if (stats) { stats.A = A; stats.maxYawRate = maxYawRate; stats.maxAcc = maxAcc; stats.falls = falls; stats.blooms = blooms; stats.alive = alive; stats.yawDeg = yaw * 180 / Math.PI; }
+    if (stats) { stats.A = A; stats.maxYawRate = maxYawRate; stats.maxAcc = maxAcc; stats.falls = falls; stats.blooms = blooms; stats.alive = alive; stats.gust = uGust.value; stats.stage = stage; stats.relay = relay.path.length; stats.yawDeg = yaw * 180 / Math.PI; }
   }
   build();
   function setParams() { /* read live in update() */ }

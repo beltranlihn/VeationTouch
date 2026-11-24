@@ -1,18 +1,167 @@
 [
-  {"key": "climber", "label": "Pom: climber (-1 = from progress)", "type": "number", "min": -1, "max": 2, "step": 1, "default": -1},
-  {"key": "climb", "label": "Pom: climb (-1 = from progress)", "type": "number", "min": -1, "max": 1, "step": 0.01, "default": -1},
-  {"key": "restless", "label": "Pom: restless (someone moved)", "type": "bool", "default": false},
-  {"key": "arrive", "label": "Pom: arrive (0 = not there, 1 = there)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 1},
-  {"key": "leave", "label": "Pom: leave (0 = there, 1 = gone)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0},
-  {"key": "fallLeave", "label": "Pom: leave into the fall (intent)", "type": "bool", "default": false},
-  {"key": "walls", "label": "Pom: structure walls (stand-in)", "type": "number", "min": 2, "max": 4, "step": 1, "default": 4},
-  {"key": "cycle", "label": "Pom: auto ascent loop (0 = off)", "type": "number", "min": 0, "max": 180, "step": 5, "default": 0, "unit": "s"},
-  {"key": "height", "label": "Pom: final eye height, m (0 = 90; 30–120)", "type": "number", "min": 0, "max": 120, "step": 5, "default": 0, "unit": "m"},
-  {"key": "spin", "label": "Pom: turn during the rise", "type": "number", "min": 0, "max": 120, "step": 5, "default": 90, "unit": "deg"},
-  {"key": "lines", "label": "Pom: city lines", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1},
-  {"key": "gardens", "label": "Pom: gold gardens", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1},
-  {"key": "tiles", "label": "Pom: falling tiles", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1},
-  {"key": "stars", "label": "Pom: stars", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1},
-  {"key": "gold", "label": "Pom: gold lights", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1},
-  {"key": "aleta", "label": "Pom: l'aleta window (−1 off, 0..1)", "type": "number", "min": -1, "max": 1, "step": 0.05, "default": -1}
+ {
+  "key": "climber",
+  "label": "Pom: climber (-1 = from progress)",
+  "type": "number",
+  "min": -1,
+  "max": 2,
+  "step": 1,
+  "default": -1
+ },
+ {
+  "key": "climb",
+  "label": "Pom: climb (-1 = from progress)",
+  "type": "number",
+  "min": -1,
+  "max": 1,
+  "step": 0.01,
+  "default": -1
+ },
+ {
+  "key": "restless",
+  "label": "Pom: restless (someone moved)",
+  "type": "bool",
+  "default": false
+ },
+ {
+  "key": "arrive",
+  "label": "Pom: arrive (0 = not there, 1 = there)",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.01,
+  "default": 1
+ },
+ {
+  "key": "leave",
+  "label": "Pom: leave (0 = there, 1 = gone)",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.01,
+  "default": 0
+ },
+ {
+  "key": "fallLeave",
+  "label": "Pom: leave into the fall (intent)",
+  "type": "bool",
+  "default": false
+ },
+ {
+  "key": "walls",
+  "label": "Pom: structure walls (stand-in)",
+  "type": "number",
+  "min": 2,
+  "max": 4,
+  "step": 1,
+  "default": 4
+ },
+ {
+  "key": "cycle",
+  "label": "Pom: auto ascent loop (0 = off)",
+  "type": "number",
+  "min": 0,
+  "max": 180,
+  "step": 5,
+  "default": 0,
+  "unit": "s"
+ },
+ {
+  "key": "height",
+  "label": "Pom: final eye height, m (0 = 90; 30–120)",
+  "type": "number",
+  "min": 0,
+  "max": 120,
+  "step": 5,
+  "default": 0,
+  "unit": "m"
+ },
+ {
+  "key": "spin",
+  "label": "Pom: turn during the rise",
+  "type": "number",
+  "min": 0,
+  "max": 120,
+  "step": 5,
+  "default": 90,
+  "unit": "deg"
+ },
+ {
+  "key": "lines",
+  "label": "Pom: city lines",
+  "type": "number",
+  "min": 0,
+  "max": 3,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "gardens",
+  "label": "Pom: gold gardens",
+  "type": "number",
+  "min": 0,
+  "max": 3,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "tiles",
+  "label": "Pom: falling tiles",
+  "type": "number",
+  "min": 0,
+  "max": 3,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "stars",
+  "label": "Pom: stars",
+  "type": "number",
+  "min": 0,
+  "max": 2,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "gold",
+  "label": "Pom: gold lights",
+  "type": "number",
+  "min": 0,
+  "max": 3,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "aleta",
+  "label": "Pom: l'aleta window (−1 off, 0..1)",
+  "type": "number",
+  "min": -1,
+  "max": 1,
+  "step": 0.05,
+  "default": -1
+ },
+ {
+  "key": "stage",
+  "label": "Climb (T-051)",
+  "type": "select",
+  "default": "auto",
+  "options": [
+   [
+    "auto",
+    "By climber"
+   ],
+   [
+    "relay",
+    "Relay (dosos)"
+   ],
+   [
+    "breath",
+    "Breath (acotxador)"
+   ],
+   [
+    "silence",
+    "Silence (enxaneta)"
+   ]
+  ]
+ }
 ]
