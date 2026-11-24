@@ -92,6 +92,15 @@ export function createScore(nWalls, opt = {}) {
     outcome: null,
     values: { forca: 0, equilibri: 0, valor: 0, seny: 0 },   // the acta's four bars, 0..1
     stats: { maxHands: 0, maxFloors: 0, stillS: 0 },
+    // 25-11 (plan 05 §2.1): the shared interfaces. n = hands present, smoothed (rises in ~0.5 s, falls in ~4 s): the base of every
+    // collective threshold. focus = the wall that calls ({ wall, s, y, kind, at }; kind: call relay pack next lean wobble light break
+    // echo print). assistOn = the block where the colla is helping NOW ('' = nobody helps). castell = the group's castell, persistent.
+    // result = how each block ended (the acta reads it). ach = the last achievement ({ key, n, wall, s, y, by: group | colla, at }).
+    // targets = the hold-targets now (targets.js › list; [] while a stage offers none), tgProgress = their goal 0..1.
+    n: 0, focus: null, assistOn: '',
+    castell: { state: 'none', walls: [], structure: 0, floors: 0, floorsOwn: 0, floorsColla: 0, climbers: 0, crown: '', slips: 0, cracks: 0, lost: 0 },
+    result: { brasa: '', pinya: null, tronc: null, pom: '', festa: 0, baixada: '' },
+    ach: null, targets: [], tgProgress: 0,
     events: [],   // drained by the caller (T-055: + 'lamp:w' 'relay:start' 'relay:jump' 'relay:assist' 'relay:lap' 'corner'): 'block:x' 'phase:x' 'reveal' 'start' 'aleta' 'palm' 'pack:w' 'learned:x' 'lift' 'level' 'wobble' 'steady' 'slip' 'lower' 'crack' 'wave' 'awake' 'wall:n' 'close' 'pulse' 'floor' 'weak' 'balance' 'climber:n' 'arrived:n' 'handoff:w' 'falter' 'gust:w' 'hush:break:w' 'print:w' 'crown' 'bloom' 'down' 'fall' 'hint:x' 'abandon'
   };
   S.relay = relayFresh();
@@ -144,7 +153,78 @@ export function createScore(nWalls, opt = {}) {
   const median = (a) => { if (!a.length) return 0; a.sort((p, q) => p - q); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
 
   const emit = (e) => S.events.push(e);
-  function go(block) { S.block = block; S.t = 0; S.tp = 0; S.progress = 0; stuckFor = 0; emptyFor = 0;   /* 24-11: the abandon counts inside a block — after the 70 s intro (nobody touches) the brasa no longer abandons at once */ const interactive = T[block] && typeof T[block] === 'object'; S.phase = interactive && block !== 'festa' && block !== 'baixada' ? 'title' : 'play'; emit('block:' + block); emit('phase:' + S.phase); }
+  // 25-11 (plan 05 §2.1–2.2): achievements, the calling wall, the colla's visible help
+  const sOfHand = (h) => (typeof h.s === 'number' && isFinite(h.s) ? h.s : perimOf(h.wall, h.dx));
+  function achieve(key, n, wall, by, s, y) {
+    const w = wall >= 0 && wall < W ? wall : -1;
+    S.ach = { key, n: n || 0, wall: w, s: typeof s === 'number' && isFinite(s) ? s : w >= 0 ? perimOf(w, 0) : 0, y: typeof y === 'number' && isFinite(y) ? y : 1.4, by: by || 'group', at: S.clock };
+    emit('ach:' + key);
+  }
+  function setFocus(wall, kind, s, y) {
+    if (!(wall >= 0 && wall < W)) { if (S.focus) { S.focus = null; emit('focus:none'); } return; }
+    const f = S.focus, fs = typeof s === 'number' && isFinite(s) ? s : perimOf(wall, 0), fy = typeof y === 'number' && isFinite(y) && y > 0 ? y : 1.4;
+    // no flapping: a change waits 1.5 s after the last one, except the urgent kinds (a tremble, a broken silence, an echo arriving)
+    if (!f || ((f.kind !== kind || f.wall !== wall) && (S.clock - f.at >= 1.5 || (f.kind !== kind && URGENT.has(kind))))) { S.focus = { wall, s: fs, y: fy, kind, at: S.clock }; emit('focus:' + wall); }
+    else if (f.wall === wall) { f.s = fs; f.y = fy; }
+  }
+  function setAssist(on) { const v = on ? S.block : ''; if (S.assistOn !== v) { S.assistOn = v; emit(v ? 'assist:on:' + v : 'assist:off'); } if (v) helped[v] = true; }
+  const helped = {}, URGENT = new Set(['wobble', 'break', 'echo', 'call']);
+  const firedW = zeros(false), fullOnce = zeros(false); let firedN = 0, relayHelped = false, pinyaHelped = false, ownAcc = 0, collaAcc = 0, lastLevel = true, breakFocusAt = -1e9, breakWall = -1;
+  const floorBy = [];
+  function enter(block) {   // per-block trackers of the new interfaces
+    if (block === 'brasa') { firedW.fill(false); firedN = 0; relayHelped = false; }
+    if (block === 'pinya') { pinyaHelped = false; fullOnce.fill(false); S.castell.state = 'pinya'; }
+    if (block === 'tronc') { ownAcc = 0; collaAcc = 0; lastLevel = true; floorBy.length = 0; S.castell.floorsOwn = 0; S.castell.floorsColla = 0; S.castell.lost = 0; S.castell.state = 'tronc'; }
+    if (block === 'pom') { S.castell.state = 'pom'; S.castell.climbers = 0; S.castell.slips = 0; }
+    if (block === 'baixada') S.castell.cracks = 0;
+  }
+  function floorGained() { const by = collaAcc > ownAcc ? 'colla' : 'group'; ownAcc = 0; collaAcc = 0; floorBy.push(by); if (by === 'colla') S.castell.floorsColla++; else S.castell.floorsOwn++; achieve('floor', S.floors, -1, by); }
+  function floorLost() { const by = floorBy.pop(); if (by === 'colla') S.castell.floorsColla = Math.max(0, S.castell.floorsColla - 1); else if (by) S.castell.floorsOwn = Math.max(0, S.castell.floorsOwn - 1); S.castell.lost++; }
+  function bloomAch() { const k = S.bloomSize < 0.45 ? 1 : S.bloomSize < 0.75 ? 2 : 3; S.result.festa = k; achieve('bloom', k, -1, helped.festa ? 'colla' : 'group'); }
+  function creak() { S.castell.cracks++; achieve('creak', S.castell.cracks, -1, 'group'); }
+  // the calling wall and the colla's help, every step (no rule reads them: they say what the score already does)
+  function interfaces(now) {
+    const B = T[S.block];
+    let busiest = -1, bc = 0; for (let w = 0; w < W; w++) if (S.count[w] > bc) { bc = S.count[w]; busiest = w; }
+    let assist = false;
+    if (S.block === 'wait') setFocus(S.reveal >= 1 ? busiest : -1, 'call');
+    else if (S.block === 'brasa') {
+      const R = S.relay, C = S.call;
+      if (S.brasaStage === 'relay') { setFocus(R.holderWall, 'relay', R.s, R.y); if (R.assist) relayHelped = true; assist = R.assist; }
+      else if (S.brasaStage === 'call' && C.n <= 3) setFocus(C.from, 'call');
+      else setFocus(-1);
+      if (S.phase === 'reward' && S.waves < 3) assist = true;
+    } else if (S.block === 'pinya') {
+      if (S.phase !== 'reward') {
+        if (S.assist > 0) { assist = true; pinyaHelped = true; }
+        let anyFull = false; for (let w = 0; w < W; w++) if (fullOnce[w]) anyFull = true;
+        let next = -1;
+        if (anyFull) for (let w = 0; w < W && next < 0; w++) if (!fullOnce[w] && (fullOnce[(w + 1) % W] || fullOnce[(w + W - 1) % W])) next = w;
+        if (next >= 0) setFocus(next, 'next');
+        else if (S.focus && S.focus.kind === 'pack' && !fullOnce[S.focus.wall] && S.held[S.focus.wall]) setFocus(S.focus.wall, 'pack');   // sticky
+        else { let pw = -1, pc = 0; for (let w = 0; w < W; w++) if (!fullOnce[w] && S.count[w] > pc) { pc = S.count[w]; pw = w; } setFocus(pw, 'pack'); }   // every wall full: nobody is called
+      } else setFocus(-1);
+    } else if (S.block === 'tronc') {
+      if (S.wobble > 0 && S.wobbleWall >= 0) setFocus(S.wobbleWall, 'wobble', undefined, B.foot);
+      else { let lw = -1, lv = 0.45; for (let w = 0; w < W; w++) if (S.walls[w] && Math.abs(S.lean[w]) >= lv) { lv = Math.abs(S.lean[w]); lw = w; } setFocus(S.balance ? lw : -1, 'lean'); }
+      if (S.phase !== 'reward' && S.assist > 0) assist = true;
+    } else if (S.block === 'pom') {
+      if (S.phase === 'aleta') setFocus(-1);
+      else if (now - breakFocusAt < 1.5 && breakWall >= 0) setFocus(breakWall, 'break');
+      else if (S.pomHolder) setFocus(S.pomHolder.wall, 'light', S.pomHolder.s, S.pomHolder.y);
+      else setFocus(S.lightWall, 'light');
+      if (S.phase === 'play' && S.t > B.target) assist = true;
+    } else if (S.block === 'festa') {
+      let f = null; for (const x of S.fronts) if (!f || x.at > f.at) f = x;
+      setFocus(S.festaStage === 'echo' && f ? f.to : -1, 'echo');
+      if (f && f.ghost) assist = true;
+    } else if (S.block === 'baixada') { setFocus(-1); if (S.t >= B.max - B.net) assist = true; }
+    else if (S.block === 'acta') { const p = S.prints[S.prints.length - 1]; setFocus(S.printOpen && p ? p.wall : -1, 'print', p && p.s, p && p.y); }
+    else setFocus(-1);
+    setAssist(assist);
+    const c = S.castell; c.floors = S.floors; c.structure = S.structure; c.walls.length = 0; for (let w = 0; w < W; w++) if (S.walls[w]) c.walls.push(w);
+  }
+  function go(block) { enter(block); S.block = block; S.t = 0; S.tp = 0; S.progress = 0; stuckFor = 0; emptyFor = 0;   /* 24-11: the abandon counts inside a block — after the 70 s intro (nobody touches) the brasa no longer abandons at once */ const interactive = T[block] && typeof T[block] === 'object'; S.phase = interactive && block !== 'festa' && block !== 'baixada' ? 'title' : 'play'; emit('block:' + block); emit('phase:' + S.phase); }
   function phase(p) { S.phase = p; S.tp = 0; stuckFor = 0; emit('phase:' + p); }
   function hint(key) { if (S.clock - lastHint > 25) { lastHint = S.clock; emit('hint:' + key); } }
   function reset(abandoned) {
@@ -153,6 +233,9 @@ export function createScore(nWalls, opt = {}) {
     S.fill = zeros(0); S.walls = zeros(false); S.lean = zeros(0); S.weak = zeros(0);
     S.values = { forca: 0, equilibri: 0, valor: 0, seny: 0 }; S.stats = { maxHands: 0, maxFloors: 0, stillS: 0 };
     S.relay = relayFresh(); S.lamp = null; S.lamps = []; S.lampN = 0;   // T-055
+    S.focus = null; S.assistOn = ''; S.ach = null; S.targets = []; S.tgProgress = 0; for (const k in helped) delete helped[k];   // 25-11
+    S.castell = { state: 'none', walls: [], structure: 0, floors: 0, floorsOwn: 0, floorsColla: 0, climbers: 0, crown: '', slips: 0, cracks: 0, lost: 0 };
+    S.result = { brasa: '', pinya: null, tronc: null, pom: '', festa: 0, baixada: '' };
     S.prints = []; printed.clear(); S.printOpen = false; S.pomThread = []; S.pomHolder = null; S.pomHandoff = null; cracksB = 0;
     phraseClock = 0; wobbles = 0; levelEval = 0; levelOk = 0; S.wobble = 0; S.wobbleWall = -1; S.descents = 0; S.dropped = 0; S.lowerK = 0; revealedAt = -1e9; revealBank = 0; stillRun = 0; S.pack = zeros(0); S.packed = zeros(false); S.learned = {}; S.assist = 0; S.aletaHands = 0; S.aletaWidth = 0; peak = 0; pulsesBalanced = 0; pulsesEval = 0; fillSpeed = 0; stillT = 0; pomT = 0;
     go('wait');
@@ -167,7 +250,7 @@ export function createScore(nWalls, opt = {}) {
     const from = S.pomHolder ? { ...S.pomHolder } : null;
     S.pomFrom = from; S.pomHolder = posOf(o); holderId = o.stroke; S.pomFly = from ? 0 : 1; holdT = 0; goneT = 0; S.pomFalter = 0;
     if (!S.pomThread.some((p) => p.stroke === o.stroke)) { S.pomThread.push(posOf(o)); if (S.pomThread.length > T.pom.relay.thread) S.pomThread.shift(); }
-    if (from) S.pomHandoffs++;
+    if (from) { S.pomHandoffs++; if (S.pomHandoffs === 1 || S.pomHandoffs % 3 === 0) achieve('handoff', S.pomHandoffs, o.wall, 'group', o.s, o.y); }
     S.pomHandoff = { from, to: posOf(o), back, at: S.clock }; emit('handoff:' + o.wall);
   }
   function pomInit() {
@@ -222,10 +305,10 @@ export function createScore(nWalls, opt = {}) {
     const h = R.holder === null ? null : strokeOf(R.holder);
     R.y = h ? h.y || R.y : best ? best.y || R.y : R.y;
     R.s = wrapP(relayR); R.holderWall = wallAtS(relayR); R.lap = clamp((relayR - R.s0) / PER, 0, 1);
-    if (R.lap >= 1) { R.done = true; R.speed = 0; R.target = null; R.assist = false; emit('relay:lap'); return true; }
+    if (R.lap >= 1) { if (R.assist) relayHelped = true; R.done = true; R.speed = 0; R.target = null; R.assist = false; emit('relay:lap'); achieve('lap', R.jumps, R.holderWall, relayHelped ? 'colla' : 'group', R.s, R.y); return true; }
     return false;
   }
-  function fall(outcome) { S.outcome = outcome; emit('fall'); go('fall'); }
+  function fall(outcome) { S.outcome = outcome; S.castell.state = 'fallen'; if (outcome === 'carregat') S.result.baixada = 'carregat'; emit('fall'); go('fall'); }
   function finish() {       // the four values, as the group played them
     const v = S.values;
     v.forca = clamp(0.35 + 0.65 * fillSpeed, 0, 1);
@@ -313,6 +396,7 @@ export function createScore(nWalls, opt = {}) {
       S.span[w] = best; spanN[w] = bestN; spanTotal[w] = total; S.packX[w] = bestX;
     }
     strokes = seen; S.hands = seen.size; if (S.hands > S.stats.maxHands) S.stats.maxHands = S.hands;
+    S.n = clamp(S.n + (S.hands - S.n) * (1 - Math.exp(-dt / (S.hands > S.n ? 0.22 : 1.75))), 0, 32);   // 25-11: rises in ~0.5 s, falls in ~4 s
     let heldN = 0;
     for (let w = 0; w < W; w++) { S.held[w] = now - lastSeen[w] <= T.linger; if (S.held[w]) heldN++; S.left[w] = now - seenL[w] <= T.linger; S.right[w] = now - seenR[w] <= T.linger; }
     emptyFor = S.hands ? 0 : emptyFor + dt;
@@ -362,6 +446,7 @@ export function createScore(nWalls, opt = {}) {
         // (gap s apart) and everybody strikes on the TOK (window −early/+late). Three calls: from one wall; from one wall answered on the
         // opposite one; on all four (the whole ring burns → 'awake'). A missed call: a small wave and the room calls again, slower.
         S.touched += downs;
+        for (const h of landed) if (!firedW[h.wall]) { firedW[h.wall] = true; firedN++; achieve('fire', firedN, h.wall, 'group', sOfHand(h), h.y); }   // 25-11
         const C = S.call;
         if (S.brasaStage === 'spark') {
           S.progress = clamp(Math.min(1, S.touched / Math.min(8, S.people)) * 0.25, 0, 0.25);
@@ -380,7 +465,7 @@ export function createScore(nWalls, opt = {}) {
             const big = C.hits >= C.need;
             S.waveBig = big; waveAt = now; emit('wave');
             if (big) {
-              S.waves++; learn('brasa');
+              S.waves++; learn('brasa'); achieve('wave', S.waves, C.from, 'group');
               if (S.waves >= 3) C.n = 4;                          // the ring is whole: it wakes (not before the block's minimum)
               else { C.n++; C.gap = B.gap; C.from = (C.from + 1) % W; C.to = C.n === 2 ? (C.from + 2) % W : -1; }
             } else C.gap = Math.min(B.gap + 2 * B.slower, C.gap + B.slower);   // slower, never «again, together»
@@ -390,7 +475,7 @@ export function createScore(nWalls, opt = {}) {
           }
         }
         stuckFor += dt; if (downs) stuckFor = Math.max(0, stuckFor - 4);
-        if (S.phase === 'play' && ((S.waves >= 3 && S.t >= B.min) || S.t >= B.max - B.reward)) { emit('awake'); phase('reward'); }
+        if (S.phase === 'play' && ((S.waves >= 3 && S.t >= B.min) || S.t >= B.max - B.reward)) { emit('awake'); S.result.brasa = S.waves >= 3 ? 'encesa' : 'ajudada'; achieve('awake', S.waves, -1, S.waves >= 3 ? 'group' : 'colla'); phase('reward'); }
       } else if (S.phase === 'reward') { S.progress = 1; if (S.tp >= B.reward) go('pinya'); }
     } else if (S.block === 'pinya') {
       if (playing) {
@@ -415,7 +500,7 @@ export function createScore(nWalls, opt = {}) {
         for (let w = 0; w < W; w++) {
           const before = S.fill[w], r = B.pack, k = Math.max(clamp((S.pack[w] - r[0]) / (r[1] - r[0]), 0, 1), S.count[w] ? S.assist * 0.6 : 0);
           S.fill[w] = S.count[w] > 0 && k > 0 ? Math.min(1, S.fill[w] + (dt / B.fill) * k) : Math.max(0, S.fill[w] - dt / 40);
-          if (before < 1 && S.fill[w] >= 1) emit('wall:' + w);
+          if (before < 1 && S.fill[w] >= 1) { emit('wall:' + w); if (!fullOnce[w]) { fullOnce[w] = true; achieve('wallfull', S.fill.filter((f) => f >= 1).length, w, S.assist > 0 ? 'colla' : 'group'); } }
           if (S.fill[w] >= 1) { full++; if (S.held[w]) fullHeld++; }
         }
         let withHands = 0; for (let w = 0; w < W; w++) if (S.count[w]) withHands++;
@@ -432,7 +517,9 @@ export function createScore(nWalls, opt = {}) {
           const n = clamp(Math.max(needNow, timeUp ? 0 : fullHeld), needNow < 2 ? 1 : Math.min(2, W), W);   // one wall = a pilar
           S.walls = zeros(false); for (let i = 0; i < n; i++) S.walls[rank[i][1]] = true; S.structure = n;
           fillSpeed = clamp(1 - (S.t - B.min) / (B.max - B.min), 0, 1);
-          S.closed = 1; emit('close'); phase('reward');
+          const byG = S.closed >= 1 && !pinyaHelped && S.assist <= 0;
+          S.result.pinya = { n: S.structure, by: byG ? 'group' : 'colla' }; S.castell.structure = S.structure;
+          S.closed = 1; emit('close'); achieve('close', S.structure, -1, byG ? 'group' : 'colla'); phase('reward');
         }
       } else if (S.phase === 'reward') { S.progress = 1; if (S.tp >= B.reward) { beatT = 0; evalAt = 0; phraseClock = 0; wobbles = 0; S.wobble = 0; S.wobbleWall = -1; S.phrase = 'gather'; go('tronc'); } }
     } else if (S.block === 'tronc') {
@@ -462,8 +549,8 @@ export function createScore(nWalls, opt = {}) {
           wobbleT += dt; S.wobble = clamp(wobbleT / B.wobble, 0.001, 1);
           let foot = 0; for (const o of S.strokes) if (o.wall === S.wobbleWall && (o.y < B.foot || o.y === 0)) foot++;
           steadyT = foot ? steadyT + dt : Math.max(0, steadyT - dt * 0.5);
-          if (steadyT >= 1) { emit('steady'); S.wobble = 0; S.wobbleWall = -1; phraseClock = 0; }
-          else if (wobbleT >= B.wobble) { emit('slip'); S.floors = Math.max(0, S.floors - 1); S.floorProgress = 0; S.wobble = 0; S.wobbleWall = -1; phraseClock = 0; }
+          if (steadyT >= 1) { emit('steady'); achieve('steady', S.floors, S.wobbleWall, 'group'); S.wobble = 0; S.wobbleWall = -1; phraseClock = 0; }
+          else if (wobbleT >= B.wobble) { emit('slip'); const ww = S.wobbleWall; if (S.floors > 0) floorLost(); S.floors = Math.max(0, S.floors - 1); S.floorProgress = 0; S.wobble = 0; S.wobbleWall = -1; phraseClock = 0; achieve('slip', S.floors, ww, 'group'); }
           if (wobbleT > 1.5 && !foot) hint('foot');
         } else {
           phraseClock += dt;
@@ -499,10 +586,11 @@ export function createScore(nWalls, opt = {}) {
             let swHands = 0; for (const w of sw) if (S.count[w]) swHands++;
             if (swHands && lifted >= swHands) { emit('lift'); learn('tronc'); }   // every tower wall that has hands lifted
             if (S.balance) { levelEval++; if (S.level) { levelOk++; emit('level'); } else emit('balance'); }
+            if (S.balance && S.level !== lastLevel) { lastLevel = S.level; let lw = -1, lv = 0; for (const w of sw) if (Math.abs(S.lean[w]) > lv) { lv = Math.abs(S.lean[w]); lw = w; } achieve(S.level ? 'level' : 'lean', S.floors, lw, 'group'); }
             if (gain < 0.3) { emit('weak'); noLift++; if (noLift >= 2) hint(S.balance && !S.level ? 'straight' : 'lift'); } else noLift = 0;
-            S.floorProgress += ((gain + assist * 2.6) * B.gain) / (1 + 0.12 * S.floors);
+            S.floorProgress += ((gain + assist * 2.6) * B.gain) / (1 + 0.12 * S.floors); ownAcc += gain; collaAcc += assist * 2.6;
             if (S.floorProgress >= 1 && S.floors < 9) {
-              S.floorProgress = Math.min(0.5, S.floorProgress - 1); S.floors++; S.stats.maxFloors = Math.max(S.stats.maxFloors, S.floors); emit('floor');
+              S.floorProgress = Math.min(0.5, S.floorProgress - 1); S.floors++; S.stats.maxFloors = Math.max(S.stats.maxFloors, S.floors); emit('floor'); floorGained();
               const first = wobbles === 0 && (S.floors === 7 || (S.floors >= 4 && S.t >= B.target - 10));   // the penultimate floor (or late)
               const second = wobbles === 1 && S.floors === 8 && firstWobbleAt < B.target - 30;               // twice if the group is well ahead
               if (first || second) { if (!wobbles) firstWobbleAt = S.t; wobbles++; S.wobble = 0.001; wobbleT = 0; steadyT = 0; S.wobbleWall = sw[Math.floor(Math.random() * sw.length)] ?? 0; emit('wobble'); }
@@ -513,7 +601,10 @@ export function createScore(nWalls, opt = {}) {
           if (phraseClock >= B.phrase) phraseClock -= B.phrase;
           S.phrase = ph;
         }
-        if (S.wobble === 0 && ((S.floors >= 9 && S.t >= B.min) || (S.t >= B.target && S.floors >= 7) || S.t >= B.max - B.reward)) phase('reward');
+        if (S.wobble === 0 && ((S.floors >= 9 && S.t >= B.min) || (S.t >= B.target && S.floors >= 7) || S.t >= B.max - B.reward)) {
+          const c = S.castell, by = c.floorsColla > 0 && c.floorsOwn < 6 ? 'colla' : 'group';
+          S.result.tronc = { floors: S.floors, own: c.floorsOwn, colla: c.floorsColla, by }; achieve('tower', S.floors, -1, by); phase('reward');
+        }
       } else if (S.phase === 'reward') { if (S.tp >= B.reward) { pomInit(); go('pom'); } }
     } else if (S.block === 'pom') {
       if (playing) {
@@ -577,7 +668,7 @@ export function createScore(nWalls, opt = {}) {
           const all = nPres > 0 && nStill === nPres;
           S.pomHush += ((all ? 1 : nPres ? 0.5 * share : 0) - S.pomHush) * (1 - Math.exp(-dt / 0.5));
           S.restless = nPres > 0 && !all;
-          if (S.restless && !resting) { if (now - breakAt >= B.breakGap) { breakAt = now; S.climb = Math.max(0, S.climb - B.breakCost); emit('hush:break:' + moveW); } }
+          if (S.restless && !resting) { if (now - breakAt >= B.breakGap) { breakAt = now; S.climb = Math.max(0, S.climb - B.breakCost); emit('hush:break:' + moveW); S.castell.slips++; breakFocusAt = now; breakWall = moveW; achieve('break', S.castell.slips, moveW, 'group'); } }
           else if (all) { gain = 1; still = 1; }
         }
         S.lightWall = S.pomHolder ? S.pomHolder.wall : order[0] ?? 0;
@@ -591,13 +682,13 @@ export function createScore(nWalls, opt = {}) {
         if (emptyFor >= B.empty / 2 && S.warn !== 'fall') { S.warn = 'fall'; emit('warn:fall'); }   // half the deadline: the light trembles
         const late = S.t > B.target; if (late && !resting) S.climb += dt / 25;                // past its time the light finds its way
         if (S.climb >= 1) {
-          emit('arrived:' + S.climber);
+          emit('arrived:' + S.climber); S.castell.climbers = S.climber + 1; achieve('arrived', S.climber, S.lightWall, S.t > B.target ? 'colla' : 'group');
           if (S.climber < 2) { S.climber++; S.climb = 0; S.pomRest = B.rest; S.pomStage = POM_STAGES[S.climber]; S.pomGust = 0; S.pomFalter = 0; S.restless = false; emit('climber:' + S.climber); }
-          else { S.climb = 1; S.pomHush = 1; phase('reward'); }   // she arrives: B.reward s of silence, then l'aleta
+          else { S.climb = 1; S.pomHush = 1; S.result.pom = S.castell.slips <= 1 ? 'net' : 'patit'; phase('reward'); }   // she arrives: B.reward s of silence, then l'aleta
         }
         S.progress = clamp((S.climber + Math.min(1, S.climb)) / 3, 0, 1);
         if (S.phase !== 'reward' && emptyFor >= B.empty) fall('intent');            // only an empty room falls (20 s, warned at 10)
-        else if (S.phase === 'play' && S.t >= B.max) phase('reward');            // at max it crowns (narrow if they did not get far), never falls
+        else if (S.phase === 'play' && S.t >= B.max) { S.result.pom = 'patit'; phase('reward'); }            // at max it crowns (narrow if they did not get far), never falls
       } else if (S.phase === 'reward') {
         S.progress = 1;
         if (S.tp >= B.reward) { phase('aleta'); aletaBase.clear(); aletaRose.clear(); for (const o of S.strokes) aletaBase.set(o.stroke, o.y); }
@@ -616,10 +707,12 @@ export function createScore(nWalls, opt = {}) {
           if (at !== undefined) { risen++; if (now - at <= A.within) recent++; }
         }
         S.aletaHands = present ? risen / present : 0;
-        if ((present && recent / present >= A.quorum) || S.tp >= A.window) {
+        const byQuorum = !!present && recent / present >= A.quorum;
+        if (byQuorum || S.tp >= A.window) {
           S.aletaWidth = clamp(0.15 + 0.85 * S.aletaHands * (1 - 0.5 * Math.min(1, S.tp / A.window)), 0, 1);
           if (S.aletaHands >= 0.5) learn('aleta');
-          emit('aleta'); emit('crown'); go('crown');
+          S.castell.crown = byQuorum ? 'ample' : 'justa'; S.castell.state = 'crowned';
+          emit('aleta'); emit('crown'); achieve('crown', S.castell.climbers, -1, byQuorum ? 'group' : 'colla'); go('crown');
         }
       }
     } else if (S.block === 'crown') {
@@ -643,7 +736,7 @@ export function createScore(nWalls, opt = {}) {
         if (rw >= 0 && Math.abs(now - f.arrive) <= B.window) {
           used[rw]++; S.fronts.splice(i, 1); S.echoHits++; learn('festa'); lastEcho = now; S.resonance += 0.12 / Math.sqrt(S.people);
           if (S.fronts.length < 12) S.fronts.push({ id: ++frontId, from: rw, to: opp(rw), at: now, arrive: now + B.travel, gen: Math.min(4, f.gen + 1), ghost: false });
-          emit('echo');
+          emit('echo'); achieve('echo', S.echoHits, rw, 'group');
         } else if (now > f.arrive + B.window) {
           S.fronts.splice(i, 1);
           if (S.festaStage === 'echo' && now - lastEcho > B.ghost) {   // nobody returned one for a while: the room returns it
@@ -666,13 +759,13 @@ export function createScore(nWalls, opt = {}) {
           if (C.n >= B.calls) {                                       // the last one: the room flowers, always
             // how together they were: the calls hit in unison (½), the echoes returned (0.3), the base (0.2)
             S.bloomSize = clamp(0.2 + 0.5 * (unisonSum / B.calls) + 0.3 * Math.min(1, S.echoHits / 6), 0, 1); S.bloomDur = 4 + 4 * S.bloomSize;
-            bloomAt = now; S.blooms++; emit('bloom'); festaEndAt = now + S.bloomDur; C.n = B.calls + 1;
+            bloomAt = now; S.blooms++; emit('bloom'); bloomAch(); festaEndAt = now + S.bloomDur; C.n = B.calls + 1;
           } else { C.n++; C.at = now + B.pause + 2 * C.gap; C.hits = 0; C.armed = true; C.tokDone = false; }
         }
       }
       S.progress = clamp(S.resonance, 0, 1);
       if ((festaEndAt >= 0 && now >= festaEndAt) || S.t >= B.max) {
-        if (!S.blooms) { S.bloomSize = clamp(0.2 + 0.5 * (unisonSum / B.calls) + 0.3 * Math.min(1, S.echoHits / 6), 0, 1); S.bloomDur = 0; S.blooms++; emit('bloom'); }   // never leaves without its bloom
+        if (!S.blooms) { S.bloomSize = clamp(0.2 + 0.5 * (unisonSum / B.calls) + 0.3 * Math.min(1, S.echoHits / 6), 0, 1); S.bloomDur = 0; S.blooms++; emit('bloom'); bloomAch(); }   // never leaves without its bloom
         downT = 0; go('baixada');
       }
     } else if (S.block === 'baixada') {
@@ -689,20 +782,20 @@ export function createScore(nWalls, opt = {}) {
       for (const o of S.strokes) {
         const m = Math.max(descentMax.get(o.stroke) ?? o.y, o.y); descentMax.set(o.stroke, m);
         (S.walls[o.wall] ? drops : dropsOut).push(m - o.y);
-        if (o.dy < -B.gentle && !crackedThis && S.lowerK > 0.1) { crackedThis = true; cracksB++; emit('crack'); }
+        if (o.dy < -B.gentle && !crackedThis && S.lowerK > 0.1) { crackedThis = true; cracksB++; emit('crack'); creak(); }
       }
       for (const k of descentMax.keys()) if (!strokes.has(k)) descentMax.delete(k);
       if (drops.length || dropsOut.length) S.lowerK = clamp(Math.max(drops.length ? median(drops) : 0, dropsOut.length ? median(dropsOut) * B.outside : 0) / B.lower, 0, 1);   // the tower's hands, or the others at half
       for (let w = 0; w < W; w++) if (S.count[w]) S.band[w] += (S.yMed[w] - S.band[w]) * (1 - Math.exp(-dt * 6));
-      const lowerFloors = (n) => { for (let i = 0; i < n && S.floors > (S.t < B.min ? 1 : 0); i++) { S.floors--; emit('down'); } };
+      const lowerFloors = (n) => { for (let i = 0; i < n && S.floors > (S.t < B.min ? 1 : 0); i++) { S.floors--; emit('down'); achieve('down', S.floors, -1, S.assistOn ? 'colla' : 'group'); } };
       // let go in the middle of a descent: it drops (two floors, a crack); three in a row and it falls
-      if (S.lowerK > 0.15 && !S.hands) { dropT += dt; if (dropT >= 1) { dropT = 0; S.dropped++; cracksB++; emit('crack'); lowerFloors(2); S.lowerK = 0; descentMax.clear(); crackedThis = false; if (S.dropped >= B.drop) { fall('carregat'); return S; } } } else dropT = 0;
+      if (S.lowerK > 0.15 && !S.hands) { dropT += dt; if (dropT >= 1) { dropT = 0; S.dropped++; cracksB++; emit('crack'); creak(); lowerFloors(2); S.lowerK = 0; descentMax.clear(); crackedThis = false; if (S.dropped >= B.drop) { fall('carregat'); return S; } } } else dropT = 0;
       if (S.lowerK >= 1) {                                      // a descent, complete
-        S.descents++; if (!crackedThis) S.dropped = 0; emit('lower'); learn('baixada'); lowerFloors(2);
+        S.descents++; if (!crackedThis) S.dropped = 0; emit('lower'); if (!crackedThis) achieve('clean', S.descents, -1, 'group'); learn('baixada'); lowerFloors(2);
         S.lowerK = 0; descentMax.clear(); for (const o of S.strokes) descentMax.set(o.stroke, o.y); crackedThis = false;
       }
       if (S.t >= B.max - B.net) { downT += dt; const every = Math.max(0.6, (B.max - S.t) / Math.max(1, S.floors + 0.5)); if (downT >= every) { downT = 0; lowerFloors(1); } }   // the net
-      if (S.floors === 0 || S.t >= B.max) { S.floors = 0; S.outcome = 'descarregat'; finish(); go('acta'); }
+      if (S.floors === 0 || S.t >= B.max) { S.floors = 0; S.outcome = 'descarregat'; S.result.baixada = S.castell.cracks ? 'cruixit' : 'net'; S.castell.state = 'down'; finish(); go('acta'); }
       S.progress = 1 - S.floors / Math.max(1, S.stats.maxFloors);
     } else if (S.block === 'fall') {
       S.progress = S.t / T.fall; if (S.t >= T.fall) { S.floors = 0; finish(); go('acta'); }
@@ -719,6 +812,7 @@ export function createScore(nWalls, opt = {}) {
       }
       S.progress = S.t / T.acta; if (S.t >= T.acta) reset(false);
     }
+    interfaces(now);
     return S;
   }
 
