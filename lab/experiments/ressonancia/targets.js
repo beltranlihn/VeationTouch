@@ -9,11 +9,13 @@
 // The score creates it, offers a stage and steps it; its list travels in S.targets (the sound leads, the image copies it).
 //
 //   const TG = createTargets({ lengths, heights, masks, seed, emit });
-//   TG.offer({ mode, goal, need, walls, y: [0.9, 1.4], r: 0.22, charge: 0.5, hold: 0.5, grace: 0.8, pairs, kind, rungs, sides, chains, life, max });
-//   TG.place({ wall, dx, y, kind, life, chain, dir });   // one explicit target (the echo's arrival, the wait's ring…), any mode
+//   TG.offer({ mode, goal, need, walls, y: [0.9, 1.4], r: 0.22, shape, w, h, y0, y1, charge: 0.5, hold: 0.5, grace: 0.8, pairs, kind, rungs, sides, chains, life, max });
+//     shape: 'disc' (r; the default) | 'rect' (a block w × h centred at y; each ≥ 0.4 m) | 'pillar' (w wide from y0 to y1; y is its middle).
+//     A hand is inside within +0.10 m of the shape. Targets keep ≥ 0.36 m between their edges (0.18 when a crowded person needs one).
+//   TG.place({ wall, dx, y, kind, life, chain, dir, shape, w, h, y0, y1 });   // one explicit target (the echo's arrival, the wait's ring…), any mode
 //   TG.clear();                                      // no targets (a stage without them)
 //   TG.step(dt, strokes, n, now);                    // strokes = S.strokes ({ stroke, wall, dx, s, y }), n = S.n, now = S.clock
-//   TG.list      → S.targets: [{ id, wall, dx, s, y, r, kind, mode, state: 'idle'|'charging'|'active'|'done', charge 0..1, hold 0..1,
+//   TG.list      → S.targets: [{ id, wall, dx, s, y, r, shape, w, h (m; a disc: w = h = 2r), kind, mode, state: 'idle'|'charging'|'active'|'done', charge 0..1, hold 0..1,
 //                               on (hands inside now), chain, link (its number in its chain), rung, side (−1 left of the wall's centre,
 //                               +1 right), pairOf (id | 0), bornAt, doneAt, life, dir (placed ones: the way a wave travels along the
 //                               perimeter, +1 / −1; 0 = none) }]
@@ -63,24 +65,40 @@ export function createTargets(opt = {}) {
     stats: { done: 0, links: 0, ladders: 0, together: 0, byWall: LEN.map(() => 0), bySide: LEN.map(() => [0, 0]) } };
 
   // ---- placement
-  function free(w, dx, y, r, ignore, partner) {
-    if (Math.abs(dx) + r > LEN[w] / 2 - (TG.corner - r) - 1e-6 && Math.abs(dx) > LEN[w] / 2 - TG.corner) return false;   // centre ≥ 0.5 m from a corner
-    if (y - r < 0.05 || y + r > HGT[w] - 0.05) return false;
-    for (const m of MASK[w]) if (dx + r > m.dx0 && dx - r < m.dx1 && y + r > m.y0 && y - r < m.y1) return false;
-    const s = sOf(w, dx), apart = spec && spec.apart > 0 ? spec.apart : TG.apart;
-    if (!opt.underHands) for (const h of handBuf) if (Math.hypot(cd(h.s, s), h.y - y) < r + TG.catch + 0.1) return false;   // never born under a resting hand: a hand has to come to it
+  // 25-11 (Beltrán): every stage's target is an object of its world with its own SHAPE — 'disc' (r), 'rect' (a block or slab w × h
+  // centred at (s, y)), 'pillar' (a column w wide from y0 to y1: anybody of any height can hold it). Half extents of a shape:
+  const SHAPES = { disc: 1, rect: 1, pillar: 1 };
+  function shapeOf(o = {}) {
+    const sh = SHAPES[o.shape] ? o.shape : SHAPES[spec && spec.shape] ? spec.shape : 'disc', r = o.r > 0 ? o.r : spec && spec.r > 0 ? spec.r : TG.r;
+    if (sh === 'disc') return { shape: sh, r, w: 2 * r, h: 2 * r, hx: r, hy: r, yc: null };
+    const w = Math.max(0.4, o.w || (spec && spec.w) || (sh === 'pillar' ? 0.5 : 0.6));
+    if (sh === 'pillar') { const y0 = o.y0 ?? (spec && spec.y0) ?? 0.6, y1 = Math.max(y0 + 0.4, o.y1 ?? (spec && spec.y1) ?? 2.2); return { shape: sh, r, w, h: y1 - y0, hx: w / 2, hy: (y1 - y0) / 2, yc: (y0 + y1) / 2 }; }
+    const h = Math.max(0.4, o.h || (spec && spec.h) || 0.4); return { shape: sh, r, w, h, hx: w / 2, hy: h / 2, yc: null };
+  }
+  const halfOf = (t) => (t.shape === 'disc' || !t.shape ? [t.r, t.r] : [t.w / 2, t.h / 2]);
+  // the gap between two shapes (boxes; discs as their squares), ≥ 0 when apart
+  const gapOf = (ds, dy, ax, ay, bx, by) => Math.max(Math.abs(ds) - ax - bx, Math.abs(dy) - ay - by);
+  function free(w, dx, y, r, ignore, partner, sh) {
+    sh = sh || shapeOf(); const hx = sh.hx, hy = sh.hy;
+    if (Math.abs(dx) + hx > LEN[w] / 2 - (TG.corner - TG.r) + 1e-6) return false;   // ≥ 0.5 m from a corner (a disc's centre; any shape's edge ≥ 0.28 m)
+    if (y - hy < 0.05 || y + hy > HGT[w] - 0.05) return false;
+    for (const m of MASK[w]) if (dx + hx > m.dx0 && dx - hx < m.dx1 && y + hy > m.y0 && y - hy < m.y1) return false;
+    const s = sOf(w, dx), apart = spec && spec.apart > 0 ? spec.apart : TG.apart, minGap = apart - 2 * TG.r, pairGap = TG.pair[0] - 2 * TG.r;
+    if (!opt.underHands) for (const h of handNear) if (sh.shape === 'disc' ? Math.hypot(cd(h.s, s), h.y - y) < r + TG.catch + 0.1 : Math.abs(cd(h.s, s)) < hx + TG.catch + 0.1 && Math.abs(h.y - y) < hy + TG.catch + 0.1) return false;   // never born under a resting hand: a hand has to come to it
     for (const t of list) {
       if (t.id === ignore) continue;
-      const d = Math.hypot(cd(t.s, s), t.y - y), min = partner && t.id === partner ? TG.pair[0] : apart;
-      if (d < min) return false;
+      const [bx, by] = halfOf(t), g = gapOf(cd(t.s, s), t.y - y, hx, hy, bx, by);
+      if (g < (partner && t.id === partner ? pairGap : minGap) - 1e-9) return false;
     }
     return true;
   }
-  function band() { const b = spec && spec.y ? spec.y : TG.y; return [Math.min(b[0], b[1]), Math.max(b[0], b[1])]; }
+  function band() { const sh = shapeOf(); if (sh.yc != null) return [sh.yc, sh.yc]; const b = spec && spec.y ? spec.y : TG.y; return [Math.min(b[0], b[1]), Math.max(b[0], b[1])]; }
   function make(w, dx, y, extra = {}) {
-    const r = spec && spec.r > 0 ? spec.r : TG.r;
-    const t = { id: ++idSeq, wall: w, dx, s: sOf(w, dx), y, r, kind: (spec && spec.kind) || extra.kind || '', mode: spec ? spec.mode : 'manual', state: 'idle',
+    const sh = shapeOf(extra), r = sh.r;
+    if (sh.yc != null) y = sh.yc;
+    const t = { id: ++idSeq, wall: w, dx, s: sOf(w, dx), y, r, shape: sh.shape, w: sh.w, h: sh.h, kind: (spec && spec.kind) || extra.kind || '', mode: spec ? spec.mode : 'manual', state: 'idle',
       charge: 0, hold: 0, on: 0, chain: 0, link: 0, rung: -1, side: dx < 0 ? -1 : 1, pairOf: 0, bornAt: now, doneAt: 0, life: 0, dir: 0, ...extra };
+    t.shape = sh.shape; t.w = sh.w; t.h = sh.h; t.r = r; delete t.y0; delete t.y1;
     list.push(t); inner.set(t.id, { lost: 0, occ: -1, by: -1, kid: false, dir: 1 }); emit('tg:on:' + t.id);
     return t;
   }
@@ -116,15 +134,19 @@ export function createTargets(opt = {}) {
   }
 
   // ---- the people: hands sorted along the room; a person = hands within 1.6 m of her first one
-  const people = [], handBuf = [];
+  const people = [], handBuf = [], handNear = [], recentH = [];   // handNear: the hands now + the ones seen in the last second (a resting hand the sensor drops for a moment is still there)
   function group(strokes) {
-    people.length = 0; handBuf.length = 0;
+    people.length = 0;
+    for (const h of handBuf) { if (recentH.length >= 64) recentH.shift(); recentH.push({ s: h.s, y: h.y, t: now }); }
+    while (recentH.length && now - recentH[0].t > 1) recentH.shift();
+    handBuf.length = 0;
     for (const h of strokes || []) {
       if (!(h.wall >= 0 && h.wall < W)) continue;
       const s = typeof h.s === 'number' && isFinite(h.s) ? wrap(h.s) : sOf(h.wall, h.dx || 0);
       handBuf.push({ s, y: typeof h.y === 'number' && isFinite(h.y) ? h.y : 1.1, wall: h.wall, p: -1 });
     }
     handBuf.sort((a, b) => a.s - b.s);
+    handNear.length = 0; for (const h of handBuf) handNear.push(h); for (const h of recentH) handNear.push(h);
     for (const h of handBuf) {
       const last = people[people.length - 1];
       if (last && h.s - last.s0 <= TG.person) { last.hands.push(h); h.p = people.length - 1; }
@@ -156,7 +178,9 @@ export function createTargets(opt = {}) {
     if (full()) recycle(true);
     if (full()) return null;
     const lim = LEN[p.wall] / 2 - TG.corner, dx = clamp(p.dx || 0, -lim, lim), y = clamp(p.y ?? 1.2, 0.3, HGT[p.wall] - 0.3);
-    return make(p.wall, dx, y, { kind: p.kind || (spec && spec.kind) || '', life: p.life || 0, chain: p.chain || 0, dir: p.dir || 0, placed: true });
+    const ex = { kind: p.kind || (spec && spec.kind) || '', life: p.life || 0, chain: p.chain || 0, dir: p.dir || 0, placed: true };
+    for (const k of ['shape', 'w', 'h', 'y0', 'y1', 'r']) if (p[k] != null) ex[k] = p[k];
+    return make(p.wall, dx, y, ex);
   }
   // when the room is full: an unused target nobody needs — not the last free one of its wall, and every person near it has another
   // one near her — the oldest first (force: any unused one)
@@ -252,8 +276,11 @@ export function createTargets(opt = {}) {
     for (let i = list.length - 1; i >= 0; i--) {
       const t = list[i], I = inner.get(t.id);
       if (t.state === 'done') { if (now - t.doneAt >= TG.keepDone) remove(t, true); continue; }
-      let on = 0, occ = -1; const cr = t.r + TG.catch;
-      for (const h of handBuf) if (Math.abs(cd(h.s, t.s)) <= cr && Math.abs(h.y - t.y) <= cr && Math.hypot(cd(h.s, t.s), h.y - t.y) <= cr) { on++; occ = h.p; I.occS = h.s; }
+      let on = 0, occ = -1; const cr = t.r + TG.catch, [hx, hy] = halfOf(t), box = t.shape && t.shape !== 'disc';
+      for (const h of handBuf) {
+        const ds = Math.abs(cd(h.s, t.s)), dy = Math.abs(h.y - t.y);
+        if (box ? ds <= hx + TG.catch && dy <= hy + TG.catch : ds <= cr && dy <= cr && Math.hypot(ds, dy) <= cr) { on++; occ = h.p; I.occS = h.s; }
+      }
       t.on = on; I.occ = occ; if (!on) I.occS = NaN;
       if (on) {
         I.lost = 0; I.by = occ;

@@ -11,6 +11,7 @@
 //            (the button, the call's TOK, packing, lifting with the phrase, stillness, raising, the echo, bringing it down)
 //   passive  hands resting where they are, never following
 //   strike   only taps (0.25 s down, 0.8–1.6 s up), anywhere
+//   slow     as hold, but hesitant and late: waits 2.5–5 s before each new target, walks at 0.4 m/s, lifts slowly
 // --reach m: nobody reaches above m (children: --reach 1.4): targets higher are ignored, hands never go above it.
 // --lidar p: every 0.1 s a hand is lost with probability p for 0.1–0.3 s (and comes back under a new stroke 1 time in 5).
 // --shrink: the group shrinks from its size to 2 people halfway through each interactive block (D8).
@@ -87,7 +88,7 @@ function run(size, act, seed) {
 // ---------------------------------------------------------------------------------------------------------------------------- acts
 function policy(S, people, act, t, rnd) {
   const B = S.block;
-  if (act === 'passive') { for (const p of people) for (const h of p.hands) h.down = true; return; }
+  if (act === 'passive') { for (const p of people) for (const h of p.hands) h.down = true; return; }   // (slow: below, with hold)
   if (act === 'strike') {
     for (const p of people) {
       if (rnd() < 0.002) p.s = wrap(p.s + (rnd() - 0.5) * 3);
@@ -97,10 +98,11 @@ function policy(S, people, act, t, rnd) {
   }
   // hold: on the targets when there are any
   const live = (S.targets || []).filter((x) => x.state !== 'done');
-  if (live.length && !(B === 'pom' && S.phase !== 'aleta')) { onTargets(S, people, live, t); return; }
+  const SL = act === 'slow' ? 0.4 : 1;   // slow: hesitant and late (walks at 40 %, waits 2.5–5 s before each new target, lifts slowly)
+  if (live.length && !(B === 'pom' && S.phase !== 'aleta')) { onTargets(S, people, live, t, SL < 1, rnd); return; }
   for (const p of people) for (const h of p.hands) h.down = true;
-  const walk = (p, s, v = 0.9) => { const d = cd(s, p.s), st = Math.min(Math.abs(d), v * DT); p.s = wrap(p.s + Math.sign(d) * st); };
-  const lift = (h, y, k = 3) => { h.y += (y - h.y) * Math.min(1, DT * k); };
+  const walk = (p, s, v = 0.9) => { const d = cd(s, p.s), st = Math.min(Math.abs(d), v * SL * DT); p.s = wrap(p.s + Math.sign(d) * st); };
+  const lift = (h, y, k = 3) => { h.y += (y - h.y) * Math.min(1, DT * k * SL); };
   if (B === 'wait') { for (const p of people) { walk(p, centreS(p.home) - 0.3); for (const h of p.hands) lift(h, 1.2); } return; }
   if (B === 'brasa') {
     if (S.brasaStage === 'relay' && S.relay) {   // one person walks ahead of the fire devil; a group stands spread
@@ -142,21 +144,25 @@ function policy(S, people, act, t, rnd) {
   if (B === 'baixada') { const ph = t % 4; for (const p of people) for (const h of p.hands) { h.y = ph < 0.5 ? h.y + (1.6 - h.y) * Math.min(1, DT * 4) : Math.max(0.65, h.y - 0.3 * DT); } return; }
 }
 // rest and hold on the targets: every person goes to the nearest free one (not another's) and puts a hand on it until it is done
-function onTargets(S, people, live, t) {
+const lowOf = (x) => x.y - (x.h || 2 * (x.r || 0.22)) / 2;   // the lowest point of a target (pillars and blocks are tall)
+function onTargets(S, people, live, t, slow, rnd) {
   const taken = new Set();
   for (const p of people) {
     const mine = p.hands[0].claim && live.find((x) => x.id === p.hands[0].claim);
     if (mine) { taken.add(mine.id); continue; }
     let best = null, bd = 1e9;
-    for (const x of live) { if (taken.has(x.id) || x.y > REACH) continue; const d = Math.abs(cd(x.s, p.s)); if (d < bd) { bd = d; best = x; } }
-    p.hands[0].claim = best ? best.id : 0; if (best) taken.add(best.id);
+    for (const x of live) { if (taken.has(x.id) || lowOf(x) + 0.05 > REACH) continue; const d = Math.abs(cd(x.s, p.s)); if (d < bd) { bd = d; best = x; } }
+    const was = p.hands[0].claim; p.hands[0].claim = best ? best.id : 0; if (best) taken.add(best.id);
+    if (slow && best && best.id !== was) p.wait = 2.5 + rnd() * 2.5;
   }
   for (const p of people) {
     const x = live.find((y) => y.id === p.hands[0].claim);
     for (const h of p.hands) h.down = true;
     if (!x) continue;
-    const d = cd(x.s, p.s), st = Math.min(Math.abs(d), 1.0 * DT); p.s = wrap(p.s + Math.sign(d) * st);
-    p.hands[0].y += (x.y - p.hands[0].y) * Math.min(1, DT * 5);
+    if (slow && p.wait > 0) { p.wait -= DT; continue; }       // hesitates: the hand stays where it was
+    const d = cd(x.s, p.s), st = Math.min(Math.abs(d), (slow ? 0.4 : 1.0) * DT); p.s = wrap(p.s + Math.sign(d) * st);
+    const ty = Math.min(x.y, REACH - 0.05, Math.max(lowOf(x) + 0.12, x.y));
+    p.hands[0].y += (ty - p.hands[0].y) * Math.min(1, DT * (slow ? 2 : 5));
     if (p.hands[1]) { // the second hand: on the pair if there is one, else resting beside
       const q = x.pairOf && live.find((y) => y.id === x.pairOf);
       if (q) { p.hands[1].off = cd(q.s, p.s); p.hands[1].y += (q.y - p.hands[1].y) * Math.min(1, DT * 5); } else p.hands[1].off = 0.6;

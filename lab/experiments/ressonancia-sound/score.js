@@ -35,18 +35,18 @@ export const TIMES = {                       // seconds
   title: 6,                                  // the chapter card
   tg: { charge: 0.5, hold: 0.5, grace: 0.8, r: 0.22 },   // 25-11 (D3b) the hold-targets: rest charge s, then hold s; a lost hand keeps the charge grace s; radius (m)
   brasa: { min: 45, target: 60, max: 75, reward: 7, spark: 12, gap: 0.8, pause: 3.2, lead: 1.0, callMax: 14, fracs: [0.35, 0.5, 0.65], relayMax: 30, relayMin: 8 },   // 25-11: spark → relay (chain) → 3 calls (together; fracs of the group, callMax s before the colla)
-  pinya: { min: 50, target: 75, max: 100, reward: 8, fill: 10, hold: 3, palm: 15, pack: [0.55, 0.9], net: 40, nearFull: 1.8, nearZero: 3 },   // nearFull/nearZero: at least half the wall (25-11, A5)
-  tronc: { min: 85, target: 115, max: 145, reward: 6, period: 2.4, phrase: 4.8, wobble: 7, foot: 0.95, footY: [0.6, 0.9], help: 0.5,   // 25-11: ladders (rungs; a child's kidRungs), needK × n / 1.6 ladders a floor,
-    rungs: [0.9, 1.25, 1.6], kidRungs: [0.7, 1.05, 1.4], every: 6, colla: 16, needK: 0.5 },                                            // ≥ every s between floors, the colla after colla s (to 5)
-  pom: { min: 70, target: 90, max: 120, reward: 1.5, climb: [38, 16, 10], rest: 7, empty: 20, still: 0.15, stillSpeed: 0.3,   // still: a hand moved less than this (m) in 1 s (filtered); stillSpeed: unused since 24-11, kept for compatibility
+  pinya: { min: 50, target: 75, max: 94, reward: 8, fill: 10, hold: 3, palm: 15, pack: [0.55, 0.9], net: 40, nearFull: 1.8, nearZero: 3 },   // nearFull/nearZero: at least half the wall (25-11, A5)
+  tronc: { min: 85, target: 115, max: 145, reward: 6, period: 2.4, phrase: 4.8, wobble: 7, foot: 0.95, footY: [0.62, 0.68], help: 0.5,   // 25-11: ladders (rungs; a child's kidRungs), needK × n / 1.6 ladders a floor,
+    rungs: [0.85, 1.25, 1.65], kidRungs: [0.65, 1.05, 1.45], every: 6, colla: 16, needK: 0.5 },                                            // ≥ every s between floors, the colla after colla s (to 5)
+  pom: { min: 70, target: 90, max: 112, reward: 1.5, climb: [38, 16, 10], rest: 7, empty: 20, still: 0.15, stillSpeed: 0.3,   // still: a hand moved less than this (m) in 1 s (filtered); stillSpeed: unused since 24-11, kept for compatibility
     relay: { every: 4, fly: 1.5, ready: 1, falter: 1.2, cost: 0.04, gone: 1, thread: 24, hop: 0.12, base: 0.55, one: 1.0 },   // 25-11 (B4): she climbs at base (one hand: one) and every handoff lifts her hop at once; hops every clamp(16 / still hands, 1.5, every) s
     breath: { slow: 0.7, more: 0.35, many: 4 }, gust: 0.35, gustGap: 1.5, breakGap: 1.2, breakCost: 0.08, breaksMax: 3, arriving: 1.5 },   // A11/A12: a gust needs ≥ 20 % of the hands; the silence tolerates 15 % moving (max 4) and the hands arriving (< arriving s)
   print: { from: 3, to: 15, rest: 0.5, max: 60, near: 0.15 },   // T-050 the acta's handprints: a hand resting ≥ rest s between from and to leaves one (not two within `near` m)
   aleta: { window: 12, rise: 0.28, high: 1.6, highAfter: 2, quorum: 0.6, quorumMany: 0.4, within: 3, up: 0.35, top: 1.9 },   // 25-11 (A13): quorum 0.6 up to 4 hands → quorumMany from 12; crown-targets `up` m above every hand (≤ top)
   hand: { size: 0.12, base: 6, span: 2 },   // the default hand width (m), how slowly a hand's baseline follows it (s), the narrowest packing window (m)
   crown: 25,
-  festa: { min: 60, target: 76, max: 84, free: 20, echo: 48, travel: 3, ghost: 12, echoLife: 8, calls: 4, gap: 0.8, lead: 1.0, pause: 2.5, callMax: 7, fracs: [0.35, 0.45, 0.55, 0.65] },   // 25-11: free (rings) → echo (targets that wait) → 4 calls → bloom
-  baixada: { min: 30, target: 40, max: 50, empty: 10, net: 12, drop: 3, rungs: [1.5, 1.2, 0.9, 0.6], kidRungs: [1.3, 1.0, 0.7] },   // 25-11: ladders down, two floors each (net: the clock lowers it in the last 12 s)
+  festa: { min: 60, target: 76, max: 84, free: 24, echo: 52, travel: 3, ghost: 12, echoLife: 8, calls: 4, gap: 0.8, lead: 1.0, pause: 2.5, callMax: 7, fracs: [0.35, 0.45, 0.55, 0.65] },   // 25-11: free (rings) → echo (targets that wait) → 4 calls → bloom
+  baixada: { min: 30, target: 40, max: 50, empty: 10, net: 12, drop: 3, rungs: [1.55, 1.15, 0.8, 0.45], kidRungs: [1.3, 0.9, 0.5], coda: 8 },   // coda: free play once it is down, before the acta   // 25-11: ladders down, two floors each (net: the clock lowers it in the last 12 s)
   fall: 12, acta: 40,
 };
 
@@ -117,7 +117,7 @@ export function createScore(nWalls, opt = {}) {
     else if (e === 'tg:goal') tgGoal = true;
   } });
   const offer = (o) => { const G = T.tg; TG.offer({ r: G.r, charge: G.charge, hold: G.hold, grace: G.grace, ...o }); };
-  let offered = false, relayGoal = 5, relayT0 = 0, collaAt = -1e9, lastFloorAt = 0, ladderAcc = 0, frontLaunch = -1e9;
+  let codaAt = 0, offered = false, relayGoal = 5, relayT0 = 0, collaAt = -1e9, lastFloorAt = 0, ladderAcc = 0, frontLaunch = -1e9;
   const sideK = Array.from({ length: W }, () => [0, 0]);
   let relayR = 0;                                                        // T-055 the runner, unwrapped (m)
   const landed = [], lampAt = zeros(-1e9);                               // T-055 the hands that landed this step; a wall's last lamp
@@ -160,7 +160,7 @@ export function createScore(nWalls, opt = {}) {
   // SAME TIME for tg.hold s (need = clamp(round(frac × n / 1.6), 1, 6), frac growing call after call). No window, no strike, no
   // failure: after callMax s open the colla completes it (named). Between calls a pause of B.pause s. C.n: the call (1…), > calls = done.
   function callOpen(C, B, now, frac, kind) {
-    offer({ mode: 'together', kind, need: (n) => clamp(Math.round((frac * n) / 1.6), 1, 6) });
+    offer({ mode: 'together', kind, shape: 'pillar', w: 0.5, y0: 0.6, y1: 2.2, need: (n) => clamp(Math.round((frac * n) / 1.6), 1, 6) });   // 25-11: columns anybody can hold
     C.open = true; C.openAt = now; C.gap = B.gap; C.at = now + B.lead + 2 * B.gap; C.hits = 0; C.armed = false; C.tokDone = true; C.phase = 0;
     let bw = 0, bc = -1; for (let w = 0; w < W; w++) if (S.count[w] > bc) { bc = S.count[w]; bw = w; } C.from = bw; C.to = -1;
     emit('call');
@@ -211,7 +211,7 @@ export function createScore(nWalls, opt = {}) {
     if (block === 'pinya') { pinyaHelped = false; fullOnce.fill(false); S.castell.state = 'pinya'; }
     if (block === 'tronc') { for (const k of sideK) k[0] = k[1] = 0; ownAcc = 0; collaAcc = 0; lastLevel = true; floorBy.length = 0; S.castell.floorsOwn = 0; S.castell.floorsColla = 0; S.castell.lost = 0; S.castell.state = 'tronc'; }
     if (block === 'pom') { S.castell.state = 'pom'; S.castell.climbers = 0; S.castell.slips = 0; }
-    if (block === 'baixada') S.castell.cracks = 0;
+    if (block === 'baixada') { S.castell.cracks = 0; S.baixadaStage = 'lower'; }
   }
   function floorGained() { const by = collaAcc > ownAcc ? 'colla' : 'group'; ownAcc = 0; collaAcc = 0; floorBy.push(by); if (by === 'colla') S.castell.floorsColla++; else S.castell.floorsOwn++; achieve('floor', S.floors, -1, by); }
   function floorLost() { const by = floorBy.pop(); if (by === 'colla') S.castell.floorsColla = Math.max(0, S.castell.floorsColla - 1); else if (by) S.castell.floorsOwn = Math.max(0, S.castell.floorsOwn - 1); S.castell.lost++; }
@@ -228,7 +228,7 @@ export function createScore(nWalls, opt = {}) {
     if (b === 'tronc') return rw ? 'reward' : 'lift';
     if (b === 'pom') return S.phase === 'aleta' ? 'aleta' : rw ? 'reward' : S.pomStage;
     if (b === 'festa') return S.festaStage;
-    if (b === 'baixada') return 'lower';
+    if (b === 'baixada') return S.baixadaStage || 'lower';
     return b;
   }
   function interfaces(now) {
@@ -267,7 +267,7 @@ export function createScore(nWalls, opt = {}) {
       let f = null; for (const x of S.fronts) if (!f || x.at > f.at) f = x;
       setFocus(S.festaStage === 'echo' && f ? f.to : -1, 'echo');
       if (f && f.ghost) assist = true;
-    } else if (S.block === 'baixada') { setFocus(-1); if (S.t >= B.max - B.net) assist = true; }
+    } else if (S.block === 'baixada') { setFocus(-1); if (S.t >= B.max - B.net && S.baixadaStage !== 'free') assist = true; }
     else if (S.block === 'acta') { const p = S.prints[S.prints.length - 1]; setFocus(S.printOpen && p ? p.wall : -1, 'print', p && p.s, p && p.y); }
     else setFocus(-1);
     if (now - collaAt < 3) assist = true;   // the colla just did something: named
@@ -601,7 +601,7 @@ export function createScore(nWalls, opt = {}) {
         S.beat = beatT / B.period;
         phraseClock += dt; if (phraseClock >= B.phrase) phraseClock -= B.phrase;
         const f = phraseClock / B.phrase; S.phraseT = f; S.phrase = f < 0.25 ? 'gather' : f < 0.75 ? 'rise' : 'lock';
-        if (!offered) { offer({ mode: 'ladder', kind: 'rung', sides: true, rungs: B.rungs, kidRungs: B.kidRungs }); offered = true; lastFloorAt = S.t; ladderAcc = 0; }
+        if (!offered) { offer({ mode: 'ladder', kind: 'rung', shape: 'rect', w: 0.6, h: 0.4, sides: true, rungs: B.rungs, kidRungs: B.kidRungs }); offered = true; lastFloorAt = S.t; ladderAcc = 0; }
         // the rungs climbed show on each wall (S.liftK: the highest rung reached on the wall, 0..1)
         for (let w = 0; w < W; w++) { let k = 0; for (const t of TG.list) if (t.wall === w && t.mode === 'ladder' && t.rung >= 0) k = Math.max(k, (t.rung + (t.state === 'done' ? 1 : t.charge)) / B.rungs.length); S.liftK[w] += (k - S.liftK[w]) * (1 - Math.exp(-dt * 4)); S.lifters[w] = 0; S.bases[w] = 0; }
         if (S.wobble > 0) {                                   // the tower trembles: hands to its foot, or it slips
@@ -630,7 +630,7 @@ export function createScore(nWalls, opt = {}) {
               if (!wobbles) firstWobbleAt = S.t; wobbles++; S.wobble = 0.001; wobbleT = 0; steadyT = 0;
               let bw = sw[0] ?? 0, bc = -1; for (const w of sw) if (S.count[w] > bc) { bc = S.count[w]; bw = w; } S.wobbleWall = bw;   // A8: the tower wall with most hands
               const handsW = S.count[bw] || 0, walls = S.count[bw] ? sw : sw.length ? sw : [bw];
-              offer({ mode: 'field', kind: 'foot', walls, y: B.footY, goal: clamp(Math.ceil(0.25 * handsW), 1, 4) }); offered = true;
+              offer({ mode: 'field', kind: 'foot', shape: 'rect', w: 0.8, h: 0.4, walls, y: B.footY, goal: clamp(Math.ceil(0.25 * handsW), 1, 4) }); offered = true;
               emit('wobble');
             }
           }
@@ -732,8 +732,8 @@ export function createScore(nWalls, opt = {}) {
           phase('aleta'); aletaBase.clear(); aletaRose.clear(); for (const o of S.strokes) aletaBase.set(o.stroke, o.y);
           // 25-11 (D3b): a crown-target above every hand (≤ 12) and one on every wall at 1.5 m: raising a hand onto it counts too
           const A = T.aleta; offer({ mode: 'manual', kind: 'crown' });
-          let k = 0; for (const o of S.strokes) { if (k++ >= 12) break; const y0 = o.y || 1.2; TG.place({ wall: o.wall, dx: o.dx, y: y0 < 1.15 ? Math.min(1.4, y0 + 0.25) : Math.min(A.top, y0 + A.up), kind: 'crown' }); }   // a low hand (a child): a lower target, within her reach
-          for (let w = 0; w < W; w++) TG.place({ wall: w, dx: 0, y: 1.35, kind: 'crown' });
+          let k = 0; for (const o of S.strokes) { if (k++ >= 12) break; const y0 = o.y || 1.2; const c0 = y0 + (y0 < 1.15 ? 0.25 : 0.3), c1 = y0 < 1.15 ? Math.max(c0 + 0.4, 1.55) : Math.min(2.25, Math.max(c0 + 0.5, A.top)); TG.place({ wall: o.wall, dx: o.dx, shape: 'pillar', w: 0.45, y0: c0, y1: c1, kind: 'crown' }); }   // a column of light from just above the hand: raise it along (a low hand, a child's: within her reach)
+          for (let w = 0; w < W; w++) TG.place({ wall: w, dx: 0, shape: 'pillar', w: 0.5, y0: 1.3, y1: 2.15, kind: 'crown' });
         }
       } else if (S.phase === 'aleta') {
         // l'aleta (24-11, plan step 1): the enxaneta raises her hand; every hand that rises ≥ `rise` above where it was when the window
@@ -777,8 +777,8 @@ export function createScore(nWalls, opt = {}) {
       const ppl = Math.max(1, S.n / 1.6);
       S.resonance = clamp(S.resonance + dt * (0.004 * Math.min(12, S.hands) - 0.03), 0, 1.2);
       if (stage === 'free') {
-        if (!offered) { offer({ mode: 'field', kind: 'ring', pairs: true }); offered = true; }
-        for (const t of tgDone) { S.resonance += 0.2 / Math.sqrt(ppl); emit('front'); }
+        // FREE (25-11, Beltrán): no targets, nothing to complete — every hand answers and the room plays; only presence adds resonance
+        if (offered) { TG.clear(); offered = false; }
       } else if (stage === 'echo') {
         if (!offered) { offer({ mode: 'manual', kind: 'echo' }); offered = true; }
         const maxF = clamp(Math.ceil(S.n / 5), 1, 4);
@@ -791,7 +791,7 @@ export function createScore(nWalls, opt = {}) {
           const f = S.fronts[i];
           if (!f.tg && now >= f.arrive) {                  // it arrives: a target lights on that wall, near a hand there if any
             let dx = 0, y = 1.2, bd = 1e9; for (const o of S.strokes) if (o.wall === f.to) { const d = Math.abs(o.dx); if (d < bd) { bd = d; dx = o.dx + (o.dx > 0 ? -0.5 : 0.5); y = clamp(o.y || 1.2, 0.9, 1.4); } }
-            const t = TG.place({ wall: f.to, dx, y, kind: 'echo', life: B.echoLife, dir: f.dir }); f.tg = t ? t.id : -1; f.placedAt = now;
+            const t = TG.place({ wall: f.to, dx, shape: 'pillar', w: 0.5, y0: 0.6, y1: 2.2, kind: 'echo', life: B.echoLife, dir: f.dir }); f.tg = t ? t.id : -1; f.placedAt = now;
           }
           if (f.tg > 0) {
             const done = tgDone.find((t) => t.id === f.tg);
@@ -833,7 +833,7 @@ export function createScore(nWalls, opt = {}) {
       // comes down before `min`.
       const anyHeld = S.held.some((v) => v);
       if (S.t < dt * 1.5) { crackedThis = false; dropT = 0; S.descents = 0; S.dropped = 0; downT = 0; cracksB = 0; offered = false; }
-      if (!offered) { offer({ mode: 'ladder', kind: 'down', rungs: B.rungs, kidRungs: B.kidRungs }); offered = true; }
+      if (!offered) { offer({ mode: 'ladder', kind: 'down', shape: 'rect', w: 0.6, h: 0.4, rungs: B.rungs, kidRungs: B.kidRungs }); offered = true; }
       if (emptyFor >= B.empty / 2 && S.floors > 2 && S.warn !== 'fall') { S.warn = 'fall'; emit('warn:fall'); }   // half the deadline: it creaks
       if (!anyHeld && emptyFor >= B.empty && S.floors > 2) { fall('carregat'); return S; }
       for (let w = 0; w < W; w++) if (S.count[w]) S.band[w] += (S.yMed[w] - S.band[w]) * (1 - Math.exp(-dt * 6));
@@ -852,7 +852,11 @@ export function createScore(nWalls, opt = {}) {
         crackedThis = false;
       }
       if (S.t >= B.max - B.net) { downT += dt; const every = Math.max(0.6, (B.max - S.t) / Math.max(1, S.floors + 0.5)); if (downT >= every) { downT = 0; lowerFloors(1); } }   // the net
-      if (S.floors === 0 || S.t >= B.max) { S.floors = 0; TG.clear(); S.outcome = 'descarregat'; S.result.baixada = S.castell.cracks ? 'cruixit' : S.descents ? 'net' : 'ajudada'; S.castell.state = 'down'; finish(); go('acta'); }   // ajudada: only the clock brought it down
+      if (S.baixadaStage !== 'free' && (S.floors === 0 || S.t >= B.max)) {   // down: the result, then B.coda s of FREE play (no targets) before the acta
+        S.floors = 0; TG.clear(); offered = true; S.outcome = 'descarregat'; S.result.baixada = S.castell.cracks ? 'cruixit' : S.descents ? 'net' : 'ajudada'; S.castell.state = 'down';   // ajudada: only the clock brought it down
+        S.baixadaStage = 'free'; codaAt = S.t;
+      }
+      if (S.baixadaStage === 'free' && S.t - codaAt >= B.coda) { finish(); go('acta'); }
       S.progress = 1 - S.floors / Math.max(1, S.stats.maxFloors);
     } else if (S.block === 'fall') {
       S.progress = S.t / T.fall; if (S.t >= T.fall) { S.floors = 0; finish(); go('acta'); }

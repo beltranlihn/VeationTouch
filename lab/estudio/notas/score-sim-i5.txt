@@ -1,17 +1,22 @@
 act     size brasa     pinya     tronc     pom       crown     festa     baixada   total  castell
-hold    1    A         A2        A9+0      A         A         A3        A         528s   2 de 9
-hold    2    A         A2        A9+0      A         A         A3        A         507s   2 de 9
-hold    4    A         A4        A9+0      A         A         A3        A         500s   4 de 9
-hold    8    A         A4        A9+0      A         A         A3        A         499s   4 de 9
-hold    15   A         A4        A9+0      A         A         A3        A         498s   4 de 9
-passive 1    B+c       A1        B0+5+c    A         B         B1+c      B+c       622s   pilar de 5
-passive 2    B+c       A1        B0+5+c    A         B         B1+c      B+c       600s   pilar de 5
-passive 4    B+c       A4        B0+5+c    A         B         B2+c      B+c       597s   4 de 5
-passive 8    B+c       A4        B0+5+c    A         A         B2+c      B+c       585s   4 de 5
-passive 15   B+c       B4+c      B0+5+c    A         B         B1+c      B+c       615s   4 de 5
-strike  1    B+c       B1+c      B0+5+c    B+c       A         B1+c      B+c       687s   pilar de 5
-strike  2    B+c       B1+c      B0+5+c    B+c       A         B1+c      B+c       681s   pilar de 5
-strike  4    B+c       B4+c      B0+5+c    A         A         B1+c      B+c       606s   4 de 5
-strike  8    B+c       B1+c      B0+5+c    A         A         B1+c      B+c       592s   pilar de 5
-strike  15   B+c       A4        B0+5+c    A         A         B1+c      B+c       577s   4 de 5
-(15 passes in 3.3 s)
+hold    1    A         A2        A9+0      A         A         A3+c      A         540s   2 de 9
+hold    2    A         A1        A9+0      A         A         A3        A         526s   pilar de 9
+hold    4    A         A4        A9+0      A         A         A3        A         511s   4 de 9
+hold    8    A         A4        A9+0      A         A         A3        A         510s   4 de 9
+hold    15   A         A4        A9+0      A         A         A3        A         512s   4 de 9
+slow    1    A         A1        A6+2+c    A         A         A3        A+c       616s   pilar de 8
+slow    2    A         A1        A6+2+c    A         A         A3+c      A+c       606s   pilar de 8
+slow    4    A         A4        A7+1+c    A         A         A3        A         560s   4 de 8
+slow    8    A         A4        A8+1+c    A         A         A3        A         558s   4 de 9
+slow    15   A         A4        A8+1+c    A         A         A3        A         548s   4 de 9
+passive 1    B+c       A1        B0+5+c    A         B         B1+c      B+c       630s   pilar de 5
+passive 2    B+c       A1        B0+5+c    A         B         B1+c      B+c       608s   pilar de 5
+passive 4    B+c       A4        B0+5+c    A         B         B1+c      B+c       605s   4 de 5
+passive 8    B+c       A4        B0+5+c    A         B         B1+c      B+c       603s   4 de 5
+passive 15   B+c       B4+c      B0+5+c    A         B         B2+c      B+c       624s   4 de 5
+strike  1    B+c       B1+c      B0+5+c    B+c       A         B1+c      B+c       686s   pilar de 5
+strike  2    B+c       B1+c      B0+5+c    B+c       A         B1+c      B+c       678s   pilar de 5
+strike  4    B+c       B4+c      B0+5+c    A         A         B1+c      B+c       614s   4 de 5
+strike  8    B+c       B1+c      B0+5+c    A         A         B1+c      B+c       600s   pilar de 5
+strike  15   B+c       A4        B0+5+c    A         A         B2+c      B+c       585s   4 de 5
+(20 passes in 6.5 s)

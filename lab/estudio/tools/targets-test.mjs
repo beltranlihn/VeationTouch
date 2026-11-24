@@ -174,5 +174,21 @@ function player(TG, P, sec, speed = 1) {   // every person walks to the nearest 
   ok(close === 0, `placement: ${close} pairs of targets too close`);
 }
 
+// 7. shapes: a pillar is held anywhere from y0 to y1 (+0.10 m), a rect within w × h (+0.10 m); pillars side by side keep their gap
+{
+  const TG = createTargets({ lengths: LEN, seed: 31 });
+  TG.offer({ mode: 'manual' });
+  const pil = TG.place({ wall: 1, dx: -1.5, shape: 'pillar', w: 0.5, y0: 0.6, y1: 2.2 }), box = TG.place({ wall: 1, dx: 1.5, y: 1.2, shape: 'rect', w: 0.6, h: 0.4 });
+  ok(pil.shape === 'pillar' && Math.abs(pil.y - 1.4) < 1e-9 && Math.abs(pil.h - 1.6) < 1e-9 && pil.w === 0.5, 'pillar: y is its middle, h = y1 − y0');
+  const at = (t, ds, y) => { const s = t.s + ds, w = 1; return [{ stroke: 1, wall: w, dx: s - S0[w] - LEN[w] / 2, s, y }]; };
+  const on = (t, ds, y) => { TG.step(DT, at(t, ds, y), 1, 0); const v = t.on; TG.step(DT, [], 1, 0); return v; };
+  ok(on(pil, 0, 0.55) && on(pil, 0.3, 1.0) && on(pil, 0, 2.28) && !on(pil, 0, 0.45) && !on(pil, 0.4, 1.4), 'pillar hit-test: 0.5–2.3 m × ±0.35 m');
+  ok(on(box, 0.38, 1.2) && on(box, 0, 1.48) && !on(box, 0.45, 1.2) && !on(box, 0, 1.55), 'rect hit-test: ±0.40 m × ±0.30 m');
+  const TG2 = createTargets({ lengths: LEN, seed: 32 }); TG2.offer({ mode: 'field', shape: 'pillar', y0: 0.6, y1: 2.2, w: 0.5 });
+  const H = handsOf(crowd(8)); let bad = 0;
+  for (let k = 0; k < 80; k++) { TG2.step(DT, H, H.length, k * DT); for (const t of TG2.list) for (const u of TG2.list) if (u.id < t.id && Math.abs(cd(u.s, t.s)) < 0.5 + 0.16 - 1e-6) bad++; }
+  ok(bad === 0 && TG2.list.length >= 4 && TG2.list.every((t) => t.shape === 'pillar' && Math.abs(t.y - 1.4) < 1e-9), `pillars in a field: ${TG2.list.length}, all 0.6–2.2 m, ≥ 0.16 m apart (${bad} too close)`);
+}
+
 console.log(`targets-test: ${checks - fails}/${checks} passed`);
 process.exit(fails ? 1 : 0);
