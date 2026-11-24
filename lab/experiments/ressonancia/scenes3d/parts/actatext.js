@@ -11,19 +11,26 @@
 //   · «N manos · S s de quietud» (mono) where the gloss was; the voice's last line, smaller, inside the ring; the credits.
 // Timeline on input.state.t (or input.t; 40 s). input.acta (score.acta()) gives the content. input.arrive gates; input.leave breaks all.
 // Study: params.castell / outcome / values / prints (stand-in prints) stand in.
+// STUDIO 25-11 (05-plan N8, §3.6): «Tres de siete» in words, capitals 0.46 m, centred at 2.05 m (was 2.46); the outcome's gloss and a
+// LINE OF STORY above it («Levantado por N manos» · «La colla ayudó en M pisos»), capitals 0.12 m; «Dejad vuestra mano» capitals
+// 0.18 m at 1.45 m (was 0.08 at 1.18), from 3 to 22 s (it dims to half once the first print lands); no backing plates; no mono.
+// The ink is the acta's (palette.js: dark ink when the acta is the lit lime wall, bone while it is dark).
 import { typo } from '../typo3d.js';
+import { chapter } from '../palette.js';
 
 const VALUES = [['forca', 'Força'], ['equilibri', 'Equilibri'], ['valor', 'Valor'], ['seny', 'Seny']];
 const OUTCOME = { descarregat: ['descarregat', 'levantado, coronado y bajado sin caer'], carregat: ['carregat', 'coronado, y después cayó'], intent: ['intent', 'cayó antes de la corona'] };
 const SENTENCE = ['Este ha sido vuestro castell.', 'Cuando los cuerpos resuenan juntos,', 'nace la cultura.'];   // the voice: v-cierre-final
 const CREDITS = ['Ressonància', 'Barcelona XR Lab × Alma Digital Studio', 'Con el apoyo de la Generalitat de Catalunya'];
 const INVITE = { es: 'Dejad vuestra mano', en: 'Leave your hand' };
-const INK = [0.76, 0.73, 0.68], SOFT = [0.76, 0.73, 0.68];
+const ACTA = chapter('acta'), INK = ACTA.dark === false ? ACTA.lin.ink.slice() : [0.76, 0.73, 0.68], SOFT = INK;
+const NUM = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'];
+const words = (c) => { const t = String(c).replace(/\d+/g, (d) => NUM[+d] ?? d); return t.charAt(0).toUpperCase() + t.slice(1); };   // «3 de 7» → «Tres de siete»
 const CHAPTER = [[1.0, 0.14, 0.014], [0.027, 0.65, 0.56], [0.55, 0.12, 0.04], [0.85, 0.89, 1.0], [0.92, 0.56, 0.1], [0.93, 0.47, 0.56]];
 const VALUE_COL = [CHAPTER[1], CHAPTER[2], CHAPTER[3], CHAPTER[5]];      // Força = Pinya, Equilibri = Tronc, Valor = Pom, Seny = the descent
-const Y = { castell: 2.3, ribbon: 1.8, gloss: 1.66, sentence: 2.2, credits: 2.2, invite: 1.18 };
+const Y = { castell: 1.89, ribbon: 1.5, gloss: 2.64, sentence: 2.2, credits: 2.2, invite: 1.45 };   // castell: its name's caps centred at 2.05 m
 // the ring of prints (wall-local metres): centre, two rings; the dials: x, y per value (two each side, inside the walls' free edge)
-const RING = { y: 2.25, rx: [1.95, 2.22], ry: [0.68, 0.87], cap: [40, 48] };
+const RING = { y: 2.05, rx: [1.95, 2.22], ry: [0.68, 0.87], cap: [40, 48] };
 const DIAL = { r: 0.19, pos: [[-2.58, 2.72], [-2.58, 1.72], [2.58, 2.72], [2.58, 1.72]] };   // ART r5: each value block ×1.6
 const PRINT_H = 0.13, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -46,7 +53,7 @@ export function create({ THREE, TSL, room, params = {} }) {
 
   // ---- the words
   const T = (y, opt = {}, x = 0) => { const t = typo.text({ placements: typo.onWalls(room, y, x), renderOrder: 12, ...opt }); object.add(t.object); return { t, prev: 0 }; };
-  const castellT = T(Y.castell, { plate: 0 }), glossT = T(Y.gloss, { plate: 0 }), statT = T(Y.invite, { plate: 0 }), sentT = T(Y.sentence, { plate: 0, depth: 0.45 }), credT = T(Y.credits, { plate: 0 });
+  const castellT = T(Y.castell, { plate: 0 }), glossT = T(Y.gloss, { plate: 0 }), statT = T(Y.gloss, { plate: 0 }), sentT = T(Y.sentence, { plate: 0, depth: 0.45 }), credT = T(Y.credits, { plate: 0 });
   const inviteT = T(Y.invite, { plate: 0, flash });
   const labelT = DIAL.pos.map(([x, y]) => T(y - DIAL.r - 0.37, { plate: 0, max: 16, flash }, x));
   const numT = DIAL.pos.map(([x, y]) => { const o = T(y - DIAL.r - 0.16, { plate: 0, max: 8 }, x); o.shown = -1; return o; });   // ART r5: the figure, in mono, ×2
@@ -54,7 +61,7 @@ export function create({ THREE, TSL, room, params = {} }) {
     { text: SENTENCE[1], font: 'serif', size: 0.21, y: 0.07, track: 0.01, color: INK, delay: 0.6 }, { text: SENTENCE[2], font: 'italic', size: 0.21, y: -0.2, track: 0.01, color: INK, rise: true, delay: 0.9 }]);
   credT.t.set([{ text: CREDITS[0], font: 'serif', size: 0.2, y: 0.22, track: 0.04, color: INK }, { text: CREDITS[1], font: 'sans', size: 0.09, y: -0.04, track: 0.1, alpha: 0.75, color: SOFT }, { text: CREDITS[2], font: 'sans', size: 0.082, y: -0.22, track: 0.16, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
   const lang = params.lang === 'en' ? 'en' : 'es';
-  inviteT.t.set([{ text: INVITE[lang], font: 'sans', size: 0.11, y: 0, track: 0.04, alpha: 0.8, color: INK, reveal: 'blur' }]);
+  inviteT.t.set([{ text: INVITE[lang], font: 'sans', size: 0.18 / 0.667, y: 0, track: 0.03, alpha: 1, color: INK, reveal: 'blur' }]);
   let labelKey = '';
 
   // ---- the chapters' ribbon under the castell
@@ -201,20 +208,23 @@ export function create({ THREE, TSL, room, params = {} }) {
   let contentKey = '';
   const values = new Float32Array(4);
   let handsN = 0;
-  function content(acta, nPrints) {
-    const castell = acta?.castell || params.castell || '3 de 7', outcome = acta?.outcome || params.outcome || 'descarregat';
-    const hands = Math.max(acta?.hands ?? 0, nPrints), still = acta?.stillS ?? 0;
+  function content(acta, nPrints, S) {
+    const castell = words(acta?.castell || params.castell || '3 de 7'), outcome = acta?.outcome || params.outcome || 'descarregat';
+    const hands = Math.max(acta?.hands ?? 0, nPrints), colla = (S && S.castell && S.castell.floorsColla) || 0;
     handsN = hands;
-    const key = castell + '|' + outcome + '|' + hands + '|' + still;
+    const key = castell + '|' + outcome + '|' + hands + '|' + colla;
     for (let k = 0; k < 4; k++) values[k] = clamp01(acta?.values?.[VALUES[k][0]] ?? params.values?.[k] ?? [0.82, 0.64, 0.71, 0.58][k]);
     if (key === contentKey) return;
     contentKey = key;
     const O = OUTCOME[outcome] || OUTCOME.descarregat;
-    castellT.t.set([{ text: castell, font: 'serif', size: 0.66, y: 0.16, track: 0.01, color: INK }, { text: O[0], font: 'italic', size: 0.2, y: -0.38, track: 0.02, alpha: 0.9, color: INK, rules: 0.45, rise: true, delay: 0.5 }]);
-    glossT.t.set([{ text: O[1], font: 'sans', size: 0.082, y: 0, track: 0.16, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
-    statT.t.set([{ text: `${hands} ${hands === 1 ? 'mano' : 'manos'}${still ? ` · ${still} s de quietud` : ''}`, font: 'mono', size: 0.08, y: 0, track: 0.12, alpha: 0.6, color: SOFT, upper: true, reveal: 'blur' }]);
+    castellT.t.set([{ text: castell, font: 'serif', size: 0.46 / 0.667, y: 0.16, track: 0.01, color: INK }, { text: O[0], font: 'italic', size: 0.2, y: -0.38, track: 0.02, alpha: 0.95, color: INK, rules: 0.45, rise: true, delay: 0.5 }]);
+    glossT.t.set([{ text: O[1].charAt(0).toUpperCase() + O[1].slice(1), font: 'sans', size: 0.12 / 0.667, y: 0, track: 0.03, alpha: 0.9, color: SOFT }]);
+    // the line of story: who raised it, and what the colla did (D2: the help is named)
+    const story = [hands > 0 ? `Levantado por ${hands} ${hands === 1 ? 'mano' : 'manos'}` : 'Levantado por vuestras manos'];
+    if (colla > 0) story.push(`La colla ayudó en ${colla} ${colla === 1 ? 'piso' : 'pisos'}`);
+    statT.t.set(story.map((text, i) => ({ text, font: 'sans', size: 0.12 / 0.667, y: story.length > 1 ? (i ? -0.13 : 0.13) : 0, track: 0.03, alpha: 0.9, color: SOFT, reveal: 'blur', delay: i * 0.3 })));
     const lk = values.join(',');
-    if (lk !== labelKey) { labelKey = lk; for (let k = 0; k < 4; k++) labelT[k].t.set([{ text: VALUES[k][1], font: 'mono', size: 0.13, y: 0, track: 0.14, alpha: 0.35 + 0.6 * values[k], color: INK, upper: true, reveal: 'blur' }]); }
+    if (lk !== labelKey) { labelKey = lk; for (let k = 0; k < 4; k++) labelT[k].t.set([{ text: VALUES[k][1], font: 'sans', size: 0.13, y: 0, track: 0.14, alpha: 0.35 + 0.6 * values[k], color: INK, upper: true, reveal: 'blur' }]); }
   }
   function set(o, v, k, dt = 1 / 60) {
     const U = o.t.U;
@@ -305,7 +315,7 @@ export function create({ THREE, TSL, room, params = {} }) {
       changed = true;
     }
     if (changed) layoutRing();
-    content(input.acta, prints.length);
+    content(input.acta, prints.length, input.state);
 
     // ---- prints: form (0.7 s), hold under the hand (0.9 s), glide to the ring, land (pop), rest; the ring re-spaces as it fills
     let n = 0;
@@ -346,10 +356,10 @@ export function create({ THREE, TSL, room, params = {} }) {
     // ---- the words
     const landed = firstLand >= 0 && t > firstLand;
     set(castellT, env(t, 0.2, 2.6, 24, 24.6) * brk, k, dt);
-    set(glossT, env(t, 2.4, 4.2, 11, 11.6) * brk, k, dt);
-    const inv = Math.min(S && S.printOpen != null && S.block === 'acta' ? (S.printOpen ? env(t, 3.0, 4.0, 99, 100) : (t > 3.5 ? 0 : 0)) : env(t, 3.0, 4.0, 14.4, 15), landed ? 1 - smooth((t - firstLand) / 0.6) : 1) * brk;
+    set(glossT, env(t, 2.4, 4.2, 11, 11.6) * brk, k, dt);   // above the castell, then the line of story in its place (12–24 s)
+    const inv = Math.min(S && S.printOpen != null && S.block === 'acta' ? (S.printOpen ? env(t, 3.0, 4.0, 99, 100) : (t > 3.5 ? 0 : 0)) : env(t, 3.0, 4.0, 21.4, 22), landed ? 1 - 0.2 * smooth((t - firstLand) / 0.6) : 1) * brk;   // 3–22 s; a little dimmer once a print lands
     set(inviteT, inv, k, dt);
-    set(statT, (handsN > 0 ? env(t, 12, 13.5, 24, 24.6) : 0) * brk, k, dt);
+    set(statT, env(t, 12, 13.5, 24, 24.6) * brk, k, dt);
     set(sentT, env(t, 25, 28, 31.8, 32.6) * brk, k, dt);
     set(credT, env(t, 33.5, 35, 38.8, 39.6) * brk, k, dt);
     for (let i = 0; i < NW; i++) { const rb = ribbons[i]; rb.U.grow.value = clamp01((t - 1.6) / 1.8) * (1 - smooth((t - 13.2) / 0.6)) * brk; rb.U.a.value = k; rb.mesh.visible = rb.U.grow.value > 0.001 && k > 0.002; }
@@ -362,7 +372,7 @@ export function create({ THREE, TSL, room, params = {} }) {
       U.a.value = a; U.v.value = clamp01(values[q] * sw); U.lit.value = a * values[q];
       set(labelT[q], env(t, s0 + 0.4, s0 + 1.4, 31.8, 32.6) * brk, k * (0.55 + 0.45 * values[q]), dt);
       const N = numT[q], pct = Math.round(U.v.value * 100);
-      if (pct !== N.shown) { N.shown = pct; N.t.set([{ text: String(pct), font: 'mono', size: 0.22, y: 0, track: 0.02, color: INK, alpha: 0.85 }]); }
+      if (pct !== N.shown) { N.shown = pct; N.t.set([{ text: String(pct), font: 'sans', size: 0.22, y: 0, track: 0.02, color: INK, alpha: 0.85 }]); }
       set(N, (t > s0 + 0.6 ? 1 : 0) * env(t, s0, s0 + 0.01, 31.8, 32.6) * brk, k, dt);
       anyDial = Math.max(anyDial, a);
     }
