@@ -561,7 +561,10 @@ export function create(ctx) {
     // ---- arrive / leave, light
     uWorld.value = sm((arrive - 0.3) / 0.6) * (1 - sm((leave - 0.05) / 0.5));
     uDomeIn.value = clamp01((arrive - 0.1) / 0.6) * (1 - sm((leave - 0.55) / 0.4));
-    dome.visible = uDomeIn.value > 0.001; greenhouses.visible = uWorld.value > 0.02 && (pr.town ?? true) !== false;   // `town` off: the host's square (plaza.js silhouette) draws it instead
+    // AD 25-11, plan B (pre-approved): THE BLUE HOUR — when the host shows the square with the bajada, the square itself is the world (night,
+    // the horizon turning alba-rosa, its lamps going out: plaza.js) and this part keeps only the tower's dust and the flowers
+    const blue = (pr.blueHour ?? true) !== false && !!ctx.parts?.plaza?.object?.visible;
+    dome.visible = !blue && uDomeIn.value > 0.001; greenhouses.visible = !blue && uWorld.value > 0.02 && (pr.town ?? true) !== false;   // `town` off: the host's square (plaza.js silhouette) draws it instead
     uGain.value = pr.gain ?? 1;
     // ---- hands
     const hands = input.hands || [];

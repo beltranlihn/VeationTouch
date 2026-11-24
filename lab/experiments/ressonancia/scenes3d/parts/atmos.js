@@ -240,12 +240,14 @@ export function create({ THREE, TSL, room, params }) {
     c.addAssign(vec3(uAir).mul(low.mul(0.8).add(0.45)).add(COOL.mul(mie.mul(0.0018).mul(U.moon))).mul(U.haze));
     // the lamps in the air: closed form of the 1/d² glow along the eye ray, up to just past the lamp
     const lh = vec3(0).toVar();
-    Loop(U.nL, ({ i }) => {
-      const L = uLP.element(i), Lr = L.xyz.sub(U.eye);
-      const tc = dot(Lr, dir), h = sqrt(max(dot(Lr, Lr).sub(tc.mul(tc)), 0.04));
-      const I = atan(float(1.5).div(h)).sub(atan(tw.sub(tc).div(h))).div(h);
-      lh.addAssign(uLC.element(i).xyz.mul(L.w.mul(max(I, 0.0))));
-    });
+    If(U.haze.mul(U.lampGain).greaterThan(0.002), () => {   // VFX perf: no loop where the haze is off (pinya, acta, wait)
+      Loop(U.nL, ({ i }) => {
+        const L = uLP.element(i), Lr = L.xyz.sub(U.eye);
+        const tc = dot(Lr, dir), h = sqrt(max(dot(Lr, Lr).sub(tc.mul(tc)), 0.04));
+        const I = atan(float(1.5).div(h)).sub(atan(tw.sub(tc).div(h))).div(h);
+        lh.addAssign(uLC.element(i).xyz.mul(L.w.mul(max(I, 0.0))));
+      });
+      });
     c.addAssign(lh.mul(U.haze.mul(U.lampGain).mul(0.0009)));
     // the horizon line
     const dy = y.sub(U.lineY), dx = abs(wrapS(vS.sub(X0)));
@@ -305,7 +307,7 @@ export function create({ THREE, TSL, room, params }) {
     // choreography
     const lt = Number(P.lineT) || 0;
     U.lvl.value = ss(1.0, 8.0, t) * (1 + 0.25 * ss(47, 55, t));
-    U.amount.value = Math.max(0, Number(P.dust ?? 1));
+    U.amount.value = Math.max(0, Number(P.dust ?? 1)) * (room.quality === 'low' ? 0.35 : room.quality === 'medium' ? 0.6 : 1);   // VFX perf 25-11
     U.haze.value = ss(0.5, 7.0, t) * Math.max(0, Number(P.haze ?? 1));
     U.moon.value = Number(P.moon ?? 1); U.bokeh.value = Number(P.bokeh ?? 1); U.stir.value = Number(P.stir ?? 1);
     if (Array.isArray(P.warm)) uWarm.value.fromArray(P.warm);

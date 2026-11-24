@@ -98,6 +98,8 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // `renderScale` (0.5–1) renders the 3D at a fraction of the strip and the post pass scales it up (the quality knob);
   // `samples` is MSAA on the strip (4 is costly at room size). `aa: 'taa'` swaps MSAA for a temporal AA (below).
   const RS = Math.min(1, Math.max(0.4, opt.renderScale ?? 1)), RW = Math.round(W * RS), RH = Math.round(H * RS);
+  // VFX perf 25-11: the room's quality for the parts' own knobs (the hosts pass renderScale 1 / 0.8 / 0.6 for high / medium / low)
+  const QUALITY = opt.quality || (RS >= 0.99 ? 'high' : RS >= 0.75 ? 'medium' : 'low');
   const TAA = opt.aa === 'taa';
   const hdr = (samples, depth = true) => { const rt = new THREE.RenderTarget(RW, RH, { type: THREE.HalfFloatType, depthBuffer: depth, samples }); rt.texture.wrapS = THREE.RepeatWrapping; return rt; };   // the seam is not a seam
   const strip = hdr(TAA ? 0 : opt.samples ?? 0);
@@ -743,12 +745,12 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       const w = walls[i], wp = walls[(i + walls.length - 1) % walls.length];
       const back = w.normal.clone().add(wp.normal).multiplyScalar(-0.5);           // into the world, away from both walls
       const c = new THREE.Mesh(colG, pm); c.position.copy(w.pa).addScaledVector(back, 0.62); c.position.y = 0;
-      c.lookAt(c.position.x + back.x, 0, c.position.z + back.z); c.castShadow = true; porx.group.add(c);
+      c.lookAt(c.position.x + back.x, 0, c.position.z + back.z); porx.group.add(c);
       // the springers: a short beam from each corner (1.1 m), underside at 3.72 m, just behind the wall — never a full-width band
       for (const [end, sgn] of [[w.pa, 1], [w.pb, -1]]) {
         const L = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.5, 0.3).translate(0, 0.25, 0), pm);
         L.position.copy(end).addScaledVector(w.right, sgn * 0.45).addScaledVector(w.normal, -0.28); L.position.y = 3.72;
-        L.lookAt(L.position.x - w.normal.x, 3.72, L.position.z - w.normal.z); L.castShadow = true; porx.group.add(L);
+        L.lookAt(L.position.x - w.normal.x, 3.72, L.position.z - w.normal.z); porx.group.add(L);
       }
     }
     porx.group.visible = false; scene.add(porx.group);
@@ -793,17 +795,21 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   //   Casters / receivers opt in: mesh.castShadow = mesh.receiveShadow = true (keep casters few: the square, the tower, the crowd).
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const keyLights = new Set();
-  function keyShadow(light, { extent = 30, size = 2048, radius = 4, near = 1, far = 160, bias = -0.0005, normalBias = 0.04 } = {}) {
+  // { static: true }: the map is rendered only when .dirty() is called (static casters: the square) — the part calls it when its light or
+  // its geometry moves. Quality (room.quality): high 2048², medium 1024², low no shadow (returns a stub).
+  function keyShadow(light, { extent = 30, size = 2048, radius = 4, near = 1, far = 160, bias = -0.0005, normalBias = 0.04, static: stat = false } = {}) {
     if (!light?.shadow) return null;
-    light.castShadow = true; light.shadow.mapSize.set(size, size);
+    if (QUALITY === 'low') return { light, off() {}, dirty() {} };
+    if (QUALITY === 'medium') size = Math.min(size, 1024);
+    light.castShadow = true; light.shadow.mapSize.set(size, size); light.userData.shadowStatic = stat; light.userData.shadowDirty = true;
     const c = light.shadow.camera; if (c.isOrthographicCamera) { c.left = -extent; c.right = extent; c.top = extent; c.bottom = -extent; }
     c.near = near; c.far = far; c.updateProjectionMatrix();
     light.shadow.bias = bias; light.shadow.normalBias = normalBias; light.shadow.radius = radius;
     light.shadow.autoUpdate = false; light.shadow.needsUpdate = true;
     keyLights.add(light);
-    return { light, off() { keyLights.delete(light); } };
+    return { light, off() { keyLights.delete(light); }, dirty() { light.userData.shadowDirty = true; } };
   }
-  function shadowsOnce() { for (const L of keyLights) if (L.intensity > 0) L.shadow.needsUpdate = true; }
+  function shadowsOnce() { for (const L of keyLights) if (L.intensity > 0 && (!L.userData.shadowStatic || L.userData.shadowDirty)) { L.shadow.needsUpdate = true; L.userData.shadowDirty = false; } }
 
   // ---- contact shadows (plan 05 V3; 04 §2.3): what makes a thing STAND. One InstancedMesh of soft discs flat on the floor (+4 mm), in the
   // chapter's shadow colour (never black), no air. set(i, x, z, radius, k) — k 0..1 (0.5–0.7 under a figure); clear(i); the mesh goes
@@ -906,5 +912,5 @@ export async function createRoom3D(vt, canvas, opt = {}) {
 
   return { THREE, renderer, scene, overlay, clearColor, walls, eye, hands, wallPoint, render, setBloom,
     // T-048 (SIS): the shared system — see PARTS.md «What the room gives since T-048»
-    PALETTE, PAL, GRADE, setBackground, background: bg, setGrade, grade: gTo, gradeU: G, setAir, air: A, airSweep, sky: skyAt, matter, contactShadows, keyShadow, ground, setPorxada, porxada: porx, heat: heatTex, heatAt, heatAtWorld, stamp, wallS, PER: PERIM, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
+    quality: QUALITY, PALETTE, PAL, GRADE, setBackground, background: bg, setGrade, grade: gTo, gradeU: G, setAir, air: A, airSweep, sky: skyAt, matter, contactShadows, keyShadow, ground, setPorxada, porxada: porx, heat: heatTex, heatAt, heatAtWorld, stamp, wallS, PER: PERIM, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
 }

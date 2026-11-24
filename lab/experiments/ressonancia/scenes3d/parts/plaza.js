@@ -699,6 +699,11 @@ export function create(ctx) {
   const uMoonDir = uniform(new THREE.Vector3(0.55, 0.62, 0.56).normalize());
   const lampVec = Array.from({ length: NL }, () => new THREE.Vector4());
   const uLamps = uniformArray(lampVec, 'vec4');
+  // VFX perf 25-11: the per-pixel light loops run over COMPACTED arrays (only the lights that are on, brightest first) with a live count,
+  // so a dark lamp, an absent hand or a cold fire costs nothing (was: every loop over every slot, every pixel, four walls).
+  const lampVecC = Array.from({ length: NL }, () => new THREE.Vector4(0, -50, 0, 0)), uLampsC = uniformArray(lampVecC, 'vec4');
+  const uNL = uniform(0, 'int'), uNHL = uniform(0, 'int'), uNFI = uniform(0, 'int');
+  const LOOP = (n) => ({ start: 0, end: n, type: 'int', condition: '<' });
   const LC = vec3(1.0, 0.6, 0.3);
   const NSP = 4, spotP = Array.from({ length: NSP }, () => new THREE.Vector4(0, -50, 0, 0)), spotD = Array.from({ length: NSP }, () => new THREE.Vector4(0, -1, 0, 0.95));
   const uSpotP = uniformArray(spotP, 'vec4'), uSpotD = uniformArray(spotD, 'vec4'), uFest = uniform(0);
@@ -709,7 +714,7 @@ export function create(ctx) {
   const HLC = vec3(...palLin('cal-fanal')).mul(0.7).add(vec3(...palLin('fanal')).mul(0.3));
   const NFI = 8, fireVec = Array.from({ length: NFI }, () => new THREE.Vector4(0, -50, 0, 0)), uFires = uniformArray(fireVec, 'vec4');
   const FC = vec3(...palLin('flama')).mul(1.0).add(vec3(...palLin('brasa')).mul(0.4));   // the colour of the fire's light (palette tokens)
-  const uNightK = uniform(0);                                         // brasa: 1 = the room's dark sky instead of the moonlit one
+  const uNightK = uniform(0), uBlue = uniform(0);                                         // brasa: 1 = the room's dark sky instead of the moonlit one
   // VFX V8: the lit square (0 = the night square … 1 = plaza light). Tones from palette.js (nobody writes a hex)
   const uDay = uniform(0), uDayTone = uniform(new THREE.Vector3(...palLin('porcellana'))), uDayFloor = uniform(new THREE.Vector3(...palLin('pedra-llum'))), uDayAir = uniform(0.015);
   const roomSky = room.sky ? room.sky : () => vec3(0.02, 0.025, 0.04);
@@ -771,8 +776,8 @@ export function create(ctx) {
     const flo = vec3(0.005, 0.004, 0.0035).mul(uRev).mul(uDark);
     const c = mix(fac, skyCol(R, false), smoothstep(uHorizon.sub(0.05), uHorizon.add(0.05), R.y)).toVar();
     c.assign(mix(flo, c, smoothstep(-0.04, 0.04, R.y)));
-    Loop(NL, ({ i }) => {
-      const L = uLamps.element(i);
+    Loop(LOOP(uNL), ({ i }) => {
+      const L = uLampsC.element(i);
       const Dl = normalize(L.xyz.sub(Pw));
       const cd = dot(R, Dl);
       If(cd.greaterThan(0.9), () => { c.addAssign(LC.mul(L.w.mul(pow(cd, sharp).mul(40).add(pow(cd, 30).mul(0.08))))); });
@@ -789,10 +794,11 @@ export function create(ctx) {
     const sig = uFog.mul(n.mul(0.5).add(1.0));
     const Tr = exp(sig.mul(Ls).negate());
     const md = max(dot(dir, uMoonDir), 0);
-    const ins = vec3(0.012, 0.016, 0.026).mul(uSky).mul(md.mul(md).mul(2.5).add(0.8)).mul(Tr.oneMinus()).toVar();
+    // (festival / Brasa: the moonlit veil goes — the haze lives in the beams and the far blue, never a milky wall; AD 25-11)
+    const ins = vec3(0.012, 0.016, 0.026).mul(uSky).mul(md.mul(md).mul(2.5).add(0.8)).mul(Tr.oneMinus()).mul(float(1).sub(max(uFest, uNightK).mul(0.85))).toVar();
     If(uGlow.greaterThan(0.001), () => {
-      Loop(NL, ({ i }) => {
-        const L = uLamps.element(i);
+      Loop(LOOP(uNL), ({ i }) => {
+        const L = uLampsC.element(i);
         const rel = L.xyz.sub(E), s0 = dot(rel, dir);
         const h2 = dot(rel, rel).sub(s0.mul(s0));
         If(h2.lessThan(16.0).and(L.w.greaterThan(0.001)), () => {
@@ -802,7 +808,7 @@ export function create(ctx) {
         });
       });
     });
-    Loop(NHL, ({ i }) => {                                            // the hands' light in the haze
+    Loop(LOOP(uNHL), ({ i }) => {                                            // the hands' light in the haze
       const L = uHL.element(i);
       const rel = L.xyz.sub(E), s0 = dot(rel, dir), h2 = dot(rel, rel).sub(s0.mul(s0));
       If(L.w.greaterThan(0.002).and(h2.lessThan(16.0)), () => {
@@ -811,7 +817,7 @@ export function create(ctx) {
         ins.addAssign(HLC.mul(L.w.mul(integ).mul(0.0022)));
       });
     });
-    Loop(NFI, ({ i }) => {                                            // the fires' glow in the smoke
+    Loop(LOOP(uNFI), ({ i }) => {                                            // the fires' glow in the smoke
       const L = uFires.element(i);
       const rel = L.xyz.sub(E), s0 = dot(rel, dir), h2 = dot(rel, rel).sub(s0.mul(s0));
       If(L.w.greaterThan(0.002).and(h2.lessThan(36.0)), () => {
@@ -820,7 +826,7 @@ export function create(ctx) {
         ins.addAssign(FC.mul(L.w.mul(integ).mul(0.0035).mul(uNightK)));
       });
     });
-    ins.addAssign(roomSky(dir).mul(Tr.oneMinus()).mul(uFest.mul(0.6)));   // festival: the far square sinks into the room's blue air
+    ins.addAssign(roomSky(dir).mul(Tr.oneMinus()).mul(uFest.mul(0.45)));   // festival: the far square sinks into the room's blue air
     // VFX V8: in the lit square the air is the room's sky in that direction, thin near the walls and growing with distance
     const Td = exp(max(dist.sub(9.0), 0).mul(uDayAir).negate());
     const dayC = col.rgb.mul(Td).add(roomSky(dir).mul(float(1).sub(Td)));
@@ -858,7 +864,7 @@ export function create(ctx) {
         acc.addAssign(SPC.mul(L.w.mul(uFest).mul(cone).div(d2.add(1.0))).mul(ndl).mul(kd.add(spec)));
       });
     });
-    Loop(NHL, ({ i }) => {                                            // VFX 25-11: the hands' own light
+    Loop(LOOP(uNHL), ({ i }) => {                                            // VFX 25-11: the hands' own light
       const L = uHL.element(i);
       const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv);
       If(L.w.greaterThan(0.002).and(d2.lessThan(400.0)), () => {
@@ -867,17 +873,18 @@ export function create(ctx) {
         acc.addAssign(HLC.mul(L.w.mul(14).div(d2.add(0.4))).mul(ndl).mul(kd.add(spec)).mul(smoothstep(400.0, 30.0, d2)));
       });
     });
-    Loop(NFI, ({ i }) => {                                            // VFX 25-11: the hand-lit fires of the Brasa, flickering
+    Loop(LOOP(uNFI), ({ i }) => {                                            // VFX 25-11: the hand-lit fires of the Brasa, flickering
       const L = uFires.element(i);
       const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv);
       If(L.w.greaterThan(0.002).and(d2.lessThan(900.0)), () => {
         const Ld = Lv.mul(d2.inverseSqrt()), ndl = max(dot(Nw, Ld), 0);
         const fl = sin(uTime.mul(11.0).add(L.x.mul(3.1))).mul(sin(uTime.mul(7.3).add(L.z.mul(2.3)))).mul(0.18).add(0.9);
-        acc.addAssign(FC.mul(L.w.mul(26).mul(fl).div(d2.add(0.6))).mul(ndl).mul(kd).mul(smoothstep(900.0, 60.0, d2)));
+        const Hf = normalize(Ld.add(Vw)), specF = f0.mul(pow(max(dot(Nw, Hf), 0), shin).mul(shin.add(8).mul(1 / (8 * Math.PI))));   // embers mirrored in the wet stone
+        acc.addAssign(FC.mul(L.w.mul(26).mul(fl).div(d2.add(0.6))).mul(ndl).mul(kd.add(specF.mul(1.5))).mul(smoothstep(900.0, 60.0, d2)).mul(smoothstep(9.0, 1.5, Pw.y)));   // the facades fall to night upwards
       });
     });
-    Loop(NL, ({ i }) => {
-      const L = uLamps.element(i);
+    Loop(LOOP(uNL), ({ i }) => {
+      const L = uLampsC.element(i);
       const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv);
       If(d2.lessThan(LR2).and(L.w.greaterThan(0.001)), () => {
         const Ld = Lv.mul(d2.inverseSqrt());
@@ -1110,8 +1117,8 @@ export function create(ctx) {
     const refl = Fn(() => {
     const rf = mix(vec3(0.012, 0.009, 0.006).mul(uRev).mul(uDark), skyCol(R, false), smoothstep(uHorizon.sub(0.05), uHorizon.add(0.05), R.y)).toVar();
     const ripple = mx_noise_float(vec3(W.x.mul(2.0), uTime.mul(0.15), W.y.mul(2.0))).mul(0.012);
-    Loop(NL, ({ i }) => {
-      const L = uLamps.element(i);
+    Loop(LOOP(uNL), ({ i }) => {
+      const L = uLampsC.element(i);
       const Dl = normalize(L.xyz.sub(Pw));
       const ca = dot(Rh, normalize(Dl.xz));
       If(ca.greaterThan(0.998).and(L.w.greaterThan(0.001)), () => {
@@ -1128,20 +1135,20 @@ export function create(ctx) {
     const ember = Fn(() => {
       const e = float(0).toVar();
       If(uNightK.greaterThan(0.01), () => {
-        Loop(NFI, ({ i }) => { const L = uFires.element(i); If(L.w.greaterThan(0.002), () => { const d = Pw.xz.sub(L.xz); e.addAssign(L.w.mul(exp(dot(d, d).mul(-0.7)))); }); });
+        Loop(LOOP(uNFI), ({ i }) => { const L = uFires.element(i); If(L.w.greaterThan(0.002), () => { const d = Pw.xz.sub(L.xz); e.addAssign(L.w.mul(exp(dot(d, d).mul(-0.7)))); }); });
       });
       const fl = mx_noise_float(vec3(W.x.mul(2.0), uTime.mul(0.6), W.y.mul(2.0))).mul(0.5).add(0.6);
       const some = smoothstep(0.35, 0.75, mx_noise_float(vec3(W.x.mul(0.9), 2.3, W.y.mul(0.9))).mul(0.5).add(0.5));   // only some joints hold embers
       return FC.mul(smoothstep(0.003, 0.009, edge).oneMinus()).mul(min(e, 1.2)).mul(fl).mul(some).mul(uNightK).mul(0.6);
     })();
-    m.emissiveNode = m.emissiveNode.add(ember);
+    m.emissiveNode = m.emissiveNode.add(ember.mul(0.0));   // AD 25-11: glowing joints read as Tron — the embers live in the wet stone's reflection instead
     return finish(m);
   })();
 
   const skyMat = (() => {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false });
     const dS = normalize(positionWorld.sub(cameraPosition));
-    m.colorNode = mix(skyCol(dS), roomSky(dS), max(max(uDay, uNightK), uFest.mul(0.85)));
+    m.colorNode = mix(skyCol(dS), roomSky(dS), max(max(uDay, uNightK), max(uFest.mul(0.85), uBlue)));
     return finish(m);
   })();
 
@@ -1183,12 +1190,13 @@ export function create(ctx) {
   const moon = new THREE.DirectionalLight(new THREE.Color(0.58, 0.72, 1.0), 0);   // a cool moon against the sodium lamps
   moon.position.copy(uMoonDir.value).multiplyScalar(50); object.add(moon); object.add(moon.target);
   // VFX V7/V8: the moon is also the lit square's key, with the room's one shadow map (updated once per frame, not ×4 walls)
-  if (room.keyShadow) room.keyShadow(moon, { extent: 34, far: 140 });
+  const keyS = room.keyShadow ? room.keyShadow(moon, { extent: 34, far: 140, static: true }) : null;   // VFX perf: a static map
+  let shadowKey = '';
   const moonDay = new THREE.Vector3(), moonNight = uMoonDir.value.clone(), _kc = new THREE.Color(), _md = new THREE.Vector3();
   const LIT = { pinya: { dir: [-0.55, 0.42, -0.72], tone: 'cal-foc', floor: 'pedra-llum', key: 'cal-foc', k: 4.2, fill: 0.45, air: 0.01, lamps: 0.6 },
                 tronc: { dir: [0.45, 0.85, -0.35], tone: 'porcellana', floor: 'pedra-llum', key: 'porcellana', k: 5.0, fill: 0.5, air: 0.008, lamps: 0.12 } };
   for (const c of Object.values(LIT)) { c.toneL = palLin(c.tone); c.floorL = palLin(c.floor); c.keyL = palLin(c.key); }
-  let dayK = 0, litCfg = LIT.tronc, nightK = 0, festK = 0;
+  let dayK = 0, litCfg = LIT.tronc, nightK = 0, festK = 0, blueK = 0, blueProg = 0;
   const hl = Array.from({ length: NHL }, () => ({ stroke: null, k: 0, seen: false, last: -99, pos: new THREE.Vector3(0, -50, 0) }));
   function stepHandLights(dt, time, hands, on) {
     for (const H of hl) H.seen = false;
@@ -1206,10 +1214,11 @@ export function create(ctx) {
       if (!H.seen && H.k < 0.01) { H.stroke = null; H.k = 0; }
       hlVec[i].set(H.pos.x, H.pos.y, H.pos.z, H.k);
     }
+    hl.sort((a, b) => b.k - a.k); let n = 0; for (let i = 0; i < NHL; i++) { hlVec[i].set(hl[i].pos.x, hl[i].pos.y, hl[i].pos.z, hl[i].k); if (hl[i].k > 0.01) n = i + 1; } uNHL.value = n;
   }
-  const _hp = new THREE.Vector3();
+  const _hp = new THREE.Vector3(), _ord = Array.from({ length: NL }, (_, i) => i);
   // the festival spots: per castell wall, from 13 m up and 5 m to one side (alternating), 3 m beyond the tower, aimed at its foot
-  const SPOT_K = 1300, SPOT_A = 13 * Math.PI / 180;
+  const SPOT_K = 2600, SPOT_A = 15 * Math.PI / 180;
   const shafts = new THREE.Group(); shafts.name = 'plaza:shafts'; object.add(shafts);
   {
     const coneG = new THREE.CylinderGeometry(0.15, 1, 1, 40, 1, true).translate(0, -0.5, 0);   // apex at 0, opening down to y = -1
@@ -1219,7 +1228,7 @@ export function create(ctx) {
       const along = clamp(positionLocal.y.negate(), 0, 1);                      // 0 at the lamp … 1 at the far end
       const core = pow(abs(dot(Nn, Vv)), 2.2);                                    // bright through the middle, soft at the rim
       const breathe = sin(uTime.mul(0.35).add(i * 1.7)).mul(0.12).add(0.88);
-      m.colorNode = SPC.mul(core.mul(smoothstep(0.0, 0.08, along)).mul(float(1).sub(smoothstep(0.75, 1.0, along))).mul(mix(1.0, 0.45, along))).mul(uFest).mul(0.035).mul(breathe);
+      m.colorNode = SPC.mul(core.mul(smoothstep(0.0, 0.08, along)).mul(float(1).sub(smoothstep(0.75, 1.0, along))).mul(mix(1.0, 0.45, along))).mul(uFest).mul(0.05).mul(breathe);
       const cone = new THREE.Mesh(coneG, m); cone.renderOrder = 6; cone.frustumCulled = false;
       shafts.add(cone);
     }
@@ -1242,7 +1251,9 @@ export function create(ctx) {
   placeSpots(2.3);
   // VFX 25-11: the Brasa's fires light the square. setFires(list, posOf(item) → Vector3, kOf(item) → 0..~1.2); the first NFI count
   function setFires(list, posOf, kOf) {
-    for (let i = 0; i < NFI; i++) { const it = list && list[i]; if (it) { const p = posOf(it); fireVec[i].set(p.x, p.y + 0.5, p.z, Math.max(0, kOf(it))); } else fireVec[i].w = 0; }
+    let n = 0;
+    for (let i = 0; i < NFI; i++) { const it = list && list[i]; if (it) { const p = posOf(it); fireVec[i].set(p.x, p.y + 0.5, p.z, Math.max(0, kOf(it))); if (fireVec[i].w > 0.003) n = i + 1; } else fireVec[i].w = 0; }
+    uNFI.value = n;
   }
   const hemi = new THREE.HemisphereLight(new THREE.Color(0.35, 0.45, 0.75), new THREE.Color(0.25, 0.17, 0.1), 0);
   object.add(hemi);
@@ -1300,7 +1311,7 @@ export function create(ctx) {
     const festT = (blk === 'pinya' || blk === 'tronc') ? 1 : input.state ? 0 : Math.max(0, Math.min(1, +pr.fest || 0));
     festK += (festT - festK) * Math.min(1, dt * 1.2); if (Math.abs(festT - festK) < 1e-3) festK = festT;
     dayK += (dayT - dayK) * Math.min(1, dt * 1.6); if (Math.abs(dayT - dayK) < 1e-3) dayK = dayT;
-    if (dayK > 0.001 || festK > 0.001) t = Math.max(30, Math.min(t, 45));
+    if (dayK > 0.001 || festK > 0.001 || blueK > 0.001) t = Math.max(30, Math.min(t, 45));
     const rv = +pr.reveal || 0, shv = +pr.shatter || 0;   // the host drives the break / re-assembly at chapter changes (arrive 1 → 0, leave 0 → 1)
     const tR = rv > 0 ? 8 + 17 * Math.min(1, rv) : shv > 0 ? Math.max(t, 30) : t;
     const tS = shv > 0 ? 46 + 24 * Math.min(1, shv) : pr.noBreak ? Math.min(t, 45.99) : t;   // noBreak: the host breaks it into image tiles instead (T-034)
@@ -1319,12 +1330,16 @@ export function create(ctx) {
     uMirror.value = pr.mirror ?? 0.45;
     uWin.value = (pr.windowGlow ?? 1);
     uStars.value = pr.stars ?? 1;
-    const silK = Math.max(0, Math.min(1, pr.silhouette ?? 0)); uSil.value = silK; sky.visible = silK < 0.5; floor0.visible = silK < 0.5; object.position.y = -(pr.silDrop ?? 0) * silK;   // params.silDrop (m): the silhouette sinks so its rooftops sit low on the walls, the sky above
+    blueK += ((blk === 'baixada' && pr.blueHour !== false ? 1 : 0) - blueK) * Math.min(1, dt * 1.2);   // AD plan B: the blue hour, not a silhouette
+    const silK = blueK > 0.5 ? 0 : Math.max(0, Math.min(1, pr.silhouette ?? 0)); uSil.value = silK; sky.visible = silK < 0.5; floor0.visible = silK < 0.5; object.position.y = -(pr.silDrop ?? 0) * silK;   // params.silDrop (m): the silhouette sinks so its rooftops sit low on the walls, the sky above
     if (Array.isArray(pr.skyTint)) uSkyTint.value.fromArray(pr.skyTint); else uSkyTint.value.set(1, 1, 1);
     const envK = (pr.env ?? 1) * reveal * dark; for (const m of envMats) m.envMapIntensity = envK;
     const moonK = (pr.moon ?? 1) * reveal * dark;
     moon.intensity = 0.32 * moonK * (pr.moonKey ?? 1); hemi.intensity = 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1));   // the moon's key also fills the shadows with a cool sky
-    uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002;
+    if (keyS) { const k = `${moon.position.x.toFixed(2)},${moon.position.y.toFixed(2)},${moon.position.z.toFixed(2)},${uS.value.toFixed(3)},${object.position.y.toFixed(2)},${object.visible}`; if (k !== shadowKey) { shadowKey = k; keyS.dirty(); } }
+    uBlue.value = blueK;
+    if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, input.state?.progress ?? 0)); object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 1 - 0.6 * pg; uStars.value *= 0.4 * (1 - pg); blueProg = pg; } else blueProg = 0;   // the lamps go out as the tower comes down
+    uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low';
     stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
     if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3);
     if (festK > 0) {                                                  // the festival night: the square's own night, richer and deeper
@@ -1371,10 +1386,14 @@ export function create(ctx) {
       const on = ignite(tR - L.t0, i, time);
       const br = 1 - sm((S - lampD[i] + 0.06) / 0.22);                // it dies when its stone breaks, with a last flicker
       const fl = S > lampD[i] - 0.1 && br > 0.02 ? 0.6 + 0.4 * Math.sin(time * 41 + i) : 1;
-      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK);
+      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK) * (1 - 0.9 * blueProg);
       L.light.intensity = v * 26;
       lampVec[i].set(L.pos.x, L.pos.y, L.pos.z, v);
     }
+    { let n = 0; const cap = room.quality === 'low' ? 4 : room.quality === 'medium' ? 8 : NL;
+      _ord.sort((a, b) => lampVec[b].w - lampVec[a].w);
+      for (const i of _ord) { if (n >= cap || lampVec[i].w < 0.01) break; lampVecC[n++].copy(lampVec[i]); }
+      uNL.value = n; }
   }
   function setParams() { /* parameters are read live in update() */ }
   function dispose() { for (const g of geos) g.dispose(); for (const m of [stoneMat, detailMat, glassMat, mirrorMat, floorMat, skyMat]) m.dispose(); }
