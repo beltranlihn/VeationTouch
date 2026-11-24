@@ -37,9 +37,9 @@ const tokLin = (t) => {
 // sturdy castellers, sculpted (not realistic): shorter legs, thick arms, round shoulders, mitten hands, a smooth head without features
 const SCULPT = { face: false, paddle: true, shY: 0.078, neck: 1.18, wrist: 1.3, foot: 1.15, curl: 0.6 };
 export const BUILDS = [
-  { ...SCULPT, s: 1.0, sh: 0.2, hip: 0.096, hipW: 0.155, chest: 0.198, leg: 0.92, arm: 1.18, legT: 1.06, head: 1.04, mitt: 1.22 },     // broad
-  { ...SCULPT, s: 0.95, sh: 0.182, hip: 0.1, hipW: 0.168, chest: 0.178, leg: 0.93, arm: 1.12, legT: 1.04, head: 1.06, mitt: 1.18 },  // slight
-  { ...SCULPT, s: 1.0, sh: 0.17, hip: 0.09, hipW: 0.16, chest: 0.172, leg: 0.84, arm: 1.1, legT: 1.04, head: 1.34, mitt: 1.3 },      // a child (used at scale 0.55–0.8)
+  { ...SCULPT, s: 1.0, sh: 0.2, hip: 0.096, hipW: 0.155, chest: 0.198, leg: 0.92, arm: 1.18, legT: 1.06, head: 1.04, mitt: 1.46 },     // broad
+  { ...SCULPT, s: 0.95, sh: 0.182, hip: 0.1, hipW: 0.168, chest: 0.178, leg: 0.93, arm: 1.12, legT: 1.04, head: 1.06, mitt: 1.42 },  // slight
+  { ...SCULPT, s: 1.0, sh: 0.17, hip: 0.09, hipW: 0.16, chest: 0.172, leg: 0.84, arm: 1.1, legT: 1.04, head: 1.34, mitt: 1.5 },      // a child (used at scale 0.55–0.8)
 ];
 const REST = { lean: 0, hunch: 0, head: 0, feet: [V(0.13, 0.07, 0), V(-0.13, 0.07, 0)], hands: [V(0.4, 0.9, 0.03), V(-0.4, 0.9, 0.03)], elbow: V(0, -1, -0.3) };
 // hands: [left (+x), right (-x)]; hf: hand frames { fd: fingers, pn: palm normal }
@@ -48,11 +48,11 @@ export const POSE_SPECS = {
   stand: { lean: 0.03, hunch: 0.04, head: 0.06, feet: [V(0.11, 0.07, 0.03), V(-0.11, 0.07, -0.02)], hands: [V(0.25, 0.84, 0.04), V(-0.25, 0.85, 0.05)],
     hf: [{ fd: [0.1, -1, 0.1], pn: [-1, 0, 0] }, { fd: [-0.1, -1, 0.1], pn: [1, 0, 0] }], elbow: V(0, -1, -0.35) },
   // 1 · the palm offered: the right hand forward at 1.38 m, flat, fingers up, palm facing +z (the visitor); the left at the side
-  palm: { lean: 0.1, hunch: 0.04, head: 0.04, feet: [V(0.12, 0.07, -0.08), V(-0.11, 0.07, 0.12)], hands: [V(0.24, 0.86, 0.06), V(-0.13, 1.38, 0.42)],
+  palm: { lean: 0.1, hunch: 0.04, head: 0.04, feet: [V(0.12, 0.07, -0.08), V(-0.11, 0.07, 0.12)], hands: [V(0.24, 0.86, 0.06), V(-0.27, 1.36, 0.4)],
     hf: [{ fd: [0.1, -1, 0.1], pn: [-1, 0, 0] }, { fd: [-0.05, 1, 0], pn: [0, 0, 1] }], elbow: V(0, -1, -0.5) },
   // 2 · locked: arms over the neighbours' shoulders (the ring of the pinya)
-  lock: { lean: 0.08, hunch: 0.06, head: 0.12, feet: [V(0.12, 0.07, 0.05), V(-0.12, 0.07, -0.04)], hands: [V(0.52, 1.36, -0.02), V(-0.5, 1.34, 0.03)],
-    hf: [{ fd: [1, -0.25, 0], pn: [0, -1, 0] }, { fd: [-1, -0.25, 0], pn: [0, -1, 0] }], elbow: V(0, -1, -0.4) },
+  lock: { lean: 0.1, hunch: 0.08, head: 0.14, feet: [V(0.13, 0.07, 0.05), V(-0.13, 0.07, -0.04)], hands: [V(0.68, 1.27, 0.07), V(-0.67, 1.26, 0.08)],
+    hf: [{ fd: [1, -0.2, 0.05], pn: [0, -1, 0] }, { fd: [-1, -0.2, 0.05], pn: [0, -1, 0] }], elbow: V(0, -1, -0.15) },   // arms out, nearly straight, hands down on the neighbours' shoulders
   // 3 · carrying: both hands flat on the back of the one in front, head down, legs braced (the weight goes through the body)
   carry: { lean: 0.24, hunch: 0.22, head: 0.45, feet: [V(0.13, 0.07, -0.12), V(-0.12, 0.07, 0.1)], hands: [V(0.17, 1.22, 0.46), V(-0.15, 1.26, 0.47)],
     hf: [{ fd: [0, 0.5, 0.2], pn: [0, 0, 1] }, { fd: [0, 0.5, 0.2], pn: [0, 0, 1] }], elbow: V(0, -1, -0.2) },
