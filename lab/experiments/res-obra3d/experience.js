@@ -187,7 +187,7 @@ function wantedBase(b) {
     case 'intro': return ['plaza', 'atmos', 'castell', 'introtext'];
     case 'brasa': return has('brasa3d') ? ['plaza', 'brasa3d', 'atmos'] : ['plaza', 'atmos'];   // 25-11 (VFX): the square at night, lamps almost off, the fires light the facades (plaza detects 'brasa')
     // 05-plan D5b: the LIT square (plaza.js V8 turns to plaza light by itself in pinya / tronc) behind the crowd and the tower
-    case 'pinya': return has('pinya3d') ? ['plaza', 'pinya3d', 'atmos'] : ['plaza', 'castell', 'atmos'];
+    case 'pinya': return has('pinya3d') ? ['pinya3d', 'atmos'] : ['castell', 'atmos'];   // Beltrán 25-11: the Pinya is ABSTRACT (the square dissolves); it re-forms round the tower
     case 'tronc': return has('tronc3d') ? ['plaza', 'tronc3d', 'atmos'] : ['plaza', 'castell', 'atmos'];   // T-032 (3D-FE): the assemblage tower carries its own light bodies
     case 'baixada':                                                  // 3D-FE: the group's tower (tronc3d) is brought down floor by floor (3D-PO, takeFloor)
       if (has('tronc3d')) return has('baixada3d') ? ['plaza', 'tronc3d', 'baixada3d'] : ['tronc3d', 'atmos'];   // plaza as a black silhouette against 3D-PO's dawn (far layer)   // director 24-11: no night square over the dawn; 3D-PO hides tronc3d's floors itself
@@ -415,7 +415,7 @@ const frameEvents = [];
 // Beltrán 25-11: «the architecture coming apart in 3D» is the work's signature crossing. When the square is on both sides of a change
 // that moves the world, it still BREAKS (leave 0 → 1, shatter 0 → 1, 1.6 s), holds a breath broken (0.5 s) and RE-FORMS in the new
 // light (arrive 0 → 1, shatter 1 → 0, 2 s). Changes where it leaves or arrives break / re-form by themselves (state out / in).
-const REFORM = new Set(['intro>brasa', 'brasa>pinya', 'tronc>pom', 'festa>baixada']);   // pinya>tronc: both lit, the world does not move
+const REFORM = new Set(['intro>brasa']);   // brasa>pinya: the square breaks and LEAVES (state out); pinya>tronc: it ARRIVES and re-forms (state in); tronc>pom, festa>baixada: leaves / arrives
 const RF = { brk: 1.6, hold: 0.5, form: 2.0 };
 function stepReform(e, dt) {
   const R = e.reform; if (!R) return;
@@ -557,7 +557,7 @@ function frame(dt) {
     }
   }
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
-  targets3d.update(dt, { targets: S.targets, block: S.block, time, on: P.guide !== false });
+  targets3d.update(dt, { targets: S.targets, block: S.block, time, on: P.guide !== false, events: frameEvents });
   p1 = performance.now(); const ib = stepIntroBreak();
   for (const e of list) e.rig.visible = !e.torn;
   room.render(dt, tr.on ? pass : ib); if (tr.on || ib) for (const e of list) e.rig.visible = !e.torn; prof.max('render', performance.now() - p1);
