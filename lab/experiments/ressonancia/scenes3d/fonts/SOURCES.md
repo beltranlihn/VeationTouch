@@ -8,3 +8,5 @@
 
 Loaded locally with `FontFace` (no network at run time). The signed-distance-field atlas is built from them at load by
 `typo3d.js` (own code: a two-pass Euclidean distance transform, Felzenszwalb & Huttenlocher 2012 — the method tiny-sdf uses).
+
+| geistmono-400.woff2 | Geist Mono (labels and data: `II · PINYA`, `P1`, `1,25 m`; T-048) | SIL OFL 1.1 (`GeistMono-OFL.txt`) | github.com/vercel/geist-font › fonts/GeistMono/webfonts/GeistMono-Regular.woff2 (24-11-2026); licence from github.com/google/fonts › ofl/geistmono/OFL.txt | 50 KB |

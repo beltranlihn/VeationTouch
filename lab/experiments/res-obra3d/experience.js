@@ -392,6 +392,7 @@ function frame(dt) {
   if (S.block !== lastBlock) {
     prevBlock = lastBlock;
     try { room.setEnvironment?.(S.block); } catch (err) { console.info('res-obra3d: setEnvironment skipped (' + err.message + ')'); }   // RND-F: the shared envMap per block (HDRI / tint), re-baked in place
+    room.setBackground?.(S.block);                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
     if ((S.block === 'wait' || S.block === 'intro') && parts.baixada3d?.part.releaseTronc) { try { parts.baixada3d.part.releaseTronc(); } catch (err) { console.info('res-obra3d: releaseTronc skipped (' + err.message + ')'); } }   // 3D-PO: a new pass gives the tower's floors back to tronc3d
     if (S.block === 'fall') {
       fallSet = ['atmos']; for (const n of ['plaza', 'castell', 'tronc3d']) if (parts[n] && (parts[n].state === 'on' || parts[n].state === 'in')) fallSet.push(n);   // tronc3d: fall3d (3D-PI) calls its collapse()

@@ -28,7 +28,7 @@ The four walls share their corners exactly; `camera.userData.wall` tells a mater
 
 Rules: three.js r187 only (the vendored copy, through the import map); no network; assets CC0 or generated, small, inside the
 part's folder `scenes3d/parts/<name>/` with a `LICENSE.txt`/`SOURCES.md`; no allocation per frame; light budget: the strip is
-7196 × 912 rendered four times (one per wall) — keep shadows few and small, prefer emissive + bloom, baked or fake lighting.
+7196 × 912 rendered four times (one per wall) — keep shadows few and small, prefer emissive + bloom, baked or fake lighting (since T-048 the bloom is at half: light comes from the ONE recipe below, not from emissive glow).
 Do not touch `room3d.js` (report what it lacks to the director; its owner since T-037 is RND-F). Linear HDR values; the room host does bloom (threshold ~0.75) and ACES tone mapping.
 
 Study page: `/experiences/res-3d-study/index.html?part=<name>` hosts one part alone, with the part's parameters from
@@ -144,3 +144,37 @@ where the front passes. For parts: nothing to do; a world that is nearly black i
   locked into the new world; always 1 when no tile transition runs). For the guide: bring a wall's new words in once it is 1
   (+0.3 s). `wallIndex` is `room.walls[i].index`.
 - The pass is compiled when the room is created (no pipeline is built in the first frame of the first transition).
+
+## What the room gives since T-048 (24-11, SIS: the shared system, ARTE-3 §1–§3 «elegante y pulcra»)
+
+Nothing here is forced on a part; these are the pieces every chapter should converge on. **To adopt (asked of every chapter part):**
+the one light recipe, a halo behind the hero object, `room.flash` on whatever the hands touch, and no full-black world.
+
+- **Bloom at half.** `room3d` applies every bloom strength × 0.5 (`BLOOM_K`): the host's knob keeps its scale (0.6 → 0.3 on screen).
+  Threshold 0.85 as before. A part that relied on bloom to read (emissive cores) should give that light to the recipe or to its material.
+  The festa's `bloom` event (DECISIONES 24-11 00:00) is the scene's own light: unchanged.
+- **No glitch outside the tile transition.** Pixel-sorting lives only in the tile pass; parts must not add glitch, scan-line or RGB-split
+  effects of their own (ARTE-3 §3). A tremor is a fine line of light (Tronc), not a glitch.
+- **`room.PALETTE[block]`** = `{ bottom, top, accent }` (linear RGB, from notas/ARTE.md §2): the block's deep background and its accent.
+- **Background, never #000.** `room.setBackground(block | { bottom, top, gain }, over?)` — a sphere round the eye (r 320 m) drawn first,
+  without depth: whatever a part draws covers it; where nothing is drawn the wall shows the block's deep gradient. Eased ~1.5 s. The host
+  calls it on every block change (`room.background` = `{ bottom, top, gain, name }` uniforms). A part with its own sky changes nothing.
+- **The ONE light recipe.** `const R = room.lightRecipe({ warm: 0xFFE0BC, cool: 0x9FB4D8, key: 2.2, fill: 0.08 }); part.object.add(R.group);`
+  — a warm broad key from 7.5 m above the room's centre (PointLight, no decay: every wall sees its objects lit from above and from the
+  public) and a low cool/warm hemisphere fill (≤ 10 %). The **cool rim** is a node, true on all four walls at once:
+  `mat.emissiveNode = R.rim(0.6, 3)` (or `room.rimNode([r,g,b], k, power)`; add it to `colorNode` on basic materials). Use the chapter's
+  warm / cool from the art bible's table. The host keeps the lights steady (hemisphere moved to the scene, intensity 0 while gone).
+- **The halo behind the hero object.** `const h = room.makeHalo({ color: [1, 0.8, 0.55], radius: 2.4, intensity: 0.22 }); part.object.add(h.mesh);`
+  then `room.placeHalo(h, heroWorldPos, 1.5)` (puts it 1.5 m further from the eye than the hero, facing the eye). Additive, no edge.
+  `h.set({ color, intensity, radius })` live. Keep `intensity ≤ 0.3` where it sits behind a quiet zone (≤ 35 % luminance).
+- **«La mano es una linterna».** `room.flash(positionNode)` → TSL float: 1 at a hand, ~0.07 at 0.9 m (`room.FLASH_R`), summed over up to
+  6 hands (≤ 1.5), eased in ≈ 70 ms / out ≈ 0.4 s. Distance in 3D world space, so a hand near a corner also lights what is near it on the
+  next wall. Use it on edges and rims, not on whole surfaces: `col.add(accent.mul(room.flash(positionWorld)).mul(rim).mul(0.5))`.
+  `room.flashLights` (vec4 uniforms: xyz, w = strength) and `room.flashAt(Vector3)` (CPU) for anything else. Always guard
+  `room.flash ? … : float(0)`.
+- **Typography (typo3d).** item `reveal: 'blur'` (words from out of focus to sharp, 60 ms apart, 0.75 s; leave the same way) and font
+  `'mono'` (Geist Mono, OFL, `fonts/geistmono-400.woff2`) for labels and data (caps ≥ 0.055 m: `size ≥ 0.08`). `typo.text({ flash: room.flash })`
+  makes words and plate edges catch the hands' light. The chapter cards keep their tiles.
+- **The guide's fine graphics** (guide3d, on every wall, over everything): rulers at each wall edge (0.22 m in, 0.5–2.3 m, the 0.9–1.6 m
+  band marked), «+» at ±0.9 m × 0.9 / 1.6 m, a dotted grid behind the quiet zones, mono labels at 2.42 m (`II · PINYA` left, `P1` right) and
+  `0,90` / `1,25 m` / `1,60` by the left ruler. Parts: leave the outer 0.4 m of each wall edge between 0.5 and 2.5 m free of bright detail.

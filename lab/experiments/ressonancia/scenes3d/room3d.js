@@ -15,13 +15,16 @@
 //   (pass('out' | 'in') is the host's hook to show each world), aa ('msaa' | 'taa' | 'none'; opt.aa = 'taa').
 //   T-037 (RND-F): setEnvironment(block | {...}) re-bakes envMap in place from the CC0 HDRIs + the colour script; setTiles also takes
 //   accentFrom / accentTo, origins, depth, mirror, glow, streaks; tileFront(wallIndex) 0..1; the tile pass rebuilt (see below). PARTS.md.
+//   T-048 (SIS, ARTE-3 §3): bloom at half (BLOOM_K); PALETTE[block] { bottom, top, accent }; setBackground(block | {...}) (a deep gradient,
+//   never #000); flash(positionNode) / flashAt(v) / flashLights («la mano es una linterna»); lightRecipe(), rimNode(), makeHalo(),
+//   placeHalo() (the ONE light recipe and the soft halo behind a hero object). No glitch, no pixel-sorting outside the tile transition.
 // Why the interactive things live on the wall plane: that plane is where the projection is exact for EVERY visitor, wherever they
 // stand. Far things (a square, a sky, a tower 10 m away) read well from anywhere; near things bend for a visitor far from the
 // centre. So hands touch the world exactly where they touch the wall; the universe opens behind.
 // Rendering: the four views go into one HDR render target (the strip, as the room expects it), then one post pass (bloom, tone
 // mapping, grain) to the canvas. WebGPU when available, WebGL2 otherwise (three.js picks it). Nothing is allocated per frame.
 import * as THREE from 'three/webgpu';
-import { texture, uniform, uv, vec2, vec3, vec4, float, fract, sin, cos, dot, Fn, floor, select, clamp, abs, min, max, smoothstep, mix, pow, positionLocal, normalize, length, exp, atan, asin, pmremTexture } from 'three/tsl';
+import { texture, uniform, uv, vec2, vec3, vec4, float, fract, sin, cos, dot, Fn, floor, select, clamp, abs, min, max, smoothstep, mix, pow, positionLocal, normalize, length, exp, atan, asin, pmremTexture, normalWorld, positionWorld, cameraPosition } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 
@@ -338,7 +341,11 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // ---- post: bloom over the image, tone mapping and colour space by the pipeline, a little grain against banding
   const pipeline = new THREE.RenderPipeline(renderer);
   const src = texture(strip.texture);
-  const B = { strength: uniform(opt.bloom?.strength ?? 0.55), radius: uniform(opt.bloom?.radius ?? 0.4), threshold: uniform(opt.bloom?.threshold ?? 0.85) };   // T-037: tighter and higher (was 0.6 / 0.75): light round what is bright, not a fog over the wall
+  // T-048 (ARTE-3 §3 «bloom a la mitad»): every strength asked for (opt.bloom.strength, setBloom) is applied × BLOOM_K = 0.5, so the
+  // host's knob keeps its scale (0.6 = today's default → 0.3 on screen). The festa's bloom event is the scene's own light, not the bloom
+  // (DECISIONES 24-11 00:00: mean-luma rise ≤ ×2/s, ≤ 2 % burnt, once, calm in ≤ 8 s): unchanged by this.
+  const BLOOM_K = 0.5;
+  const B = { strength: uniform((opt.bloom?.strength ?? 0.55) * BLOOM_K), radius: uniform(opt.bloom?.radius ?? 0.4), threshold: uniform(opt.bloom?.threshold ?? 0.85) };   // T-037: tighter and higher (was 0.6 / 0.75): light round what is bright, not a fog over the wall
   const bl = bloom(src, B.strength, B.radius, B.threshold);
   // the bloom wraps round the room like the strip: its bright pass and every blur level repeat in x, so a halo near the P3|P4 seam
   // continues on the other side instead of being cut (BloomNode's internal targets, three r187; INT 2026-11-23)
@@ -359,7 +366,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     return target.copy(w.pa).addScaledVector(_vb.subVectors(w.pb, w.pa), u).addScaledVector(_vc.subVectors(w.pc, w.pa), v);
   }
   function hands() {
-    out.length = 0;
+    out.length = 0; handsFrame = frameNo;
     for (const h of vt.hands()) {
       if (out.length >= hs.length) break;
       const wi = wallIndex.get(h.wallId); if (wi == null) continue;
@@ -371,6 +378,117 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       out.push(o);
     }
     return out;
+  }
+
+  // ================================================================================================ T-048 (SIS): the shared system
+  // ARTE-3 §3: one background per block (never pure black), one light recipe, one soft halo behind the hero object, and «la mano es
+  // una linterna» (every material may read the hands as soft lights). Documented for parts in PARTS.md («What the room gives since T-048»).
+  //
+  // ---- the palette of the system per block (notas/ARTE.md §2): `bottom` / `top` = the background's deep gradient (the «Fondo» column,
+  // lifted a little towards the chapter's colour above), `accent` = the chapter's accent for the fine graphics and the hands' light.
+  const linA = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
+  const PALETTE = {
+    wait:    { bottom: linA('#050506'), top: linA('#0F1016'), accent: linA('#FF6B2E') },
+    intro:   { bottom: linA('#0B1430'), top: linA('#1B2A52'), accent: linA('#FFB25A') },
+    brasa:   { bottom: linA('#0A0504'), top: linA('#1C0B07'), accent: linA('#FF6A1F') },
+    pinya:   { bottom: linA('#03090B'), top: linA('#082028'), accent: linA('#2ED3C6') },
+    tronc:   { bottom: linA('#07080C'), top: linA('#1A222C'), accent: linA('#E3A32B') },
+    pom:     { bottom: linA('#020308'), top: linA('#0A1230'), accent: linA('#EEF2FF') },
+    crown:   { bottom: linA('#060504'), top: linA('#1A1409'), accent: linA('#F6C65B') },
+    festa:   { bottom: linA('#060504'), top: linA('#1A1409'), accent: linA('#F6C65B') },
+    baixada: { bottom: linA('#141020'), top: linA('#2A2140'), accent: linA('#F7B7C6') },
+    fall:    { bottom: linA('#070508'), top: linA('#161020'), accent: linA('#B9A3E8') },
+    acta:    { bottom: linA('#050506'), top: linA('#0E0F14'), accent: linA('#F2EEE6') },
+  };
+  // ---- the background: a sphere round the eye (r 320 m, inside the far plane), drawn first, without depth: whatever a part draws covers
+  // it; where nothing is drawn the wall shows the block's deep colour instead of #000. Eased (~1.5 s) on every change.
+  const bg = { bottom: uniform(new THREE.Vector3(...PALETTE.wait.bottom)), top: uniform(new THREE.Vector3(...PALETTE.wait.top)), gain: uniform(opt.background ?? 1),
+    to: { bottom: [...PALETTE.wait.bottom], top: [...PALETTE.wait.top] }, name: 'wait' };
+  const bgMat = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false });
+  bgMat.colorNode = Fn(() => { const y = normalize(positionLocal).y; return mix(bg.bottom, bg.top, smoothstep(-0.2, 0.75, y)).mul(bg.gain); })();
+  const bgMesh = new THREE.Mesh(new THREE.SphereGeometry(320, 32, 16), bgMat);
+  bgMesh.name = 'room:background'; bgMesh.renderOrder = -1000; bgMesh.frustumCulled = false; bgMesh.position.copy(eye);
+  scene.add(bgMesh);
+  // setBackground('pinya') | setBackground({ bottom: [r,g,b], top: [r,g,b] } (linear)) | setBackground('tronc', { top: […] }) · { gain } (0 = black)
+  function setBackground(what = 'wait', over = null) {
+    const base = typeof what === 'string' ? PALETTE[what] || PALETTE.wait : what;
+    const c = { ...base, ...(over || {}) };
+    if (c.bottom) bg.to.bottom = [...c.bottom]; if (c.top) bg.to.top = [...c.top]; if (c.gain != null) bg.gain.value = c.gain;
+    bg.name = typeof what === 'string' ? what : 'custom';
+    if (c.now) { bg.bottom.value.fromArray(bg.to.bottom); bg.top.value.fromArray(bg.to.top); }
+  }
+  function stepBackground(dt) {
+    const k = 1 - Math.exp(-dt * 2.2);
+    for (const key of ['bottom', 'top']) { const v = bg[key].value, t = bg.to[key]; v.x += (t[0] - v.x) * k; v.y += (t[1] - v.y) * k; v.z += (t[2] - v.z) * k; }
+  }
+
+  // ---- «la mano es una linterna» (refs/saltmere gradient-border-flashlight): up to FL_N hands as soft lights, world positions ON the wall
+  // planes, radius FL_R. room.flash(positionNode) → TSL float (1 at a hand, ~0.07 at FL_R, ~0 beyond; summed, ≤ 1.5): distance in 3D,
+  // so a hand near a corner also lights what is near it on the neighbouring wall. Lights come in fast (≈ 70 ms) and go in ≈ 0.4 s.
+  // room.flashLights = the uniforms (vec4: xyz position, w strength 0..1); room.flashAt(Vector3) = the same value on the CPU.
+  const FL_N = 6, FL_R = 0.9;
+  const flU = Array.from({ length: FL_N }, () => uniform(new THREE.Vector4(0, -99, 0, 0)));
+  const flS = Array.from({ length: FL_N }, () => ({ stroke: null, s: 0, seen: false, pos: new THREE.Vector3(0, -99, 0) }));
+  const flR = uniform(FL_R);
+  function flash(p) {
+    let acc = float(0);
+    for (const L of flU) { const d = length(p.sub(L.xyz)).div(flR); acc = acc.add(L.w.mul(exp(d.mul(d).mul(-2.6)))); }
+    return min(acc, float(1.5));
+  }
+  function flashAt(p) { let a = 0; for (const S of flS) { if (S.s <= 0.001) continue; const d = p.distanceTo(S.pos) / FL_R; a += S.s * Math.exp(-2.6 * d * d); } return Math.min(a, 1.5); }
+  let handsFrame = -1, frameNo = 0;
+  function stepFlash(dt) {
+    if (handsFrame !== frameNo) hands();                            // nobody asked this frame: read them here
+    for (const S of flS) S.seen = false;
+    for (const h of out) {
+      if (h.ended) continue;
+      let S = null;
+      for (const c of flS) if (c.stroke === h.stroke) { S = c; break; }
+      if (!S) for (const c of flS) if (!c.seen && (c.stroke === null || c.s < 0.02) && (!S || c.s < S.s)) S = c;
+      if (!S) continue;
+      if (S.stroke !== h.stroke) { S.stroke = h.stroke; S.s = 0; }
+      S.seen = true; S.pos.copy(h.pos);
+    }
+    for (let i = 0; i < FL_N; i++) {
+      const S = flS[i]; S.s += ((S.seen ? 1 : 0) - S.s) * (1 - Math.exp(-dt * (S.seen ? 14 : 2.5)));
+      if (!S.seen && S.s < 0.005) { S.s = 0; S.stroke = null; }
+      flU[i].value.set(S.pos.x, S.pos.y, S.pos.z, S.s);
+    }
+  }
+
+  // ---- the ONE light recipe (ARTE-3 §1, notas/ARTE.md §3): a warm, broad key from above the room's centre (each wall sees its objects lit
+  // from above and from the public), a low cool fill (hemisphere, ≤ 10 %), and the cool rim as a NODE (a view-dependent Fresnel term, true
+  // on all four walls at once — no light per wall). A part adds `recipe.group` to its own object (the host keeps the set of lights steady)
+  // and adds `recipe.rim()` to its materials' emissiveNode (or colorNode for basic materials).
+  //   const recipe = room.lightRecipe({ warm: 0xFFE0BC, cool: 0x9FB4D8, key: 2.2, fill: 0.08 });  part.object.add(recipe.group);
+  //   mat.emissiveNode = room.rimNode([0.62, 0.74, 1.0], 0.6, 3);
+  function rimNode(color = [0.62, 0.74, 1.0], k = 0.6, power = 3) {
+    const V = normalize(cameraPosition.sub(positionWorld)), g = float(1).sub(abs(dot(normalize(normalWorld), V)));
+    return vec3(color[0], color[1], color[2]).mul(pow(g, power)).mul(k);
+  }
+  function lightRecipe({ warm = 0xFFE0BC, cool = 0x9FB4D8, key = 2.2, fill = 0.08, height = 7.5 } = {}) {
+    const group = new THREE.Group(); group.name = 'lightRecipe';
+    const keyL = new THREE.PointLight(warm, key, 0, 0); keyL.position.set(eye.x, height, eye.z); keyL.userData.atmos = false; group.add(keyL);
+    const fillL = new THREE.HemisphereLight(cool, warm, fill); group.add(fillL);
+    const c = new THREE.Color(cool);
+    return { group, key: keyL, fill: fillL, rim: (k = 0.6, power = 3) => rimNode([c.r, c.g, c.b], k, power) };
+  }
+  // ---- the soft radial halo behind a hero object (ARTE-3 §3): an additive disc, no edge, facing the eye. `placeHalo(h, at, behind)` puts
+  // it `behind` m further from the eye than `at`. Keep `intensity` ≤ 0.3 where it sits behind a quiet zone (≤ 35 % luminance).
+  //   const halo = room.makeHalo({ color: [1, 0.8, 0.55], radius: 2.4, intensity: 0.22 });  part.object.add(halo.mesh);  room.placeHalo(halo, hero.position, 1.5);
+  const haloGeo = new THREE.PlaneGeometry(1, 1);
+  function makeHalo({ color = [1, 0.82, 0.6], radius = 2.4, intensity = 0.22 } = {}) {
+    const U = { color: uniform(new THREE.Vector3(...color)), k: uniform(intensity) };
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    const q = uv().sub(0.5).mul(2), r2 = dot(q, q);
+    m.colorNode = U.color.mul(exp(r2.mul(-3.2)).sub(exp(float(-3.2))).max(0)).mul(U.k);
+    const mesh = new THREE.Mesh(haloGeo, m); mesh.name = 'room:halo'; mesh.scale.setScalar(radius * 2); mesh.renderOrder = -10;
+    return { mesh, U, set(o = {}) { if (o.color) U.color.value.fromArray(o.color); if (o.intensity != null) U.k.value = o.intensity; if (o.radius != null) mesh.scale.setScalar(o.radius * 2); } };
+  }
+  const _hd = new THREE.Vector3();
+  function placeHalo(h, at, behind = 1.2) {
+    _hd.subVectors(at, eye); _hd.y = 0; if (_hd.lengthSq() < 1e-6) _hd.set(0, 0, -1); _hd.normalize();
+    h.mesh.position.copy(at).addScaledVector(_hd, behind); h.mesh.lookAt(eye.x, h.mesh.position.y, eye.z);
   }
 
   // ---- the overlay: a second, small scene drawn over the final image of every wall, after the tile composition (so the tiles never
@@ -408,6 +526,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // with 'in' before the incoming one (show / hide each world's objects); it is not called otherwise.
   function render(dt = 1 / 60, pass = null) {
     t += dt; time.value = t % 1000; tiles.time.value = t % 1000;
+    stepFlash(dt); stepBackground(dt); frameNo++;
     if (ENV.pending) bakeEnvironment();
     jitter();
     const tl = tiles.on && !!pass;
@@ -428,7 +547,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   }
   // warm the tile pass now (its pipeline would otherwise be built in the first frame of the first transition: a hitch at the cut)
   try { renderer.setRenderTarget(comp); compQuad.render(renderer); renderer.setRenderTarget(null); } catch (err) { console.info('room3d: tile pass warm-up skipped (' + err.message + ')'); }
-  function setBloom(o = {}) { for (const k of ['strength', 'radius', 'threshold']) if (o[k] != null) B[k].value = o[k]; }
+  function setBloom(o = {}) { for (const k of ['strength', 'radius', 'threshold']) if (o[k] != null) B[k].value = o[k] * (k === 'strength' ? BLOOM_K : 1); }
   function setEye(y) { eye.y = y; tiles.eyeV.value = y / heights[0]; for (const w of walls) fit(w); }
   function setTiles(o = {}) { if (o.on != null) tiles.on = !!o.on; for (const k of ['mix', 'amount', 'origin', 'seed', 'depth', 'mirror', 'glow', 'streaks']) if (o[k] != null) tiles[k].value = o[k];
     if (o.origins != null) tiles.origins.value = Math.max(1, Math.round(o.origins));
@@ -444,5 +563,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     return Math.min(1, Math.max(0, (tiles.mix.value - (dx * 1.2 + 0.1) * (1 - WD)) / WD));
   }
 
-  return { THREE, renderer, scene, overlay, clearColor, walls, eye, hands, wallPoint, render, setBloom, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
+  return { THREE, renderer, scene, overlay, clearColor, walls, eye, hands, wallPoint, render, setBloom,
+    // T-048 (SIS): the shared system — see PARTS.md «What the room gives since T-048»
+    PALETTE, setBackground, background: bg, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
 }

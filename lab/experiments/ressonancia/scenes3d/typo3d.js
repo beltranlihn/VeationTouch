@@ -17,7 +17,11 @@
 //                       with a little chance; the tracking opens from tight to its final width; bright and iridescent in flight
 //   sweep:              a band of warm light crosses the words once they stand (and again, softly, every few seconds)
 //   leave (out 0 → 1):  the tiles break off, drift up and apart, turning, and thin out
-// Fonts (OFL, self-hosted, ./fonts/SOURCES.md): Instrument Serif (titles, italic for values) and Geist (instructions).
+//   T-048 (ARTE-3 §3): item.reveal = 'blur' — no tiles: each WORD comes from out of focus to sharp, 60 ms after the previous one
+//                       (0.75 s, easeOutExpo, tracking +3 % → 0) and leaves the same way (0.5 s). The instructions and labels use it;
+//                       the chapter cards keep their tiles. font 'mono' (Geist Mono) for labels and data. text({ flash: room.flash }):
+//                       the words and the plate's edge catch a hand's light («la mano es una linterna»).
+// Fonts (OFL, self-hosted, ./fonts/SOURCES.md): Instrument Serif (titles, italic for values), Geist (instructions), Geist Mono (labels).
 // TSL node materials: WebGPU and WebGL2. Nothing is allocated per frame.
 import * as THREE from 'three/webgpu';
 import * as TSL from 'three/tsl';
@@ -25,9 +29,9 @@ import * as TSL from 'three/tsl';
 const { attribute, uniform, varying, texture, fwidth, vec2, vec3, vec4, float, clamp, smoothstep, fract, sin, cos, exp, max, mix, uv, step, select, positionGeometry } = TSL;
 
 // ------------------------------------------------------------------------------------------------ fonts
-const FAM = { serif: 'RessSerif', italic: 'RessSerifItalic', sans: 'RessGeist' };
-const FALLBACK = { serif: 'Georgia, "Times New Roman", serif', italic: 'Georgia, serif', sans: 'Geist, "Segoe UI", system-ui, sans-serif' };
-const FILES = [['RessSerif', 'InstrumentSerif-Regular.ttf'], ['RessSerifItalic', 'InstrumentSerif-Italic.ttf'], ['RessGeist', 'geist-400.woff2']];
+const FAM = { serif: 'RessSerif', italic: 'RessSerifItalic', sans: 'RessGeist', mono: 'RessGeistMono' };
+const FALLBACK = { serif: 'Georgia, "Times New Roman", serif', italic: 'Georgia, serif', sans: 'Geist, "Segoe UI", system-ui, sans-serif', mono: '"Geist Mono", ui-monospace, Menlo, monospace' };
+const FILES = [['RessSerif', 'InstrumentSerif-Regular.ttf'], ['RessSerifItalic', 'InstrumentSerif-Italic.ttf'], ['RessGeist', 'geist-400.woff2'], ['RessGeistMono', 'geistmono-400.woff2']];
 await Promise.all(FILES.map(async ([name, file]) => {
   try {
     const f = new FontFace(name, `url("${new URL('./fonts/' + file, import.meta.url).href}")`);
@@ -85,7 +89,7 @@ function rasterise(font, ch) {
   const g = { adv, w, h, L, A, x: 0, y: 0 };
   glyphs.set(key, g); cells.push({ g, sdf });
 }
-for (const font of ['serif', 'italic', 'sans']) for (const ch of CHARS) rasterise(font, ch);
+for (const font of ['serif', 'italic', 'sans', 'mono']) for (const ch of CHARS) rasterise(font, ch);
 rasterise('sans', RULE);
 // shelf packing
 cells.sort((a, b) => b.g.h - a.g.h);
@@ -108,11 +112,11 @@ function kern(font, a, b) {
 const glyph = (font, ch) => glyphs.get(font + ':' + ch) || glyphs.get(font + ':' + ch.normalize('NFD')[0]) || glyphs.get(font + ':?');
 
 // ------------------------------------------------------------------------------------------------ layout
-const REC = 16, STAGGER = 0.035, GLYPH_IN = 0.9;          // 35 ms between letters, each one lands in 0.9 s (easeOutExpo)                                                   // floats per glyph record
+const REC = 16, STAGGER = 0.035, GLYPH_IN = 0.9, WORD = 0.06, BLUR_IN = 0.75;   // T-048: blur → sharp, 60 ms between words, each in 0.75 s          // 35 ms between letters, each one lands in 0.9 s (easeOutExpo)                                                   // floats per glyph record
 const recs = new Float32Array(400 * REC);                         // scratch (layout is not per frame)
 /** Lays items out; fills `recs`; returns { n, minX, maxX, minY, maxY }. */
 function layout(items) {
-  let n = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let n = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, word = 0;
   items.forEach((it, li) => {
     if (!it || (!it.text && !it.rules)) return;
     const font = it.font || 'sans', s = it.size / F, tr = (it.track || 0) * F;
@@ -133,9 +137,11 @@ function layout(items) {
     const width = pen * s, cx0 = it.x || 0;
     const left = it.align === 'left' ? cx0 : it.align === 'right' ? cx0 - width : cx0 - width / 2, lineC = left + width / 2;
     const base = (it.y || 0) - it.size * 0.34;                    // y = the centre of the caps (cap height ≈ 0.68 em)
-    const col = it.color || [1, 0.95, 0.88];
+    const col = it.color || [1, 0.95, 0.88], blur = it.reveal === 'blur';
+    let prevSp = true;
     seq.forEach((ch, i) => {
       const isRule = ch === RULE, g = isRule ? glyphs.get('sans:' + RULE) : glyph(font, ch);
+      const sp = ch === ' ' || isRule; if (!sp && prevSp) word++; prevSp = sp;   // words counted across the block's lines
       if (!g || !g.w || n >= 400) return;
       const sx = isRule ? it.rules / F : s, sy = s;
       const wM = g.w * sx, hM = g.h * sy;
@@ -144,8 +150,8 @@ function layout(items) {
       const cx = lx + wM / 2, cy = top - hM / 2, o = n * REC;
       recs[o] = cx; recs[o + 1] = cy; recs[o + 2] = wM; recs[o + 3] = hM;
       recs[o + 4] = g.x / AW; recs[o + 5] = g.y / AH; recs[o + 6] = g.w / AW; recs[o + 7] = g.h / AH;
-      const kind = isRule ? 2 : it.rise ? 1 : 0;   // 0 tiles fly in · 1 rises from behind its baseline · 2 a hairline drawn from the centre out
-      recs[o + 8] = li; recs[o + 9] = n + (it.delay || 0) / STAGGER; recs[o + 10] = cx - lineC; recs[o + 11] = Math.min(0.999, it.alpha ?? 1) + kind * 10;
+      const kind = isRule ? 2 : blur ? 3 : it.rise ? 1 : 0;   // 0 tiles fly in · 1 rises from behind its baseline · 2 a hairline drawn from the centre out · 3 blur → sharp, word by word (T-048)
+      recs[o + 8] = li; recs[o + 9] = blur ? (Math.max(0, word - 1) * WORD + (it.delay || 0)) / STAGGER : n + (it.delay || 0) / STAGGER; recs[o + 10] = cx - lineC; recs[o + 11] = Math.min(0.999, it.alpha ?? 1) + kind * 10;
       recs[o + 12] = col[0]; recs[o + 13] = col[1]; recs[o + 14] = col[2]; recs[o + 15] = it.edge ?? 0.5;
       minX = Math.min(minX, lx); maxX = Math.max(maxX, lx + wM); minY = Math.min(minY, cy - hM / 2); maxY = Math.max(maxY, cy + hM / 2);
       n++;
@@ -155,7 +161,7 @@ function layout(items) {
   const span = Math.max(1e-3, maxX - minX), nl = Math.max(1, items.length);
   for (let i = 0; i < n; i++) { const o = i * REC; recs[o + 8] = ((recs[o] - minX) / span) * 0.85 + (recs[o + 8] / nl) * 0.15; }
   let last = 0; for (let i = 0; i < n; i++) last = Math.max(last, recs[i * REC + 9]);
-  return { n, minX, maxX, minY, maxY, dur: last * STAGGER + GLYPH_IN + 0.15 };
+  return { n, minX, maxX, minY, maxY, dur: last * STAGGER + GLYPH_IN + 0.15 };   // (blur glyphs land in BLUR_IN < GLYPH_IN: the same bound holds)
 }
 
 // ------------------------------------------------------------------------------------------------ the glyph-tile geometry
@@ -174,62 +180,73 @@ const uTime = uniform(0);
 const hash = (x) => fract(sin(x.mul(12.9898).add(4.1414)).mul(43758.5453));
 const rot2 = (v, a) => vec2(v.x.mul(cos(a)).sub(v.y.mul(sin(a))), v.x.mul(sin(a)).add(v.y.mul(cos(a))));
 
-function makeMaterial(U, a, lag) {
+function makeMaterial(U, a, lag, flash) {
   const G = attribute('aG', 'vec4'), Uv = attribute('aU', 'vec4'), M = attribute('aM', 'vec4'), C = attribute('aC', 'vec4'), T = attribute('aT', 'vec3');
   const pg = positionGeometry, wh = G.zw, order = M.x, idx = M.y, lineOff = M.z, tr = T.z;
   const kind = M.w.div(10).floor(), alpha = M.w.sub(kind.mul(10)), tiles = select(kind.lessThan(0.5), float(1), float(0));
-  const rise = select(kind.sub(1).abs().lessThan(0.5), float(1), float(0)), rule = select(kind.greaterThan(1.5), float(1), float(0));
+  const rise = select(kind.sub(1).abs().lessThan(0.5), float(1), float(0)), rule = select(kind.sub(2).abs().lessThan(0.5), float(1), float(0));
+  const blurK = select(kind.greaterThan(2.5), float(1), float(0));   // T-048: words that come into focus (no motion of their own)
   const seed = fract(idx.mul(0.6180339).add(0.17));
   const h1 = hash(seed.mul(91.7).add(tr.mul(17.3))), h2 = hash(seed.mul(37.1).add(tr.mul(53.9)).add(3.0)), h3 = hash(seed.mul(13.3).add(tr.mul(71.1)).add(7.0));
   // arrive (U.asm 0..1 over U.dur s): each letter 35 ms after the previous, its tiles a little scattered, in 0.9 s, easeOutExpo
   const ts = U.asm.mul(U.dur).sub(lag).sub(idx.mul(STAGGER)).sub(tr.mul(0.12).mul(tiles));
-  const kin = clamp(ts.div(select(rule.greaterThan(0.5), float(0.6), float(GLYPH_IN))), 0, 1);
+  const kin = clamp(ts.div(select(rule.greaterThan(0.5), float(0.6), select(blurK.greaterThan(0.5), float(BLUR_IN), float(GLYPH_IN)))), 0, 1);
   const e = float(1).sub(exp(kin.mul(-6.93))).div(0.999).min(1.0), ie = float(1).sub(e);
   // leave (0.5 s): tiles break off, drift up and apart
-  const kout = clamp(U.out.mul(1.5).sub(order.mul(0.3).add(tr.mul(0.2))), 0, 1), eo = kout.mul(kout);
+  const kout = clamp(U.out.mul(1.5).sub(order.mul(0.3).add(tr.mul(0.2))), 0, 1), eo = kout.mul(kout).mul(float(1).sub(blurK));
+  const bo = clamp(U.out.mul(1.6).sub(order.mul(0.25)), 0, 1).mul(blurK);   // blur words leave the same way they came: out of focus
   const spread = wh.y.mul(U.spread).mul(tiles);
   const tileC = T.xy.sub(0.5).mul(wh), rel = pg.xy.sub(T.xy).mul(wh);
   const spin = ie.mul(h3.sub(0.5).mul(5.0)).mul(tiles).add(eo.mul(h1.sub(0.5).mul(7.0)));
   const sc = mix(float(0.25), float(1), e.max(float(1).sub(tiles))).mul(float(1).sub(eo.mul(0.75)));
   const offIn = vec2(h1.sub(0.5).mul(1.6), h2.sub(0.5).mul(1.1)).mul(spread).mul(ie);
   const offOut = vec2(h1.sub(0.5).mul(0.7), h2.mul(1.2).add(0.5)).mul(wh.y.mul(U.spread)).mul(eo);
-  const open = lineOff.mul(0.12).mul(ie).mul(float(1).sub(rule));            // tracking +12 % closing to 0
+  const open = lineOff.mul(select(blurK.greaterThan(0.5), float(0.03), float(0.12))).mul(ie).mul(float(1).sub(rule));   // tracking +12 % closing to 0 (blur: +3 %)
   let xy = G.xy.add(vec2(open, 0)).add(tileC.mul(mix(float(1.25), float(1), e.max(float(1).sub(tiles))))).add(rot2(rel.mul(sc), spin)).add(offIn).add(offOut);
   // the value rises from behind its own baseline; the hairline grows from its inner end (the card's centre) outwards
   xy = xy.sub(vec2(0, wh.y.mul(ie).mul(rise)));
   const pivot = G.x.sub(lineOff.sign().mul(wh.x).mul(0.5));
   xy = vec2(mix(xy.x, pivot.add(xy.x.sub(pivot).mul(e)), rule), xy.y);
   const z = ie.mul(U.depth).mul(h2.add(0.4)).mul(tiles).add(eo.mul(U.depth).mul(h3.mul(0.8).add(0.2)));
-  const vis = clamp(kin.mul(8.0), 0, 1).max(rule.mul(step(0.0001, kin))).mul(float(1).sub(smoothstep(0.55, 1.0, kout)));
+  const vis = mix(clamp(kin.mul(8.0), 0, 1).max(rule.mul(step(0.0001, kin))).mul(float(1).sub(smoothstep(0.55, 1.0, kout))),
+    smoothstep(0.0, 0.55, kin).mul(float(1).sub(smoothstep(0.2, 1.0, bo))), blurK);
+  const blurAmt = ie.max(bo).mul(blurK).mul(0.32);                            // SDF units: ~10 px of the 64 px glyph at the start, 0 when it stands
   const m = new THREE.MeshBasicNodeMaterial(OVER);
   m.positionNode = vec3(xy, z);
   const vUV = varying(vec2(Uv.x.add(pg.x.mul(Uv.z)), Uv.y.add(float(1).sub(pg.y).mul(Uv.w))));
   const vVis = varying(vis.mul(alpha)), vFl = varying(e.mul(ie).mul(4.0).mul(tiles).add(eo.mul(float(1).sub(eo)).mul(2.4))), vOrd = varying(order);
-  const vCol = varying(C.xyz), vEdge = varying(C.w);
+  const vCol = varying(C.xyz), vEdge = varying(C.w), vBlur = varying(blurAmt);
   const vMask = varying(xy.y.sub(G.y.sub(wh.y.mul(0.5))).mul(rise).add(float(1).sub(rise)));   // > 0 above the baseline mask
   const d = texture(atlas, vUV).r;
-  const aa = max(fwidth(d).mul(0.75), float(0.004));
-  const ink = smoothstep(vEdge.sub(aa), vEdge.add(aa), d).mul(step(0.0, vMask));
+  const aa = max(fwidth(d).mul(0.75), float(0.004)).add(vBlur);
+  const ink = smoothstep(vEdge.sub(aa), vEdge.add(aa), d).mul(step(0.0, vMask)).mul(float(1).sub(vBlur.mul(1.4)));   // out of focus: wider and fainter
   const halo = smoothstep(0.25, vEdge, d).mul(U.halo).mul(step(0.0, vMask));
   // the one luxury: a thin-film sweep across the words as they stand (and the iridescence of the tiles in flight)
   const sw = vOrd.sub(U.sweep), glow = exp(sw.mul(sw).mul(-260.0)).mul(U.sweepK);
   const iri = vec3(0.5).add(vec3(0.5).mul(cos(vec3(0.0, 0.33, 0.67).add(vOrd.mul(0.8)).add(uTime.mul(0.12)).mul(6.2831853))));
-  const col = vCol.add(iri.mul(glow).mul(0.45)).add(iri.mul(vFl).mul(0.9));
+  // T-048: «la mano es una linterna» — the words brighten a little near a hand (room.flash), never past the bloom threshold
+  const lamp = flash ? flash(TSL.positionWorld).mul(0.22) : float(0);
+  const col = vCol.mul(lamp.add(1)).add(iri.mul(glow).mul(0.45)).add(iri.mul(vFl).mul(0.9));
   m.colorNode = col.mul(ink).mul(vVis).mul(a);
   m.opacityNode = max(ink, halo).mul(vVis).mul(a);
   return m;
 }
 // the soft dark plate under a block of words (legibility over a bright universe, never a box)
-function makePlate(U, a, P) {
+function makePlate(U, a, flash) {
   const m = new THREE.MeshBasicNodeMaterial(OVER);
   const q = uv().sub(0.5).mul(2.0), r = q.x.mul(q.x).add(q.y.mul(q.y));
   const k = clamp(U.asm.mul(1.6), 0, 1).mul(float(1).sub(clamp(U.out.mul(1.4), 0, 1)));
-  m.colorNode = vec3(0); m.opacityNode = float(1).sub(smoothstep(0.15, 1.0, r)).mul(U.plate).mul(k).mul(a);
+  // T-048: the plate's soft edge catches a hand's light (gradient-border-flashlight): a faint warm band near r ≈ 0.75, only near a hand
+  const lamp = flash ? flash(TSL.positionWorld) : float(0);
+  const band = exp(r.sub(0.72).mul(r.sub(0.72)).mul(-60.0));
+  m.colorNode = U.lamp.mul(band.mul(lamp).mul(0.05)).mul(k).mul(a);
+  m.opacityNode = float(1).sub(smoothstep(0.15, 1.0, r)).mul(U.plate).mul(k).mul(a);
   return m;
 }
 
-function text({ placements, renderOrder = 20, max = 160, spread = 2.0, depth = 0.3, halo = 0.4, plate = 0.45 } = {}) {
-  const U = { dur: uniform(1.5), asm: uniform(0), out: uniform(0), sweep: uniform(-1), sweepK: uniform(0), spread: uniform(spread), depth: uniform(depth), halo: uniform(halo), plate: uniform(plate) };
+function text({ placements, renderOrder = 20, max = 160, spread = 2.0, depth = 0.3, halo = 0.4, plate = 0.45, flash = null } = {}) {
+  const U = { dur: uniform(1.5), asm: uniform(0), out: uniform(0), sweep: uniform(-1), sweepK: uniform(0), spread: uniform(spread), depth: uniform(depth), halo: uniform(halo), plate: uniform(plate),
+    lamp: uniform(new THREE.Vector3(1, 0.86, 0.66)) };   // T-048: the colour a hand's light gives the plate's edge (the chapter's accent)
   const plateGeo = new THREE.PlaneGeometry(1, 1);
   const P = placements.map((pl) => {
     const geo = new THREE.InstancedBufferGeometry();
@@ -238,10 +255,10 @@ function text({ placements, renderOrder = 20, max = 160, spread = 2.0, depth = 0
     for (const k in arr) { const at = new THREE.InstancedBufferAttribute(arr[k], 4); at.setUsage(THREE.DynamicDrawUsage); geo.setAttribute(k, at); }
     geo.instanceCount = 0;
     const a = uniform(0), lag = uniform(0);   // lag: this placement's words start that many seconds later (the tile wave)
-    const mesh = new THREE.Mesh(geo, makeMaterial(U, a, lag));
+    const mesh = new THREE.Mesh(geo, makeMaterial(U, a, lag, flash));
     mesh.frustumCulled = false; mesh.renderOrder = renderOrder; mesh.visible = false;
     mesh.position.copy(pl.position); mesh.quaternion.copy(pl.quaternion);
-    const pm = new THREE.Mesh(plateGeo, makePlate(U, a));
+    const pm = new THREE.Mesh(plateGeo, makePlate(U, a, flash));
     pm.frustumCulled = false; pm.renderOrder = renderOrder - 1; pm.visible = false;
     pm.position.copy(pl.position); pm.quaternion.copy(pl.quaternion);
     return { mesh, plate: pm, geo, arr, a, lag, n: 0 };

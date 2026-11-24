@@ -14,6 +14,8 @@
 // Words (typo3d.js): the chapter card like a film title (small roman numeral, big serif name, the value in italic on a hairline) at
 // ~2.15 m, and the instruction (Geist) at ~1.92 m, on the walls (from Tronc on, only the castell's walls); old words break before new
 // ones assemble; the instruction dims once the group is already doing it. Everything in Spanish; casteller words in Catalan.
+// T-048 (SIS, ARTE-3 §3): the instructions come into focus word by word (typo3d 'blur'), labels in Geist Mono; the fine graphics layer
+// (rulers, «+», dotted grid, mono labels) in the chapter's accent; rims, plates, words and graphics catch the hands' light (room.flash).
 // Nothing is allocated per frame: every mesh is made once; words are laid out only when they change.
 import { FLOOR_NAMES, CLIMBERS } from '../score.js';
 import { typo, OVER } from './typo3d.js';
@@ -76,8 +78,9 @@ function cardItems(C) {
 // the instruction: ONE centred piece (caps ≈ 0.10 m, ≤ 28 characters), the second idea under it as a label in small caps
 const lineItems = (L) => {
   const it = [];
-  if (L[0]) it.push({ text: L[0], font: 'sans', size: 0.15, y: L[1] ? 0.07 : 0, track: 0.02, alpha: 0.88, color: INK, edge: 0.5 });
-  if (L[1]) it.push({ text: L[1], font: 'sans', size: 0.082, y: -0.15, track: 0.16, alpha: 0.6, color: INK, upper: true, edge: 0.47, delay: 0.15 });
+  // T-048: the words come into focus one by one (typo3d reveal 'blur', 60 ms per word); the label under them in Geist Mono caps
+  if (L[0]) it.push({ text: L[0], font: 'sans', size: 0.15, y: L[1] ? 0.07 : 0, track: 0.02, alpha: 0.88, color: INK, edge: 0.5, reveal: 'blur' });
+  if (L[1]) it.push({ text: L[1], font: 'mono', size: 0.082, y: -0.15, track: 0.14, alpha: 0.6, color: INK, upper: true, edge: 0.48, delay: 0.15, reveal: 'blur' });
   return it;
 };
 
@@ -98,6 +101,9 @@ export function createGuide({ THREE, TSL, room }) {
   const uTime = uniform(0);
   const PAL = [uniform(new THREE.Color(1, 0.5, 0.2)), uniform(new THREE.Color(0.8, 0.8, 0.8)), uniform(new THREE.Color(1, 0.7, 0.35))];
   const palNow = PALETTES.wait.map((c) => c.slice());
+  // T-048: the chapter's accent (room.PALETTE, notas/ARTE.md §2), eased: the fine graphics, the hands' light on rims and plates
+  const ACC = uniform(new THREE.Vector3(1, 0.42, 0.18)), accNow = [1, 0.42, 0.18];
+  const accentOf = (b) => (room.PALETTE && room.PALETTE[b] ? room.PALETTE[b].accent : [1, 0.42, 0.18]);
 
   // ------------------------------------------------------------------ the trencadís hand (the work's icon): palm + five fingers =
   // six glass tiles with grout between them. One texture, three channels: R = the tiles, G = which tile (0..5, to light them one after
@@ -219,7 +225,10 @@ export function createGuide({ THREE, TSL, room }) {
       const refl = env(Rf, 0.04).mul(4.4), refr = env(Tf, 0.25).mul(vec3(0.75, 0.85, 0.95)).mul(0.9);
       const vis = step(0.001, kin).mul(float(1).sub(smoothstep(0.6, 1.0, bk))).mul(float(1).sub(U.soft.mul(0.2)));
       const warm = vec3(1.0, 0.86, 0.66).mul(glow).mul(float(0.12).add(rim.mul(0.5)));
-      const col = mix(refr, refl, F).add(film.mul(rim).mul(0.3)).add(warm).add(vec3(hl)).add(vec3(1.0, 0.92, 0.82).mul(rim).mul(restPulse)).add(PAL[0].mul(glow).mul(0.06));
+      // T-048 «la mano es una linterna»: the rim nearest a hand catches its light (room.flash: also a hand on the next wall, at a corner)
+      const lampR = room.flash ? room.flash(positionWorld) : float(0);
+      const col = mix(refr, refl, F).add(film.mul(rim).mul(0.3)).add(warm).add(vec3(hl)).add(vec3(1.0, 0.92, 0.82).mul(rim).mul(restPulse)).add(PAL[0].mul(glow).mul(0.06))
+        .add(mix(vec3(1.0, 0.9, 0.78), ACC, 0.5).mul(lampR).mul(rim.mul(0.55).add(0.08)));
       m.colorNode = col.mul(vis).mul(e.mul(0.7).add(0.3)); m.opacityNode = F.mul(0.5).add(0.45).add(rim.mul(0.15)).add(hl.mul(0.3)).min(1.0).mul(vis);
       const mesh = new THREE.Mesh(ringGeo, m); mesh.renderOrder = 21; mesh.frustumCulled = false; ring.add(mesh);
     }
@@ -258,10 +267,80 @@ export function createGuide({ THREE, TSL, room }) {
 
   // ------------------------------------------------------------------ the words
   const card = typo.slot({ placements: typo.onWalls(room, 2.68),   // high: the play's invitation stands under it from the first second
-    renderOrder: 24, outDur: 0.5, plate: 0.5 });
+    renderOrder: 24, outDur: 0.5, plate: 0.5, flash: room.flash });
   // the instruction: one centred piece, its first line's caps at ~2.05 m, the label under it (always between 1.75 and 2.15 m)
-  const line = typo.slot({ placements: typo.onWalls(room, 1.98), renderOrder: 23, outDur: 0.5, plate: 0.45, spread: 2.4 });
+  const line = typo.slot({ placements: typo.onWalls(room, 1.98), renderOrder: 23, outDur: 0.5, plate: 0.45, spread: 2.4, flash: room.flash });
   object.add(card.object, line.object);
+
+  // ------------------------------------------------------------------ T-048: the fine graphics (ARTE-3 §3, «gráfica de instrumento»)
+  // On every wall, 1 px lines in the chapter's accent at ~40 %: a vertical ruler at each edge of the wall (0.22 m in, ticks every 5 cm
+  // pointing inwards, the hands' band 0.9–1.6 m marked by a second hairline and long ticks at 0.90 / 1.25 / 1.60), «+» marks at the
+  // corners of the play zone (±0.9 m × 0.9–1.6 m), a faint dotted grid (10 cm) behind the two quiet zones, and small mono labels
+  // (`II · PINYA`, `P1`, `1,25 m`) that come into focus word by word. All of it brightens near a hand (room.flash), across a corner too.
+  // One plane per wall, procedural (fwidth-antialiased: 1 px at the room's resolution whatever the render scale); additive, ≤ 0.5 HDR.
+  const FINE = { a: 0, label: '', out: 0, asm: 0, want: '' };
+  const fineA = uniform(0);
+  const fineObj = new THREE.Group(); fineObj.name = 'guide:fine'; object.add(fineObj);
+  const EDGE = 0.22, ZX = 0.9, ZY0 = 0.9, ZY1 = 1.6;
+  room.walls.forEach((w, wi) => {
+    const Wm = w.width, Hm = Math.min(w.height, 2.9);
+    const m = new THREE.MeshBasicNodeMaterial(OVER);
+    const q = uv(), x = q.x.sub(0.5).mul(Wm), y = q.y.mul(Hm);                    // metres: x from the wall's centre, y from the floor
+    const fx = max(TSL.fwidth(x), float(1e-4)), fy = max(TSL.fwidth(y), float(1e-4));
+    const hair = (d, f) => tclamp(float(1).sub(abs(d).div(f)), 0, 1);           // a 1 px line at distance d (m) from it
+    const inR = (v, a, b) => step(a, v).mul(step(v, b));
+    // the two rulers: e = distance from the wall's edge (m), inwards
+    const e = min(x.add(Wm / 2), float(Wm / 2).sub(x));
+    const spine = hair(e.sub(EDGE), fx).mul(inR(y, 0.5, 2.3)).mul(mix(float(0.55), float(1), inR(y, ZY0, ZY1)));
+    const band = hair(e.sub(EDGE + 0.014), fx).mul(inR(y, ZY0, ZY1)).mul(0.8);
+    const t5 = abs(fract(y.div(0.05).add(0.5)).sub(0.5)).mul(0.05), t10 = abs(fract(y.div(0.1).add(0.5)).sub(0.5)).mul(0.1);
+    const key = min(min(abs(y.sub(ZY0)), abs(y.sub(1.25))), abs(y.sub(ZY1)));
+    const tl = select(key.lessThan(0.004), float(0.12), select(t10.lessThan(0.004), float(0.055), float(0.028)));   // tick length (m)
+    const tickY = select(key.lessThan(0.004), key, select(t10.lessThan(0.004), t10, t5));
+    const ticks = hair(tickY, fy).mul(step(EDGE, e)).mul(step(e, tl.add(EDGE))).mul(inR(y, 0.5, 2.3)).mul(select(key.lessThan(0.004), float(1), float(0.7)));
+    // «+» at the play zone's corners
+    const cx = abs(abs(x).sub(ZX)), cy = min(abs(y.sub(ZY0)), abs(y.sub(ZY1)));
+    const plus = hair(cx, fx).mul(step(cy, 0.045)).max(hair(cy, fy).mul(step(cx, 0.045)));
+    // the dotted grid behind the quiet zones (text ±1.6 × 1.75–2.2, button ±0.9 × 0.9–1.6), softly faded at their edges
+    const gx = fract(x.div(0.1).add(0.5)).sub(0.5).mul(0.1), gy = fract(y.div(0.1).add(0.5)).sub(0.5).mul(0.1);
+    const dot = tclamp(float(1.3).sub(length(vec2(gx.div(fx), gy.div(fy)))), 0, 1);
+    const zT = smoothstep(1.6, 1.3, abs(x)).mul(smoothstep(1.7, 1.8, y)).mul(smoothstep(2.25, 2.15, y));
+    const zB = smoothstep(0.9, 0.6, abs(x)).mul(smoothstep(0.85, 0.95, y)).mul(smoothstep(1.65, 1.55, y)).mul(smoothstep(0.3, 0.45, length(vec2(x, y.sub(1.25)))));   // not inside the ring
+    const grid = dot.mul(zT.max(zB)).mul(0.45);
+    const lamp = room.flash ? room.flash(positionWorld) : float(0);
+    const k = spine.add(band).add(ticks).add(plus.mul(0.9)).min(1).mul(0.16).add(grid.mul(0.07));
+    m.colorNode = ACC.mul(k).mul(lamp.mul(2.2).add(1)).mul(fineA);
+    m.opacityNode = float(0);                                                     // pure light (premultiplied «over»: adds)
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(Wm, Hm), m);
+    mesh.position.copy(w.centre).setY(Hm / 2).addScaledVector(w.normal, -0.05); mesh.quaternion.copy(basis[wi]);
+    mesh.renderOrder = 18; mesh.frustumCulled = false; fineObj.add(mesh);
+  });
+  // the labels: per wall (each its own width), Geist Mono caps, focus in word by word
+  const fineText = typo.text({ placements: room.walls.map((w, wi) => ({ position: w.centre.clone().addScaledVector(w.normal, -0.05), quaternion: basis[wi] })), renderOrder: 18, plate: 0, halo: 0, flash: room.flash });
+  object.add(fineText.object);
+  const LABELS = { wait: 'UMBRAL', intro: 'LA PLAÇA', brasa: 'I · BRASA', pinya: 'II · PINYA', tronc: 'III · TRONC', pom: 'IV · POM DE DALT', crown: 'V · CORONA', festa: 'V · LA PLAÇA', baixada: 'VI · BAIXADA', fall: 'CAIGUDA', acta: 'ACTA' };
+  const wallName = (w, wi) => (typeof w.id === 'string' && /^P\d/i.test(w.id) ? w.id.toUpperCase() : 'P' + (wi + 1));
+  function fineItems(wi, label, acc) {
+    const w = room.walls[wi], xl = -w.width / 2 + EDGE + 0.17, xr = w.width / 2 - EDGE - 0.17;
+    const c = [0.3 * (0.6 + 0.4 * acc[0]), 0.3 * (0.6 + 0.4 * acc[1]), 0.3 * (0.6 + 0.4 * acc[2])];   // ink tinted by the accent, ~40 %
+    const L = (text, x, y, align, alpha = 1, delay = 0, upper = true) => ({ text, font: 'mono', size: 0.08, y, x, align, track: 0.08, alpha, color: c, edge: 0.48, upper, reveal: 'blur', delay });
+    return [L(label, xl, 2.42, 'left'), L(wallName(w, wi), xr, 2.42, 'right', 0.85, 0.12), L('1,25 m', xl, 1.25, 'left', 0.9, 0.24, false),
+      L('0,90', xl, ZY0, 'left', 0.55, 0.3), L('1,60', xl, ZY1, 'left', 0.55, 0.3)];
+  }
+  function stepFine(dt, b, on) {
+    const want = on && b !== 'intro' ? (LABELS[b] || '') : '';
+    FINE.a = ease(FINE.a, want ? 1 : 0, dt, 1.5); fineA.value = FINE.a; fineObj.visible = FINE.a > 0.003;
+    if (want !== FINE.label) {                                                    // the old labels go out of focus, then the new come in
+      FINE.out = Math.min(1, FINE.out + dt / 0.5);
+      if (!FINE.label || FINE.out >= 1) {
+        FINE.label = want; FINE.out = 0; FINE.asm = 0;
+        if (want) { const acc = accentOf(b); for (let i = 0; i < NW; i++) fineText.setFor(i, fineItems(i, want, acc)); }
+      }
+    } else if (want) FINE.asm = Math.min(1, FINE.asm + dt / Math.max(0.5, fineText.dur));
+    fineText.U.asm.value = FINE.asm; fineText.U.out.value = FINE.out;
+    for (let i = 0; i < NW; i++) fineText.alpha[i] = FINE.label ? FINE.a : 0;
+    fineText.apply(1);
+  }
 
   // ------------------------------------------------------------------ per frame
   let guideA = 0, guideKey = '', nT = 0, softNow = 0, stillNow = 0, time0 = 0, revealNow = 1;
@@ -357,7 +436,7 @@ export function createGuide({ THREE, TSL, room }) {
   }
   let warnKind = '', warnUntil = -1;
   // walls outside the castell's structure still have a role (#11d): their own line
-  const lineOut = typo.slot({ placements: typo.onWalls(room, 1.98), renderOrder: 23, outDur: 0.5, plate: 0.45 });
+  const lineOut = typo.slot({ placements: typo.onWalls(room, 1.98), renderOrder: 23, outDur: 0.5, plate: 0.45, flash: room.flash });
   object.add(lineOut.object);
   const nearX = (hands, wi) => { for (const h of hands) if (h.wall === wi && Math.abs((h.u - 0.5) * room.walls[wi].width) <= 0.55) return true; return false; };   // the score's test for the start ring
   let structureOnly = false; const inS = [];
@@ -384,6 +463,9 @@ export function createGuide({ THREE, TSL, room }) {
     // the chapter's palette for the tiles and the glass
     const pal = PALETTES[gb] || PALETTES.wait;
     for (let k = 0; k < 3; k++) { for (let c = 0; c < 3; c++) palNow[k][c] = ease(palNow[k][c], pal[k][c], dt, 2); PAL[k].value.setRGB(palNow[k][0], palNow[k][1], palNow[k][2]); }
+    { const a = accentOf(b); for (let c = 0; c < 3; c++) accNow[c] = ease(accNow[c], a[c], dt, 1.5); ACC.value.set(accNow[0], accNow[1], accNow[2]);
+      for (const sl of [card, line, lineOut]) for (const t of sl.texts) t.U.lamp.value.set(0.5 + 0.5 * accNow[0], 0.5 + 0.5 * accNow[1], 0.5 + 0.5 * accNow[2]); }
+    stepFine(dtT, b, on);
     nT = 0;
     for (const T of targets) T.used = false;
     softNow = gb === 'pinya' || gb === 'tronc' || gb === 'baixada' ? 1 : 0;
@@ -466,7 +548,7 @@ export function createGuide({ THREE, TSL, room }) {
   function dispose() {
     ringGeo.dispose(); discGeo.dispose(); tileGeo.dispose(); handTex.dispose(); gq.dispose(); for (const G of ghosts) for (const H of G.h) H.mesh.material.dispose();
     for (const T of targets) T.group.traverse((o) => { if (o.material) o.material.dispose(); });
-    for (const s of [card, line, lineOut]) s.dispose();
+    for (const s of [card, line, lineOut]) s.dispose(); fineText.dispose(); fineObj.traverse((o) => { if (o.material) { o.material.dispose(); o.geometry.dispose(); } });
   }
-  return { object, update, dispose, ghost, targets, layers: { card, line }, get learned() { return learnedNow; } };
+  return { object, update, dispose, ghost, targets, layers: { card, line, fine: fineText }, get learned() { return learnedNow; } };
 }
