@@ -28,7 +28,8 @@ import { createRoom3D } from '../ressonancia/scenes3d/room3d.js';
 import { createScore, TIMES } from '../ressonancia/score.js';
 import { createGuide } from '../ressonancia/scenes3d/guide3d.js';
 import { setSink, canEmit } from '../ressonancia/scenes3d/emit.js';
-import { createTargets3D } from '../ressonancia/scenes3d/targets3d.js';   // 05-plan §2.6: the hold-targets of S.targets, drawn
+import { createTargets3D } from '../ressonancia/scenes3d/targets3d.js';
+import { HOST_PAL } from '../ressonancia/scenes3d/palette.js';   // the colour script's values (VFX owns them)   // 05-plan §2.6: the hold-targets of S.targets, drawn
 import { overrides as tuneOverrides, applyTimes } from '../ressonancia/tuning.js';   // T-052: the score's thresholds as live params
 
 const vt = await connectExperience();
@@ -231,19 +232,10 @@ function driveCastell(e, dt, time, events) {
 // ------------------------------------------------------------------------------------------------ the colour script (ARTE-2 §3)
 // One palette per block, eased: `warm` the light of the chapter (dust, the line, the hands' heat), `cool` its night, `air` the haze's
 // own colour, `thread` the accent the guiding thread carries. The all-amber night is the intro's alone now.
-const PAL = {
-  wait: { warm: [1.0, 0.42, 0.18], cool: [0.35, 0.40, 0.62], air: [0.0016, 0.0016, 0.0024], thread: [1.0, 0.42, 0.16], shape: 'point' },
-  intro: { warm: [1.0, 0.62, 0.32], cool: [0.55, 0.66, 1.0], air: [0.0035, 0.0058, 0.0125], thread: [1.0, 0.66, 0.34], shape: 'point' },
-  brasa: { warm: [1.0, 0.36, 0.12], cool: [0.62, 0.48, 0.55], air: [0.0080, 0.0030, 0.0022], thread: [1.0, 0.34, 0.10], shape: 'point' },
-  pinya: { warm: [1.0, 0.46, 0.38], cool: [0.30, 0.95, 0.90], air: [0.0018, 0.0070, 0.0080], thread: [0.35, 1.0, 0.92], shape: 'point' },
-  tronc: { warm: [0.95, 0.52, 0.30], cool: [0.70, 0.80, 0.95], air: [0.0050, 0.0040, 0.0040], thread: [0.95, 0.55, 0.32], shape: 'tile' },
-  pom: { warm: [1.0, 0.82, 0.45], cool: [0.86, 0.90, 1.0], air: [0.0030, 0.0032, 0.0040], thread: [0.95, 0.96, 1.0], shape: 'line' },
-  crown: { warm: [1.0, 0.85, 0.55], cool: [0.90, 0.85, 1.0], air: [0.0040, 0.0036, 0.0050], thread: [1.0, 0.86, 0.5], shape: 'line' },
-  festa: { warm: [1.0, 0.85, 0.55], cool: [0.90, 0.85, 1.0], air: [0.0040, 0.0036, 0.0050], thread: [1.0, 0.86, 0.5], shape: 'tile' },
-  baixada: { warm: [1.0, 0.66, 0.76], cool: [0.62, 0.95, 0.90], air: [0.0080, 0.0060, 0.0100], thread: [1.0, 0.72, 0.85], shape: 'point' },
-  fall: { warm: [0.92, 0.62, 0.62], cool: [0.60, 0.62, 0.82], air: [0.0040, 0.0035, 0.0055], thread: [0.9, 0.75, 0.85], shape: 'tile' },
-  acta: { warm: [0.92, 0.92, 0.96], cool: [0.50, 0.55, 0.70], air: [0.0010, 0.0010, 0.0014], thread: [0.95, 0.95, 1.0], shape: 'line' },
-};
+// 25-11 (VFX, 05-plan §2.7): the values come from the work's palette (palette.js › HOST_PAL: warm, cool, air, thread derived from the
+// approved tokens); only the guiding thread's shape per block stays here
+const SHAPE = { wait: 'point', intro: 'point', brasa: 'point', pinya: 'point', tronc: 'tile', pom: 'line', crown: 'line', festa: 'tile', baixada: 'point', fall: 'tile', acta: 'line' };
+const PAL = Object.fromEntries(Object.entries(HOST_PAL).map(([k, v]) => [k, { warm: v.warm, cool: v.cool, air: v.air, thread: v.thread, shape: SHAPE[k] || 'point' }]));
 const ONE3 = [1, 1, 1];
 const INTRO_SKY = [1.15, 1.45, 2.1];   // the intro's sky: a cool blue-silver night against the sodium lamps (warm/cool split)
 const STINT = { baixada: [3.2, 1.7, 2.4], fall: [2.2, 1.4, 2.0] };   // the square's night sky × this (baixada: a dawn coming, rose and lilac)
