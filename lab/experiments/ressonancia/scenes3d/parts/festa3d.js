@@ -29,6 +29,7 @@
 // arrive: night shards drift in from the dark, burst into gold, their particles fly onto the plate; the plate opens cell by cell.
 // leave: the field freezes (0–0.15), then the sand and gold shards fall slowly like rain; the plate goes dark cell by cell.
 // Read-only: part.resonance (what is shown, 0..1), part.bloom (0..1).
+import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 const MAXH = 16, MAXI = 16, MAXM = 4, MAXS = 32;
 const NP_GPU = 600000, NP_GL = 300000, NSH = 2400;
 
@@ -86,7 +87,7 @@ export function create({ THREE, TSL, room, params }) {
   const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
   let fxN = 0, fxT = 0;
   function fxImpact(wall, u, strength, mat, kind) {                // wall: room.walls index · u: 0..1 along it · strength: 0..1
-    if (!fxBc || fxN >= 16) return; fxN++;
+    if (!fxBc || fxN >= 16 || !canEmit()) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
     try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
   }

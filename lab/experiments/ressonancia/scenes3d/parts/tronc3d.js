@@ -19,6 +19,7 @@
 // giveFloor(i, tower), levels(), impacts, rise. Sound: impacts → 'fx:impact' on the work's BroadcastChannel (notas/ENT.md).
 // Outside its own block (baixada, fall) only the floors are drawn (the decor fades in ~1 s).
 
+import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 import { sculpture, NAMES, NL } from './tronc3d/sculpt.js';
 
 const TAU = Math.PI * 2;
@@ -380,7 +381,7 @@ export function create(ctx) {
   let fxN = 0, fxT = 0;
   function impact(wall, u, force, mat, kind) {
     if (impacts.length < impactPool.length) { const o = impactPool[impacts.length]; o.wall = wall; o.u = u; o.force = force; impacts.push(o); }
-    if (!mat || !fxBc || fxN >= 16 || lone()) return; fxN++;
+    if (!mat || !fxBc || fxN >= 16 || lone() || !canEmit()) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = clamp01(u); fxMsg.strength = clamp01(force); fxMsg.mat = mat; fxMsg.kind = kind;
     try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
   }

@@ -26,6 +26,7 @@
 //   { type: 'fx', fx: 'impact', wall, u (0..1 along the wall), strength (0..1), mat ('ceramic'|'chrome'|'glass'), kind ('hit'|'floor'|'break'|'hook') }
 // (≤ 16 a second). How it is drawn: the mosaic is ONE mesh; a small float texture carries each piece's turn, lift, light and scale
 // (springs and waves on the CPU, the pose in the vertex stage). Its mirror image under a black gloss is the floor's reflection.
+import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 import { createScore } from '../../score.js';
 
 export function create(ctx) {
@@ -565,7 +566,7 @@ export function create(ctx) {
     return loc;
   }
   function fx(kind, p, strength, mat) {
-    if (!bc || fxCount >= 16) return;
+    if (!bc || fxCount >= 16 || !canEmit()) return;
     fxCount++; fxSent++; locate(p);
     fxMsg.wall = loc.wall; fxMsg.u = loc.u; fxMsg.strength = clamp(strength, 0, 1); fxMsg.mat = MAT_NAME[mat] || 'ceramic'; fxMsg.kind = kind;
     try { bc.postMessage(fxMsg); } catch { /* closed: play on */ }

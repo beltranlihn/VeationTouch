@@ -94,10 +94,11 @@ it this page runs its own score.
 
 ## Requests to the studio
 - Same as res-obra: a channel between a visual piece and its sound piece (the BroadcastChannel is a lab workaround).
-- **Two instances publish twice** (analysis §5 #26). In the app the page runs twice (the room instance and the viewer); both post
-  `fx:impact` and `ctl` on the BroadcastChannel (8 parts and `experience.js`), so the sound hears every impact and every jump twice.
-  Proposed lab patch, for the studio to decide: only the room instance publishes (`vt.sink !== 'viewer'`). In the medium term the
-  official visual ↔ sound channel above removes the need.
+- **Two instances publish twice** (analysis §5 #26) — **fixed in the lab (studio, 2026-11-24)**. In the app the page runs twice (the room
+  instance and the viewer). Only the room instance publishes now: `ressonancia/scenes3d/emit.js` (`setSink(vt)` in each host,
+  `canEmit()` = `vt.sink !== 'viewer'`) guards the 8 parts' `fx:impact` and the hosts' `ctl` (res-obra3d, ressonancia, res-3d-study).
+  The viewer still renders and still follows the sound's `state`. Checked in the harness: with the sink forced to 'viewer', 0 fx /
+  0 ctl posted and the page still followed a posted state. In the medium term the official visual ↔ sound channel removes the need.
 - **A common stroke id for the visual and the sound piece** (§5 #27). `experiences/runtime.js` gives each piece its own stroke ids, so
   the two pieces cannot tell that they are hearing / seeing the same hand. Request: one `stroke` shared by both pieces (or the sound
   piece receives the same ids as the visual one).

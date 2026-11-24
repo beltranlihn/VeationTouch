@@ -33,6 +33,7 @@
 //   params.waveEvery (s, automatic waves), params.autoWave (two hands within 0.9 s make a wave, as the score does).
 // Sizes in metres; nothing allocated per frame; no readPixels.
 
+import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 const NC = 512;                         // heat cells round the perimeter
 const NSP = 131072;                     // sparks
 const MAXE = 64;                        // emitters per frame
@@ -1256,7 +1257,7 @@ export function create({ THREE, TSL, room, params }) {
   const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
   let fxN = 0, fxT = 0;
   function fxImpact(wall, u, strength, mat, kind) {                // wall: room.walls index · u: 0..1 along it · strength: 0..1
-    if (!fxBc || fxN >= 16) return; fxN++;
+    if (!fxBc || fxN >= 16 || !canEmit()) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
     try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
   }

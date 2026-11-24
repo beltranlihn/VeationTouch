@@ -19,6 +19,7 @@
 // become square glazed tesserae (the trencadís).
 // arrive/leave: points fly by shards (vertex stage), fibres grow/retract, cubes assemble/scatter.
 // Study (no input.state): params fill, closed, dry, arrive, leave, glow, light, breath, fibres, cubes, density, move.
+import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 import { bakeBodyGen, pose, rng, V } from './pinya3d/body.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -744,7 +745,7 @@ export function create({ THREE, TSL, room, params }) {
   const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
   let fxN = 0, fxT = 0;
   function fxImpact(wall, u, strength, mat, kind) {
-    if (!fxBc || fxN >= 16) return; fxN++;
+    if (!fxBc || fxN >= 16 || !canEmit()) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
     try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
   }

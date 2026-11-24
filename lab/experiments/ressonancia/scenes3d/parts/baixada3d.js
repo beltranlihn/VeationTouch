@@ -22,6 +22,7 @@
 // arrive, leave, rain, gain, floorH.
 // Sound (wave 2, ENT's snippet): a caught shard 'glass'/'hit', a shard that shatters 'glass'/'floor', a flower that opens 'petal'/'bloom'.
 
+import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 export function create(ctx) {
   const { THREE, TSL, room } = ctx;
   const P = ctx.params || {};
@@ -450,7 +451,7 @@ export function create(ctx) {
   const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
   let fxN = 0, fxT = 0;
   function fxImpact(wall, u, strength, mat, kind) {
-    if (!fxBc || fxN >= 16) return; fxN++;
+    if (!fxBc || fxN >= 16 || !canEmit()) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
     try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
   }

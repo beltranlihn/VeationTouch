@@ -16,6 +16,7 @@
 //     gold edge to dark. Sound: 'ceramic' 'floor' / 'break' (ENT › Ola 2).
 //   · the end: dust and shards thin out, and from duration − 3 s everything goes to black, slowly: ready for the acta.
 // Study (?part=fall3d): params outcome, duration, floors, walls, arrive, leave, light; the host's t is the fall's clock (Run the clock).
+import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 function rng(seed) { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -167,7 +168,7 @@ export function create(ctx) {
   const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
   let fxN = 0, fxT = 0;
   function fxImpact(wall, u, strength, mat, kind) {
-    if (!fxBc || fxN >= 16) return; fxN++;
+    if (!fxBc || fxN >= 16 || !canEmit()) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
     try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
   }

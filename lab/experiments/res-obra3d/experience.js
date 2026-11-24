@@ -27,9 +27,11 @@ import * as TSL from 'three/tsl';
 import { createRoom3D } from '../ressonancia/scenes3d/room3d.js';
 import { createScore, TIMES } from '../ressonancia/score.js';
 import { createGuide } from '../ressonancia/scenes3d/guide3d.js';
+import { setSink, canEmit } from '../ressonancia/scenes3d/emit.js';
 import { overrides as tuneOverrides, applyTimes } from '../ressonancia/tuning.js';   // T-052: the score's thresholds as live params
 
 const vt = await connectExperience();
+setSink(vt);                                                       // P0: the viewer instance (vt.sink 'viewer') renders and listens, never posts
 const canvas = document.getElementById('c');
 canvas.width = vt.size.width; canvas.height = vt.size.height;
 const q = new URLSearchParams(location.search);
@@ -111,7 +113,7 @@ if (bc) bc.onmessage = (ev) => {
   link.events.push(...(events || [])); link.at = performance.now(); link.ts = m.ts; link.pace = m.pace || 1; link.beat = s.beat; link.acta = m.acta;
 };
 const following = () => performance.now() - link.at < 700;
-const tell = (o) => { try { bc?.postMessage({ type: 'ctl', ...o }); } catch { /* a closed channel: carry on alone */ } };
+const tell = (o) => { if (!canEmit()) return; try { bc?.postMessage({ type: 'ctl', ...o }); } catch { /* a closed channel: carry on alone */ } };
 // A jump made on this page (the 'Go to' parameter, the lab's checks, the review page) goes to the sound piece too: while the sound leads,
 // a local jump alone was overwritten by the sound's next state (25 ms later) and the picture only changed when the sound's own score
 // got there — the "3–4 s" lag of the audits. The sound applies a ctl jump within ~0.2 s.
