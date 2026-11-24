@@ -864,6 +864,15 @@ export function createScore(nWalls, opt = {}) {
       // l'acta (T-050, proposal §4.10): from `from` to `to` s every hand that rests (`rest` s still) leaves a gold handprint that stays
       const Pr = T.print;
       S.printOpen = S.t >= Pr.from && S.t < Pr.to;
+      // 25-11 (Beltrán): plaques of lime on every wall, in reach (a child's too): holding one 0.5 s leaves the hand's print in it, for
+      // good; the free prints of still hands (below) keep working
+      if (S.printOpen && !offered) { offer({ mode: 'field', kind: 'print', shape: 'rect', w: 0.5, h: 0.4, y: [0.85, 1.35] }); offered = true; }
+      else if (!S.printOpen && offered) { TG.clear(); offered = false; }
+      if (S.printOpen) for (const t of tgDone) {
+        if (S.prints.length >= Pr.max) break;
+        S.prints.push({ wall: t.wall, dx: t.dx, y: t.y, s: t.s, size: T.hand.size, t: Math.round(S.t * 100) / 100, plaque: true }); emit('print:' + t.wall);
+        achieve('print', S.prints.length, t.wall, 'group', t.s, t.y);
+      }
       if (S.printOpen) for (const o of S.strokes) {
         if (printed.has(o.stroke) || o.still < Pr.rest || S.prints.length >= Pr.max) continue;
         printed.add(o.stroke);
