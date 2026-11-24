@@ -182,7 +182,7 @@ function wantedBase(b) {
     case 'wait': return has('umbral3d') ? ['umbral3d'] :   // the threshold (ENT, T-026) has its own floor, horizon and lights
                          has('brasa3d') ? ['brasa3d', 'atmos'] : ['atmos'];
     case 'intro': return ['plaza', 'atmos', 'castell', 'introtext'];
-    case 'brasa': return has('brasa3d') ? ['brasa3d', 'atmos'] : ['atmos'];
+    case 'brasa': return has('brasa3d') ? ['plaza', 'brasa3d', 'atmos'] : ['plaza', 'atmos'];   // 25-11 (VFX): the square at night, lamps almost off, the fires light the facades (plaza detects 'brasa')
     // 05-plan D5b: the LIT square (plaza.js V8 turns to plaza light by itself in pinya / tronc) behind the crowd and the tower
     case 'pinya': return has('pinya3d') ? ['plaza', 'pinya3d', 'atmos'] : ['plaza', 'castell', 'atmos'];
     case 'tronc': return has('tronc3d') ? ['plaza', 'tronc3d', 'atmos'] : ['plaza', 'castell', 'atmos'];   // T-032 (3D-FE): the assemblage tower carries its own light bodies
