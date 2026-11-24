@@ -29,6 +29,7 @@ export const TUNE = [
   ['hand.span',        'Pinya/span window width (m)',                  1,     3.5,  0.1,  2,    'm'],
   ['brasa.max',        'Brasa: longest (s)',                           45,    120,  5,    75,   's'],
   ['brasa.callMax',    'Brasa call: the colla completes it after (s)', 6,     30,   1,    14,   's'],
+  ['brasa.relayMin',   'Brasa relay: the fire goes at least (m)',      2,     20,   0.5,  8,    'm'],
   // T-055 the relay (spark → relay → call): the fire devil runs round the room from hand to hand
   ['brasa.spark',      'Brasa: spark lasts (s), then the relay',       6,     25,   1,    12,   's'],
   ['brasa.relayMax',   'Brasa relay: the lap closes by (s)',           15,    45,   1,    30,   's'],

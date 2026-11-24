@@ -1,8 +1,6 @@
-score-sim: lab\experiments\ressonancia\score.js · seed 1 · lidar 0.06
-
 act     size brasa     pinya     tronc     pom       crown     festa     baixada   total  castell
-hold    1    A         A1        A9+0      A         A         A3        A         530s   pilar de 9
-hold    2    A         A1        A9+0      A         A         A3        A         513s   pilar de 9
+hold    1    A         A2        A9+0      A         A         A3        A         535s   2 de 9
+hold    2    A         A2        A9+0      A         A         A3        A         514s   2 de 9
 hold    4    A         A4        A9+0      A         A         A3        A         501s   4 de 9
 hold    8    A         A4        A9+0      A         A         A3        A         504s   4 de 9
 hold    15   A         A4        A9+0      A         A         A3        A         497s   4 de 9
@@ -16,4 +14,4 @@ strike  2    B+c       B1+c      B0+5+c    B+c       A         B1+c      B+c    
 strike  4    B+c       B4+c      B0+5+c    A         A         B1+c      B+c       608s   4 de 5
 strike  8    B+c       B1+c      B0+5+c    A         A         B1+c      B+c       593s   pilar de 5
 strike  15   B+c       A4        B0+5+c    A         A         B1+c      B+c       576s   4 de 5
-(15 passes in 2.6 s)
+(15 passes in 4.0 s)

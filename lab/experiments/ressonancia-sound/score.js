@@ -34,7 +34,7 @@ export const TIMES = {                       // seconds
   intro: 70,
   title: 6,                                  // the chapter card
   tg: { charge: 0.5, hold: 0.5, grace: 0.8, r: 0.22 },   // 25-11 (D3b) the hold-targets: rest charge s, then hold s; a lost hand keeps the charge grace s; radius (m)
-  brasa: { min: 45, target: 60, max: 75, reward: 7, spark: 12, gap: 0.8, pause: 3.2, lead: 1.0, callMax: 14, fracs: [0.35, 0.5, 0.65], relayMax: 30 },   // 25-11: spark → relay (chain) → 3 calls (together; fracs of the group, callMax s before the colla)
+  brasa: { min: 45, target: 60, max: 75, reward: 7, spark: 12, gap: 0.8, pause: 3.2, lead: 1.0, callMax: 14, fracs: [0.35, 0.5, 0.65], relayMax: 30, relayMin: 8 },   // 25-11: spark → relay (chain) → 3 calls (together; fracs of the group, callMax s before the colla)
   pinya: { min: 50, target: 75, max: 100, reward: 8, fill: 10, hold: 3, palm: 15, pack: [0.55, 0.9], net: 40, nearFull: 1.8, nearZero: 3 },   // nearFull/nearZero: at least half the wall (25-11, A5)
   tronc: { min: 85, target: 115, max: 145, reward: 6, period: 2.4, phrase: 4.8, wobble: 7, foot: 0.95, footY: [0.6, 0.9], help: 0.5,   // 25-11: ladders (rungs; a child's kidRungs), needK × n / 1.6 ladders a floor,
     rungs: [0.9, 1.25, 1.6], kidRungs: [0.7, 1.05, 1.4], every: 6, colla: 16, needK: 0.5 },                                            // ≥ every s between floors, the colla after colla s (to 5)
@@ -60,7 +60,7 @@ export function createScore(nWalls, opt = {}) {
   const wrapP = (x) => ((x % PER) + PER) % PER;
   const perimOf = (wall, dx) => wrapP(S0[wall] + LEN[wall] / 2 + (dx || 0));
   const wallAtS = (x) => { x = wrapP(x); for (let w = W - 1; w >= 0; w--) if (x >= S0[w]) return w; return 0; };
-  const relayFresh = () => ({ chain: 0, travel: 0, s: 0, lap: 0, holderWall: -1, holder: null, y: 1.1, speed: 0, target: null, stall: 0, assist: false, jumps: 0, corners: 0, jump: null, corner: null, done: false, s0: 0, perimeter: PER });
+  const relayFresh = () => ({ chain: 0, travel: 0, dist: 0, lastS: 0, s: 0, lap: 0, holderWall: -1, holder: null, y: 1.1, speed: 0, target: null, stall: 0, assist: false, jumps: 0, corners: 0, jump: null, corner: null, done: false, s0: 0, perimeter: PER });
   const S = {
     block: 'wait', phase: 'play', t: 0, tp: 0, clock: 0, pass: 0, passT: 0,
     hands: 0, count: zeros(), held: zeros(false), left: zeros(false), right: zeros(false),
@@ -317,7 +317,7 @@ export function createScore(nWalls, opt = {}) {
     for (const o of S.strokes) { const tr = track.get(o.stroke), lt = tr ? tr.land : 0; if (!born || lt > bt) { born = o; bt = lt; } }
     relayR = born ? perimOf(born.wall, born.dx) : perimOf(0, 0);
     R.s = R.s0 = wrapP(relayR); R.holderWall = wallAtS(relayR); R.y = born ? born.y || 1.1 : 1.1; if (born) R.holder = born.stroke;
-    relayGoal = clamp(4 + Math.round(S.n / 2), 5, 12); relayT0 = S.t; R.travel = 0;
+    relayGoal = clamp(4 + Math.round(S.n / 2), 5, 12); relayT0 = S.t; R.travel = 0; R.dist = 0; R.lastS = R.s;
     offer({ mode: 'chain', kind: 'relay', goal: relayGoal });
     emit('relay:start');
   }
@@ -326,6 +326,7 @@ export function createScore(nWalls, opt = {}) {
     for (const t of tgDone) {   // a link held: the fire jumps there
       if (t.mode !== 'chain') continue;
       const fw = R.holderWall; R.jumps++; R.jump = { from: fw, to: t.wall, at: now }; R.chain = t.chain; emit('relay:jump');
+      R.dist += Math.abs(cdP(t.s, R.lastS)); R.lastS = t.s;   // how far the fire really went, link to link
       let best = null, bd = 1e9; for (const o of S.strokes) { const d = Math.abs(cdP(o.s || perimOf(o.wall, o.dx), t.s)); if (d < bd) { bd = d; best = o; } }
       R.holder = best ? best.stroke : null;
     }
@@ -345,7 +346,8 @@ export function createScore(nWalls, opt = {}) {
     R.s = wrapP(relayR); R.holderWall = wallAtS(relayR); if (head) R.y += (head.y - R.y) * (1 - Math.exp(-dt / 0.4));
     R.lap = clamp(Math.max(TG.progress, R.travel / PER), 0, 1);
     if (!R.assist && S.t - relayT0 >= B.relayMax) { R.assist = true; relayHelped = true; emit('relay:assist'); }
-    if (TG.reached || R.travel >= PER || R.assist) {
+    // done: the links AND at least relayMin m of room (a wall: one person walks the fire along it, ~15–20 s), or once round, or the colla
+    if ((TG.reached && R.dist >= Math.min(B.relayMin, PER / 2)) || R.travel >= PER || R.assist) {
       R.done = true; R.lap = 1; R.speed = 0; R.target = null; const by = R.assist ? 'colla' : 'group'; R.assist = false;
       emit('relay:lap'); achieve('lap', R.jumps, R.holderWall, by, R.s, R.y); TG.clear(); return true;
     }
@@ -867,7 +869,12 @@ export function createScore(nWalls, opt = {}) {
   /** The line of the acta, as the colles write it: "3 de 7 · descarregat". */
   function acta() {
     const kind = S.structure === 1 ? 'pilar' : String(S.structure || 0);
-    return { castell: `${kind} de ${S.stats.maxFloors}`, structure: STRUCTURES[S.structure] || '', floors: S.stats.maxFloors, outcome: S.outcome, hands: S.stats.maxHands, prints: S.prints.length, people: S.people, stillS: Math.round(S.stats.stillS), values: { ...S.values } };
+    // 25-11 (B8): what the group did and what the colla did — the acta tells them apart
+    const c = S.castell, r = S.result;
+    return { castell: `${kind} de ${S.stats.maxFloors}`, structure: STRUCTURES[S.structure] || '', floors: S.stats.maxFloors, outcome: S.outcome, hands: S.stats.maxHands, prints: S.prints.length, people: S.people, stillS: Math.round(S.stats.stillS), values: { ...S.values },
+      floorsOwn: c.floorsOwn, floorsColla: c.floorsColla, crown: c.crown, slips: c.slips, cracks: c.cracks,
+      result: { brasa: r.brasa, pinya: r.pinya ? { ...r.pinya } : null, tronc: r.tronc ? { ...r.tronc } : null, pom: r.pom, festa: r.festa, baixada: r.baixada },
+      helped: Object.keys(helped).filter((k) => helped[k]) };
   }
   /** Rehearsal: go to a block with a plausible state. */
   function jump(block) {
