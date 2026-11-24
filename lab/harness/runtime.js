@@ -105,7 +105,7 @@ function baseHandle() {
 
 /**
  * Same signature as the app's connectExperience. { sound: true, id } → a SOUND piece's vt (no canvas); otherwise a visual one.
- * Extra for the lab: ?scale=1 (default 0.5: half-size render, fast), ?params={json}, ?sound=<id> (a sound piece plays with this one),
+ * Extra for the lab: ?scale=1 (default 0.5: half-size render, fast), ?view=1 (the app's viewer instance: sink 'viewer', ≤ 0.5, 30 fps), ?params={json}, ?sound=<id> (a sound piece plays with this one),
  * ?soundParams={json} (that sound piece's parameters, e.g. {"lang":"es"}).
  */
 export async function connectExperience(opt = {}) {
@@ -121,7 +121,11 @@ export async function connectExperience(opt = {}) {
 
   if (opt.sound) return connectSound(vt, R);
 
-  const scale = Number(q.get('scale')) > 0 ? Math.min(1, Number(q.get('scale'))) : 0.5;
+  // ?view=1: the app's VIEWER instance (Live's preview / the 3D view): vt.sink 'viewer', ≤ 0.5 scale, 30 fps — as the app opens a second
+  // copy of the page with ?run=1&view=1. For checking that a piece behaves as a viewer (it must not publish) and what it costs.
+  const VIEW = q.get('view') === '1';
+  const scale = Math.min(VIEW ? 0.5 : 1, Number(q.get('scale')) > 0 ? Number(q.get('scale')) : 0.5);
+  if (VIEW) { vt.sink = 'viewer'; vt.fps = 30; }
   const size = { width: Math.round(RM.strip.width * scale), height: Math.round(RM.strip.height * scale) };
   vt.canvas = { ...RM.strip }; vt.scale = scale; vt.size = size;
   vt.walls = RM.walls.map((w) => ({ id: w.id, name: w.name, rect: { x: Math.round(w.x * scale), y: 0, w: Math.round(w.w * scale), h: size.height }, width: w.width, height: WH, pxPerM: (w.w * scale) / w.width, masks: [] }));
@@ -145,6 +149,7 @@ export async function connectExperience(opt = {}) {
   vt.loop = (fn, src) => {
     let last = performance.now(), raf = 0;
     const step = (tNow) => {
+      if (vt.fps === 30 && performance.now() - last < 1000 / 30 - 2) { raf = requestAnimationFrame(step); return; }   // the viewer: 30 fps
       const now = performance.now(), dt = Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
       if (!canvas) { canvas = fillWindow(); if (canvas) { R.canvas = canvas; canvas.dataset.lkSeen = '1'; } }
       try { R.stage.step(dt); feed(now); vt._tick(); fn(dt); } catch (e) { console.error(e); }

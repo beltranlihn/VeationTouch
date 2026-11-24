@@ -16,17 +16,12 @@
 // Scale: the harness's default (0.5). A URL asking ?scale=1 (or anything but 0.25 / 0.5) is refused unless --full (Tech/QA only, in
 // the authorized windows).
 import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLabServer } from '../harness/serve.mjs';
+import { takeGpuLock, findElectron } from './gpu-lock.mjs';
 
-const require = createRequire(import.meta.url);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(HERE, '..', '..');
-const LOCK = path.join(ROOT, '.gpu-lock');
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const args = process.argv.slice(2);
 const flag = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined; };
@@ -48,40 +43,13 @@ if (![0.25, 0.5].includes(scaleOf(target)) && !has('--full')) {
   process.exit(2);
 }
 
-// ---- electron (this tree, else the main checkout this worktree hangs from, else $ELECTRON_PATH)
-function findElectron() {
-  const roots = [ROOT, path.resolve(ROOT, '..', '..', '..')];
-  for (const r of roots) { try { return require(path.join(r, 'node_modules', 'electron')); } catch { /* next */ } }
-  if (process.env.ELECTRON_PATH && fs.existsSync(process.env.ELECTRON_PATH)) return process.env.ELECTRON_PATH;
-  return null;
-}
-const electron = findElectron();
+const electron = await findElectron();
 if (!electron) { console.error('electron not found (npm install in the repo root, or set ELECTRON_PATH)'); process.exit(2); }
 
 // ---- the lock
 const maxMs = Math.max(10000, Number(flag('--max')) || 90000);
 const what = (flag('--what') || (flag('--shot') ? path.basename(flag('--shot')) : target.split('?')[0].split('/').filter(Boolean).slice(-2).join('/'))).replace(/\s+/g, '_').slice(0, 60);
-const line = `${agent} ${new Date().toISOString()} ${what} ${Math.round(maxMs / 1000)}\n`;
-let held = false;
-function release() { if (!held) return; held = false; try { if (fs.readFileSync(LOCK, 'utf8') === line) fs.unlinkSync(LOCK); } catch { /* gone */ } }
-for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { release(); process.exit(130); });
-process.on('exit', release);
-
-const lockWait = (Number(flag('--lock-wait')) || 15 * 60) * 1000, t0 = Date.now();
-let said = '';
-while (!held) {
-  try { fs.writeFileSync(LOCK, line, { flag: 'wx' }); held = true; break; } catch (e) { if (e.code !== 'EEXIST') { console.error('shot: lock: ' + e.message); process.exit(2); } }
-  let other = '', age = 0;
-  try { other = fs.readFileSync(LOCK, 'utf8').trim(); age = (Date.now() - fs.statSync(LOCK).mtimeMs) / 1000; } catch { continue; }   // freed meanwhile
-  if (age > 240) {
-    console.warn(`shot: ORPHAN lock (${Math.round(age)} s old): «${other}» — taking it. Tell the director.`);
-    try { fs.unlinkSync(LOCK); } catch { /* someone else took it */ }
-    continue;
-  }
-  if (Date.now() - t0 > lockWait) { console.error(`shot: the GPU stayed busy for ${Math.round(lockWait / 60000)} min («${other}»); giving up`); process.exit(3); }
-  if (said !== other) { console.log(`shot: GPU busy — «${other}» (${Math.round(age)} s); retrying every 20 s`); said = other; }
-  await sleep(20000);
-}
+const release = await takeGpuLock(agent, what, maxMs / 1000, { waitMs: (Number(flag('--lock-wait')) || 15 * 60) * 1000, log: (m) => console.log('shot: ' + m.replace(/^gpu-lock: /, '')) });
 
 // ---- the server
 let url = target, lab = null;
