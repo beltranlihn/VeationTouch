@@ -59,10 +59,13 @@ the same wording as `res-obra`), drawn into canvas textures on a soft dark plate
 - Lab switches: `?tiles=0` (the old crossing), `?eye=0`, `?aa=taa` (temporal AA instead of MSAA; also params `tiles`, `eye`, `aa`).
 
 ## Solo path
-As in res-obra, the score sets every goal by the group it estimates — but it estimates **at least 2 people**, so today a single
-visitor cannot complete every goal (analysis 24-11, §5 #10: the Brasa call and the echo need hands on more than one wall). The fix
-(estimate the group from 1: `need = 1`, `needWalls = 1` when the peak of hands is ≤ 2; the echo front returns to the same or the next
-wall) belongs to the score (ENT) and is pending. With two or more visitors the whole pass can be played.
+(Corrected 2026-11-24, ENT, score batch T-045.) One person can play the whole pass. When the peak of hands is ≤ 2 the score is in
+`solo`: the calls (brasa, final call) need 1 hand, the pinya needs 1 wall (the castell is a *pilar*), the echo front goes round and
+comes back to the same wall (or the next one). A hand already resting on the wall counts half at a call's TOK if it moved > 10 cm or
+landed < 2 s before. Pom: the light passes through any wall with still hands; only an empty room falls (20 s, warned at 10 s).
+Bajada: every hand counts (walls without the tower at half), a 35 cm descent brings two floors down. Measured in node through a
+LiDAR-like feed (10 Hz, 150 ms late, ±2 cm, 6 % dropped readings, 1 % new ids), one hand: wait revealed in 36 s and started at 43 s;
+brasa 3/3 calls; pinya closes at 50 s; tronc 7 floors; pom crowns (aleta 0.96); festa 18 echoes, bloom 1.0; bajada descarregat in 33 s.
 
 ## Group path
 As in res-obra: 2–15 people; Pinya asks for more walls and more circles, the castell stands on the walls the group held.

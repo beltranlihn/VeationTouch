@@ -39,11 +39,11 @@ const INTRO_VOICE = [
   [29, 'v-intro-3'],    //  9.8 s  "A castell is not built by the ones who climb. …"
   [41, 'v-intro-4'],    //  4.8 s  "Tonight, these walls are the square. And you are the pinya."  (whispered)
   [53.3, 'v-intro-5'],  //  5.4 s  "Strength. Balance. Courage. Good sense."  (the motto, one word per wall)
-  [66.3, 'v-intro-6'],  //  2.0 s  "Put your hands on the wall."
+  // [66.3, 'v-intro-6'],  «Put your hands on the wall.» — SILENCED 24-11: the score does not listen in the intro (the brasa asks)
 ];
 // the same six cues for the Spanish voice (audio/es/, see audio/es/voice-lines-es.json): its own lengths, the same picture
 //    Mía Evans (peninsular Spanish, eleven_v4): 6.4 · 9.5 · 9.1 · 5.4 · 5.1 · 2.2 s — they fit the same cues.
-const INTRO_VOICE_ES = [[8.5, 'v-intro-1'], [17, 'v-intro-2'], [29, 'v-intro-3'], [41, 'v-intro-4'], [53.3, 'v-intro-5'], [66.3, 'v-intro-6']];
+const INTRO_VOICE_ES = [[8.5, 'v-intro-1'], [17, 'v-intro-2'], [29, 'v-intro-3'], [41, 'v-intro-4'], [53.3, 'v-intro-5']];   // v-intro-6 silenced (24-11)
 const ACTA_AT = { outcome: 4.5, final: 24.5 };   // acta.js: the castell appears at 4 s, the last sentence at 24 s
 // 24-11 (plan de interacción): the voice invites (≤ 7 words where it can), never counts, never repeats a line in a pass. Silenced, kept:
 // v-pinya-1 / v-pinya-2 (circles), v-tronc-1 / v-tronc-3 (the drum and the beat), v-aleta-1 (raise the hand AFTER the crown), v-baixada-1.

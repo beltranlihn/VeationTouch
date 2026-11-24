@@ -494,6 +494,48 @@ está coronado» (si se quiere, otra línea corta para la coronación).
   en los cuatro muros (ola pequeña si fallan); `bloom` crece con `bloomSize` (más campanas, más grave, dura `bloomDur`). La altura de la
   mano ya daba la octava de cada golpe de la festa.
 
+
+## T-045 · Lote de la partitura tras el análisis de Beltrán — NOMBRES NUEVOS (escritos antes del código)
+- `solo` (bool): el pico de manos reciente es ≤ 2 (una persona). Entonces `need` de las llamadas = 1, `needWalls` = 1, la estructura
+  puede ser de 1 muro (`structure` 1 = *pilar*), y en el eco el frente vuelve al MISMO muro (se acepta devolverlo en ese o en los
+  contiguos).
+- `warn`: `null | 'fall' | 'abandon'` — aviso a mitad de plazo. Eventos `'warn:fall'` (Pom: 10 s sin manos de 20; bajada: 5 s de 10) y
+  `'warn:abandon'` (22,5 s sin manos de 45 en un bloque interactivo). Se borra al volver una mano.
+- `call.tokDone` (bool, interno-visible): el TOK ya pasó (se contaron las manos apoyadas). `call.hits` puede ser fraccionario (manos
+  apoyadas que se movieron > 10 cm o se posaron en los últimos 2 s valen 0,5).
+- `fronts[].u` no (es de festa3d, #21). Sin más campos nuevos: el resto de cambios son de regla (cartela como capa, Pom por cualquier
+  muro, bajada con todas las manos, Tronc con máximo/base, Pinya `near` 1,8 → 3 m y cierre con un solo muro, l'aleta 10 s, espera).
+- **La cartela es una capa:** durante `phase === 'title'` la partitura YA cuenta (chispa, palma, frase del Tronc, luz del Pom); los
+  tiempos internos (chispa 20 s, palma 15 s) cuentan desde el inicio del bloque (`t`), no desde `play`.
+
+
+## T-045 hecho (19:09) — lote de la partitura tras el análisis (score.js ×2 idénticos; respaldos `*.T045.bak`)
+Hecho: #7 (v-intro-6 callada, ES/EN) · #8 cartela como capa (`playing` = play o title; chispa y palma por `t` del bloque) · #9 llamada
+(aterrizajes desde el primer tok + 0,5 por mano apoyada que se movió > 10 cm o se posó < 2 s, contadas en el TOK; brasa y festa) ·
+#10 `solo` (pico ≤ 2 manos: need 1, needWalls 1, estructura de 1 muro = pilar; eco al mismo muro, se acepta el contiguo) · #11a Pom por
+cualquier muro con manos, `restless` sólo del muro de la luz · #11b bajada con todas las manos (fuera de la torre ×0,5; `lowerK` = el
+mayor de mediana-torre y mediana-fuera×0,5) · #12 `lower 0.35` · #13 Tronc: base = mínimo de los 2 s previos, cuenta el máximo de
+subir + encajar, se juzga al final de la frase; `lift` cuando suben todos los muros de la torre que tienen manos · #16 Pinya `near` pleno
+hasta 1,8 m, 0 a 3 m; todo el grupo en un muro cierra con ese muro · #19 avisos `warn:fall` / `warn:abandon` a mitad de plazo, Pom 20 s,
+bajada 10 s, Pom en `max` corona · #22 desplazamiento con `s` desenrollado (sin saltos en esquinas/costura) · #23 l'aleta 10 s, `> 1,6 m`
+sólo tras 2 s · #24 espera `hold 0.02`, solo paga hasta 0,08/s · #28 pliegue de duplicados (< 10 cm, mismo muro) dentro de `step`.
+**Pruebas (node, `scratchpad/ent/t038/items.mjs`): 16/16 PASAN; 13 fallaban con la partitura anterior** (las 3 que ya pasaban son
+controles). **Bloque a bloque con 0 / 1 / 4 manos por un LiDAR simulado** (`solo.mjs`: 10 Hz, 150 ms, ±2 cm, 6 % lecturas perdidas,
+1 % ids nuevos), haciendo lo que enseña la guía:
+| bloque | 0 manos | 1 mano | 4 manos |
+|---|---|---|---|
+| espera | no se revela | revela 36 s, empieza 43 s | revela 16 s, empieza 21 s |
+| brasa | abandono a 45 s (aviso a 22,5) | 3/3 olas grandes, 52 s | 3/3, 52 s |
+| pinya | abandono | cierra a 50 s (pilar) | cierra a 50 s (2 muros) |
+| tronc | abandono | 7 pisos, 1.º a 9,6 s | 9 pisos |
+| pom | cae a 20 s (aviso a 10 s) | corona, l'aleta 0,96 | corona, l'aleta 0,36 (sólo la mitad alzó) |
+| festa | florece 0,20 | 18 ecos, florece 1,0 | florece 1,0 |
+| bajada | *carregat* a 10 s (aviso a 5) | 6 descensos, descarregat a 33 s | igual |
+Pase completo con el público virtual: 9:19. GUION.md: Brasa y II–bajada reescritos con las reglas de hoy; `res-obra3d/NOTES.md › Solo
+path` corregido; sound NOTES al día.
+**Para GUI / partes:** `solo`, `warn` (+ eventos `warn:fall`, `warn:abandon`), `call.tokDone`; la cartela ya no detiene la partitura
+(las partes pueden responder desde el primer segundo y la guía debe enseñar ya bajo la cartela).
+
 ## Qué falta / riesgos
 - fps sin medir (QA). Integración (INT). Escucha real del sonido (nadie). Las esquirlas son poliedros extruidos con bisel: se leen como
   cerámica/cromo, pero de cerca podrían querer más detalle (normal map de esmalte craquelado) en la segunda pasada.

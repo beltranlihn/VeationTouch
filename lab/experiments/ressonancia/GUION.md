@@ -74,85 +74,53 @@ entre 9:30 y 11:30 minutos.
   > Tonight, these walls are the square. And you are the pinya.
   > Strength. Balance. Courage. Good sense. Put your hands on the wall.
 
-### I. Brasa — el despertar (≈1:00) · universo Fuego
-- **Lo que se aprende:** una mano enciende un fragmento; muchas a la vez encienden la sala. Es el tutorial de toda la obra.
-- **Imagen:** brasas y **chispas de correfoc**: cada toque levanta un chorro de chispas que suben y caen; al arrastrar, un rastro. Negro, rojo y naranja.
-- **Metas:** 1) cada persona toca una vez (la sala cuenta manos y estima el grupo); 2) «Now, together»: tocar a la vez lanza una
-  ola de fuego que da la vuelta a la sala; 3) tres olas seguidas encienden el anillo entero.
-- **Guía:** «Touch the wall» → «Now, all together» · un contador de olas (tres puntos).
-- **Voz:** «Every castell begins in the dark, with a single touch. … Now, together.»
-- **Sonido:** un timbal lejano por cada mano, en su muro; con cada ola, tabals que giran por los altavoces.
-- **Premio y transición:** el anillo de fuego se contrae hacia cuatro puntos, uno por muro; el fuego se apaga en ceniza y tierra.
+### I. Brasa — el despertar (≈0:50) · universo Fuego
+**Chispa** (20 s desde el inicio del bloque; la cartela es una capa y los toques ya cuentan): cada toque levanta un chorro y un diable.
+**La llamada:** timbal *tok… tok… TOK* (0,8 s) y todos golpean: cuenta cada mano que se posa desde el primer tok hasta 0,7 s después
+del TOK, y media por cada mano ya apoyada que se movió > 10 cm o se posó hace < 2 s (el sensor no ve «apretar»). Hacen falta 1 mano
+(una persona) o 2–5 (grupo). Tres llamadas (un muro; uno y el de enfrente; los cuatro: el anillo arde). Si falla: ola pequeña y la sala
+llama más despacio. La intro ya no pide tocar (la voz y el texto «Poned las manos…» de la intro están callados): lo pide la Brasa.
 
-### II. Pinya — Força (≈1:45) · universo Cuerpo y tierra
-- **Lo que se aprende:** la pinya es la base: cuerpos tan apretados que son uno solo; nadie la mira y lo sostiene todo.
-- **Imagen:** una materia cálida y blanda, color arcilla y piel, que **cede bajo la mano** y guarda su huella. Vista «desde arriba»:
-  alrededor de cada botón crecen **anillos concéntricos de huellas de manos**, como la pinya vista desde el campanario. Nada de mosaico todavía.
-- **Metas:** 1) llenar el primer anillo de cada muro (un botón por muro); 2) aparecen más botones alrededor: cuantas más manos,
-  más anillos; 3) con todos los muros del grupo sostenidos a la vez, **el círculo se cierra**: una banda gira alrededor de la sala
-  como una rotllana de sardana, y la gralla gira con ella.
-- **Escala:** con 2–3 personas hay que sostener 2 muros (cada persona puede abarcar una esquina: dos muros con dos manos); con 4–7, 3 muros; con 8 o más, los 4.
-  Eso fija la estructura del castell: **torre (2), tres (3) o quatre (4)**.
-- **Guía:** «Hold the circles» · «2 of 4 walls» · anillo de progreso por muro.
-- **Voz:** «First, strength. The pinya is the base: bodies pressed so close that they become one. Find a circle. Hold it.»
-- **Sonido:** grave, corporal: un latido lento, voces que murmuran sin palabras; al cerrarse el círculo, la gralla.
-- **Premio y transición:** la arcilla se endurece y se **cuartea**: de las grietas nace el trencadís.
+### II. Pinya — Força (≈1:00) · universo Cuerpo y tierra
+*Reglas del 24-11 (lo que mide `score.js`).* La cartela es una capa: la partitura escucha desde el primer segundo. **Palma con palma**
+(0–15 s del bloque): donde se posa una mano sale una figura y apoya su palma. **Juntaos:** las figuras van al centro del muro y las
+manos las siguen. Un muro está **apretado** cuando ≥ 80 % de SUS manos caben en una ventana de 2 m centrada a ≤ 1,8 m del centro del
+muro (a 3 m ya no cuenta); una sola mano que siguió a su palma aprieta su muro. Un muro apretado se llena en 10 s; separado se vacía
+despacio. Con los muros necesarios llenos y sostenidos 3 s, **el círculo se cierra** (no antes de 50 s). Muros necesarios: 1 para una
+persona (pico ≤ 2 manos), 2/3/4 según el grupo; si todo el grupo está en un solo muro, cierra con ese muro (la estructura es entonces
+un *pilar*). Desde los 40 s de juego la multitud de luz cierra los huecos (la red, ~71 s). *Solo:* una persona con dos manos al
+centro cierra a los 50 s. *Grupo:* más muros, más ancho el castell.
 
-### III. Tronc — Equilibri (≈2:15) · universo Piedra y cerámica
-- **Lo que se aprende:** cada piso se apoya en los hombros del anterior; el castell sube al ritmo del toc y sólo si está recto.
-- **Imagen:** el **trencadís** (lo ya construido): torres que suben piso a piso sobre los muros sostenidos, de la piedra y el
-  hueso a la terracota y al rojo. Cada piso que se fija muestra su nombre real: *Segons, Terços, Quarts, Quints, Sisens…*
-- **Metas:** 1) **el pulso**: un anillo se cierra sobre el botón con cada golpe de timbal; manos abajo en el golpe fijan piso
-  (aterrizar justo en el golpe vale el doble que sólo sostener); 2) **el equilibrio**: desde el tercer piso cada torre tiene dos
-  botones, a izquierda y derecha; si falta un lado, la torre se inclina hacia él y tiembla; 3) los últimos pisos piden las dos cosas a la vez.
-- **Resultado:** cada grupo levanta lo que puede sostener, **de 5 a 9 pisos**.
-- **Guía:** «Press on the beat» → «Keep it straight: hold both sides» · número y nombre del piso · inclinación visible.
-- **Voz:** «Now, balance. Floor by floor, each one stands on the shoulders of the one below. Listen to the drum. Press on the beat, and keep the tower straight.»
-- **Sonido:** el toc de castells reescrito: timbal, y una voz nueva de gralla cada dos pisos. Si el grupo pierde el pulso, la segunda
-  gralla se desafina y se oye el batido; al volver, se funde en unísono: la resonancia, audible.
-- **Premio y transición:** al último piso, **la música se corta en seco**. El trencadís se apaga hacia abajo y arriba se abre la noche.
+### III. Tronc — Equilibri (≈2:00) · universo Piedra y cerámica
+**Levantar y nivelar.** Cada 4,8 s una frase: reunir (manos abajo, 1,2 s) → subir (2,4 s) → encajar (1,2 s). Al final de la frase cada
+muro de la torre cuenta las manos que han subido ≥ 33 cm: la base es lo más bajo que estuvo cada mano en los 2 s antes de subir (quien
+ya está arriba no vuelve a 0) y cuenta lo más alto que llegó durante subir + encajar. Las manos quietas abajo son la base (no
+restan). Muros sin torre ayudan a la mitad. Desde el 3.er piso la torre se inclina hacia el lado más bajo (`yL − yR`) y un piso torcido
+cuenta menos. **El temblor**, una vez (dos si el grupo va sobrado) en el penúltimo piso: 5 s para llevar una mano abajo (< 0,95 m)
+junto al pie de esa torre, o pierde un piso (no cae). Pasado el tiempo previsto la colla ayuda: 5–9 pisos. El pulso de 2,4 s es sólo
+el reloj de la música. *Solo:* una persona levanta su torre (pilar), 7 pisos. *Grupo:* hasta 9 si se asienta el temblor.
 
-### IV. Pom de dalt — Valor (≈1:30) · universo Aire y noche
-- **Lo que se aprende:** los más pequeños suben los últimos; la plaza contiene el aliento; nadie celebra antes de tiempo.
-- **Imagen:** azul muy profundo, estrellas, viento; el castell queda como una silueta de brasas abajo. Tres luces de oro suben por
-  turnos —**dosos, acotxador, enxaneta**— dejando un hilo fino que rodea la sala en espiral. Sensación de altura y de vértigo.
-- **Metas:** la luz avanza de muro en muro y **sólo pasa por los muros donde hay manos quietas**: el grupo se la va entregando.
-  Tres subidas, cada una más alta y más lenta. Si alguien se mueve, la luz titubea; si un muro se vacía, retrocede.
-- **Guía:** «Hold still. Silence.» · el botón del muro siguiente se enciende antes de que llegue la luz («she is coming to you») · anillo de progreso.
-- **Voz:** «Now, courage. The smallest climb last. The square holds its breath. Hold still, and carry her light.»
-- **Sonido:** casi silencio: viento, un tono fino que sube con la luz, un latido.
-- **Si falla** (la sala se vacía o se agota el tiempo sin llegar a la mitad): el castell cae — *intent* — en una secuencia prediseñada
-  de 15 s, y se pasa al cierre.
+### IV. Pom de dalt — Valor (≈1:20) · universo Aire y noche
+**Quietos, con las manos en el muro.** La luz sube por el muro que le toca; si ese muro no tiene manos, **pasa por cualquier muro que
+las tenga**. Sube mientras las manos de ESE muro estén quietas (se han movido < 15 cm en el último segundo, medido a lo largo de la
+sala, sin saltos en esquinas ni costura); una mano que el sensor pierde está ausente, no inquieta. Tres subidas (21/23/25 s). Sólo una
+sala **vacía** cae (*intent*): aviso a los 10 s sin manos, caída a los 20 s. Al llegar al máximo corona igual (estrecho), nunca cae.
 
-### V. L'aleta y la ressonància (≈1:30) · universo Luz
-Dos partes seguidas: la coronación, prediseñada, y **la parte más libre de toda la obra**.
+### V. L'aleta y la ressonància (≈1:40) · universo Luz
+**L'aleta** (ventana de 10 s tras el premio del Pom): «Ella levanta la mano.» … «Levantad la vuestra.» Cuenta cada mano que sube ≥ 28 cm
+desde donde estaba, o que pasa de 1,6 m pasados 2 s. Corona cuando el 60 % sube en 2 s, o al acabar la ventana (siempre corona); más
+ancho cuantas más y antes. **La ressonància:** 0–20 s libre (onda y nota; la altura da el tono). 20–48 s **el eco**: cada golpe manda un
+frente al muro de enfrente (3 s); quien golpea ese muro al llegar (±0,7 s) lo devuelve doblado, una octava arriba; con ≤ 2 personas el
+frente da la vuelta y vuelve a su muro (vale el mismo o uno contiguo); si nadie devuelve en 12 s, la sala devuelve uno. Desde los 48 s
+**la llamada** (tok… tok… TOK en los cuatro muros, cuatro veces): cuenta cada mano que se posa desde el primer tok hasta 0,7 s después
+del TOK, y media por cada mano ya apoyada que se movió > 10 cm o se posó hace < 2 s. Hace falta 1 mano con una persona, 2–5 con más.
+La sala **florece siempre** en la última llamada, más grande cuanto más unísono y más ecos.
 
-**La coronación (0:25, prediseñada).** La enxaneta levanta la mano. Un destello de oro recorre lo alto de los cuatro muros, las
-torres se coronan y la sala entera se llena de luz por primera vez. Vuelve la gralla con el tema completo y **ruge la plaza**.
-- **Voz:** «She raises her hand. The castell is crowned. Now the square is yours.»
-
-**La ressonància (≈1:05, libre e interactiva).** El título de la obra hecho visible. Los cuatro muros se vuelven una sola
-superficie que **resuena**, como la piel de un tambor o el agua: cada mano lanza una onda de oro que da la vuelta a la sala, cruza
-las de los demás y, donde coinciden, se suma y dibuja figuras (como la arena sobre una placa que vibra).
-- **Sin instrucciones:** basta tocar. Tocar da una onda y una nota; arrastrar deja una estela; dos manos cerca tienden un hilo de luz
-  entre ellas; manos en muros distintos se encuentran a mitad de camino.
-- **La regla escondida es la del título:** impulsos pequeños que coinciden en el tiempo se suman. Cuanto más a la vez toca el grupo,
-  más crece la resonancia: las figuras se ordenan, la luz sube por los muros y la música se abre. Si el grupo llega al máximo, la
-  sala entera florece una vez (un final que no se anuncia: se descubre).
-- **Imagen:** oro y blanco cálido sobre negro, con el rojo del castell al fondo; chispas doradas en cada toque. Es el momento más
-  luminoso y más rápido de la obra.
-- **Sonido:** cada toque es una nota afinada (siempre consonante) en su muro; la música de fiesta va debajo y crece con la
-  resonancia; la plaza corea.
-- **Guía:** sólo una línea al empezar, «The square is yours», y nada más.
-- **Con 2 personas** las ondas son pocas y nítidas, y se persiguen; **con 15** la sala hierve. Las dos cosas valen.
-- **Transición:** la resonancia se calma sola y la luz empieza a caer: comienza la bajada.
-
-### La bajada — Seny (≈0:40) · universo Luz que llueve
-- **Lo que se aprende:** un castell sólo está completo cuando baja entero.
-- **Imagen:** el castell se deshace piso a piso en una **lluvia lenta de color**; cada fragmento cae y se apaga en las manos.
-- **Meta:** seguir sosteniendo mientras baja. Si todos sueltan antes de tiempo, cae: *carregat*.
-- **Guía:** «Stay. Bring it down, floor by floor.»
-- **Voz:** «But a castell is only complete when it comes down. Good sense. Stay with it.»
+### La bajada — Seny (≈0:35) · universo Luz que llueve
+**Bajadlo despacio.** Todas las manos cuentan (las de muros sin torre, a la mitad): cuando bajan 35 cm desde lo más alto que estuvieron
+en el descenso, bajan dos pisos. Suave (≤ 0,4 m/s) es limpio; brusco cruje; si se sueltan todas en mitad de un descenso, se desploma y
+cruje; tres soltados seguidos es *carregat*. Sostener sin bajar no baja (sólo la red del reloj en los últimos 12 s). Una sala vacía:
+aviso a los 5 s, *carregat* a los 10 s. *Solo y grupo:* el mismo gesto; una mano basta.
 
 ### Cierre: l'acta (0:40, prediseñado)
 - **Imagen:** negro y tipografía. El acta de este grupo, como la escriben las colles: **«3 de 7 · descarregat»**, y debajo cuatro

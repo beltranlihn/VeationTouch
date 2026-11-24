@@ -28,7 +28,8 @@ running; a wanted bed starts late, where it would be, once the context runs or i
 pieces still run, each with its own score from the same hands.
 
 ## Solo path / Group path
-The score decides how much each goal asks (2–15 people). The sound scales with the crowd:
+The score decides how much each goal asks (1–15 people; since 2026-11-24 a single visitor — peak of hands ≤ 2 — is `solo`: the calls
+need 1 hand, the pinya 1 wall, the echo returns to its own wall; see res-obra3d/NOTES.md › Solo path). The sound scales with the crowd:
 - two people: every hand is a clear, characterful attack with a long tail on its own wall; the music layers open slowly;
 - fifteen: at most 12 hand voices (the oldest yields with a 20 ms fade); each landing hand is softer when many land together
   (1/√n over 0.4 s), a little softer still when the room is full (1 / (1 + 0.05·(hands − 3))), and **each wall carries a load**
@@ -96,6 +97,8 @@ A file that fails to load logs a warning and the piece goes on without it (a mis
   `voice-lines-v2.json`; the v2 voice lines were overwritten by v3 with the same names.
 
 ## Voice in Spanish
+- 2026-11-24: `v-intro-6` («Poned las manos sobre el muro» at 66.3 s) is silenced in both languages: the score does not listen in
+  the intro; the brasa asks.
 - 2026-11-24, interaction plan (approved by Vicente): 7 new lines × ES/EN, same voices/settings/tags, checked with scribe_v1:
   `v-pinya-wait` (pinya title: «Alguien espera vuestra mano.»), `v-pinya-closein` (when the figures start to lead the hands, unless
   packed: «Juntaos. Hombro con hombro.»), `v-tronc-lift` (tronc title: «Ahora, levantad. Cada piso sube con vuestras manos.»),
