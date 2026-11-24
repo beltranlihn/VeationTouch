@@ -301,7 +301,8 @@ export default async function start(host) {
     if (ok) cueAt.set(r.key, t);
     if (ok && c.then) {
       const d = ((buffers.get(r.voice)?.buf.duration ?? 1.5) + (c.delay ?? 0.3) + c.then.after) * 1000;
-      cueTimers.push(setTimeout(() => { if (c.then.key === 'aleta:yours' && (crownAt >= 0 || block !== 'pom')) return; cue(c.then.key); }, d));
+      const b0 = block;   // a follow-up belongs to its block (the crown's crosses into the crown / festa)
+      cueTimers.push(setTimeout(() => { if (c.then.key === 'aleta:yours' && (crownAt >= 0 || block !== 'pom')) return; if (block !== b0 && c.then.key !== 'crowned') return; cue(c.then.key); }, d));
     }
     return ok;
   }
