@@ -303,7 +303,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
   // N7: the consigna TRAVELS with the Brasa's relay — on the devil's wall it follows the fire along the wall (eased, never past the
   // corners); the other walls keep their place. lineS0: where each wall starts along the perimeter (the score's s).
   const lineS0 = []; { let a = 0; for (const w of room.walls) { lineS0.push(a); a += w.width; } }
-  const lineX = new Float32Array(room.walls.length), lineXT = new Float32Array(room.walls.length); let travelOn = false;
+  const lineX = new Float32Array(room.walls.length), lineXT = new Float32Array(room.walls.length); let travelOn = false, travelS = 0, travelDir = 1;
   object.add(card.object, line.object);
 
   // ------------------------------------------------------------------ per frame
@@ -551,7 +551,8 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
     const travel = b === 'brasa' && S.brasaStage === 'relay' && S.focus && S.focus.kind === 'relay' && S.focus.wall >= 0 && S.focus.wall < NW && typeof S.focus.s === 'number';
     if (travel) {
       for (let w = 0; w < NW; w++) lineXT[w] = CONSIGNA_X[b] || 0;
-      const fw2 = S.focus.wall, Wd = room.walls[fw2].width; lineXT[fw2] = clamp(S.focus.s - lineS0[fw2] - Wd / 2 + 0.9, -Wd / 2 + 1.1, Wd / 2 - 1.1);   // just ahead of the fire
+      const ds = S.focus.s - travelS; if (Math.abs(ds) > 0.02 && Math.abs(ds) < 3) travelDir = Math.sign(ds); travelS = S.focus.s;   // the relay runs both ways
+      const fw2 = S.focus.wall, Wd = room.walls[fw2].width; lineXT[fw2] = clamp(S.focus.s - lineS0[fw2] - Wd / 2 + 1.8 * travelDir, -Wd / 2 + 1.1, Wd / 2 - 1.1);   // ahead of the fire, clear of the devil
       if (!travelOn) { lineX.set(lineXT); travelOn = true; }
       for (let w = 0; w < NW; w++) lineX[w] = ease(lineX[w], lineXT[w], dt, 2.2);
       placeX(line, lineX);

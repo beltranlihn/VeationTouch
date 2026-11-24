@@ -117,7 +117,7 @@ const MAJOR_PENTA = [0, 2, 4, 7, 9];         // D E F# A B: the light
 const KEYS = {
   wait:    { root: 62, scale: [0, 2, 4, 7, 9], bpm: null },
   intro:   { root: 62, scale: [0, 2, 4, 7, 9], bpm: null },               // m-intro: D (D A E F#)
-  brasa:   { root: 62, scale: [0, 3, 5, 7], bpm: null },                  // m-brasa: a drone on D coloured by C# / G#: no C, no clash
+  brasa:   { root: 62, scale: [0, 2, 5, 7], bpm: null, slide: [27, 61] },   // m-brasa SLIDES: D (+A, F#) until ~27 s of the take, then C# (+G#); root follows the bed (brasaRoot)
   pinya:   { root: 57, scale: [0, 3, 5, 7, 10], bpm: null },              // st-pinya: A minor (A E G C D) — the prompt said D minor
   tronc:   { root: 62, scale: [0, 3, 5, 7, 10], bpm: 100, grid0: 0.045 }, // st-tronc: D (D + A; third neutral) — prompt D minor
   pom:     { root: 61, scale: [0, 2, 4, 7, 9], bpm: null },               // m-pom: C# + G# — a semitone under D
@@ -151,11 +151,20 @@ export default async function start(host) {
   let keyBlock = null;
   const keyNow = () => keyBlock || (block === 'crown' && festaIn ? 'festa' : block);
   function tune(m, b) {   // a pitch written in D → the same degree in the chapter's key, snapped to its scale
-    const K = KEYS[b || keyNow()] || KEYS.wait, x = m + (K.root - 62), pc = (((x - K.root) % 12) + 12) % 12;
+    const K = keyOf(b || keyNow()), x = m + (K.root - 62), pc = (((x - K.root) % 12) + 12) % 12;
     let best = 0, bd = 99; for (const d of K.scale) for (const o of [-12, 0, 12]) { const dd = Math.abs(d + o - pc); if (dd < bd) { bd = dd; best = d + o - pc; } }
     return x + best;
   }
   const tuneHz = (hz, b) => midiHz(tune(69 + 12 * Math.log2(hz / 440), b));
+  // the brasa's bed is not one key: m-brasa sits on D (with A, F#) for its first ~27 s and on C# (with G#) after it (analysed per 6 s
+  // window, 25-11). The generative layer follows the bed's playhead: same take position → same centre.
+  function bedPos(name) {
+    const s = sets[name]; if (!s || !s.cycles.length) return null;
+    const p = s.from + (now() - s.startedAt), d = s.def;
+    return d.once || p < d.b ? p : d.a + ((p - d.b) % (d.b - d.a));
+  }
+  const brasaRoot = () => { const p = bedPos('brasa'); return p != null && p >= KEYS.brasa.slide[0] ? 61 : 62; };
+  const keyOf = (b) => (b === 'brasa' ? { ...KEYS.brasa, root: brasaRoot() } : KEYS[b] || KEYS.wait);
   const timbalRate = (m, b) => midiHz(tune(m, b)) / TIMBAL_HZ;
   // the take's grid (tronc, festa): the next 16th (0.15 s at 100 BPM) after t; without a pulse, t itself
   function nextTick(t) {
@@ -273,7 +282,7 @@ export default async function start(host) {
     if (vo && t < vo.end) {
       if (polite || kind === 'hint') return false;
       if (kind === 'ach') { if (vo.end - t > 1.5) return false; at = Math.max(at, vo.end + 0.15); }
-      else vo.h.stop(0.15);
+      else { if (CUELOG && t < vo.end - 0.3) CUELOG.push({ t: Math.round(S.clock * 10) / 10, cut: vo.name, by: name }); vo.h.stop(0.15); }
     }
     let dest = voiceBus;
     if (wall >= 0 && voiceWall[wall % NW]) { dest = G(1, voiceWall[wall % NW]); dest.connect(G(0.25, voiceBus)); }
@@ -297,7 +306,7 @@ export default async function start(host) {
     let ok = !r.voice;
     if (r.key === 'ach:awake' && r.by === 'colla' && c.colla) say(c.colla, { delay: 0.2, kind: 'ach', once: false });   // «La colla os ayuda.» first
     if (r.voice) ok = say(r.voice, { delay: c.delay ?? 0.3, wall, kind: c.kind || 'task', polite: c.kind === 'hint', once: !c.repeat });
-    if (CUELOG) CUELOG.push({ t: Math.round(S.clock * 10) / 10, block: S.block, key: r.key, voice: r.voice, said: ok, wall, text: r.text });
+    if (CUELOG) CUELOG.push({ t: Math.round(S.clock * 10) / 10, block: S.block, key: r.key, voice: r.voice, said: ok, wall, text: r.text, dur: Math.round((buffers.get(r.voice)?.buf.duration || 0) * 10) / 10 });
     if (ok) cueAt.set(r.key, t);
     if (ok && c.then) {
       const d = ((buffers.get(r.voice)?.buf.duration ?? 1.5) + (c.delay ?? 0.3) + c.then.after) * 1000;
@@ -662,8 +671,9 @@ export default async function start(host) {
   // the drone: a low D and its fifth (wait, brasa, the tronc's title, baixada); the sub part apart
   const droneG = G(0, genRoom), droneSubG = G(0, outSub), dlp = F('lowpass', 480); dlp.connect(droneG);
   const persistent = [];
-  for (const [m, type, a] of [[50, 'triangle', 0.5], [57, 'sine', 0.3], [62, 'sine', 0.12]]) { const o = osc(type, midiHz(m)); o.detune.value = (Math.random() - 0.5) * 6; o.connect(G(a, dlp)); o.start(); persistent.push(o); }
-  { const o = osc('sine', midiHz(38)); o.connect(droneSubG); o.start(); persistent.push(o); }
+  const droneOsc = [];   // [osc, midi in D]: the drone follows the chapter's root (the brasa's bed slides D → C#)
+  for (const [m, type, a] of [[50, 'triangle', 0.5], [57, 'sine', 0.3], [62, 'sine', 0.12]]) { const o = osc(type, midiHz(m)); o.detune.value = (Math.random() - 0.5) * 6; o.connect(G(a, dlp)); o.start(); persistent.push(o); droneOsc.push([o, m]); }
+  { const o = osc('sine', midiHz(38)); o.connect(droneSubG); o.start(); persistent.push(o); droneOsc.push([o, 38]); }
   // the pom: a thin thread that rises with the light and flickers when hands move
   const thread = osc('sine', midiHz(tune(74, 'pom'))), threadG = G(0), threadAm = G(1, genRoom); series(thread, threadG, threadAm); threadAm.connect(G(0.8, verbIn)); thread.start(); persistent.push(thread);
   const flick = osc('square', 9), flickG = G(0); series(flick, flickG, threadAm.gain); const flickD = G(0); flick.connect(flickD); flickD.connect(thread.detune); flick.start(); persistent.push(flick);
@@ -1169,7 +1179,7 @@ export default async function start(host) {
       const brasa = b === 'brasa', sink = brasa && ph !== 'title' ? clamp(prog * 1.15, 0, 1) : 0;
       liqG.gain.setTargetAtTime(0.02 * sink * P.effects, t, 1.5); liqSubG.gain.setTargetAtTime(0.12 * sink * P.effects, t, 1.5);
       liqBp.frequency.setTargetAtTime(300 + 260 * (0.5 + 0.5 * Math.sin(t * 0.4)), t, 0.8);
-      if (sink > 0.1 && Math.random() < dt * (0.3 + 1.2 * sink)) { const w = Math.floor(Math.random() * NW); liquid(t + 0.01, midiHz(rand(38, 50)), 0.012 * sink * P.effects, toWall(w)); }   // a slow bubble
+      if (sink > 0.1 && Math.random() < dt * (0.3 + 1.2 * sink)) { const w = Math.floor(Math.random() * NW); liquid(t + 0.01, midiHz(tune(38 + 12 * Math.floor(Math.random() * 2) + [0, 7][Math.floor(Math.random() * 2)])), 0.012 * sink * P.effects, toWall(w)); }   // a slow bubble, in the bed's key
       // T-055 the relay's running fire, on the devil's wall (and the next one near a corner)
       const R = S.relay, relayOn = brasa && S.brasaStage === 'relay' && R && !R.done && ph !== 'reward';
       const sp = relayOn ? clamp((R.speed || 0) / 1.2, 0, 1.5) : 0, lvl = relayOn ? (0.004 + 0.02 * Math.min(1, sp)) * P.effects : 0;
@@ -1206,7 +1216,8 @@ export default async function start(host) {
       const fk = b === 'fall' ? Math.exp(-S.t / 2.2) * clamp(S.t / 0.15, 0, 1) : 0;
       fallSubG.gain.setTargetAtTime(0.08 * fk * P.effects, t, 0.15); fallRoomG.gain.setTargetAtTime(0.02 * fk * P.effects, t, 0.15);
     }
-    // ---- the drone
+    // ---- the drone (on the chapter's root: D, or the brasa's bed where it slides to C#)
+    { const tr = keyOf(b).root - 62; for (const [o, m] of droneOsc) o.frequency.setTargetAtTime(midiHz(m + tr), t, 1.2); }
     const drone = b === 'wait' ? 0.03 : b === 'brasa' ? 0.015 : b === 'tronc' && ph === 'title' ? 0.035 : b === 'baixada' ? 0.012 : b === 'fall' ? 0.02 : 0;
     if (!(b === 'tronc' && ph === 'reward')) { droneG.gain.setTargetAtTime(drone * 0.9, t, 1.2); droneSubG.gain.setTargetAtTime(drone * 1.3, t, 1.2); }
     // ---- the pom: the thread rises D5 → D6 with the three climbers and flickers when hands move
