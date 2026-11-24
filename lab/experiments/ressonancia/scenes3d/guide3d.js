@@ -94,7 +94,7 @@ export const TEXT = { line: 1.62, lineCap: 0.18, labelCap: 0.14, card: 1.95, max
 const CONSIGNA_X = { brasa: -1.75, tronc: -2.0, baixada: -2.0 };   // ±2.7 hit the plaza's lamp posts and the corners of the narrow walls
 // where the consigna may stand on a wall (m from its centre), in order of preference: beside the chapter's hero, never on a target
 // (S.targets): each wall takes the candidate farthest from its targets (only while its words are not up: words never slide in view)
-const HERO_HALF = { tronc: 0.9, baixada: 0.9, pom: 0.8 };   // the tower stands at the centre of the castell's walls: the text keeps out of it
+const HERO_HALF = { tronc: 1.3, baixada: 1.3, pom: 0.8 };   // the tower stands at the centre of the castell's walls: the text keeps out of it
 const SPOTS = { brasa: [-1.75, -2.5, 1.9, 2.5], tronc: [-2.0, 2.0, -2.6, 2.6], baixada: [-2.0, 2.0, -2.6, 2.6], other: [0, -1.7, 1.7, -2.5, 2.5] };
 // the card: the numeral first (0.2 s ahead), the name (caps ≈ 0.31 m), the hairline drawn from the centre out, the value rising
 // from behind its baseline
@@ -320,7 +320,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
       const all = near.length ? near.concat(cand) : cand;
       for (let k = 0; k < all.length; k++) {
         let x = clamp(all[k], -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25);
-        const hh = HERO_HALF[b] && S.walls && S.walls[w] ? HERO_HALF[b] + half : 0;   // beside the tower, on the side it leans to
+        const hh = HERO_HALF[b] ? HERO_HALF[b] + half : 0;   // the castell stands at the room's centre: seen at the centre of EVERY wall
         if (hh && Math.abs(x) < hh) x = clamp((x < 0 || (x === 0 && k % 2 === 0) ? -1 : 1) * hh, -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25);
         let gap = 9; for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < 1.45) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
         const sc = Math.min(gap, 0.4) - k * 0.05 + (near.length && k === 0 ? 0.3 : 0);   // clear of every target that reaches the text's band; above its own targets first
