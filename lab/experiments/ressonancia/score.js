@@ -39,10 +39,10 @@ export const TIMES = {                       // seconds
   tronc: { min: 85, target: 115, max: 145, reward: 6, period: 2.4, phrase: 4.8, wobble: 7, foot: 0.95, footY: [0.6, 0.9], help: 0.5,   // 25-11: ladders (rungs; a child's kidRungs), needK × n / 1.6 ladders a floor,
     rungs: [0.9, 1.25, 1.6], kidRungs: [0.7, 1.05, 1.4], every: 6, colla: 16, needK: 0.5 },                                            // ≥ every s between floors, the colla after colla s (to 5)
   pom: { min: 70, target: 90, max: 120, reward: 1.5, climb: [38, 16, 10], rest: 7, empty: 20, still: 0.15, stillSpeed: 0.3,   // still: a hand moved less than this (m) in 1 s (filtered); stillSpeed: unused since 24-11, kept for compatibility
-    relay: { every: 4, fly: 1.5, ready: 1, falter: 1.2, cost: 0.04, gone: 1, thread: 24 },   // T-050 the relay: seek the next still hand after `every` s held; a still hand is `ready` after 1 s; the holder moving for `falter` s sends it back (she slips `cost`)
-    breath: { slow: 0.7, more: 0.35, many: 4 }, gust: 0.35, gustGap: 1.5, breakGap: 1.2, breakCost: 0.06 },   // breath: speed = share² × (slow + more·(still hands − 1)/many); a gust: a hand moved > gust m in 1 s; the silence: a move costs breakCost
+    relay: { every: 4, fly: 1.5, ready: 1, falter: 1.2, cost: 0.04, gone: 1, thread: 24, hop: 0.12, base: 0.55, one: 0.8 },   // 25-11 (B4): she climbs at base (one hand: one) and every handoff lifts her hop at once; hops every clamp(16 / still hands, 1.5, every) s
+    breath: { slow: 0.7, more: 0.35, many: 4 }, gust: 0.35, gustGap: 1.5, breakGap: 1.2, breakCost: 0.08, breaksMax: 3, arriving: 1.5 },   // A11/A12: a gust needs ≥ 20 % of the hands; the silence tolerates 15 % moving (max 4) and the hands arriving (< arriving s)
   print: { from: 3, to: 15, rest: 0.5, max: 60, near: 0.15 },   // T-050 the acta's handprints: a hand resting ≥ rest s between from and to leaves one (not two within `near` m)
-  aleta: { window: 10, rise: 0.28, high: 1.6, highAfter: 2, quorum: 0.6, within: 2 },   // l'aleta: after the pom's reward, the group raises its hands and the castell is crowned
+  aleta: { window: 12, rise: 0.28, high: 1.6, highAfter: 2, quorum: 0.6, quorumMany: 0.4, within: 3, up: 0.35, top: 1.9 },   // 25-11 (A13): quorum 0.6 up to 4 hands → quorumMany from 12; crown-targets `up` m above every hand (≤ top)
   hand: { size: 0.12, base: 6, span: 2, moved: 0.1, recent: 2 },   // moved/recent: a hand already down counts half at a call's TOK if it moved > moved m or landed < recent s ago   // the default hand width (m), how slowly a hand's baseline follows it (s), the window of `span` (m)
   crown: 25,
   festa: { min: 60, target: 76, max: 84, free: 20, echo: 48, travel: 3, window: 0.7, ghost: 12, calls: 4, gap: 0.8, lead: 1.0, pause: 3.2, early: 0.5, late: 0.7 },   // 24-11: free → echo → call → bloom
@@ -126,7 +126,7 @@ export function createScore(nWalls, opt = {}) {
   let downTimes = [], waveAt = -1e9, holdAll = 0, beatT = 0, evalAt = 0, pulseAt = 0, pulsesBalanced = 0, pulsesEval = 0, fillSpeed = 0;
   let stillT = 0, pomT = 0, downT = 0, festaClusterAt = -1e9, festaCluster = 0, bloomAt = -1e9, order = [];
   let revealedAt = -1e9, onButton = 0, revealBank = 0;
-  let holderId = null, holdT = 0, goneT = 0, gustAt = -1e9, breakAt = -1e9, falterAt = -1e9, cracksB = 0;   // T-050 the pom's climbs; the bajada's cracks (Seny)
+  let breaksThis = 0, holderId = null, holdT = 0, goneT = 0, gustAt = -1e9, breakAt = -1e9, falterAt = -1e9, cracksB = 0;   // T-050 the pom's climbs; the bajada's cracks (Seny)
   const printed = new Set();                                                                                // T-050 the strokes that left a print
   // per stroke: a baseline height and a short history (for the displacement in the last second); allocated once per stroke
   const HIST = 56, track = new Map(), strokePool = [];
@@ -309,6 +309,7 @@ export function createScore(nWalls, opt = {}) {
     const from = S.pomHolder ? { ...S.pomHolder } : null;
     S.pomFrom = from; S.pomHolder = posOf(o); holderId = o.stroke; S.pomFly = from ? 0 : 1; holdT = 0; goneT = 0; S.pomFalter = 0;
     if (!S.pomThread.some((p) => p.stroke === o.stroke)) { S.pomThread.push(posOf(o)); if (S.pomThread.length > T.pom.relay.thread) S.pomThread.shift(); }
+    if (from && !back && S.climber === 0) S.climb = Math.min(0.995, S.climb + T.pom.relay.hop);   // 25-11 (B4): every handoff lifts her at once
     if (from) { S.pomHandoffs++; if (S.pomHandoffs === 1 || S.pomHandoffs % 3 === 0) achieve('handoff', S.pomHandoffs, o.wall, 'group', o.s, o.y); }
     S.pomHandoff = { from, to: posOf(o), back, at: S.clock }; emit('handoff:' + o.wall);
   }
@@ -657,8 +658,8 @@ export function createScore(nWalls, opt = {}) {
         if (S.phase === 'title' && S.tp < dt * 1.5) emit('climber:0');
         const R = B.relay, rate = 1 / B.climb[S.climber];
         S.pomStage = POM_STAGES[S.climber];
-        let nPres = 0, nStill = 0, moveW = -1, gustD = 0, gustW = -1;
-        for (const o of S.strokes) { nPres++; if (o.disp <= B.still) nStill++; else { if (moveW < 0) moveW = o.wall; if (o.disp > gustD) { gustD = o.disp; gustW = o.wall; } } }
+        let nPres = 0, nStill = 0, moveW = -1, gustD = 0, gustW = -1, nGust = 0, nMoving = 0;
+        for (const o of S.strokes) { nPres++; if (o.disp > B.gust) nGust++; if (o.disp > B.still) { const tr = track.get(o.stroke); if (!tr || now - tr.land >= B.arriving) nMoving++; } if (o.disp <= B.still) nStill++; else { if (moveW < 0) moveW = o.wall; if (o.disp > gustD) { gustD = o.disp; gustW = o.wall; } } }
         const share = nPres ? nStill / nPres : 0, resting = S.pomRest > 0;
         if (resting) S.pomRest = Math.max(0, S.pomRest - dt);
         for (const p of S.pomThread) { const o = strokeOf(p.stroke); if (o) setPos(p, o); }   // the thread follows its hands while they are there
@@ -690,21 +691,21 @@ export function createScore(nWalls, opt = {}) {
             }
           } else if (h) {                                     // held still: she climbs, and after a while seeks the next still hand
             S.pomFalter = Math.max(0, S.pomFalter - dt / 0.6);
-            gain = 1; still = 1;
-            if (!flying) { holdT += dt; if (holdT >= R.every && cand && !resting) handTo(cand, false); }
-          } else if (flying) gain = 1;                         // in the air between two hands
+            gain = nPres <= 1 ? R.one : R.base; still = 1;
+            if (!flying) { holdT += dt; const every = clamp(16 / Math.max(1, nStill), 1.5, R.every); if (holdT >= every && cand && !resting) handTo(cand, false); }   // A10
+          } else if (flying) gain = nPres <= 1 ? R.one : R.base;                         // in the air between two hands
         } else if (S.pomStage === 'breath') {
           S.pomGust = Math.max(0, S.pomGust - dt / 1.5);
-          if (gustD > B.gust && now - gustAt >= B.gustGap) { gustAt = now; S.pomGust = 1; emit('gust:' + gustW); }
+          if (nGust >= Math.max(1, Math.ceil(0.2 * nPres)) && now - gustAt >= B.gustGap) { gustAt = now; S.pomGust = 1; emit('gust:' + gustW); }
           const Br = B.breath;
           S.pomBreath = nStill ? share * share * (Br.slow + Br.more * Math.min(1, (nStill - 1) / Br.many)) : 0;
           S.restless = nStill < nPres;
           gain = S.pomGust > 0.3 ? 0 : S.pomBreath; still = share;
         } else {
-          const all = nPres > 0 && nStill === nPres;
+          const all = nPres > 0 && nMoving <= Math.min(4, Math.floor(0.15 * nPres));   // A12: a few moving (and the ones arriving) do not break it
           S.pomHush += ((all ? 1 : nPres ? 0.5 * share : 0) - S.pomHush) * (1 - Math.exp(-dt / 0.5));
           S.restless = nPres > 0 && !all;
-          if (S.restless && !resting) { if (now - breakAt >= B.breakGap) { breakAt = now; S.climb = Math.max(0, S.climb - B.breakCost); emit('hush:break:' + moveW); S.castell.slips++; breakFocusAt = now; breakWall = moveW; achieve('break', S.castell.slips, moveW, 'group'); } }
+          if (S.restless && !resting) { if (now - breakAt >= B.breakGap && breaksThis < B.breaksMax) { breakAt = now; breaksThis++; S.climb = Math.max(0, S.climb - B.breakCost); emit('hush:break:' + moveW); S.castell.slips++; breakFocusAt = now; breakWall = moveW; achieve('break', S.castell.slips, moveW, 'group'); } }
           else if (all) { gain = 1; still = 1; }
         }
         S.lightWall = S.pomHolder ? S.pomHolder.wall : order[0] ?? 0;
@@ -719,6 +720,7 @@ export function createScore(nWalls, opt = {}) {
         const late = S.t > B.target; if (late && !resting) S.climb += dt / 25;                // past its time the light finds its way
         if (S.climb >= 1) {
           emit('arrived:' + S.climber); S.castell.climbers = S.climber + 1; achieve('arrived', S.climber, S.lightWall, S.t > B.target ? 'colla' : 'group');
+          breaksThis = 0;
           if (S.climber < 2) { S.climber++; S.climb = 0; S.pomRest = B.rest; S.pomStage = POM_STAGES[S.climber]; S.pomGust = 0; S.pomFalter = 0; S.restless = false; emit('climber:' + S.climber); }
           else { S.climb = 1; S.pomHush = 1; S.result.pom = S.castell.slips <= 1 ? 'net' : 'patit'; phase('reward'); }   // she arrives: B.reward s of silence, then l'aleta
         }
@@ -727,7 +729,13 @@ export function createScore(nWalls, opt = {}) {
         else if (S.phase === 'play' && S.t >= B.max) { S.result.pom = 'patit'; phase('reward'); }            // at max it crowns (narrow if they did not get far), never falls
       } else if (S.phase === 'reward') {
         S.progress = 1;
-        if (S.tp >= B.reward) { phase('aleta'); aletaBase.clear(); aletaRose.clear(); for (const o of S.strokes) aletaBase.set(o.stroke, o.y); }
+        if (S.tp >= B.reward) {
+          phase('aleta'); aletaBase.clear(); aletaRose.clear(); for (const o of S.strokes) aletaBase.set(o.stroke, o.y);
+          // 25-11 (D3b): a crown-target above every hand (≤ 12) and one on every wall at 1.5 m: raising a hand onto it counts too
+          const A = T.aleta; offer({ mode: 'manual', kind: 'crown' });
+          let k = 0; for (const o of S.strokes) { if (k++ >= 12) break; TG.place({ wall: o.wall, dx: o.dx, y: Math.min(A.top, (o.y || 1.2) + A.up), kind: 'crown' }); }
+          for (let w = 0; w < W; w++) TG.place({ wall: w, dx: 0, y: 1.5, kind: 'crown' });
+        }
       } else if (S.phase === 'aleta') {
         // l'aleta (24-11, plan step 1): the enxaneta raises her hand; every hand that rises ≥ `rise` above where it was when the window
         // opened (or where it landed, if later), or that goes above `high`, counts. The castell is crowned when most of the hands
@@ -742,8 +750,13 @@ export function createScore(nWalls, opt = {}) {
           const at = aletaRose.get(o.stroke);
           if (at !== undefined) { risen++; if (now - at <= A.within) recent++; }
         }
-        S.aletaHands = present ? risen / present : 0;
-        const byQuorum = !!present && recent / present >= A.quorum;
+        for (const t of tgDone) {   // a crown-target held: the hand on it rose
+          let best = null, bd = 1e9; for (const o of S.strokes) { if (o.wall !== t.wall) continue; const d = Math.hypot(o.dx - t.dx, o.y - t.y); if (d < bd) { bd = d; best = o; } }
+          if (best && !aletaRose.has(best.stroke)) { aletaRose.set(best.stroke, now); risen++; recent++; }
+        }
+        S.aletaHands = present ? Math.min(1, risen / present) : 0;
+        const quorum = present <= 4 ? A.quorum : present >= 12 ? A.quorumMany : A.quorum + ((A.quorumMany - A.quorum) * (present - 4)) / 8;   // A13
+        const byQuorum = !!present && recent / present >= quorum;
         if (byQuorum || S.tp >= A.window) {
           S.aletaWidth = clamp(0.15 + 0.85 * S.aletaHands * (1 - 0.5 * Math.min(1, S.tp / A.window)), 0, 1);
           if (S.aletaHands >= 0.5) learn('aleta');
