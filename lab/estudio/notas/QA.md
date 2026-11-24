@@ -1,7 +1,7 @@
 # Cuaderno de QA
 
 ## Dónde quedé
-15:36 — PAUSA tras pasos 6–7 (notas › Pasos 6–7). Pendiente: zonas tranquilas, duración real, tirones (INT).
+21:25 — PAUSA tras el pase final antes de la sala (notas › Pase final 20:33). Sin bloqueantes; avisos: carga 10–45 s, festa3d 47 fps-eq, llamada de Brasa muy tolerante, Pinya separada cierra por red.
 04:55 — humo final y repeticiones a ritmo 1 hechos, todo PASA; QA parado hasta la congelación (06:15).
 04:40 — ventana de GPU 04:30–04:39 hecha y devuelta; cola visual vacía; queda el humo final de las 06:00 (`review_smoke.js`).
 00:18 — parado por límite de uso. Cola pendiente: ver «Cola pendiente al cerrar» más abajo.
@@ -884,3 +884,29 @@ Control: `_example` 1,6 ms frente a intro high t 33,5 **26,3 ms** (×16; la intr
 - **No visto en un fotograma**: el anillo que aterriza en el TOK y los frentes cruzando a la pared de enfrente no se distinguen en la hoja (la placa
   de oro está muy cargada: los frentes no destacan sobre el mandala). Nota: Brasa sigue diciendo «Tocad el muro» después de la primera ola
   grande (`learned.brasa` no se pone con el piloto).
+
+### Pase final antes de la prueba en sala (24-11, 20:33–21:20) — `/experiences/res-obra3d/index.html?sound=ressonancia-sound&demo=0`
+Hojas `qa/caps/final2/sheet_h4.png` (8 bloques, 4 manos) y `sheet_luz.png` (espera, brasa, pinya, 4 manos WebGPU y WebGL2+LiDAR). Registros
+`qa/caps/final2_log.txt`, `final2_long.txt`, `final2_pass.txt`. Herramienta nueva: `qa/long/check.mjs` + `smoke.cjs` (mismo arnés con 75 s,
+porque la obra ahora tarda en cargar); `qa/long/bench.sh` NO sirve (falla al lanzar la ventana desde el vigía) — no usar.
+- **Errores**: 0 en los 44 tramos (11 bloques × 0 manos WebGPU, 1 mano WebGL2, 4 manos WebGPU, 4 manos WebGL2 con `&lidar`) ✓.
+- **Carga lenta (aviso para la sala)**: la obra tarda **10–45 s** en tener `__obra` listo en este Mac (7196×912; 12,7 s en ventana pequeña); a las
+  15:00 eran 3–8 s. Con el arnés de 15 s, espera/brasa/pinya salían negras por eso (no por error). En la sala (RTX) será menos, pero el
+  operador debe esperar a que cargue antes de juzgar; INT: ver qué se precompila al cargar.
+- **Verbos (pruebas de partitura re-ejecutadas sobre el score.js de las 20:24; saben fallar)**: Tronc quietas 1 piso a 60 s / subiendo 6; un lado
+  alto lean 1,0 ✓ · Bajada quietas 39 s (red) / bajando 2,7 s; soltar → carregat ✓ · Aleta quietas 10 s ancho 0,15 / alzando 1,8 s ✓ · Pom
+  temblor 0 % inquieto, movimiento real **68 %** (antes 98 %: más tolerante) · Festa: florece siempre, 0,5 / 1,0 por unísono ✓ · Brasa: **«1,2 s
+  antes» y «golpes al azar» también dan las tres olas grandes** (cuentan las manos apoyadas, `hand.recent` 2 s): sólo falla golpear tarde; la
+  llamada es muy tolerante (decisión de sala, anotar) · Pinya: separadas se cierra igual a 70,7 s (red; PRUEBA-SALA dice que NO).
+  Solo (1 persona) completa todos los bloques; 0 personas: abandono/caída como debe. Pase de partitura 559–571 s (9:19–9:31) + espera.
+- **Textos**: «Levantad», «Ayudad desde aquí», «Quietos / DOSOS», «Bajadlo despacio / SETENS», «Dejad vuestra mano», cartelas; legibles en
+  tronc y bajada ✓. Sin contadores en la guía; el acta muestra «pilar de 7» (nombre) ✓. Pinya aprendida sin texto ✓.
+- **Gráfica de instrumento (T-048)**: reglas de altura «0,90 / 1,25 m / 1,60», «P1…P4» y «III · TRONC» en cada muro: es diseño (ARTE-3 §3), no
+  depuración; se ve técnico/HUD — que Vicente lo mire en la sala.
+- **Zonas tranquilas**: espera con 4 manos banda 84–91 (P1 90,6 > 89, al límite); fall con 4 manos 54; el resto ≤ 60.
+- **fps-eq** (estudio, escala 1, `others=0`, control `_example` 2,4 ms): tronc3d escultura 10,4 ms → **96** · pom3d 17,5 → 57 · festa3d res 1 21,3 →
+  **47** (antes 12,1 → 83: casi el doble) · baixada3d 14,2 → 70. La obra en media/alta no se pudo medir (carga > 15 s; el banco largo falló).
+- **tuning**: `tuning=sala` aplica el preset (tronc.rise 0,25, pom.still 0,22, brasa.early 0,7, linger 3) frente a lab (0,33 / 0,15 / 0,5 / 2);
+  un cambio en vivo (`t.tronc.rise` 0,5, `t.pom.still` 0,3) entra al momento, y volver al valor por defecto devuelve el del preset ✓.
+- **Pase natural** (review.html, 6 personas, piloto, ritmo 6, por tramos de 30 s con el arnés largo): espera → intro → brasa (título, juego, premio)
+  → pinya → tronc → pom → **aleta** → corona → festa → baixada → acta → espera → intro: la cadena entera, **0 errores**, 9–12 manos ✓.

@@ -668,3 +668,88 @@ no: la torre sigue en pie en dos muros y P2/P3 son negro con grano.**
 3. **El «49»** de la barra de fuerza, alineado con la línea base de la barra y a 0,3 m de ella (hoy flota). Las teselas vacías en contorno: bien.
 **Botón:** no hay captura nueva desde las 13:29; sigue pendiente la mano (ronda GUI 4: dedos redondeados en abanico, pulgar a 45°, sin el cuadrado central de «stop»).
 **Conservar:** la tipografía, el cierre «Cuando los cuerpos resuenan juntos, / nace la cultura.» tal cual.
+
+---
+
+# RONDA 5 (ARTE-3) — 24-11, 20:25 · la obra entera la víspera de la prueba en sala
+
+Cómo lo he mirado: una captura por bloque de `res-obra3d/index.html?demo=0` (estado congelado, una mano en P4 a 1,30 m, tira entera + P4
+ampliado), en `scratchpad/arte/r5/s-<bloque>.jpg` (script `r5/shoot.sh`). 11 bloques, **0 errores de consola**. Límites honestos: la página
+rinde a escala 0,5 (a escala 1 la ventana oculta no carga en 15 s), así que **la nitidez de la gráfica fina de 1 px no la puedo juzgar
+aquí** — hay que mirarla en la sala; son estados forzados, no un pase natural; no he medido nada.
+Criterio (ARTE-3): contención, un acento, un protagonista con aire y halo, una receta de luz, gráfica fina, texto legible siempre.
+Sólo propongo cambios de **bajo riesgo** (opacidades, intensidades, recuentos, posiciones del texto): nada de geometría ni de lógica.
+
+## Veredictos
+| Bloque | ¿Elegante y limpio? | Dueño |
+|---|---|---|
+| Espera (umbral) | **casi** — rica e identitaria, pero es lo menos «contenido» de la obra | LUZ |
+| Intro (plaça) | **sí** — azul noche + charcos de farol; no tocar | — |
+| I Brasa | **casi** — atmósfera y contención bien; las gotas no son cromo y sobran las esquirlas rojas | LUZ |
+| II Pinya | **sí** — la más coherente con ARTE-3 tras el Tronc | LUZ |
+| III Tronc | **sí** — la imagen de ARTE-3: escultura de porcelana sobre gris azulado | TRON |
+| IV Pom | **todavía no** — lo más cargado: todas las líneas gruesas y con resplandor, pegadas al texto | POV |
+| V Corona | **todavía no** — lluvia de arena + curvas + brillos blancos + morado, todo a la vez | LUZ |
+| V Ressonància (festa) | **todavía no** — el oro líquido es bueno; el velo índigo rectangular parece un borrón | LUZ |
+| Bajada | **todavía no** — buen cielo y buena plaza a contraluz; el texto es blanco sobre porcelana blanca | LUZ + SIS |
+| Caída | **sí** — granos de porcelana y trencadís sobre azul profundo; limpia | LUZ |
+| Acta | **limpia pero pequeña** — instrumento fino, a escala de pantalla y no de muro | POV |
+
+## LUZ
+**Bajada (lo más urgente de toda la obra).**
+1. **El texto no se lee**: «Bajadlo despacio» cae sobre el corro de porcelana blanca. Bajar la luminancia de la porcelana dentro de la caja
+   del texto (±1,6 m × 1,75–2,2 m) al 35 % (la zona tranquila de la biblia §4), o que SIS suba el bloque de texto al cielo (ver SIS 1).
+2. **Esquirlas quemadas**: las caras blancas planas de la torre de vidrio (0,3–0,5 m de blanco puro) → techo al 70 %; el contorno blanco
+   de cada esquirla, a la mitad de opacidad (ahora se lee como alambre).
+3. **La mitad inferior es negro puro** (la silueta de la plaza ocupa el 45 % del muro): levantar el pie con bruma del amanecer (degradado
+   `#1A1326` → transparente, hasta 1,2 m). ARTE-3: «nunca negro puro».
+**Corona + festa.**
+1. **Un solo acento: oro.** El índigo/morado (valles, cuencos de las esferas, velo) compite con el oro: saturación del lila al 30 % y las
+   esferas sólo cromo (fuera el casquete índigo: parecen ojos).
+2. **El velo de la zona tranquila**: hoy es un rectángulo índigo borroso de 4 × 2 m. Elipse radial suave, oscuro cálido `#120C06`, 60 % de
+   su opacidad actual: que sea el halo del mandala, no un parche.
+3. **Corona**: arena a la mitad (recuento o brillo) y sin estela vertical (parece lluvia/ruido); curvas de nivel fuera (`contours` 0, como
+   en festa); los brillos blancos del entorno, ×0,5. Que quede: cartela + cáustico de oro.
+**Brasa.**
+1. **Fuera las esquirlas rojas que flotan** (polígonos rojos planos = confeti): dejar sólo las brasas del suelo.
+2. **Un protagonista por muro**: la gota grande de cada muro con filo (`room.rim`) y halo detrás (`room.makeHalo`), y el reflejo del
+   entorno al doble; las pequeñas, ocultas o al 40 %. Hoy son botellas gris mate.
+3. Nada más: el suelo y el estallido de la mano están bien.
+**Pinya.** 1) Fuera los bloques de colores del suelo junto a la mano. 2) P2 y P3 siguen casi negros: la calma de la primera fila al 45 %.
+3) El brazo de galaxia al 70 %: el protagonista es la gente.
+**Espera.** 1) Mosaico en reposo ×0,75 y tope al faro (en P3 hay ~1,5 m de teselas casi blancas). 2) Las esquirlas sueltas del cielo, a
+la mitad. 3) Los hilos blancos verticales, al 40 %.
+**Caída.** Sin cambios.
+
+## TRON
+1. **Fajas en 2–3 colores, no arcoíris**: azul cobalto `#2146B0`, ocre `#E3A32B` y blanco (hoy además verde, rojo y naranja: confeti). Es
+   el único color del capítulo; contenido es más elegante.
+2. **Nombres de pisos que se pisan**: «BAIXOS» y «PINYA» se imprimen uno sobre otro en la vara. Separación mínima de 0,14 m entre
+   etiquetas, o mostrar sólo el piso actual y el anterior.
+3. **El muro sin torre** (P3, «Ayudad desde aquí») es un gris vacío: el mismo halo radial que llevan las torres, sin objeto, para que no
+   parezca apagado. Y comprobar que nada blanco queda detrás de «Levantad» (hoy cae sobre el piso gris: bien; al subir la sala puede cambiar).
+
+## POV
+**Pom.**
+1. **Quitar el resplandor de las líneas y bajar todo ×0,6** salvo el edificio que lleva la luz: ahora todas las aristas son gruesas, con
+   halo, y el conjunto es una reja blanca. Ventanas al 35 %.
+2. **Zonas tranquilas**: detrás de «Quietos / ENXANETA» y del botón, líneas al 30 % (hoy una fachada cruza el texto).
+3. **Constelaciones**: los enlaces grises gruesos con nodos redondos parecen un diagrama; 1,5 px al 30 %, nodos de 3 cm.
+**Acta.**
+1. **Escala de muro**: el bloque de cada valor ×1,6 (nombre con mayúscula ≥ 0,30 m, barra de 2 m, teselas de 6 cm). Hoy mide ~1 m y se
+   pierde en un muro de 7 m.
+2. La cifra («35») en la mono del sistema y al doble.
+3. La línea de 1,25 m que cruza toda la sala, al 30 % o interrumpida detrás del bloque (tacha «1,25 m» en la regla).
+
+## SIS (guía y sistema común)
+1. **Posición del texto por bloque**: en Bajada (y como seguro en Tronc) el bloque de instrucción a 2,30 m, o placa oscura al 60 % sólo en
+   esos dos. Es la corrección de mayor impacto para esta noche.
+2. **Gráfica fina sólo donde se lee**: sobre el mosaico de la espera y sobre las líneas del Pom, las reglas, cruces y rejilla de puntos son
+   ruido → opacidad 0 en `wait` y 50 % en `pom`. En Pinya, Tronc, Brasa y Acta quedan muy bien.
+3. **Anillo del botón más fino**: los segmentos blancos gruesos (sobre todo en la espera) pesan más que el vidrio; ancho al 60 % y en hueso
+   al 80 %. Y **mirar en la sala a escala 1** las etiquetas mono: en mis capturas a media resolución salen dobles/borrosas («SEGONS», «1.60»);
+   si en la sala también, subirlas a ≥ 5 cm de altura y 1,5 px de trazo.
+
+## Qué pedir a Beltrán que mire esta noche en la sala
+Legibilidad del texto en Bajada y Tronc; nitidez de la gráfica fina de 1 px con el proyector; si el Pom deslumbra; el nivel de negro en
+P2/P3 de la Pinya; y el tamaño del acta desde el centro de la sala.
