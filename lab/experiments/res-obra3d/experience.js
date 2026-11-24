@@ -412,6 +412,7 @@ function prewarmNext() {
 let prevBlock = '';
 let time = 0, frames = 0, f0 = performance.now(), fps = 0, lastBlock = '', actaAt = -1, acta = score.acta();
 const frameEvents = [];
+const m6 = { y: 0, v: 0, maxV: 0 }, M6_KEEP = new Set(['pom', 'crown', 'festa']);   // M6: the near world's offset in the Tronc (below)
 const prof = { m: {}, max(k, v) { if (!(this.m[k] >= v)) this.m[k] = v; }, reset() { this.m = {}; } };   // lab: the slowest CPU time per step since reset
 const input = { time: 0, t: 0, dt: 0, progress: 0, hands: [], downs, ups, params: null, state: S, events: frameEvents, arrive: 1, leave: 0, acta };
 function frame(dt) {
@@ -516,6 +517,28 @@ function frame(dt) {
     input.t = t; input.progress = e.progress; input.params = p; input.arrive = e.arrive; input.leave = e.leave;
     const p0 = performance.now(); e.part.update(dt, input); prof.max(e.name, performance.now() - p0);
   }
+  // 05-plan M6 (Modelado) «the room rises»: in the Tronc the near world (plaza, porxada) goes down with tronc3d's rise, so the tower
+  // stands on the ground and is seen whole. In pom / crown / festa it stays where the Tronc left it (the castell's 'top' view); from
+  // any other block it goes back to 0: at once if neither is on screen, else eased (≥ 3 s, ≤ 0.3 m/s). m6.maxV = the fastest world translation seen (m/s; it must stay ≤ ~0.3).
+  {
+    const T3 = parts.tronc3d, on = T3 && T3.state !== 'off' && VB === 'tronc';
+    const prev = m6.y;
+    if (on) m6.y = Math.min(0, -(T3.part.rise || 0));                // the near world only goes DOWN (at the Tronc's start rise < 0)
+    else if (!M6_KEEP.has(VB)) {
+      const seen = ['plaza', 'porxada'].some((n) => parts[n] && parts[n].state !== 'off');
+      if (!seen) m6.y = 0;                                             // nobody sees it: back at once
+      else { const to = ease(m6.y, 0, dt, 1.1), lim = 0.3 * dt; m6.y += Math.max(-lim, Math.min(lim, to - m6.y)); }   // seen: ≥ 3 s, ≤ 0.3 m/s
+    }
+    if (dt > 0 && dt < 0.1) m6.v = Math.abs(m6.y - prev) / dt; if (on && m6.v > m6.maxV) m6.maxV = m6.v;
+    // added to the part's own height (plaza sets its own every update: the silhouette's drop in the bajada), whether the part rewrites
+    // it each frame or never touches it
+    for (const n of ['plaza', 'porxada']) {
+      if (!parts[n]) continue;
+      const o = parts[n].part.object, ud = o.userData;
+      if (ud.m6w !== undefined && o.position.y === ud.m6w) o.position.y = ud.m6base + m6.y; else { ud.m6base = o.position.y; o.position.y += m6.y; }
+      ud.m6w = o.position.y;
+    }
+  }
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
   targets3d.update(dt, { targets: S.targets, block: S.block, time, on: P.guide !== false });
   p1 = performance.now(); const ib = stepIntroBreak();
@@ -575,7 +598,7 @@ async function warmUp() {
 }
 lt('pre-warmup'); try { await warmUp(); } catch (err) { console.info('res-obra3d: warm-up skipped (' + err.message + ')'); }
 
-window.__obra = { load: LT, tr, pal, score, warm: warmLater, targets3d, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
+window.__obra = { load: LT, tr, pal, score, warm: warmLater, targets3d, m6, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
 lt('loop'); vt.loop(frame, canvas);
 
 // T-057 (warmSets): the light sets the load did not draw, compiled in the background while the wait plays (~2.5 s each on the M1 Max;
