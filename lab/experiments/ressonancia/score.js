@@ -43,9 +43,9 @@ export const TIMES = {                       // seconds
     breath: { slow: 0.7, more: 0.35, many: 4 }, gust: 0.35, gustGap: 1.5, breakGap: 1.2, breakCost: 0.08, breaksMax: 3, arriving: 1.5 },   // A11/A12: a gust needs ≥ 20 % of the hands; the silence tolerates 15 % moving (max 4) and the hands arriving (< arriving s)
   print: { from: 3, to: 15, rest: 0.5, max: 60, near: 0.15 },   // T-050 the acta's handprints: a hand resting ≥ rest s between from and to leaves one (not two within `near` m)
   aleta: { window: 12, rise: 0.28, high: 1.6, highAfter: 2, quorum: 0.6, quorumMany: 0.4, within: 3, up: 0.35, top: 1.9 },   // 25-11 (A13): quorum 0.6 up to 4 hands → quorumMany from 12; crown-targets `up` m above every hand (≤ top)
-  hand: { size: 0.12, base: 6, span: 2, moved: 0.1, recent: 2 },   // moved/recent: a hand already down counts half at a call's TOK if it moved > moved m or landed < recent s ago   // the default hand width (m), how slowly a hand's baseline follows it (s), the window of `span` (m)
+  hand: { size: 0.12, base: 6, span: 2 },   // the default hand width (m), how slowly a hand's baseline follows it (s), the narrowest packing window (m)
   crown: 25,
-  festa: { min: 60, target: 76, max: 84, free: 20, echo: 48, travel: 3, window: 0.7, ghost: 12, calls: 4, gap: 0.8, lead: 1.0, pause: 3.2, early: 0.5, late: 0.7 },   // 24-11: free → echo → call → bloom
+  festa: { min: 60, target: 76, max: 84, free: 20, echo: 48, travel: 3, ghost: 12, echoLife: 8, calls: 4, gap: 0.8, lead: 1.0, pause: 2.5, callMax: 7, fracs: [0.35, 0.45, 0.55, 0.65] },   // 25-11: free (rings) → echo (targets that wait) → 4 calls → bloom
   baixada: { min: 30, target: 40, max: 50, empty: 10, lower: 0.35, gentle: 0.4, net: 12, drop: 3, outside: 0.5 },   // 24-11: the group brings it down (net: the clock lowers it in the last 12 s)
   fall: 12, acta: 40,
 };
@@ -153,16 +153,6 @@ export function createScore(nWalls, opt = {}) {
     tr.dy = an && bn ? ay / an - by / bn : 0;                       // signed: up +, down −
     tr.still = tr.disp <= T.pom.still ? (tr.still || 0) + dt : 0;   // T-050: seconds still in a row
     return tr;
-  }
-  // a call's count (24-11, #9): landings from the first tok to TOK + late, PLUS, at the TOK, the hands already down that moved more
-  // than T.hand.moved in the last second or landed less than T.hand.recent s ago (half each: the sensor cannot see a press)
-  function callCount(C, B, now, downs) {
-    const first = C.at - 2 * C.gap;
-    if (downs && now >= first && now <= C.at + B.late) C.hits += downs;
-    if (!C.tokDone && now >= C.at) {
-      C.tokDone = true;
-      for (const o of S.strokes) { const tr = track.get(o.stroke); if (tr && tr.land < first && (o.disp > T.hand.moved || now - tr.land < T.hand.recent)) C.hits += 0.5; }
-    }
   }
   // 25-11 (D3b, plan 05 §4.3): THE CALL on targets. Targets light on every wall; the call is met when `need` of them are held AT THE
   // SAME TIME for tg.hold s (need = clamp(round(frac × n / 1.6), 1, 6), frac growing call after call). No window, no strike, no
@@ -767,55 +757,64 @@ export function createScore(nWalls, opt = {}) {
     } else if (S.block === 'crown') {
       S.progress = S.t / T.crown; if (S.t >= T.crown) { S.resonance = 0; go('festa'); }
     } else if (S.block === 'festa') {
-      // V. La ressonància (24-11, plan step 7): FREE (play; hands that land together add up, as before) → ECHO (each wave travels to the
-      // opposite wall as a visible front, arriving after B.travel s; a hand on that wall within ±B.window of the arrival returns it
-      // doubled; if nobody returns one in B.ghost s the room does) → THE CALL (Brasa's tok… tok… TOK on all four walls, B.calls times,
-      // each bigger) → the BLOOM, always, on the last call: its size and length by `resonance` (how together the group was).
-      if (S.t < dt * 1.5) { unisonSum = 0; S.fronts.length = 0; S.echoHits = 0; S.bloomSize = 0; S.bloomDur = 0; festaEndAt = -1; lastEcho = now; S.call.n = 0; }
-      S.festaStage = festaEndAt >= 0 ? 'bloom' : S.t < B.free ? 'free' : S.t < B.echo ? 'echo' : 'call';
-      if (downs) { if (now - festaClusterAt <= 0.5) festaCluster += downs; else { festaClusterAt = now; festaCluster = downs; } S.resonance += festaCluster >= 2 ? (0.2 * downs) / S.people : 0.01; }
+      // V. La ressonància (25-11, D3b, plan 05 §4.3, A14/A15, B6). FREE: ring-targets everywhere; every one held opens a big ring and
+      // adds resonance (landings only make the free wave, they count nothing). ECHO: the room sends a wave across; it lights a target on
+      // the wall where it arrives, which waits B.echoLife s for somebody to hold it («Devolvedla») — held, it goes back across, bigger;
+      // ≤ clamp(ceil(n / 5), 1, 4) fronts at once; with ≤ 2 people it arrives on their own wall. Nobody returns one for B.ghost s: the
+      // room returns it (the colla, named). THE CALL ×4 (callStep, each bigger). The BLOOM, always: its size by how together they were.
+      if (S.t < dt * 1.5) { unisonSum = 0; S.fronts.length = 0; S.echoHits = 0; S.bloomSize = 0; S.bloomDur = 0; festaEndAt = -1; lastEcho = now; S.call.n = 0; S.call.open = false; offered = false; frontLaunch = -1e9; }
+      const stage = festaEndAt >= 0 ? 'bloom' : S.t < B.free ? 'free' : S.t < B.echo ? 'echo' : 'call';
+      if (stage !== S.festaStage) { S.festaStage = stage; offered = false; if (stage === 'call' || stage === 'bloom') { S.fronts.length = 0; } }
+      const ppl = Math.max(1, S.n / 1.6);
       S.resonance = clamp(S.resonance + dt * (0.004 * Math.min(12, S.hands) - 0.03), 0, 1.2);
-      const opp = (w) => (S.people <= 2 ? w : W >= 4 ? (w + 2) % W : (w + 1) % W);   // ≤ 2 people: the front goes round and comes back to its own wall
-      const takes = (f, w) => w === f.to || (S.people <= 2 && (w === (f.to + 1) % W || w === (f.to + W - 1) % W));
-      // the fronts: returns first (a hand on the arrival wall, at the arrival), then new fronts from the other landings
-      const used = zeros(0);
-      for (let i = S.fronts.length - 1; i >= 0; i--) {
-        const f = S.fronts[i];
-        let rw = -1; for (let w = 0; w < W; w++) if (downsW[w] - used[w] > 0 && takes(f, w)) { rw = w; break; }
-        if (rw >= 0 && Math.abs(now - f.arrive) <= B.window) {
-          used[rw]++; S.fronts.splice(i, 1); S.echoHits++; learn('festa'); lastEcho = now; S.resonance += 0.12 / Math.sqrt(S.people);
-          if (S.fronts.length < 12) S.fronts.push({ id: ++frontId, from: rw, to: opp(rw), at: now, arrive: now + B.travel, gen: Math.min(4, f.gen + 1), ghost: false });
-          emit('echo'); achieve('echo', S.echoHits, rw, 'group');
-        } else if (now > f.arrive + B.window) {
-          S.fronts.splice(i, 1);
-          if (S.festaStage === 'echo' && now - lastEcho > B.ghost) {   // nobody returned one for a while: the room returns it
-            lastEcho = now; S.fronts.push({ id: ++frontId, from: f.to, to: f.from, at: now, arrive: now + B.travel, gen: Math.min(4, f.gen + 1), ghost: true }); emit('ghost');
+      if (stage === 'free') {
+        if (!offered) { offer({ mode: 'field', kind: 'ring', pairs: true }); offered = true; }
+        for (const t of tgDone) { S.resonance += 0.2 / Math.sqrt(ppl); emit('front'); }
+      } else if (stage === 'echo') {
+        if (!offered) { offer({ mode: 'manual', kind: 'echo' }); offered = true; }
+        const maxF = clamp(Math.ceil(S.n / 5), 1, 4);
+        let busiest = 0, bc = -1; for (let w = 0; w < W; w++) if (S.count[w] > bc) { bc = S.count[w]; busiest = w; }
+        const arrival = (from) => (S.people <= 2 && S.n <= 2.2 ? busiest : W >= 4 ? (from + 2) % W : (from + 1) % W);
+        const launch = (from, gen, ghost) => { const to = arrival(from), dir = Math.sign(cdP(perimOf(to, 0), perimOf(from, 0))) || (frontId % 2 ? -1 : 1); S.fronts.push({ id: ++frontId, from, to, dir, at: now, arrive: now + B.travel, gen: Math.min(4, gen), ghost, tg: 0, placedAt: 0 }); frontLaunch = now; emit(ghost ? 'ghost' : 'front'); };
+        // the room sends the first ones (staggered); later ones are the returns
+        if (S.fronts.length < maxF && now - frontLaunch >= 4 && (S.fronts.length === 0 || S.n > 5)) launch((busiest + 2) % W, 0, false);
+        for (let i = S.fronts.length - 1; i >= 0; i--) {
+          const f = S.fronts[i];
+          if (!f.tg && now >= f.arrive) {                  // it arrives: a target lights on that wall, near a hand there if any
+            let dx = 0, y = 1.2, bd = 1e9; for (const o of S.strokes) if (o.wall === f.to) { const d = Math.abs(o.dx); if (d < bd) { bd = d; dx = o.dx + (o.dx > 0 ? -0.5 : 0.5); y = clamp(o.y || 1.2, 0.9, 1.4); } }
+            const t = TG.place({ wall: f.to, dx, y, kind: 'echo', life: B.echoLife, dir: f.dir }); f.tg = t ? t.id : -1; f.placedAt = now;
+          }
+          if (f.tg > 0) {
+            const done = tgDone.find((t) => t.id === f.tg);
+            if (done) {
+              S.fronts.splice(i, 1); S.echoHits++; learn('festa'); lastEcho = now; S.resonance += 0.12 / Math.sqrt(ppl);
+              emit('echo'); achieve('echo', S.echoHits, f.to, 'group', done.s, done.y);
+              if (S.fronts.length < maxF) launch(f.to, f.gen + 1, false);
+              continue;
+            }
+          }
+          if (f.tg && now - f.placedAt >= B.echoLife) {     // nobody held it
+            S.fronts.splice(i, 1);
+            if (now - lastEcho > B.ghost && S.fronts.length < maxF) { lastEcho = now; collaAt = now; helped.festa = true; launch(f.to, f.gen + 1, true); }
           }
         }
-      }
-      if (S.festaStage === 'echo') for (let w = 0; w < W; w++) if (downsW[w] - used[w] > 0 && now - frontAt[w] > 0.6 && S.fronts.length < 12) { frontAt[w] = now; S.fronts.push({ id: ++frontId, from: w, to: opp(w), at: now, arrive: now + B.travel, gen: 0, ghost: false }); emit('front'); }
-      // the call
-      const C = S.call;
-      if (S.festaStage === 'call') {
-        if (C.n === 0) { C.n = 1; C.gap = B.gap; C.from = 0; C.to = -1; C.at = now + B.lead + 2 * C.gap; C.hits = 0; C.armed = true; C.tokDone = false; S.fronts.length = 0; }
-        C.need = S.solo ? 1 : clamp(Math.round(S.people * 0.4), 2, 5);
-        const first = C.at - 2 * C.gap;
-        if (C.armed && now >= first) { C.armed = false; emit('call'); }
-        C.phase = now < first ? 0 : clamp((now - first) / (2 * C.gap), 0, 1);
-        callCount(C, B, now, downs);
-        if (now > C.at + B.late) {
-          const k = Math.min(1, C.hits / C.need); S.resonance += 0.22 * k; S.waveBig = k >= 1; unisonSum += k; emit('wave');
-          if (C.n >= B.calls) {                                       // the last one: the room flowers, always
-            // how together they were: the calls hit in unison (½), the echoes returned (0.3), the base (0.2)
-            S.bloomSize = clamp(0.2 + 0.5 * (unisonSum / B.calls) + 0.3 * Math.min(1, S.echoHits / 6), 0, 1); S.bloomDur = 4 + 4 * S.bloomSize;
-            bloomAt = now; S.blooms++; emit('bloom'); bloomAch(); festaEndAt = now + S.bloomDur; C.n = B.calls + 1;
-          } else { C.n++; C.at = now + B.pause + 2 * C.gap; C.hits = 0; C.armed = true; C.tokDone = false; }
+      } else if (stage === 'call') {
+        if (S.call.n === 0) { S.call.n = 1; S.call.open = false; S.call.pauseUntil = now; }
+        if (S.call.n <= B.calls) {
+          const k = callStep(S.call, B, now, B.fracs, 'call', 'festa');
+          if (k) {
+            S.resonance += 0.22 * k; unisonSum += k === 1 ? 1 : 0.25;   // the colla's calls barely count for the bloom
+            if (S.call.n > B.calls) {                                // the last one: the room flowers, always
+              S.bloomSize = clamp(0.2 + 0.5 * (unisonSum / B.calls) + 0.3 * Math.min(1, S.echoHits / clamp(S.n / 1.6, 2, 6)), 0, 1); S.bloomDur = 4 + 4 * S.bloomSize;
+              bloomAt = now; S.blooms++; emit('bloom'); bloomAch(); festaEndAt = now + S.bloomDur; TG.clear();
+            }
+          }
         }
       }
       S.progress = clamp(S.resonance, 0, 1);
       if ((festaEndAt >= 0 && now >= festaEndAt) || S.t >= B.max) {
-        if (!S.blooms) { S.bloomSize = clamp(0.2 + 0.5 * (unisonSum / B.calls) + 0.3 * Math.min(1, S.echoHits / 6), 0, 1); S.bloomDur = 0; S.blooms++; emit('bloom'); bloomAch(); }   // never leaves without its bloom
-        downT = 0; go('baixada');
+        if (!S.blooms) { S.bloomSize = clamp(0.2 + 0.5 * (unisonSum / B.calls) + 0.3 * Math.min(1, S.echoHits / clamp(S.n / 1.6, 2, 6)), 0, 1); S.bloomDur = 0; S.blooms++; emit('bloom'); bloomAch(); }   // never leaves without its bloom
+        TG.clear(); downT = 0; go('baixada');
       }
     } else if (S.block === 'baixada') {
       // La bajada = BRING IT DOWN (24-11, plan step 3). The hands on the structure's walls carry the band down: a descent is complete
