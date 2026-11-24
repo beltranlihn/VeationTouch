@@ -92,6 +92,9 @@ let INK = inkOf('wait'), INK_A = 0.92;   // light chapters: the darkest ink at f
 export const TEXT = { line: 1.62, lineCap: 0.18, labelCap: 0.14, card: 1.95, max: 22 };   // D7 (05-plan §3): metres; caps = 0.667 x size
 // the consigna's offset along the wall (m from its centre) where the chapter has a hero object at the centre: the text stands beside it
 const CONSIGNA_X = { brasa: -1.75, tronc: -2.0, baixada: -2.0 };   // ±2.7 hit the plaza's lamp posts and the corners of the narrow walls
+// where the consigna may stand on a wall (m from its centre), in order of preference: beside the chapter's hero, never on a target
+// (S.targets): each wall takes the candidate farthest from its targets (only while its words are not up: words never slide in view)
+const SPOTS = { brasa: [-1.75, -2.5, 1.9, 2.5], tronc: [-2.0, 2.0, -2.6, 2.6], baixada: [-2.0, 2.0, -2.6, 2.6], other: [0, -1.7, 1.7, -2.5, 2.5] };
 // the card: the numeral first (0.2 s ahead), the name (caps ≈ 0.31 m), the hairline drawn from the centre out, the value rising
 // from behind its baseline
 function cardItems(C) {
@@ -105,8 +108,10 @@ function cardItems(C) {
 const lineItems = (L) => {
   const it = [];
   // T-048: the words come into focus one by one (typo3d reveal 'blur', 60 ms per word)
-  if (L[0]) it.push({ text: L[0], font: 'sans', size: TEXT.lineCap / 0.667, y: 0, track: 0.02, alpha: INK_A, color: INK, edge: 0.5, reveal: 'blur' });
-  if (L[1]) it.push({ text: L[1], font: 'sans', size: TEXT.labelCap / 0.667, y: L[0] ? 0.33 : 0, track: 0.06, alpha: INK_A * 0.88, color: INK, edge: 0.5, delay: 0.15, reveal: 'blur' });
+  // Art Director 25-11: Vicente's card IS the type system — the consigna in Instrument Serif, on the card's hairlines; the label in
+  // its italic. Caps 0.18 m (Instrument Serif caps ≈ 0.70 em).
+  if (L[0]) it.push({ text: L[0], font: 'serif', size: TEXT.lineCap / 0.7, y: 0, track: 0.015, alpha: INK_A, color: INK, rules: 0.32, reveal: 'blur' });
+  if (L[1]) it.push({ text: L[1], font: 'italic', size: TEXT.labelCap / 0.7, y: L[0] ? 0.34 : 0, track: 0.02, alpha: INK_A * 0.9, color: INK, delay: 0.15, reveal: 'blur' });
   return it;
 };
 
@@ -119,7 +124,7 @@ const PALETTES = {
   baixada: [[1.0, 0.62, 0.75], [0.7, 0.6, 1.0], [0.5, 0.95, 0.85]],
 };
 
-export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {   // fine: ignored (the instrument layer is gone, 25-11); rings: true = the old rings as a fallback
+export function createGuide({ THREE, TSL, room, fine = false, rings = false, ghosts: ghostsOn = false }) {   // ghosts: the teaching hand glyphs (off: the targets teach, no hand icon on the walls)   // fine: ignored (the instrument layer is gone, 25-11); rings: true = the old rings as a fallback
   const { pmremTexture, refract, cross, uniform, uv, vec2, vec3, float, smoothstep, exp, length, step, texture, select, clamp: tclamp, max, min, cos, sin, abs, pow, dot, normalize, reflect, attribute, positionGeometry, positionLocal, normalWorld, positionWorld, cameraPosition, mix, fract } = TSL;
   const object = new THREE.Group(); object.name = 'guide';
   const NW = room.walls.length;
@@ -303,7 +308,21 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
   // N7: the consigna TRAVELS with the Brasa's relay — on the devil's wall it follows the fire along the wall (eased, never past the
   // corners); the other walls keep their place. lineS0: where each wall starts along the perimeter (the score's s).
   const lineS0 = []; { let a = 0; for (const w of room.walls) { lineS0.push(a); a += w.width; } }
-  const lineX = new Float32Array(room.walls.length), lineXT = new Float32Array(room.walls.length); let travelOn = false, travelS = 0, travelDir = 1;
+  const lineX = new Float32Array(room.walls.length), lineXT = new Float32Array(room.walls.length), spotXs = new Float32Array(room.walls.length);
+  function spotX(S, b, text) {
+    const cand = SPOTS[b] || SPOTS.other, half = Math.max(0.6, (text || '').length * 0.06), T = Array.isArray(S.targets) ? S.targets : [];
+    for (let w = 0; w < NW; w++) {
+      const Wd = room.walls[w].width; let best = cand[0], bs = -1e9;
+      for (let k = 0; k < cand.length; k++) {
+        const x = clamp(cand[k], -Wd / 2 + half + 0.35, Wd / 2 - half - 0.35);
+        let gap = 9; for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < 1.45) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
+        const sc = Math.min(gap, 1.5) - k * 0.05;   // clear of every target that reaches the text's band; then the preferred spot
+        if (sc > bs) { bs = sc; best = x; }
+      }
+      spotXs[w] = best;
+    }
+    return spotXs;
+  } let travelOn = false, travelS = 0, travelDir = 1;
   object.add(card.object, line.object);
 
   // ------------------------------------------------------------------ per frame
@@ -513,6 +532,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
       for (const f of S.fronts || []) { const G = ghosts[f.to]; if (!G || time0 - G.extAt < 0.5) continue; const d = (S.clock ?? 0) - f.arrive; if (d > -0.8 && d < 0.5 && Math.abs(d) < Math.abs(G.tapDt)) { G.tapDt = d; G.wantS = f.ghost ? 0.6 : 0.9; } }
     } else for (let w = 0; w < NW; w++) if (time0 - ghosts[w].extAt >= 0.5) ghosts[w].wantS = 0;
     if (warn) for (let w = 0; w < NW; w++) if (time0 - ghosts[w].extAt >= 0.5) { ghosts[w].want = 'still'; ghosts[w].wantS = 0.6 + 0.4 * Math.abs(Math.sin(time0 * 3)); ghosts[w].anchor = 0; }   // the visual pulse of a warning
+    if (!ghostsOn) for (let w = 0; w < NW; w++) ghosts[w].wantS = 0;   // 25-11: no hand glyph in the room
     stepGhosts(dt);
     // the targets not placed this frame break where they were
     for (let i = nT; i < MAXT; i++) { const T = targets[i]; T.asm = ease(T.asm, 0, dt, 4); T.U.asm.value = T.asm; T.group.visible = T.asm > 0.004; T.held = 0; }
@@ -556,8 +576,8 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
       if (!travelOn) { lineX.set(lineXT); travelOn = true; }
       for (let w = 0; w < NW; w++) lineX[w] = ease(lineX[w], lineXT[w], dt, 2.2);
       placeX(line, lineX);
-    } else { travelOn = false; if (!line.up) placeX(line, CONSIGNA_X[b] || 0); }
-    if (!lineOut.up) placeX(lineOut, CONSIGNA_X[b] || 0);
+    } else { travelOn = false; if (!line.up) placeX(line, spotX(S, b, L ? L[0] : '')); }
+    if (!lineOut.up) placeX(lineOut, spotX(S, b, 'Levantad los bloques'));
     line.step(dtT, { gain: warn ? 1 : gain, hold: hold || (cardUp && !warn), mask, gate: waveGate, lead });
     stepAch(dtT, S, events, time);
     if (warn) for (const t of line.texts) { t.U.sweepK.value = 1; t.U.sweep.value = ((time0 * 0.9) % 1.6) - 0.3; }   // the warning pulses
