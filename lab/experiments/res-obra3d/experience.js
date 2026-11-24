@@ -173,7 +173,7 @@ function readHands() {
 
 // ------------------------------------------------------------------------------------------------ which parts, block by block
 let fallSet = ['atmos'];
-// 05-plan M4 (Modelado): the SAME castell persists from the Tronc to the coronation — tronc3d stays on in pom / crown / festa, in the
+// 05-plan M4 (Modelado): the SAME castell persists from the Tronc to the coronation — tronc3d stays on in crown / festa (not in pom), in the
 // mode of each block (setMode below, on every block change). Only once tronc3d has setMode: before that, nothing changes here.
 const CASTELL_MODE = { tronc: 'build', pom: 'top', crown: 'crowned', festa: 'crowned', baixada: 'down' };
 const castellKept = () => (typeof parts.tronc3d?.part.setMode === 'function' ? ['tronc3d'] : []);
@@ -192,7 +192,7 @@ function wantedBase(b) {
     case 'baixada':                                                  // 3D-FE: the group's tower (tronc3d) is brought down floor by floor (3D-PO, takeFloor)
       if (has('tronc3d')) return has('baixada3d') ? ['plaza', 'tronc3d', 'baixada3d'] : ['tronc3d', 'atmos'];   // plaza as a black silhouette against 3D-PO's dawn (far layer)   // director 24-11: no night square over the dawn; 3D-PO hides tronc3d's floors itself
       return has('baixada3d') ? ['plaza', 'castell', 'baixada3d', 'atmos'] : ['plaza', 'castell', 'atmos'];
-    case 'pom': return has('pom3d') ? ['pom3d', ...castellKept()] : ['plaza', 'castell', 'atmos'];
+    case 'pom': return has('pom3d') ? ['pom3d'] : ['plaza', 'castell', 'atmos'];   // 25-11: no tronc3d here — pom3d draws its own castell top and climbers
     case 'crown': case 'festa': return has('festa3d') ? ['festa3d', ...castellKept()] : ['plaza', 'castell', 'atmos'];
     case 'fall': return fallSet;
     case 'acta': return ['actatext', 'atmos'];
