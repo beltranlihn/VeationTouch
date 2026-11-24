@@ -60,7 +60,7 @@ export function create({ THREE, TSL, room, params }) {
     const sect = sn(az.mul(6.2832 * 5).add(1.0)).mul(sn(az.mul(6.2832 * 2).add(0.4))).mul(0.3).add(0.7);      // lighter and deeper sectors: never a flat wash
     const cloud = ex(el.sub(0.52).mul(el.sub(0.52)).negate().div(0.012)).mul(sn(az.mul(6.2832 * 3).add(2.0)).mul(0.5).add(0.5)).mul(0.28);
     const sky = mi(v3(1.0, 0.66, 0.3), v3(1.0, 0.88, 0.66), up).mul(up.mul(up).mul(0.3).add(0.13)).mul(sect).add(v3(1.0, 0.93, 0.8).mul(cloud)).mul(sst(-0.04, 0.03, el));
-    const low = mi(v3(0.62, 0.5, 1.0), v3(0.36, 0.26, 0.8), dn).mul(dn.mul(0.16).add(0.2)).mul(sect).mul(sst(0.03, -0.04, el));
+    const low = mi(mi(v3(0.579, 0.544, 0.693), v3(0.332, 0.302, 0.464), dn), v3(0.95, 0.7, 0.5), U.cw).mul(dn.mul(0.16).add(0.2)).mul(sect).mul(sst(0.03, -0.04, el));   // T-053: warmer below while the crown opens
     const hz = ex(el.mul(el).negate().div(0.008)).mul(0.34);
     const seam = fl(1).sub(ex(el.add(0.1).mul(el.add(0.1)).negate().div(0.003)).mul(0.5));
     let c = sky.add(low).add(v3(1.0, 0.9, 0.74).mul(hz)).mul(seam).mul(U.Ve.mul(0.3).add(0.7));
@@ -73,9 +73,9 @@ export function create({ THREE, TSL, room, params }) {
       const tw = sn(U.time.mul(hsh.mul(2.0).add(1.0)).add(hsh.mul(40.0))).mul(0.2).add(0.8);
       const bulb = ex(r2.negate().div(w2)).mul(5.0).add(ex(r2.negate().div(w2.mul(30.0))).mul(0.12));
       const bc = mi(v3(1.0, 0.85, 0.63), mi(v3(1.0, 0.62, 0.55), v3(0.78, 0.7, 1.0), stp(0.5, fc(hsh.mul(7.0)))), stp(0.78, hsh));
-      c = c.add(bc.mul(bulb).mul(tw).mul(U.Ve.mul(0.3).add(0.8))).add(v3(1.0, 0.8, 0.5).mul(ex(de.mul(de).negate().div(0.00003)).mul(0.04)));
+      c = c.add(bc.mul(bulb).mul(tw).mul(U.Ve.mul(0.3).add(0.8)).mul(fl(1).sub(U.cw.mul(1.2)).max(0.1))).add(v3(1.0, 0.8, 0.5).mul(ex(de.mul(de).negate().div(0.00003)).mul(0.04)));
     }
-    return c.add(v3(1.0, 0.95, 0.85).mul(pw(mx(dt_(R0, v3(LKEY.x, LKEY.y, LKEY.z)), 0), 30.0).mul(0.8)));
+    return c.add(v3(1.0, 0.95, 0.85).mul(pw(mx(dt_(R0, v3(LKEY.x, LKEY.y, LKEY.z)), 0), 30.0).mul(fl(0.8).sub(U.cw.mul(0.57)))));   // T-053 r5: the white glint ×0.5 in the crown
   };
   const object = new THREE.Group(); object.name = 'festa3d';
   const walls = room.walls, NW = walls.length, eye = room.eye;
@@ -115,7 +115,7 @@ export function create({ THREE, TSL, room, params }) {
     front: uniform(0), head: uniform(0), flash: uniform(0), ring: uniform(0), open: uniform(0), swell: uniform(0), crownOn: uniform(0), cells: uniform(1), solo: uniform(1),
     peakS0: uniform(0), peakFront: uniform(0), peakEnv: uniform(0), peakOpen: uniform(0), duck: uniform(1), washY: uniform(-1), washK: uniform(0), fill: uniform(0),
     rain: uniform(0), hold: uniform(0), respawn: uniform(0), nFr: uniform(0, 'int'), callT: uniform(-99), callGap: uniform(0.8), callOn: uniform(0), bSize: uniform(1), turn: uniform(0), rise: uniform(0), farK: uniform(1), quiet: uniform(0.3),
-    mr: uniform(0.5), frieze: uniform(0), swellA: uniform(1), envLift: uniform(0), lvl: uniform(1), qmax: uniform(0.1), veil: uniform(0.15),
+    cw: uniform(0), mr: uniform(0.5), frieze: uniform(0), swellA: uniform(1), envLift: uniform(0), lvl: uniform(1), qmax: uniform(0.1), veil: uniform(0.15),
     // arrive / leave
     arrive: uniform(1), leave: uniform(0), freeze: uniform(0), sandAmt: uniform(1), sandGlow: uniform(1),
   };
@@ -164,7 +164,8 @@ export function create({ THREE, TSL, room, params }) {
   const mandE = (s, y) => max(smoothstep(U.mr, U.mr.sub(0.4), mandR(s, y).z), frE(y).mul(U.frieze));
   // the guide's quiet zones, as a mask (dx = metres from the wall's centre): text ±1.6 m × 1.75–2.2 m, button ±0.9 m × 0.9–1.6 m
   // … as ONE calm pool per wall: a rounded form (superellipse 3.6 × 1.7 m round (0, 1.55 m)) that holds both, fading out over ~1 m
-  const qzone = (dx, y) => { const ax = dx.div(1.8), ay = y.sub(1.55).div(0.85), a2 = ax.mul(ax), b2 = ay.mul(ay); return smoothstep(1.9, 1.0, sqrt(sqrt(a2.mul(a2).add(b2.mul(b2))))); };
+  // T-053 (ARTE r5): a soft radial ellipse (the superellipse read as a 4 × 2 m rectangle); text-box corners still ≈ 0.57 (luminance cap ≈ 0.15)
+  const qzone = (dx, y) => { const ax = dx.div(2.0), ay = y.sub(1.8).div(1.2); return smoothstep(1.6, 0.8, sqrt(ax.mul(ax).add(ay.mul(ay)))); };
   // the metal's own slow swell (metres): five crossing waves 0.6–3 m long, periodic round the room, gently warped
   const AMB = [[1.9, 2.6, 0.5, 1.0, 0.0, 1.0], [1.2, -1.7, 0.8, 0.6, 1.7, -0.7], [0.8, 1.1, -1.1, 0.35, 3.1, 1.0], [3.1, 0.9, 0.35, 0.5, 4.4, -0.7], [0.55, -0.7, 1.6, 0.16, 5.2, 0.5]];
   const ambH = (s, y) => {
@@ -311,7 +312,7 @@ export function create({ THREE, TSL, room, params }) {
       const hgt = hb0.add(a0.mul(U.swellA).mul(2.5)).add(mP0.mul(mBr).mul(0.2));
       const crest = smoothstep(0.02, 0.3, hgt), trough = smoothstep(-0.02, -0.3, hgt);
       const metal = mix(vec3(0.95, 0.96, 1.0), vec3(1.0, 0.84, 0.56), U.Ve.mul(0.6).add(0.25));
-      const chromeC = envC.mul(metal).mul(fr).mul(mix(vec3(1), vec3(1.0, 0.76, 0.4), crest.mul(0.7))).mul(mix(vec3(1), vec3(0.64, 0.58, 1.0), trough.mul(0.7))).mul(float(1).sub(trough.mul(0.3))).toVar();
+      const chromeC = envC.mul(metal).mul(fr).mul(mix(vec3(1), vec3(1.0, 0.76, 0.4), crest.mul(0.7))).mul(mix(vec3(1), vec3(0.628, 0.61, 0.736), trough.mul(0.7))).mul(float(1).sub(trough.mul(0.3))).toVar();
       chromeC.addAssign(vec3(1.0, 0.84, 0.58).mul(clamp(gh.y.mul(0.5).add(gh.x.mul(0.15)), 0, 1.5)).mul(U.Ve.mul(0.1).add(0.05)));   // slopes that face the sky catch it
       // where the figure stands the metal is deeper, redder gold: the sand's lines of light read on it
       chromeC.assign(mix(chromeC, chromeC.mul(vec3(1.0, 0.6, 0.26)).mul(0.75), mandE(s, y).mul(U.mandA).mul(0.6)));
@@ -441,7 +442,7 @@ export function create({ THREE, TSL, room, params }) {
     // the guide's quiet zones (text, button): the light is SHAPED round them — inside, the metal keeps its relief in a low key (≤ 35 %)
     const qz = qzone(dc, y).mul(U.quiet), lumQ = dot(col, vec3(0.2126, 0.7152, 0.0722));
     const lmQ = U.qmax.div(pow(qz.max(0.02), 3.0));                       // the ceiling falls smoothly towards the zone: a pool of calm, not a box
-    col.assign(col.mul(min(float(1), lmQ.div(lumQ.add(1e-4)))).mul(mix(vec3(1), vec3(0.62, 0.6, 1.5), qz.mul(qz))));   // … of deep lilac metal
+    col.assign(col.mul(min(float(1), lmQ.div(lumQ.add(1e-4)))).mul(mix(vec3(1), vec3(1.0, 0.8, 0.62), qz.mul(qz))));   // … of deep warm metal (T-053 r5: was lilac)
     col.addAssign(callC);
     const app = clamp(U.arrive.sub(float(HG).sub(y).div(HG).mul(0.45)).sub(cell.y.mul(0.15)).sub(0.25).div(0.18), 0, 1);
     const gone = clamp(U.leave.sub(cell.y.mul(0.3).add(0.06)).div(0.16), 0, 1).max(smoothstep(0.3, 0.6, U.leave));
@@ -491,8 +492,8 @@ export function create({ THREE, TSL, room, params }) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('aQ', new THREE.Float32BufferAttribute(at, 2)); g.setIndex(idx);
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.NormalBlending, side: THREE.DoubleSide });
     const q = varying(attribute('aQ', 'vec2'));
-    m.colorNode = vec3(0, 0, 0);
-    m.opacityNode = qzone(q.x, q.y).mul(U.veil);
+    m.colorNode = vec3(0.006, 0.0037, 0.0018);   // T-053 r5: #120C06, warm dark
+    m.opacityNode = qzone(q.x, q.y).mul(U.veil).mul(0.6);
     m.fog = false;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 4;
     return mesh;
@@ -584,9 +585,9 @@ export function create({ THREE, TSL, room, params }) {
     // light
     const bd = bandOf(ns), str = bd.x.mul(U.bandK).mul(sd.y.mul(8).add(4));
     const qzs = qzone(s.sub(wallPick(s, WCX)), ny).mul(U.quiet);
-    const glow = float(0.05).add(smoothstep(0.22, 0.0, mA).mul(mandE(s, y)).mul(U.mandA).mul(float(4.5).sub(U.frieze.mul(2.6)))).add(A.mul(0.6)).add(heat.mul(0.14)).add(trail.mul(3.0)).mul(U.sandGlow).mul(smoothstep(U.ceil.add(1.0), U.ceil.sub(0.6), ny)).mul(float(1).sub(U.fill.mul(U.crownOn).mul(0.75))).mul(float(1).sub(qzs.mul(qzs).mul(0.9)));
+    const glow = float(0.05).add(smoothstep(0.22, 0.0, mA).mul(mandE(s, y)).mul(U.mandA).mul(float(4.5).sub(U.frieze.mul(2.6)))).add(A.mul(0.6)).add(heat.mul(0.14)).add(trail.mul(float(3.0).mul(float(1).sub(U.crownOn)))).mul(U.sandGlow).mul(smoothstep(U.ceil.add(1.0), U.ceil.sub(0.6), ny)).mul(float(1).sub(U.fill.mul(U.crownOn).mul(0.75))).mul(float(1).sub(qzs.mul(qzs).mul(0.9)));
     const c = mix(mix(vec3(1.0, 0.58, 0.18), vec3(1.0, 0.7, 0.34), U.Ve), vec3(1.0, 0.88, 0.7), sd.z.mul(0.2)).mul(glow).mul(sandW)
-      .add(mix(GOLD2, WHITE, sd.y).mul(rainP).mul(sd.x.mul(2.5).add(1.0)))
+      .add(mix(GOLD2, WHITE, sd.y).mul(rainP).mul(sd.x.mul(2.5).add(1.0)).mul(0.5))   // T-053 r5: the crown's rain at half
       .add(GOLD2.mul(burst.mul(3))).mul(fadeL).mul(step(sd.y, U.sandAmt)).mul(float(1).sub(qzs.mul(qzs).mul(rainP).mul(0.85)));
     const toP = pos.sub(vec3(eye.x, eye.y, eye.z)), dperp = dot(toP, pp.n.negate()).max(0.5);
     const pix = dperp.mul(pxM).div(pp.d);
@@ -595,7 +596,7 @@ export function create({ THREE, TSL, room, params }) {
     const E = c.div(spx.mul(spx)).mul(float(1).add(rainP.mul(1.5)));
     const inside = abs(pos.x).lessThan(Math.abs(walls[1 % NW].centre.x) - 0.02).and(abs(pos.z).lessThan(Math.abs(walls[0].centre.z) - 0.02));
     bP.element(instanceIndex).assign(vec4(pos, select(inside, float(0), Dm)));
-    bC.element(instanceIndex).assign(vec4(E, str.add(rainP.mul(sd.z.mul(6).add(2)))));
+    bC.element(instanceIndex).assign(vec4(E, str));   // T-053 r5: round grains (the rain's vertical streak read as noise)
   });
   const sandCompute = sandStep().compute(NP);
   const sm = new THREE.SpriteNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
@@ -667,6 +668,9 @@ export function create({ THREE, TSL, room, params }) {
     geo.instanceCount = NPC; return geo;
   })();
   const CHROME_T = vec3(1.0, 0.92, 0.78);
+  // T-053: the shared system — the chapter's accent (hands' light) and the recipe's cool rim (ARTE.md §3: lila contraluz in the crown)
+  const ACC = vec3(...(room.PALETTE?.festa?.accent || [0.92, 0.56, 0.1])), RIMC = vec3(0.62, 0.55, 0.95);
+  const FLASH = (p) => (room.flash ? room.flash(p) : float(0));
   const iridP = (x) => mix(mix(ROSE, vec3(1.0, 0.84, 0.55), smoothstep(-0.8, 0.4, sin(x))), vec3(0.74, 0.68, 1.0), smoothstep(0.35, 1.0, sin(x.mul(0.71).add(1.3))));   // rose · gold · lilac
   const pcMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: true, depthTest: true, blending: THREE.NormalBlending, side: THREE.FrontSide });
   {
@@ -675,11 +679,13 @@ export function create({ THREE, TSL, room, params }) {
     const vN = varying(nrm), vS = varying(S4);
     pcMat.colorNode = Fn(() => {
       const N = normalize(vN), V = normalize(cameraPosition.sub(positionWorld)), R = reflect(V.negate(), N), ndv = max(dot(N, V), 0);
-      const env = envT(R, 0.04);
+      const env0 = envT(R, 0.04), env = mix(vec3(dot(env0, vec3(0.2126, 0.7152, 0.0722))), env0, 0.25);   // T-053 r5: chrome only (no indigo cap)
       // the membrane below it: a sphere also reflects the plate it sits on (gold crests, lilac troughs), seen towards the plate
       const tint = mix(vec3(0.93, 0.95, 1.0), vec3(1.0, 0.92, 0.74), U.Ve);
       const glint = pow(max(dot(R, vec3(LKEY.x, LKEY.y, LKEY.z)), 0), 400.0).mul(6.0);
-      const c = env.mul(tint).mul(float(0.75).add(pow(float(1).sub(ndv), 3.0).mul(0.25))).add(WHITE.mul(glint)).add(GOLD2.mul(vS.z).mul(0.5));
+      const rimP = pow(float(1).sub(ndv), 3.0);
+      const c = env.mul(tint).mul(float(0.75).add(rimP.mul(0.25))).add(WHITE.mul(glint)).add(GOLD2.mul(vS.z).mul(0.5))
+        .add(RIMC.mul(rimP).mul(0.35)).add(ACC.mul(FLASH(positionWorld)).mul(rimP.mul(0.8).add(0.1)).mul(0.6));   // T-053: the recipe's cool rim; the hands' light on the edge
       return vec4(c.mul(vS.w), 1);
     })();
   }
@@ -701,7 +707,7 @@ export function create({ THREE, TSL, room, params }) {
     const vN = varying(qrot(nrm));
     hoopMat.colorNode = Fn(() => {
       const N = normalize(vN), V = normalize(cameraPosition.sub(positionWorld)), R = reflect(V.negate(), N);
-      return vec4(envT(R, 0.06).mul(vec3(1.0, 0.72, 0.34)).mul(1.5).add(vec3(1.0, 0.6, 0.2).mul(0.06)), 1);
+      return vec4(envT(R, 0.06).mul(vec3(1.0, 0.72, 0.34)).mul(1.5).add(vec3(1.0, 0.6, 0.2).mul(0.06)).add(ACC.mul(FLASH(positionWorld)).mul(0.5)), 1);
     })();
   }
   const hoopMesh = new THREE.Mesh(hoopGeo, hoopMat); hoopMesh.frustumCulled = false; hoopMesh.renderOrder = 5;
@@ -727,6 +733,11 @@ export function create({ THREE, TSL, room, params }) {
     }
   }
   const _pq3 = new THREE.Quaternion(), _pq = new THREE.Quaternion(), _pa = new THREE.Vector3(), _pp = new THREE.Vector3();
+  // T-053 (ARTE-3 «one hero per wall, with air»): per wall the Ø 0.6 m sphere with its hoop and ONE Ø 0.3 m companion high up; the low
+  // sphere and the ten beads are no longer drawn (they stay in the arrays so nothing else moves)
+  const SHOWN = (i) => i < NBIG && i % 3 !== 2;
+  const halos = (room.makeHalo && room.placeHalo) ? walls.map(() => { const h = room.makeHalo({ color: [1, 0.8, 0.5], radius: 1.25, intensity: 0 }); object.add(h.mesh); return h; }) : [];
+  const _hp = new THREE.Vector3();
   function plateWorld(pc, out) {                    // CPU twin of platePoint: the plate point (s, y) lifted n off it, in the part's space
     const W = walls[pc.w], t = Math.min(W.width, Math.max(0, pc.s - cum[pc.w]));
     out.copy(W.pa).addScaledVector(W.right, t); out.y = pc.y;
@@ -747,14 +758,16 @@ export function create({ THREE, TSL, room, params }) {
       for (let i = 0; i < NPC; i++) {
         const pc = pcs[i];
         const ds = ((pc.s - fs + PER / 2) % PER + PER) % PER - PER / 2, dy = pc.y - fy, r = Math.hypot(ds, dy);
+        if (!SHOWN(i)) continue;
         if (r < 0.75) throwPiece(pc, 1.15 - 0.6 * r, ds, dy);
         else if (i < NBIG && r < bd && pc.n < 0.02) { bd = r; best = pc; _bds = ds; _bdy = dy; }
       }
       if (best) throwPiece(best, Math.max(0.55, 1.1 - 0.22 * bd), _bds, _bdy);
     }
-    if (burst > 0) for (const pc of pcs) if (pc.n < 0.05) throwPiece(pc, burst * (0.6 + 0.5 * Math.random()), 0, 0);
+    if (burst > 0) for (let i = 0; i < NPC; i++) { const pc = pcs[i]; if (SHOWN(i) && pc.n < 0.05) throwPiece(pc, burst * (0.6 + 0.5 * Math.random()), 0, 0); }
     for (let i = 0; i < NPC; i++) {
       const pc = pcs[i];
+      if (!SHOWN(i)) { const j = i * 4; pcA[j + 3] = 0; pcS[j + 3] = 0; continue; }   // T-053: not drawn, not simulated (no rings from nothing)
       // the plate rattles them: small hops, more often and higher as it rings
       pc.hopT -= dt;
       if (pc.n < 0.003 && pc.hopT <= 0) { pc.hopT = 0.3 + Math.random() * (2.5 - 2.0 * Vres); if (Vres > 0.15 && leave < 0.05) { pc.vn = Math.max(pc.vn, 0.15 + 0.6 * Vres * Math.random()); pc.wv.set(Math.random() - 0.5, Math.random() - 0.5, (Math.random() - 0.5) * 3).multiplyScalar(1.5 * Vres); } }
@@ -800,6 +813,10 @@ export function create({ THREE, TSL, room, params }) {
       SPV[i].set(pc.s, pc.y, pc.n, pc.size); SFV[i].set(pc.n > 0.01 ? Math.min(1, sp / 1.2) : 0, pcS[i * 4 + 3], 0, 0);
     }
     for (let w = 0; w < NW; w++) { const j = w * 3 * 4, o = w * 4; hpA[o] = pcA[j]; hpA[o + 1] = pcA[j + 1]; hpA[o + 2] = pcA[j + 2]; hpA[o + 3] = pcA[j + 3] * (pcS[j + 3] > 0.02 ? 1 : 0); hpQ[o] = pcQ[j]; hpQ[o + 1] = pcQ[j + 1]; hpQ[o + 2] = pcQ[j + 2]; hpQ[o + 3] = pcQ[j + 3]; }
+    for (let w = 0; w < halos.length; w++) {         // T-053: the soft halo behind each wall's hero sphere (≤ 0.16: it sits beside the button's zone)
+      const j = w * 3 * 4; _hp.set(pcA[j], pcA[j + 1], pcA[j + 2]); room.placeHalo(halos[w], _hp, 1.1);
+      halos[w].set({ intensity: 0.16 * pcS[j + 3] * (1 - smoother(leave / 0.5)) }); halos[w].mesh.visible = pcS[j + 3] > 0.01;
+    }
     hoopGeo.getAttribute('aHA').needsUpdate = true; hoopGeo.getAttribute('aHQ').needsUpdate = true;
     for (const k of ['aPA', 'aPS']) pcGeo.getAttribute(k).needsUpdate = true;
   }
@@ -811,7 +828,7 @@ export function create({ THREE, TSL, room, params }) {
   const farMesh = (() => {
     const r = rng(505), aF = new Float32Array(NFS * 4), aG = new Float32Array(NFS * 4);
     for (let i = 0; i < NFS; i++) { aF[i * 4] = r() * 6.2832; aF[i * 4 + 1] = 9 + 25 * r(); aF[i * 4 + 2] = r() * 14 - 4; aF[i * 4 + 3] = 0.08 + 0.5 * r() * r(); for (let k = 0; k < 4; k++) aG[i * 4 + k] = r(); }
-    const g = new THREE.InstancedBufferGeometry().copy(shardG); g.instanceCount = NFS;
+    const g = new THREE.InstancedBufferGeometry().copy(shardG); g.instanceCount = Math.round(NFS * 0.45);   // T-053: fewer far shards (busy)
     g.setAttribute('aFS', new THREE.InstancedBufferAttribute(aF, 4)); g.setAttribute('aFG', new THREE.InstancedBufferAttribute(aG, 4));
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
     const F4 = attribute('aFS', 'vec4'), G4 = attribute('aFG', 'vec4');
@@ -829,7 +846,7 @@ export function create({ THREE, TSL, room, params }) {
       const env = envT(R, 0.05), ndv = max(dot(N, V), 0);
       const film = iridP(ndv.mul(6.0).add(G4.y.mul(6.28)));
       const fog = exp(rad.div(-30.0)).mul(smoothstep(-4.0, -2.0, yy)).mul(float(1).sub(smoothstep(8.0, 10.0, yy)));
-      return mix(env.mul(mix(vec3(1), film, 0.6)), env.mul(CHROME_T), step(0.7, G4.z)).mul(0.55).mul(fog).mul(U.farK);
+      return mix(env.mul(mix(vec3(1), film, 0.6)), env.mul(CHROME_T), step(0.7, G4.z)).mul(0.4).mul(fog).mul(U.farK);
     })();
     void vC;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 0;
@@ -1087,18 +1104,19 @@ export function create({ THREE, TSL, room, params }) {
     U.stepL.value = (0.026 + 0.012 * Ve + 0.025 * bloomEnv) / Math.min(3, Math.max(0.3, num('lines', 1)));
     U.lineW.value = 0.0045 * K[0] * Math.sqrt(Math.max(1, 0.0041 / pxM) * 1) * 1.15;
     U.sand.value = 1.4 * bloomEnv + 1.4 * order * order;
-    U.bandK.value = Math.min(1, (ss(0.8, 1.0, Rs) * 0.8 + 0.4 * bloomEnv) * Math.max(0, num('bands', 1))) * (1 - U.peakEnv.value);   // no bands under the peak
+    U.bandK.value = 0;   // T-053 (ARTE-3 §3): no pixel-sorted runs outside the tile transition (was up to 1 at high resonance / bloom)
     U.relief.value = Math.max(0, num('relief', 0.6));
-    U.chrome.value = Math.max(0, num('chrome', 0.9)); U.glass.value = Math.max(0, num('glass', 0)); U.contours.value = Math.max(0, num('contours', 0)); U.bend.value = Math.max(0, num('bend', 1.0));
+    U.chrome.value = Math.max(0, num('chrome', 0.9)); U.glass.value = Math.max(0, num('glass', 0)); U.contours.value = Math.max(0, num('contours', 0)); U.bend.value = Math.max(0, num('bend', 1.0)) * (inCrown ? 1 - 0.7 * U.crownOn.value : 1);   // T-053: a calm mirror while the crown opens
     U.nHU.value = nh;
+    U.cw.value = inCrown ? 0.7 * U.crownOn.value : 0;   // T-053: the crown's env — warm below, the garlands softer: luminous and clean
     U.arrive.value = arrive; U.leave.value = leave; U.freeze.value = freeze;
     U.sandAmt.value = Math.min(1, Math.max(0, num('sand', 1)));
-    U.sandGlow.value = Math.max(0, num('sandGlow', 1)) * 1.8 * (1 + 0.5 * bloomEnv) * (GL ? 1.4 : 1) * U.duck.value;
+    U.sandGlow.value = Math.max(0, num('sandGlow', 1)) * 1.8 * (1 + 0.5 * bloomEnv) * (GL ? 1.4 : 1) * U.duck.value * (inCrown ? 0.2 + 0.8 * U.rain.value : 0.75);   // T-053: the resting sand is dust, not a speckle over everything
     { const qk = Math.max(0, num('quiet', 1));
       U.quiet.value = Math.min(1, qk); U.qmax.value = 0.028 / Math.max(1, qk); U.veil.value = Math.min(0.6, 0.12 * qk);
-      U.swellA.value = Math.max(0, num('swell', 1)) * (0.85 + 0.35 * Ve);
+      U.swellA.value = Math.max(0, num('swell', 1)) * (0.85 + 0.35 * Ve) * (inCrown ? 1 - 0.75 * U.crownOn.value : 1);   // T-053: the crown's mirror is calm (no murky blotches)
       U.envLift.value = 0.035 * Math.sin(time * 0.21) * (0.4 + 0.6 * Ve);                 // the room floats: the reflected fiesta bobs slowly
-      U.lvl.value = (0.8 + 0.2 * Ve) * (inCrown ? 1 - U.crownOn.value * (0.8 - 0.55 * U.fill.value) : 1); }
+      U.lvl.value = (0.8 + 0.2 * Ve) * (inCrown ? 1 - U.crownOn.value * (0.42 - 0.3 * U.fill.value) : 1); }   // T-053: the crown opens luminous (was 0.2 of the metal at its start)
     r.compute(sandCompute);
   }
 
@@ -1113,7 +1131,8 @@ export function create({ THREE, TSL, room, params }) {
       for (const t of [...sim, der, derB]) t.dispose();
       plateMat.dispose(); pcMat.dispose(); pcGeo.dispose(); hoopMat.dispose(); hoopGeo.dispose(); farMesh.geometry.dispose(); farMesh.material.dispose(); try { fxBc?.close(); } catch { /* closed */ }
       sm.dispose(); shM.dispose(); shG.dispose(); simMat.dispose(); derMat.dispose();
-      object.traverse((o) => { if (o.isMesh && o.geometry !== shG) o.geometry.dispose(); });
+      for (const h of halos) h.mesh.material.dispose();
+      object.traverse((o) => { if (o.isMesh && o.geometry !== shG && o.name !== 'room:halo') o.geometry.dispose(); });   // the halo's plane is the room's, shared
       for (const b of [bSeed, bS, bX, bP, bC]) b.value?.dispose?.();
     },
   };
