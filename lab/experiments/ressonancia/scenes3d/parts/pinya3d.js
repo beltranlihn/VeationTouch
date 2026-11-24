@@ -69,7 +69,7 @@ const PRESS = [
   { lean: 0.12, hunch: 0.04, head: 0.05, feet: [V(0.12, 0.07, 0.1), V(-0.11, 0.07, -0.12)], hands: [V(0.32, 1.38, ZW_H - 0.02), V(-0.1, 1.72, ZW_H - 0.02)],
     hf: [{ fd: [0.2, 1, 0], pn: [0, 0, 1] }, { fd: [-0.05, 1, 0], pn: [0, 0, 1] }], elbow: V(0, -1, -0.6) },
 ];
-const NPR = 12;   // palm figures: one waiting at each wall centre (the target), the rest come out of the crowd to a hand
+const NPR = 18;   // T-047 (#16): 18 (was 12) so hand nº 13+ has a palm too · palm figures: one waiting at each wall centre (the target), the rest come out of the crowd to a hand
 const NFIB = 14, NSEG = 16;  // fibres per body, samples per fibre
 const CHAINS = [['aL', 'kL', 'hL', 'waist', 'neck', 'headC'], ['aR', 'kR', 'hR', 'waist', 'neck', 'headC'], ['tipL', 'wL', 'eL', 'shL', 'neck', 'headC'],
   ['tipR', 'wR', 'eR', 'shR', 'neck', 'headC'], ['tipL', 'wL', 'eL', 'shL', 'waist', 'hR', 'kR', 'aR'], ['tipR', 'wR', 'eR', 'shR', 'waist', 'hL', 'kL', 'aL'], ['pelvis', 'waist', 'neck', 'headC']];
@@ -1060,8 +1060,9 @@ export function create({ THREE, TSL, room, params }) {
       if (hx) {
         const d = Math.hypot(hx.x - q.x, hx.y - q.y);
         if (q.app < 0.98) { q.app = Math.min(1, q.app + dt / 0.9); q.x += (hx.x - q.x) * Math.min(1, dt * 8); q.y += (hx.y - q.y) * Math.min(1, dt * 8); }
-        else if (d < 0.2 && !q.back && !(st && st.pinyaStage === 'palm')) { const dx = (q.target ?? 0) - q.x; q.x += Math.sign(dx) * Math.min(Math.abs(dx), slide * dt); q.y += (Math.min(1.75, Math.max(0.85, hx.y)) - q.y) * Math.min(1, dt * 3); q.wait = 0; }
-        else if (d < 0.45 && !q.back) { q.wait = (q.wait || 0) + dt; if (q.wait > 1.6) q.back = true; }   // it waits for the hand that stays behind…
+        else if (d < 0.35 && !q.back && !(st && st.pinyaStage === 'palm'))   // T-047 (#16): 0.35 m (was 0.20) — a LiDAR hand keeps its palm
+          { const dx = (q.target ?? 0) - q.x; q.x += Math.sign(dx) * Math.min(Math.abs(dx), slide * dt); q.y += (Math.min(1.75, Math.max(0.85, hx.y)) - q.y) * Math.min(1, dt * 3); q.wait = 0; }
+        else if (d < 0.6 && !q.back) { q.wait = (q.wait || 0) + dt; if (q.wait > 1.6) q.back = true; }   // it waits for the hand that stays behind…
         else { q.back = true; const k = Math.min(1, (0.6 * dt) / Math.max(1e-3, d)); q.x += (hx.x - q.x) * k; q.y += (hx.y - q.y) * k; if (d < 0.05) { q.back = false; q.wait = 0; } }   // …then comes back to it and tugs again
         q.contact = d < 0.3 ? Math.min(1, q.contact + dt * 4) : Math.max(0, q.contact - dt * 2);
       } else if (q.idle) {   // the waiting figure: its palm open on the wall at the centre, breathing — the target

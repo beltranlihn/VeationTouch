@@ -1162,16 +1162,18 @@ export function create(ctx) {
     // up the wall to the top, wider the more hands rose (aletaHands; aletaWidth when the crown comes). Study: params.aleta (0..1, −1 off).
     {
       let ak = -1, share = 0;
-      if (S) { if (S.phase === 'aleta') { ak = clamp01((S.tp ?? 0) / 8); share = Math.max(S.aletaHands ?? 0, S.aletaWidth ?? 0); } }
+      if (S) { if (S.phase === 'aleta') { ak = clamp01((S.tp ?? 0) / 10); share = Math.max(S.aletaHands ?? 0, S.aletaWidth ?? 0); } }
       else if ((pr.aleta ?? -1) >= 0) ak = clamp01(pr.aleta);
       aletaT = ak >= 0 ? aletaT + dt : 0;
       if (ak >= 0) {
         let raised = 0;
         for (const h of hands) {
           const st = pool.find((p) => p.stroke === h.stroke); if (!st) continue;
-          const so = S?.strokes?.find?.((o) => o.stroke === h.stroke);
-          if (st.alY0 == null) st.alY0 = so ? so.y0 : h.pos.y;
-          const up = so ? (so.rise >= 0.28 || so.y > 1.6) : (h.pos.y - st.alY0 >= 0.28 || h.pos.y > 1.6);
+          // T-047 (#15, B-07): the part's OWN baseline per hand — its height when the window opened (or when it landed, if later), as the
+          // score measures it (score.js › aleta: rise 0.28 m above that, or > 1.6 m after 2 s). Never S.strokes: the sound's stroke ids
+          // are not the image's, and so.rise follows a 6 s baseline (a raised and held hand would lose its ray).
+          if (st.alY0 == null) st.alY0 = h.pos.y;
+          const up = h.pos.y - st.alY0 >= 0.28 || (h.pos.y > 1.6 && aletaT >= 2);
           st.ray = Math.max(0, Math.min(1, (st.ray || 0) + (up ? dt / 0.8 : -dt / 1.5)));
           if (up) raised++;
         }

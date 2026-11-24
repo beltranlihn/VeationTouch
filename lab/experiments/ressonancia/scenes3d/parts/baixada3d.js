@@ -365,7 +365,8 @@ export function create(ctx) {
       If(vK.lessThan(0.5), () => {
         const age = vD.x, held = vD.y;
         const ring = exp(r.sub(age.mul(1.6).add(0.15).min(0.9)).div(0.035).pow(2).negate()).mul(exp(age.mul(-2.0)));
-        const halo = exp(r.mul(r).mul(-30)).mul(held).mul(0.22);
+        const kd = vD.z, qy = select(vQ.y.lessThan(0), vQ.y.div(kd.mul(3.0).add(1)), vQ.y), r2h = vQ.x.mul(vQ.x).add(qy.mul(qy));   // T-047: stretched down by the descent
+        const halo = exp(r2h.mul(-30)).mul(held.mul(0.22).add(kd.mul(0.3)));
         out.assign(vec4(v3(C.sun), ring.mul(0.6).add(halo).min(1)));
       }).ElseIf(vK.lessThan(1.5), () => {
         // a GLASS flower (ARTE round 2): a rosette of 6–9 shards — each petal a long irregular kite of clear glass with a bright rim, a
@@ -439,7 +440,7 @@ export function create(ctx) {
   const _fx = new THREE.Vector3();
 
   // -------------------------------------------------------------------------------------------- per frame
-  const pool = Array.from({ length: 32 }, () => ({ stroke: null, born: 0, seen: 0 }));
+  const pool = Array.from({ length: 32 }, () => ({ stroke: null, born: 0, seen: 0, top: 0 }));   // T-047: top = the hand's highest point in this descent
   const HP = Array.from({ length: MAXHS }, () => ({ wall: 0, u: 0, x: 0, y: 0, z: 0 }));
   let troncHidden = false, passGone = true, frame = 0, time = 0, prevFloors = -1, Acur = -1, Avel = 0, trickle = 0, fallen = false, caught = 0, shattered = 0, maxV = 0;
   const _p = new THREE.Vector3();
@@ -529,12 +530,16 @@ export function create(ctx) {
     // ---- hands
     const hands = input.hands || [];
     let nH = 0; nSp = 0;
+    const baixOn = S ? S.block === 'baixada' : !!pr.lower, lowerEv = !!(S && input.events && input.events.includes && input.events.includes('lower'));
     for (const h of hands) {
       let st = null; for (const p of pool) if (p.stroke === h.stroke) { st = p; break; }
-      if (!st) { st = pool.find((p) => p.seen < frame - 1) || pool[0]; st.stroke = h.stroke; st.born = time; }
+      if (!st) { st = pool.find((p) => p.seen < frame - 1) || pool[0]; st.stroke = h.stroke; st.born = time; st.top = h.pos.y; }
       st.seen = frame;
       const held = Math.min(1, (time - st.born) / 2.0);
-      sprite(0, h.wall, h.u, h.pos.y, 0.8, time - st.born, held, 0, 0, 0);
+      // T-047 (#20): the halo stretches DOWN as this hand's descent grows (from its highest point, / the score's 0.35 m), same frame
+      if (lowerEv) st.top = h.pos.y; st.top = Math.max(st.top, h.pos.y);
+      const lk = baixOn ? clamp01((st.top - h.pos.y) / 0.35) : 0;
+      sprite(0, h.wall, h.u, h.pos.y, 0.8, time - st.born, held, lk, 0, 0);
       if (nH < MAXHS && !fallen) { const o = HP[nH++]; o.wall = h.wall; o.u = h.u; o.x = h.pos.x; o.y = h.pos.y; o.z = h.pos.z; }
     }
     for (const p of pool) if (p.seen !== frame) p.stroke = null;
@@ -666,11 +671,18 @@ export function create(ctx) {
         const lowered = ev.includes('lower'), cracked = ev.includes('crack');
         for (const w of tws) {
           let by, act = 1;
-          if (S) { by = S.band[w] || 0.9; act = (S.count?.[w] > 0 || (S.lowerK ?? 0) > 0.02) ? 1 : 0.35; }
-          else {
-            const ys = []; for (const h of hands) if (h.wall === w) ys.push(h.pos.y); ys.sort((a, b) => a - b);
-            by = ys.length ? ys[ys.length >> 1] : 1.7 - ((time * 0.12) % 0.95);
-          }
+          // T-047 (#12): the band APPEARS HIGH (1.6 m) and waits there, breathing, for the hands to come up and take it (a hand ≥ 1.4 m
+          // on the wall, or a descent the score already sees); taken, it follows the wall's hands down (median, same frame). After each
+          // 'lower' it is high again; with no hands on the wall for 1.5 s it goes back up.
+          let nW = 0; for (const h of hands) if (h.wall === w) bandYs[nW++] = h.pos.y;
+          const ys = bandYs.subarray(0, nW).sort(), med = nW ? ys[nW >> 1] : 0, hi = nW ? ys[nW - 1] : 0;
+          if (lowered) { bandTaken[w] = 0; bandLowAt[w] = time; }
+          bandAway[w] = nW ? 0 : bandAway[w] + dt; if (bandAway[w] > 1.5) bandTaken[w] = 0;
+          if (!bandTaken[w] && nW && (hi >= 1.4 || (S && (S.lowerK ?? 0) > 0.15 && time - bandLowAt[w] > 1.5))) bandTaken[w] = 1;   // (after a 'lower' it waits high 1.5 s)
+          if (!S && !nW) by = 1.7 - ((time * 0.12) % 0.95);              // study: alone it comes down by itself
+          else if (!bandTaken[w]) { by = 1.6 + 0.025 * Math.sin(time * 2.2 + w); act = 0.75 + 0.25 * Math.sin(time * 2.2 + w); }
+          else if (nW) by = med;
+          else by = S ? S.band[w] || 0.9 : 1.6;
           bandY[w] = bandY[w] < 0 ? by : bandY[w] + (by - bandY[w]) * (1 - Math.exp(-dt * 8));
           const sp = Math.abs(bandY[w] - bandPrev[w]) / Math.max(dt, 1e-3); bandPrev[w] = bandY[w];
           if (!S) { if (bandArm[w] && bandY[w] < 0.85) { bandArm[w] = false; breakBand(w, sp > 0.4); } else if (bandY[w] > 1.35) bandArm[w] = true; }
@@ -690,6 +702,7 @@ export function create(ctx) {
     if (stats) { stats.A = A; stats.floors = floors; stats.falling = nFall; stats.caught = caught; stats.shattered = shattered; stats.flowers = flowers.filter((f) => f.on).length; stats.maxV = maxV; stats.mode = mode; stats.pieces = troncList.length; stats.G0 = G0; if (frame % 30 === 0) { let lo = 1e9, hi = -1e9, n = 0, sx = 0, sz = 0; for (let i = 0; i < NSH; i++) if (S_.st[i] === 1) { const yy = S_.y[i] - lift; lo = Math.min(lo, yy); hi = Math.max(hi, yy); sx += S_.x[i]; sz += S_.z[i]; n++; } stats.ring = [n, +lo.toFixed(1), +hi.toFixed(1), +(sx / Math.max(1, n)).toFixed(1), +(sz / Math.max(1, n)).toFixed(1)]; stats.levelTop = Array.from(levelTop).map((v) => +v.toFixed(1)); } }
   }
   // T-042: the band's shards
+  const bandYs = new Float32Array(64), bandTaken = new Uint8Array(4), bandAway = new Float32Array(4), bandLowAt = new Float32Array(4).fill(-9);   // T-047
   const bandY = new Float32Array(4).fill(-1), bandPrev = new Float32Array(4), bandArm = [true, true, true, true], bandCrack = new Float32Array(4);
   function spill(w, n) {
     const W = walls[w], fc = FLOORCOL[Math.max(0, Math.min(8, (prevFloors > 0 ? prevFloors : 1) - 1))];
@@ -708,6 +721,6 @@ export function create(ctx) {
   function releaseTronc() { if (!troncHidden) return; troncHidden = false; const tp = ctx.parts?.tronc3d; try { for (let i = 0; i <= 9; i++) tp?.giveFloor?.(i); } catch { /* older tronc3d */ } }
   function setParams() { /* read live in update() */ }
   function dispose() { for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); try { fxBc?.close(); } catch { /* closed */ } }
-  const stats = typeof window !== 'undefined' ? (window.__baixada3d = { A: 0, floors: 0, falling: 0, caught: 0, shattered: 0, flowers: 0, maxV: 0 }) : null;
+  const stats = typeof window !== 'undefined' ? (window.__baixada3d = { A: 0, floors: 0, falling: 0, caught: 0, shattered: 0, flowers: 0, maxV: 0, bandY, bandTaken, pool }) : null;
   return { object, update, setParams, dispose, releaseTronc };
 }

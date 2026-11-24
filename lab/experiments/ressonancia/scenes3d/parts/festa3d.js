@@ -420,7 +420,12 @@ export function create({ THREE, TSL, room, params }) {
       const wdt = F4.z.mul(0.1).add(0.12), core = exp(dd.mul(dd).negate().div(wdt.mul(wdt)));
       const wake = exp(min(dd, 0.0).div(F4.z.mul(0.3).add(0.5))).mul(step(dd, 0.0)).mul(0.25);   // a trail behind the front
       const vert = smoothstep(0.1, 0.5, y).mul(smoothstep(HG - 0.05, HG - 0.6, y));
-      col.addAssign(mix(GOLD2, HOT, min(F4.z.mul(0.3), 1)).mul(core.add(wake)).mul(vert).mul(F4.z.mul(0.7).add(1.0)).mul(F4.w));
+      // T-047 (#21): readable over the gold plate at any resonance — a dark TROUGH round the crest (the plate dips to ~35 %), then a crest
+      // that goes to white-hot at its heart
+      const tw = wdt.mul(3.2), trough = exp(dd.mul(dd).negate().div(tw.mul(tw))).mul(vert).mul(F4.w).mul(0.65);
+      col.mulAssign(float(1).sub(trough));
+      col.addAssign(mix(GOLD2, HOT, min(F4.z.mul(0.3).add(0.35), 1)).mul(core.mul(1.6).add(wake)).mul(vert).mul(F4.z.mul(0.7).add(1.0)).mul(F4.w));
+      col.addAssign(vec3(1.0, 0.97, 0.9).mul(pow(core, 4.0)).mul(vert).mul(F4.w).mul(1.2));
     });
     // the CALL (as Brasa's, in gold): on the four walls a ring contracts onto the button's heart (1.25 m) and arrives on the TOK; tok, tok pulse it
     const callC = vec3(0).toVar();   // (added after the quiet pool's compressor: a thin line of gold through the pool, the guide still readable)
@@ -858,6 +863,23 @@ export function create({ THREE, TSL, room, params }) {
   let callOnK = 0, time = 0, frame = 0, Rown = 0, Rs = 0, bloomT = -1, bloomEnv = 0, Ve = 0, modeT = 0, autoWait = 0.8, lastCT = -1, lastBloomP = !!P.bloomNow;
   let nI = 0, cluster = 0, clusterAt = -1e9, gam = 0.7, c = 3.6;
   const impulse = (s, y, amp, sigma = Math.max(0.11, 3.5 * DX)) => { if (nI >= MAXI) return; IMP[nI].set(((s % PER) + PER) % PER, y, amp, sigma); nI++; };
+  // T-047: where each echo front leaves from (perimeter s), by front id — fixed at its first sight
+  const frontAt = new Map(), lastDown = Array.from({ length: 8 }, () => ({ wall: -1, u: 0.5, t: -9 })); let lastDownI = 0;
+  function noteDowns(downs, time) { for (const d of downs) { const o = lastDown[lastDownI++ % 8]; o.wall = d.wall; o.u = d.u ?? 0.5; o.t = time; } }
+  function frontS0(f, input, time) {
+    let s0 = frontAt.get(f.id);
+    if (s0 !== undefined) return s0;
+    const wf = f.from % NW;
+    if (!f.ghost) {                                   // the latest landing on its wall (≤ 0.6 s: the score's state comes a little later), else the hand there
+      let bt = -9, bu = -1, bd = 1e9;
+      for (const o of lastDown) if (o.wall === wf && time - o.t <= 0.6 && o.t > bt) { bt = o.t; bu = o.u; }
+      if (bu < 0) for (const h of input.hands || []) if (h.wall === wf) { const dd = Math.abs(h.u - 0.5); if (dd < bd) { bd = dd; bu = h.u; } }
+      if (bu >= 0) s0 = cum[wf] + bu * walls[wf].width;
+    }
+    if (s0 === undefined) s0 = cum[wf] + walls[wf].width / 2;
+    frontAt.set(f.id, s0);
+    return s0;
+  }
   const fieldOf = (h) => { const w = walls[h.wall]; return [cum[h.wall] + h.u * w.width, h.v * w.height]; };
   let peakT = -1, peakS0 = X0;
   const swellM = (t) => (Math.pow(1.5, Math.min(5.5, Math.max(0, t))) - 1) / (Math.pow(1.5, 5.5) - 1);   // 0 → 1 in 5.5 s, ×1.5 a second
@@ -913,6 +935,7 @@ export function create({ THREE, TSL, room, params }) {
     const quiet = 1 / Math.sqrt(Math.max(1, driving / 3));
     for (let i = 0; i < nh; i++) HA[i].z *= quiet;
     const downs = input.downs || [];
+    noteDowns(downs, time);                                 // T-047: for the echo fronts' origin
     const loud = 1 / Math.sqrt(Math.max(1, downs.length / 3));
     for (const d of downs) {
       let together = 0; for (let i = 0; i < RECENT; i++) { const a = time - recT[i]; if (a < 0.5) together += 1 - a / 0.5; }
@@ -946,12 +969,17 @@ export function create({ THREE, TSL, room, params }) {
     {
       let n = 0;
       if (st && st.block === 'festa' && st.fronts) {
-        for (const f of st.fronts) { if (n >= 12) break; const u = ((st.clock ?? 0) - f.at) / Math.max(0.1, f.arrive - f.at);
-          FR[n].set(cum[f.from % NW] + walls[f.from % NW].width / 2, Math.max(0, u) * PER / 2, f.gen || 0, (f.ghost ? 0.55 : 1) * smoother(u / 0.08) * (1 - smoother((u - 1.05) / 0.2))); n++; }
+        // T-047 (#21): at most 4 fronts (the newest), each leaving from the HAND that sent it: the score's front has no position, so at its
+        // first sight the part takes the hand that landed on its wall this frame (or the nearest hand on that wall; the centre if none)
+        const fr = st.fronts;
+        for (let k = fr.length - 1; k >= 0 && n < 4; k--) { const f = fr[k], u = ((st.clock ?? 0) - f.at) / Math.max(0.1, f.arrive - f.at);
+          const s0 = frontS0(f, input, time), D = f.to === f.from ? PER : PER / 2, run = Math.max(0, u) * D;   // solo: it runs round and comes back
+          FR[n].set(s0, run <= PER / 2 ? run : PER - run, f.gen || 0, (f.ghost ? 0.55 : 1) * smoother(u / 0.08) * (1 - smoother((u - 1.05) / 0.2))); n++; }
       } else if (!st && num('echo', 0) > 0) {
         for (let k = 0; k < 2; k++) { const u = ((time + k * 2) % 4) / 3; FR[n].set(cum[1 % NW] + walls[1 % NW].width / 2, u * PER / 2, k, smoother(u / 0.08) * (1 - smoother((u - 1.05) / 0.2))); n++; }
       }
       U.nFr.value = n;
+      if (frontAt.size > 24 && st && st.fronts) { let lo = Infinity; for (const f of st.fronts) lo = Math.min(lo, f.id); for (const k of frontAt.keys()) if (!(k >= lo)) frontAt.delete(k); }
       let on = 0, ct = -99, gap = 0.8;
       if (st && st.block === 'festa' && st.festaStage === 'call' && st.call && st.call.n > 0) { ct = (st.clock ?? 0) - st.call.at; gap = st.call.gap || 0.8; on = 1; }
       else if (!st && num('call', 0) > 0) { ct = (time % 4) - 2.4; on = 1; }
@@ -1079,6 +1107,7 @@ export function create({ THREE, TSL, room, params }) {
     update,
     get resonance() { return Rs; },
     get bloom() { return bloomEnv; },
+    get fronts() { return FR.slice(0, U.nFr.value).map((v) => [+v.x.toFixed(2), +v.y.toFixed(2), v.z, +v.w.toFixed(2)]); },   // T-047: for the lab's checks (s0, run, gen, alpha)
     setParams() { /* read live */ },
     dispose() {
       for (const t of [...sim, der, derB]) t.dispose();

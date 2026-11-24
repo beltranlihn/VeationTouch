@@ -401,7 +401,8 @@ export function create({ THREE, TSL, room, params }) {
     const ashK = select(buoy, float(1).sub(smoothstep(0.08, 0.45, T)).mul(float(1).sub(x)), float(0));
     const glint = pow(max(sin(U.time.mul(K4.w.mul(3.0).add(1.0)).add(K4.w.mul(90.0))), 0), 30.0).mul(0.6);
     const E = w0.div(W).mul(float(1).div(L.div(W.mul(5.0)).add(1))).mul(2.2);
-    const vC = varying(fireRamp(T).mul(E).add(vec3(0.05, 0.048, 0.046).add(vec3(0.5, 0.55, 0.62).mul(glint)).mul(ashK)));
+    // T-047 (#20): sparks born with heat ≥ 2.9 (only the call's counted landings; every other emitter ≤ 2.5) are drawn WHITE
+    const vC = varying(mix(fireRamp(T), vec3(1.0, 0.96, 0.9).mul(T.mul(1.5)), step(2.9, K4.x)).mul(E).add(vec3(0.05, 0.048, 0.046).add(vec3(0.5, 0.55, 0.62).mul(glint)).mul(ashK)));
     const vA = varying(along);
     const q = uv().sub(0.5);
     m.colorNode = vC.mul(exp(q.x.mul(q.x).mul(-14))).mul(mix(float(0.3), float(1), vA)).mul(mirror ? CHROME.mul(U.refl).mul(0.6) : float(1));
@@ -411,7 +412,7 @@ export function create({ THREE, TSL, room, params }) {
     }
     return meshes;
   })();
-  let cursor = 0, nE = 0;
+  let cursor = 0, nE = 0, whiteN = 0;
   const sparkGain = () => Math.max(0, Number(P.sparks ?? 1));
   // n sparks from (px,py,pz) within `spread` m, along dir (+ cone), speed vmin..vmax, life lmin..lmax, heat, gravity scale, drag, inherited velocity
   function emit(n, px, py, pz, spread, dx, dy, dz, cone, vmin, vmax, lmin, lmax, heat, g, drag, ix = 0, iy = 0, iz = 0) {
@@ -1271,6 +1272,9 @@ export function create({ THREE, TSL, room, params }) {
 
     // ---- hands
     const downs = input.downs || [], hs = input.hands || [];
+    let onCall = false;   // (whiteN: lab count of white sparks)                                             // T-047: is now inside the call's counting window?
+    if (S) { const C = S.block === 'brasa' && S.brasaStage === 'call' && S.call; if (C && C.n > 0) { const ct = (S.clock ?? 0) - C.at; onCall = ct >= -2 * (C.gap || 0.8) && ct <= 0.7; } }
+    else if (Number(P.call) > 0) { const ct = (time % 4) - 2.4; onCall = ct >= -1.6 && ct <= 0.7; }
     for (const h of hands) h.seen = false;
     let together = 0;
     // a crowd is capped: 1–4 hands each get the full answer; with n > 4 every hand gives 4/n, so 15 hands light like ~4
@@ -1304,6 +1308,10 @@ export function create({ THREE, TSL, room, params }) {
           { const W = walls[h.wall]; _v.copy(h.pos).addScaledVector(W.normal, -0.5); addRipple(_v.x, _v.z, 0.014, time); }
           const n = h.normal, wk = 1 - 0.75 * waitK;
           emit(Math.max(24, 60 * gH) * wk, h.pos.x - n.x * 0.03, h.pos.y - lift, h.pos.z - n.z * 0.03, 0.03, -n.x * 0.4, 0.9, -n.z * 0.4, 0.8, 1.0, 3.0, 0.4, 0.9, 1.6, 0.6, 1.2);   // a small burst at the hand, at once
+          // T-047 (#20): a landing that COUNTS on the call (score.js › callCount: from the first tok to TOK + 0.7 s, any wall) also throws
+          // a white spark that rises slowly, unlike the normal orange burst: the hand sees at once that it hit
+          if (onCall) whiteN++;
+          if (onCall) emit(Math.max(30, 70 * gH), h.pos.x - n.x * 0.04, h.pos.y - lift + 0.03, h.pos.z - n.z * 0.04, 0.03, 0, 1, 0, 0.18, 0.9, 1.8, 1.6, 2.4, 4.0, -0.25, 0.5);   // heat 4 (≥ 2.9 after jitter) = drawn white
           if ((P.devils ?? 1) > 0 && waitK < 0.5) spawnDevil(s0, Math.random() < 0.5 ? -1 : 1, 0.8 + Math.random() * 0.7, 7 + Math.random() * 3, null, time);   // dancing pace, m/s in the world
         }
       }
@@ -1512,7 +1520,7 @@ export function create({ THREE, TSL, room, params }) {
     room.renderer.compute(sparkCompute);
   }
 
-  if (typeof window !== 'undefined') window.__brasa = { breath: () => U.breath.value, wait: () => waitK, puffs: () => puffCount, roots: () => devils.map((d, i) => (d.on && d.dis === 0 ? [i, JV[i * NJ].x, JV[i * NJ].z, d.wave ? 1 : 0] : null)).filter(Boolean), devils: () => devils.filter((d) => d.on).length, callT: () => U.callT.value, lift: () => lift, impacts: () => impacts, fx: () => fx.filter((f) => f.t >= 0), tiles: () => tiles.reduce((a, t) => { a[t.mode]++; return a; }, [0, 0, 0, 0, 0]), waves: () => waves.filter((w) => w.on).length, emitters: () => nE };
+  if (typeof window !== 'undefined') window.__brasa = { breath: () => U.breath.value, wait: () => waitK, puffs: () => puffCount, roots: () => devils.map((d, i) => (d.on && d.dis === 0 ? [i, JV[i * NJ].x, JV[i * NJ].z, d.wave ? 1 : 0] : null)).filter(Boolean), devils: () => devils.filter((d) => d.on).length, callT: () => U.callT.value, lift: () => lift, impacts: () => impacts, fx: () => fx.filter((f) => f.t >= 0), tiles: () => tiles.reduce((a, t) => { a[t.mode]++; return a; }, [0, 0, 0, 0, 0]), waves: () => waves.filter((w) => w.on).length, emitters: () => nE, white: () => whiteN };
   return {
     object,
     update,
