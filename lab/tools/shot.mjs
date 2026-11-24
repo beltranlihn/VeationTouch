@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+// VEATION Touch lab — ONE render under the shared GPU lock (05-plan §5.1). Every agent renders only through this.
+//
+//   node lab/tools/shot.mjs <agent> <path-or-url> [--shot out.png] [--what label] [--delay ms] [--eval js | --eval-file f.js]
+//                           [--rows] [--width 1600] [--size WxH] [--max ms] [--no-stats] [--full]
+//
+//   e.g.  node lab/tools/shot.mjs vfx "/experiences/res-obra3d/index.html?capture&group=4&seed=3" --eval-file my.js --rows --width 1600 --shot /tmp/brasa.png
+//
+// 1. Takes the lock `.gpu-lock` (repo root; one line «<agent> <ISO time> <what> <seconds>»). If another agent holds it, waits and
+//    retries every 20 s; a lock older than 4 min is an orphan: it says so (tell the director) and takes it.
+// 2. Renders in a hidden Electron window (lab/tools/smoke.cjs) for at most --max ms (default 90 s: the 3D work needs ~15–20 s to
+//    load). A path uses the harness already running on :8780, or starts a private one on a free port.
+// 3. Releases the lock — always, also on failure or Ctrl+C.
+// Prints the SMOKE line (errors, the --eval result, stats) and a summary «luma · p99 · burnt %» of the capture (the strip only).
+// Exit code: 0 ok · 1 the page logged console errors · 2 failure · 3 the lock never came free.
+// Scale: the harness's default (0.5). A URL asking ?scale=1 (or anything but 0.25 / 0.5) is refused unless --full (Tech/QA only, in
+// the authorized windows).
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createLabServer } from '../harness/serve.mjs';
+
+const require = createRequire(import.meta.url);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, '..', '..');
+const LOCK = path.join(ROOT, '.gpu-lock');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const args = process.argv.slice(2);
+const flag = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined; };
+const has = (k) => args.includes(k);
+const agent = args[0];
+// Git Bash (MSYS) rewrites an argument that starts with «/» into a Windows path under its install dir («/experiences/x» →
+// «C:/Program Files/Git/experiences/x»): undo it, so the same command works from Bash, PowerShell and cmd.
+const target = args[1] && (/^[A-Za-z]:[\\/]/.test(args[1]) ? args[1].replace(/\\/g, '/').replace(/^[A-Za-z]:\/(?:[^?]*?\/)?Git\//, '/') : args[1]);
+if (!agent || !target || agent.startsWith('--') || target.startsWith('--')) {
+  console.error('usage: node lab/tools/shot.mjs <agent> <path-or-url> [--shot out.png] [--what label] [--delay ms] [--eval js | --eval-file f.js] [--rows] [--width 1600] [--size WxH] [--max ms] [--no-stats] [--full]');
+  process.exit(2);
+}
+if (!/^[A-Za-z0-9_.-]{1,24}$/.test(agent)) { console.error('agent: a short name (letters, digits, - _ .)'); process.exit(2); }
+
+// ---- scale guard
+const scaleOf = (u) => { const m = /[?&]scale=([0-9.]+)/.exec(u); return m ? Number(m[1]) : 0.5; };
+if (![0.25, 0.5].includes(scaleOf(target)) && !has('--full')) {
+  console.error(`shot: scale=${scaleOf(target)} renders the full strip on the shared GPU. Only Tech/QA, only in the authorized windows (03:30–03:45, 05:40–06:00): add --full.`);
+  process.exit(2);
+}
+
+// ---- electron (this tree, else the main checkout this worktree hangs from, else $ELECTRON_PATH)
+function findElectron() {
+  const roots = [ROOT, path.resolve(ROOT, '..', '..', '..')];
+  for (const r of roots) { try { return require(path.join(r, 'node_modules', 'electron')); } catch { /* next */ } }
+  if (process.env.ELECTRON_PATH && fs.existsSync(process.env.ELECTRON_PATH)) return process.env.ELECTRON_PATH;
+  return null;
+}
+const electron = findElectron();
+if (!electron) { console.error('electron not found (npm install in the repo root, or set ELECTRON_PATH)'); process.exit(2); }
+
+// ---- the lock
+const maxMs = Math.max(10000, Number(flag('--max')) || 90000);
+const what = (flag('--what') || (flag('--shot') ? path.basename(flag('--shot')) : target.split('?')[0].split('/').filter(Boolean).slice(-2).join('/'))).replace(/\s+/g, '_').slice(0, 60);
+const line = `${agent} ${new Date().toISOString()} ${what} ${Math.round(maxMs / 1000)}\n`;
+let held = false;
+function release() { if (!held) return; held = false; try { if (fs.readFileSync(LOCK, 'utf8') === line) fs.unlinkSync(LOCK); } catch { /* gone */ } }
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { release(); process.exit(130); });
+process.on('exit', release);
+
+const lockWait = (Number(flag('--lock-wait')) || 15 * 60) * 1000, t0 = Date.now();
+let said = '';
+while (!held) {
+  try { fs.writeFileSync(LOCK, line, { flag: 'wx' }); held = true; break; } catch (e) { if (e.code !== 'EEXIST') { console.error('shot: lock: ' + e.message); process.exit(2); } }
+  let other = '', age = 0;
+  try { other = fs.readFileSync(LOCK, 'utf8').trim(); age = (Date.now() - fs.statSync(LOCK).mtimeMs) / 1000; } catch { continue; }   // freed meanwhile
+  if (age > 240) {
+    console.warn(`shot: ORPHAN lock (${Math.round(age)} s old): «${other}» — taking it. Tell the director.`);
+    try { fs.unlinkSync(LOCK); } catch { /* someone else took it */ }
+    continue;
+  }
+  if (Date.now() - t0 > lockWait) { console.error(`shot: the GPU stayed busy for ${Math.round(lockWait / 60000)} min («${other}»); giving up`); process.exit(3); }
+  if (said !== other) { console.log(`shot: GPU busy — «${other}» (${Math.round(age)} s); retrying every 20 s`); said = other; }
+  await sleep(20000);
+}
+
+// ---- the server
+let url = target, lab = null;
+if (!/^(https?|file):/.test(target)) {
+  const p = target.startsWith('/') ? target : '/' + target;
+  let up = false;
+  try { const r = await fetch('http://localhost:8780/', { signal: AbortSignal.timeout(1500) }); up = r.ok; } catch { up = false; }
+  if (up) url = 'http://localhost:8780' + p;
+  else {
+    try { lab = await createLabServer({ port: 0 }); } catch (e) { console.error('lab server: ' + e.message); release(); process.exit(2); }
+    url = `http://localhost:${lab.port}${p}`;
+  }
+}
+
+// ---- the render
+const shot = flag('--shot') ? path.resolve(flag('--shot')) : null;
+const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+env.LAB_SMOKE = JSON.stringify({
+  url, shot, delay: flag('--delay') ? Number(flag('--delay')) : 300, size: flag('--size'), eval: flag('--eval'),
+  evalFile: flag('--eval-file') ? path.resolve(flag('--eval-file')) : null, max: maxMs, rows: has('--rows'),
+  crop: true, width: flag('--width') ? Number(flag('--width')) : undefined, stats: !has('--no-stats'),
+});
+const child = spawn(electron, [path.join(HERE, 'smoke.cjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+let out = '', err = '';
+child.stdout.on('data', (d) => { out += d; });
+child.stderr.on('data', (d) => { err += d; });
+child.on('error', (e) => { err += String(e); });
+const guard = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, maxMs + 5000);
+const code = await new Promise((r) => child.on('exit', r));
+clearTimeout(guard);
+await lab?.close();
+release();
+const smoke = out.split(/\r?\n/).find((l) => l.startsWith('SMOKE ')) || 'SMOKE ' + JSON.stringify({ error: 'no output from the window', exitCode: code, stderr: err.slice(-400) });
+console.log(smoke);
+try {
+  const o = JSON.parse(smoke.slice(6));
+  if (o.stats) console.log(`shot: ${what} · luma ${o.stats.luma} · p99 ${o.stats.p99} · burnt ${o.stats.burnt} % · errors ${o.errors?.length ?? '?'}${shot ? ' · ' + shot : ''}`);
+} catch { /* printed as is */ }
+process.exit(code ?? 2);

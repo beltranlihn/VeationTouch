@@ -19,7 +19,8 @@ const target = args[0] && !args[0].startsWith('--') ? args[0] : null;
 if (!target) { console.error('usage: node lab/tools/check.mjs <path-or-url> [--shot out.png] [--delay ms] [--size WxH] [--eval js]'); process.exit(2); }
 const flag = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined; };
 let electron;
-try { electron = require(path.resolve(HERE, '..', '..', 'node_modules', 'electron')); } catch { console.error('electron is not installed (run npm install in the repo root)'); process.exit(2); }
+for (const r of [path.resolve(HERE, '..', '..'), path.resolve(HERE, '..', '..', '..', '..', '..')]) { try { electron = require(path.join(r, 'node_modules', 'electron')); break; } catch { /* a worktree without node_modules: the main checkout */ } }
+if (!electron) { console.error('electron is not installed (run npm install in the repo root)'); process.exit(2); }
 
 let url = target, lab = null;
 if (!/^(https?|file):/.test(target)) {

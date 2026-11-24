@@ -111,7 +111,7 @@
     const S = {
       overlay: !CAPTURE && (opt.fixedStrip ? q.get('overlay') !== '0' : q.has('strip')),
       strip: !!opt.fixedStrip || q.has('strip'), body: q.has('body'), help: false, demo: opt.demo !== false && q.get('demo') !== '0' && !document.documentElement.hasAttribute('data-lk-nodemo'),   // <html data-lk-nodemo>: a page can switch the demo hands off
-      group: Math.max(1, Number(q.get('group')) || 1), lidar: q.has('lidar'), soundOn: true, fps: 60, cursor: true,
+      group: Math.min(15, Math.max(1, Number(q.get('group')) || 1)), lidar: q.has('lidar'), soundOn: true, fps: 60, cursor: true,
     };
     const hands = new Map(); let seq = 1, pinSeq = 1, lastInput = performance.now(), levels = null;
     const subs = { down: new Set(), move: new Set(), up: new Set() };
@@ -162,7 +162,7 @@
     function wrapD(d) { return d - Math.round(d); }
 
     // ---- virtual hands at human speed (a hand: ≤ 1 m/s; a walker's sweep 0.7 m/s; rests of 1–4 s). Group size with G.
-    const demoHands = Array.from({ length: 8 }, (_, i) => ({ key: 'demo' + i, wait: 0.2 + i * 0.7, act: null }));
+    const demoHands = Array.from({ length: 15 }, (_, i) => ({ key: 'demo' + i, wait: 0.2 + (i % 8) * 0.7 + Math.floor(i / 8) * 0.35, act: null }));   // up to 15 (a full room: ?group=15)
     function releaseDemo() { for (const d of demoHands) { if (d.act) { releaseHand(d.key); d.act = null; d.wait = 1 + rnd() * 2; } } }
     function demoStep(dt, on) {
       for (let i = 0; i < demoHands.length; i++) {
@@ -200,7 +200,7 @@
       else if (k === 'b') S.body = !S.body;
       else if (k === 'h') { S.help = !S.help; helpEl.style.display = S.help ? 'block' : 'none'; }
       else if (k === 'd') { S.demo = !S.demo; if (!S.demo) releaseDemo(); }
-      else if (k === 'g') { S.group = S.group === 1 ? 2 : S.group === 2 ? 4 : S.group === 4 ? 8 : 1; }
+      else if (k === 'g') { S.group = S.group === 1 ? 2 : S.group === 2 ? 4 : S.group === 4 ? 8 : S.group === 8 ? 15 : 1; }
       else if (k === 'r') { for (const h of [...hands.values()]) if (h.pinned) releaseHand(h.key); }
       else if (k === 'l') { S.lidar = !S.lidar; opt.onLidar?.(S.lidar); }
       else if (k === 's') { S.soundOn = !S.soundOn; opt.onSound?.(S.soundOn); }
@@ -217,7 +217,7 @@
     hint.innerHTML = (opt.hint || 'Click = a hand') + ' &nbsp;·&nbsp; Shift+click pins a hand &nbsp;·&nbsp; F room &nbsp;·&nbsp; B body scale &nbsp;·&nbsp; H help';
     const helpEl = el('div'); helpEl.className = 'lk-help'; document.body.appendChild(helpEl);
     const keysList = [['Click / drag', 'a hand (touch)'], ['Shift + click', 'pin a hand · again to remove'], ['F', opt.fixedStrip ? 'room overlay on / off' : 'room strip / full window'], ['B', 'body scale: 1.70 m adult, child, reach'],
-      ['D', 'virtual hands at human speed'], ['G', 'virtual group: 1 · 2 · 4 · 8'], ['R', 'remove pinned hands'], ['L', 'LiDAR feel: 10 Hz, 150 ms late, missed readings'],
+      ['D', 'virtual hands at human speed'], ['G', 'virtual group: 1 · 2 · 4 · 8 · 15'], ['R', 'remove pinned hands'], ['L', 'LiDAR feel: 10 Hz, 150 ms late, missed readings'],
       ['S', 'sound on / off'], ['- / +', 'listening volume (also the fader, top right)'], ['P', 'parameters'], ['C', 'cursor on / off'], ...(opt.help || [])];
     helpEl.innerHTML = '<h4>Controls</h4>' + keysList.map(([a, b]) => `<div class="r"><span><kbd>${a}</kbd></span><span>${b}</span></div>`).join('') +
       '<div style="margin-top:8px;font-size:11px">With no input for 4 s the virtual hands play. The surface wraps: P3 continues into P4.</div>';
