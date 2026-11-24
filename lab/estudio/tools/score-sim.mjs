@@ -14,11 +14,11 @@
 // --lidar p: every 0.1 s a hand is lost with probability p for 0.1–0.3 s (and comes back under a new stroke 1 time in 5).
 // --shrink: the group shrinks from its size to 2 people halfway through each interactive block (D8).
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 const flag = (k) => process.argv.includes('--' + k);
-const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const scorePath = path.resolve(arg('score', path.join(HERE, '../../experiments/ressonancia/score.js')));
 const { createScore } = await import(pathToFileURL(scorePath).href);
 const SIZES = arg('sizes', '1,2,4,8,15').split(',').map(Number), ACTS = arg('acts', 'hold,passive,strike').split(',');
