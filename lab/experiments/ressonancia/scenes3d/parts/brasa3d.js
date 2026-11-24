@@ -1045,6 +1045,7 @@ export function create({ THREE, TSL, room, params, parts }) {
     if (on === inPlazaK) return; inPlazaK = on;
     if (!liquidOnly.length) { world.traverse((o) => { if (o.isMesh && o.renderOrder === -1) liquidOnly.push(o); }); liquidOnly.push(floorMesh, farGroup); if (typeof hazeMesh !== 'undefined' && hazeMesh) liquidOnly.push(...[].concat(hazeMesh)); }
     for (const o of liquidOnly) if (o) o.visible = !on;
+    for (const mm of tileMesh) if (mm) mm.visible = !on;   // the burning trencadís read as confetti on the paving: the joints glow instead (plaza)
   }
 
   // ------------------------------------------------------------------------------------------------ 6. the air on the wall planes

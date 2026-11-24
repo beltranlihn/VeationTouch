@@ -183,7 +183,7 @@ export function create(ctx) {
 
   // ------------------------------------------------------------------------------------------------ the fall's state
   const inv = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpM = new THREE.Matrix4(), tmpS = new THREE.Vector3(), tmpC = new THREE.Color();
-  const towerBase0 = walls.map((w) => w.centre.clone().addScaledVector(w.normal, -TOWER_D));   // world (x, z)
+  const towerBase0 = walls.map((w) => w.centre.clone().addScaledVector(w.normal, -(ctx.parts?.tronc3d?.towerD ?? TOWER_D)));   // world (x, z): the real tower (2.3 m since M3)
   // the private towers are turned 32° round the room so that each stands beside the words, not behind them (biblia §4 quiet zones)
   const towerBaseOwn = towerBase0.map((b) => new THREE.Vector3(b.x * Math.cos(OWN_TURN) + b.z * Math.sin(OWN_TURN), 0, -b.x * Math.sin(OWN_TURN) + b.z * Math.cos(OWN_TURN)));
   let towerBase = towerBase0;

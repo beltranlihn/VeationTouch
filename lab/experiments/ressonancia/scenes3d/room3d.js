@@ -438,9 +438,9 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       air: { density: 0.03, height: 0.25, heightK: 0.5, start: 3.6, max: 0.75, key: { dir: [0, 0.05, -1], token: 'fanal', k: 0.25 } } },
     brasa:   { ev: 0.35, sat: 0.95, contrast: 1.06, lo: 'blau-plaça', loK: 0.4, hi: 'flama', hiK: 0.06, lift: 'tinta', liftK: 0.7, ceil: 0.9, vTop: 0.35, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.03, height: 0.22, heightK: 0.6, start: 4.5, max: 0.7 } },   // smoke: dark, the fires light it (no colour veil)
-    pinya:   { ev: 0.45, sat: 0.95, contrast: 1.08, lo: 'blau-plaça', loK: 0.4, hi: 'cal-foc', hiK: 0.12, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
+    pinya:   { ev: 0.3, sat: 0.95, contrast: 1.08, lo: 'blau-plaça', loK: 0.4, hi: 'cal-foc', hiK: 0.12, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.04, height: 0.18, heightK: 0.55, start: 6, max: 0.82 } },   // Beltrán 25-11: the festival night, spots through haze
-    tronc:   { ev: 0.45, sat: 0.92, contrast: 1.08, lo: 'tinta-ombra', loK: 0.4, hi: 'porcellana', hiK: 0.1, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
+    tronc:   { ev: 0.25, sat: 0.92, contrast: 1.08, lo: 'tinta-ombra', loK: 0.4, hi: 'porcellana', hiK: 0.1, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.04, height: 0.16, heightK: 0.5, start: 6, max: 0.82 } },
     pom:     { ev: 0.3, sat: 0.85, contrast: 1.02, lo: 'nit-alta', loK: 0.35, hi: 'lluna', hiK: 0.1, lift: 'nit-alta', liftK: 0.6, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.028, height: 0.2, heightK: 0.5, start: 3.6, max: 0.75 } },
@@ -730,7 +730,8 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   const porx = { k: uniform(0), to: 0, group: new THREE.Group() };
   porx.group.name = 'room:porxada';
   {
-    const pm = ceramic({ color: [0.02, 0.018, 0.02], glaze: 0.25, wear: 0.6, rim: 0.25, hands: 0.5 });
+    const pm = ceramic({ color: [0.012, 0.011, 0.013], glaze: 0.2, wear: 0.6, rim: 0.1, hands: 0.5, env: 0.25 });
+    pm.userData.air = false; pm.fog = false;                       // layer 0: crisp and almost black, never hazed
     const baseCol = pm.colorNode;
     pm.colorNode = Fn(() => {
       const h = fract(sin(dot(floor(screenCoordinate.xy.div(3)), vec2(12.9898, 78.233))).mul(43758.5453));
@@ -743,10 +744,10 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       const back = w.normal.clone().add(wp.normal).multiplyScalar(-0.5);           // into the world, away from both walls
       const c = new THREE.Mesh(colG, pm); c.position.copy(w.pa).addScaledVector(back, 0.62); c.position.y = 0;
       c.lookAt(c.position.x + back.x, 0, c.position.z + back.z); c.castShadow = true; porx.group.add(c);
-      // the lintel: along the wall, 0.5 m deep, its underside at 3.45 m, just behind the wall plane
-      const L = new THREE.Mesh(new THREE.BoxGeometry(w.width + 1.4, 0.6, 0.5).translate(0, 0.3, 0), pm);
-      L.position.copy(w.centre).addScaledVector(w.normal, -0.45); L.position.y = 3.45;
-      L.lookAt(L.position.x - w.normal.x, 3.45, L.position.z - w.normal.z); L.castShadow = true; porx.group.add(L);
+      // the lintel: along the wall, 0.35 m deep, its underside at 3.7 m, just behind the wall plane (a thin dark band at the very top)
+      const L = new THREE.Mesh(new THREE.BoxGeometry(w.width + 1.4, 0.5, 0.35).translate(0, 0.25, 0), pm);
+      L.position.copy(w.centre).addScaledVector(w.normal, -0.3); L.position.y = 3.7;
+      L.lookAt(L.position.x - w.normal.x, 3.7, L.position.z - w.normal.z); L.castShadow = true; porx.group.add(L);
     }
     porx.group.visible = false; scene.add(porx.group);
   }
