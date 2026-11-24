@@ -36,7 +36,8 @@ export const TIMES = {                       // seconds
   tg: { charge: 0.5, hold: 0.5, grace: 0.8, r: 0.22 },   // 25-11 (D3b) the hold-targets: rest charge s, then hold s; a lost hand keeps the charge grace s; radius (m)
   brasa: { min: 45, target: 60, max: 75, reward: 7, spark: 12, gap: 0.8, pause: 3.2, lead: 1.0, callMax: 14, fracs: [0.35, 0.5, 0.65], relayMax: 30 },   // 25-11: spark → relay (chain) → 3 calls (together; fracs of the group, callMax s before the colla)
   pinya: { min: 50, target: 75, max: 100, reward: 8, fill: 10, hold: 3, palm: 15, pack: [0.55, 0.9], net: 40, nearFull: 1.8, nearZero: 3 },   // nearFull/nearZero (T-050, tunable): the packed window counts fully up to nearFull m from the wall's centre, 0 at nearZero   // 24-11: gather (pack: the fill's ramp on `pack`)
-  tronc: { min: 85, target: 115, max: 145, reward: 6, period: 2.4, phrase: 4.8, rise: 0.33, wobble: 5, foot: 0.95, gain: 0.72, help: 0.5, base: 0.15 },   // base (T-050, tunable): a hand that did not lift and moved < base m in 1 s is the tower's base   // 24-11: lift and level (period: the music's pulse; phrase: gather → rise → lock)
+  tronc: { min: 85, target: 115, max: 145, reward: 6, period: 2.4, phrase: 4.8, wobble: 7, foot: 0.95, footY: [0.6, 0.9], help: 0.5,   // 25-11: ladders (rungs; a child's kidRungs), needK × n / 1.6 ladders a floor,
+    rungs: [0.9, 1.25, 1.6], kidRungs: [0.7, 1.05, 1.4], every: 6, colla: 16, needK: 0.5 },                                            // ≥ every s between floors, the colla after colla s (to 5)
   pom: { min: 70, target: 90, max: 120, reward: 1.5, climb: [38, 16, 10], rest: 7, empty: 20, still: 0.15, stillSpeed: 0.3,   // still: a hand moved less than this (m) in 1 s (filtered); stillSpeed: unused since 24-11, kept for compatibility
     relay: { every: 4, fly: 1.5, ready: 1, falter: 1.2, cost: 0.04, gone: 1, thread: 24 },   // T-050 the relay: seek the next still hand after `every` s held; a still hand is `ready` after 1 s; the holder moving for `falter` s sends it back (she slips `cost`)
     breath: { slow: 0.7, more: 0.35, many: 4 }, gust: 0.35, gustGap: 1.5, breakGap: 1.2, breakCost: 0.06 },   // breath: speed = share² × (slow + more·(still hands − 1)/many); a gust: a hand moved > gust m in 1 s; the silence: a move costs breakCost
@@ -575,19 +576,20 @@ export function createScore(nWalls, opt = {}) {
         }
       } else if (S.phase === 'reward') { S.progress = 1; if (S.tp >= B.reward) { beatT = 0; evalAt = 0; phraseClock = 0; wobbles = 0; S.wobble = 0; S.wobbleWall = -1; S.phrase = 'gather'; go('tronc'); } }
     } else if (S.block === 'tronc') {
-      // III. Tronc = LIFT and LEVEL (24-11, plan step 2). Each 4.8 s phrase: gather (hands down to receive) → rise → lock. At the lock
-      // every structure wall is judged on its hands' RELATIVE rise since the rise began (≥ B.rise counts as a lifter); still hands that
-      // stay low are the base (they steady the tower); walls without a tower help at B.help. The lean comes from yR − yL. Once, at
-      // the penultimate floor (twice if the group is well ahead), the tower WOBBLES: B.wobble s to bring hands down to its foot, or it
-      // loses a floor. The pulse stays as the music's clock ('pulse', beat).
+      // III. Tronc = LIFT and LEVEL on LADDERS (25-11, D3b, plan 05 §4.3, A7–A9, B3). Ladder-targets on both sides of every wall: a low
+      // rung (0.9 m), then one 0.35 m higher (to 1.6 m; a child's ladder 0.7 → 1.05 → 1.4 is always offered too). A whole ladder lifts the
+      // tower: clamp(ceil(0.5 × n / 1.6), 1, 6) ladders a floor (a ladder on a wall without the tower counts B.help), at most one floor
+      // every B.every s (a crowd does not rush it). The tower leans toward the side that is ahead in ladders (judged only with ≥ 2 hands
+      // on the wall); a leaning wall's ladders count × 0.7. Once at the penultimate floor (twice if well ahead) it WOBBLES: foot-targets
+      // (0.6–0.9 m) on every tower wall, clamp(ceil(0.25 × hands of the wobbling wall), 1, 4) held within B.wobble s, or it loses a floor
+      // in view. The colla gives a floor after B.colla s without one, but only up to 5 (named). The music's pulse and phrase keep
+      // running (S.beat, S.phrase): they no longer judge.
       const sw = structureWalls(), inSW = (w) => S.walls[w];
       S.balance = S.floors >= 3;
-      for (const w of sw) {           // a tower leans to the side that is lower (or that nobody holds)
+      for (let w = 0; w < W; w++) { sideK[w][0] *= Math.exp(-dt / 25); sideK[w][1] *= Math.exp(-dt / 25); }
+      for (const w of sw) {
         let target = 0;
-        if (S.balance) {
-          if (S.left[w] && S.right[w]) target = S.count[w] >= 2 && S.yL[w] && S.yR[w] ? clamp((S.yL[w] - S.yR[w]) / 0.4, -1, 1) : 0;
-          else target = S.left[w] ? 1 : S.right[w] ? -1 : Math.sin(now * 0.7 + w * 1.9);
-        }
+        if (S.balance && S.count[w] >= 2 && S.left[w] && S.right[w]) target = clamp((sideK[w][1] - sideK[w][0]) / 2, -1, 1);
         if (S.wobbleWall === w && S.wobble > 0) target = Math.sign(target || 1) * Math.max(Math.abs(target), 0.6 + 0.3 * Math.sin(now * 3.1));
         S.lean[w] += (target - S.lean[w]) * (1 - Math.exp(-dt * 0.8));
       }
@@ -597,65 +599,47 @@ export function createScore(nWalls, opt = {}) {
         beatT += dt;
         if (beatT >= B.period) { beatT -= B.period; S.pulses++; emit('pulse'); }
         S.beat = beatT / B.period;
+        phraseClock += dt; if (phraseClock >= B.phrase) phraseClock -= B.phrase;
+        const f = phraseClock / B.phrase; S.phraseT = f; S.phrase = f < 0.25 ? 'gather' : f < 0.75 ? 'rise' : 'lock';
+        if (!offered) { offer({ mode: 'ladder', kind: 'rung', sides: true, rungs: B.rungs, kidRungs: B.kidRungs }); offered = true; lastFloorAt = S.t; ladderAcc = 0; }
+        // the rungs climbed show on each wall (S.liftK: the highest rung reached on the wall, 0..1)
+        for (let w = 0; w < W; w++) { let k = 0; for (const t of TG.list) if (t.wall === w && t.mode === 'ladder' && t.rung >= 0) k = Math.max(k, (t.rung + (t.state === 'done' ? 1 : t.charge)) / B.rungs.length); S.liftK[w] += (k - S.liftK[w]) * (1 - Math.exp(-dt * 4)); S.lifters[w] = 0; S.bases[w] = 0; }
         if (S.wobble > 0) {                                   // the tower trembles: hands to its foot, or it slips
           wobbleT += dt; S.wobble = clamp(wobbleT / B.wobble, 0.001, 1);
-          let foot = 0; for (const o of S.strokes) if (o.wall === S.wobbleWall && (o.y < B.foot || o.y === 0)) foot++;
-          steadyT = foot ? steadyT + dt : Math.max(0, steadyT - dt * 0.5);
-          if (steadyT >= 1) { emit('steady'); achieve('steady', S.floors, S.wobbleWall, 'group'); S.wobble = 0; S.wobbleWall = -1; phraseClock = 0; }
-          else if (wobbleT >= B.wobble) { emit('slip'); const ww = S.wobbleWall; if (S.floors > 0) floorLost(); S.floors = Math.max(0, S.floors - 1); S.floorProgress = 0; S.wobble = 0; S.wobbleWall = -1; phraseClock = 0; achieve('slip', S.floors, ww, 'group'); }
-          if (wobbleT > 1.5 && !foot) hint('foot');
+          if (wobbleT > 1.5 && TG.progress < 0.5) hint('foot');
+          if (TG.reached) { emit('steady'); achieve('steady', S.floors, S.wobbleWall, 'group'); S.wobble = 0; S.wobbleWall = -1; offered = false; lastFloorAt = S.t; }
+          else if (wobbleT >= B.wobble) { emit('slip'); const ww = S.wobbleWall; if (S.floors > 0) floorLost(); S.floors = Math.max(0, S.floors - 1); S.floorProgress = 0; S.wobble = 0; S.wobbleWall = -1; offered = false; lastFloorAt = S.t; achieve('slip', S.floors, ww, 'group'); }
         } else {
-          phraseClock += dt;
-          const f = phraseClock / B.phrase, g0 = 0.25, r0 = 0.75;      // gather 0–1.2 s · rise 1.2–3.6 s · lock 3.6–4.8 s
-          const ph = f < g0 ? 'gather' : f < r0 ? 'rise' : 'lock';
-          S.phraseT = clamp(f, 0, 1);
-          // 24-11 (#13): each hand's base = the lowest it was in the last 2 s when the rise begins (one already up is not sent back to 0);
-          // it is judged on the HIGHEST it reached during rise + lock, at the end of the phrase
-          if (ph === 'rise' && S.phrase !== 'rise') { riseBase.clear(); riseMax.clear(); for (const o of S.strokes) { const tr = track.get(o.stroke); riseBase.set(o.stroke, tr ? minY(tr, now, 2) : o.y); } }
-          if (ph === 'rise' || ph === 'lock') {
-            const per = zeros(0), up = zeros(0), bs = zeros(0), n = zeros(0);
-            for (const o of S.strokes) {
-              if (!riseBase.has(o.stroke)) { const tr = track.get(o.stroke); riseBase.set(o.stroke, tr ? minY(tr, now, 2) : o.y); }
-              riseMax.set(o.stroke, Math.max(riseMax.get(o.stroke) ?? o.y, o.y));
-              const r = riseMax.get(o.stroke) - riseBase.get(o.stroke); n[o.wall]++;
-              per[o.wall] += r; if (r >= B.rise) up[o.wall]++; else if (o.disp < B.base) bs[o.wall]++;
-            }
-            for (let w = 0; w < W; w++) { S.liftK[w] = n[w] ? clamp(per[w] / n[w] / B.rise, 0, 1) : 0; S.lifters[w] = up[w]; S.bases[w] = bs[w]; }
-          }
-          if (ph === 'gather' && S.phrase === 'lock') {        // the end of the phrase: judge it
-            let sum = 0, helpSum = 0, helpN = 0, lifted = 0;
-            for (let w = 0; w < W; w++) {
-              const k = S.count[w] ? clamp((S.lifters[w] / S.count[w]) * 1.5, 0, 1) : 0;
-              if (inSW(w)) {
-                const g = S.count[w] ? Math.max(k, 0.15 + (S.bases[w] ? 0.05 : 0)) * (S.balance && Math.abs(S.lean[w]) >= 0.45 ? 0.4 : 1) : 0;
-                S.weak[w] = g === 0 ? Math.min(3, S.weak[w] + 1) : S.bases[w] || S.lifters[w] ? 0 : S.weak[w];
-                sum += g; if (k > 0.5) lifted++;
-              } else if (S.count[w]) { helpSum += k; helpN++; }
-            }
-            const gain = clamp(sum / Math.max(1, sw.length) + (helpN ? (B.help * helpSum) / helpN / Math.max(1, sw.length) : 0), 0, 1);
-            const assist = S.t > B.target ? clamp((S.t - B.target) / Math.max(1, B.max - B.reward - B.target), 0, 1) : 0;
-            S.assist = assist;
-            let swHands = 0; for (const w of sw) if (S.count[w]) swHands++;
-            if (swHands && lifted >= swHands) { emit('lift'); learn('tronc'); }   // every tower wall that has hands lifted
+          for (const t of tgLadders) {
+            const k = (inSW(t.wall) ? 1 : B.help) * (S.balance && Math.abs(S.lean[t.wall] || 0) >= 0.45 ? 0.7 : 1);
+            ladderAcc += k; ownAcc += k; sideK[t.wall][t.side < 0 ? 0 : 1] += 1; learn('tronc'); emit('lift');
             if (S.balance) { levelEval++; if (S.level) { levelOk++; emit('level'); } else emit('balance'); }
             if (S.balance && S.level !== lastLevel) { lastLevel = S.level; let lw = -1, lv = 0; for (const w of sw) if (Math.abs(S.lean[w]) > lv) { lv = Math.abs(S.lean[w]); lw = w; } achieve(S.level ? 'level' : 'lean', S.floors, lw, 'group'); }
-            if (gain < 0.3) { emit('weak'); noLift++; if (noLift >= 2) hint(S.balance && !S.level ? 'straight' : 'lift'); } else noLift = 0;
-            S.floorProgress += ((gain + assist * 2.6) * B.gain) / (1 + 0.12 * S.floors); ownAcc += gain; collaAcc += assist * 2.6;
-            if (S.floorProgress >= 1 && S.floors < 9) {
-              S.floorProgress = Math.min(0.5, S.floorProgress - 1); S.floors++; S.stats.maxFloors = Math.max(S.stats.maxFloors, S.floors); emit('floor'); floorGained();
-              const first = wobbles === 0 && (S.floors === 7 || (S.floors >= 4 && S.t >= B.target - 10));   // the penultimate floor (or late)
-              const second = wobbles === 1 && S.floors === 8 && firstWobbleAt < B.target - 30;               // twice if the group is well ahead
-              if (first || second) { if (!wobbles) firstWobbleAt = S.t; wobbles++; S.wobble = 0.001; wobbleT = 0; steadyT = 0; S.wobbleWall = sw[Math.floor(Math.random() * sw.length)] ?? 0; emit('wobble'); }
-            }
-            S.progress = clamp((S.floors + S.floorProgress) / 9, 0, 1);
-            pulsesEval = levelEval; pulsesBalanced = levelOk;                 // the acta's equilibri: the share of locks with every tower straight
           }
-          if (phraseClock >= B.phrase) phraseClock -= B.phrase;
-          S.phrase = ph;
+          const needL = clamp(Math.ceil((B.needK * S.n) / 1.6), 1, 6);
+          S.floorProgress = clamp(ladderAcc / needL, 0, 1);
+          let gained = false;
+          if (ladderAcc >= needL && S.t - lastFloorAt >= B.every && S.floors < 9) { ladderAcc -= needL; gained = true; }
+          else if (S.t - lastFloorAt >= B.colla && S.floors < 5) { collaAcc += 10; collaAt = now; helped.tronc = true; gained = true; }   // the colla, named
+          else if (S.t - lastFloorAt >= B.colla * 0.6 && S.floors < 5) hint('lift');
+          if (gained) {
+            S.floors++; lastFloorAt = S.t; S.stats.maxFloors = Math.max(S.stats.maxFloors, S.floors); emit('floor'); floorGained();
+            const first = wobbles === 0 && (S.floors === 7 || (S.floors >= 4 && S.t >= B.target - 10));   // the penultimate floor (or late)
+            const second = wobbles === 1 && S.floors === 8 && firstWobbleAt < B.target - 30;               // twice if the group is well ahead
+            if (first || second) {
+              if (!wobbles) firstWobbleAt = S.t; wobbles++; S.wobble = 0.001; wobbleT = 0; steadyT = 0;
+              let bw = sw[0] ?? 0, bc = -1; for (const w of sw) if (S.count[w] > bc) { bc = S.count[w]; bw = w; } S.wobbleWall = bw;   // A8: the tower wall with most hands
+              const handsW = S.count[bw] || 0, walls = S.count[bw] ? sw : sw.length ? sw : [bw];
+              offer({ mode: 'field', kind: 'foot', walls, y: B.footY, goal: clamp(Math.ceil(0.25 * handsW), 1, 4) }); offered = true;
+              emit('wobble');
+            }
+          }
         }
-        if (S.wobble === 0 && ((S.floors >= 9 && S.t >= B.min) || (S.t >= B.target && S.floors >= 7) || S.t >= B.max - B.reward)) {
+        S.progress = clamp((S.floors + S.floorProgress) / 9, 0, 1);
+        pulsesEval = levelEval; pulsesBalanced = levelOk;                 // the acta's equilibri: the share of ladders with every tower straight
+        if (S.wobble === 0 && ((S.floors >= 9 && S.t >= B.min) || (S.t >= B.target && S.floors >= 5) || S.t >= B.max - B.reward)) {
           const c = S.castell, by = c.floorsColla > 0 && c.floorsOwn < 6 ? 'colla' : 'group';
-          S.result.tronc = { floors: S.floors, own: c.floorsOwn, colla: c.floorsColla, by }; achieve('tower', S.floors, -1, by); phase('reward');
+          TG.clear(); S.result.tronc = { floors: S.floors, own: c.floorsOwn, colla: c.floorsColla, by }; achieve('tower', S.floors, -1, by); phase('reward');
         }
       } else if (S.phase === 'reward') { if (S.tp >= B.reward) { pomInit(); go('pom'); } }
     } else if (S.block === 'pom') {
