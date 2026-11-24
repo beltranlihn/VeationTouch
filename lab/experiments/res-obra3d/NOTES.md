@@ -82,10 +82,10 @@ params (`../ressonancia/tuning.js`): applied to the score at once, no reload, an
 small sound.js patch in `lab/estudio/notas/TUN.md`; until then they only rule while this page runs its own score). A param moved by
 hand beats the preset. `mode` (auto / room / lab, read at load): in the room the lab URL switches (`?q3 ?tiles ?eye ?aa ?parts`) are
 ignored; auto = room when the app opens the page (`?run=1`). Room test guide: `lab/PRUEBA-SALA.md`.
-**Manifest limit (studio, 2026-11-24):** the app keeps only the first 64 params (`engine/experiences.js` › `slice(0, 64)`); the
-manifest had 65, so `t.baixada.outside` (the last) was silently lost. `t.brasa.relayFetch` (relay choreography, not a sensor
-threshold) is no longer in the manifest: 64 params. `tuning.js` still lists it; a missing param reads as NaN → the preset / the
-score's own TIMES value. **Do not regenerate the manifest from `manifestParams()` without dropping one entry** (it gives 65).
+**Manifest limit:** the app keeps only the first 64 params (`engine/experiences.js` › `slice(0, 64)`). Since 2026-11-25 (I8) the `t.*`
+entries are generated from `../ressonancia/tuning.js › manifestParams()` (8 host params + `tuning` + 46 thresholds = 55); regenerate
+them after every change of TUNE and run `node lab/tools/check-syntax.mjs` (it flags > 64). A param missing from the manifest reads as
+NaN in `overrides()` → the preset / the score's own TIMES.
 
 ## Audio
 None here: `ressonancia-sound` leads the score when it runs (BroadcastChannel `ressonancia`, a LOCAL WORKAROUND as in res-obra); without
