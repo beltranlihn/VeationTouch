@@ -75,6 +75,8 @@ Hands only. Parameters: `jump` (rehearsal: go to a block), `pace` (score speed, 
 `quality` (low / medium / high: render scale 0.6 / 0.8 / 1, MSAA 0 / 0 / 4, castell particle density 0.4 / 0.6 / 1; default high =
 the room's RTX 6000 Ada), `renderer` (auto / WebGL2).
 Lab only: `?parts=a,b` loads only those parts; `?q3=low|medium|high` overrides the quality (review page).
+`?fine=1` (lab mode only) draws the guide's instrument graphics (wall-edge rulers, «+», dotted grid, mono labels «II · PINYA», «P4»,
+«1,25 m»): lab metadata, never projected in the room (studio, 2026-11-24). The Tronc's floor-name ruler is part of the sculpture and stays.
 **Room thresholds (T-052, live):** `tuning` (lab = the score's TIMES / sala = a tolerant start for the real S2E) and 37 `t.<block>.<field>`
 params (`../ressonancia/tuning.js`): applied to the score at once, no reload, and sent to the sound piece as `ctl { times }` (needs the
 small sound.js patch in `lab/estudio/notas/TUN.md`; until then they only rule while this page runs its own score). A param moved by

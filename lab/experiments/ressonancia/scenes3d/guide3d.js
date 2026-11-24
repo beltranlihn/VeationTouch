@@ -15,7 +15,7 @@
 // ~2.15 m, and the instruction (Geist) at ~1.92 m, on the walls (from Tronc on, only the castell's walls); old words break before new
 // ones assemble; the instruction dims once the group is already doing it. Everything in Spanish; casteller words in Catalan.
 // T-048 (SIS, ARTE-3 §3): the instructions come into focus word by word (typo3d 'blur'), labels in Geist Mono; the fine graphics layer
-// (rulers, «+», dotted grid, mono labels) in the chapter's accent; rims, plates, words and graphics catch the hands' light (room.flash).
+// (rulers, «+», dotted grid, mono labels) in the chapter's accent — LAB ONLY since 24-11 (option `fine`, off by default: never in the room); rims, plates, words and graphics catch the hands' light (room.flash).
 // Nothing is allocated per frame: every mesh is made once; words are laid out only when they change.
 import { FLOOR_NAMES, CLIMBERS } from '../score.js';
 import { typo, OVER } from './typo3d.js';
@@ -100,7 +100,7 @@ const PALETTES = {
   baixada: [[1.0, 0.62, 0.75], [0.7, 0.6, 1.0], [0.5, 0.95, 0.85]],
 };
 
-export function createGuide({ THREE, TSL, room }) {
+export function createGuide({ THREE, TSL, room, fine = false }) {   // fine: the lab's instrument graphics (rulers, «+», grid, «P4», «1,25 m»); OFF in the room
   const { pmremTexture, refract, cross, uniform, uv, vec2, vec3, float, smoothstep, exp, length, step, texture, select, clamp: tclamp, max, min, cos, sin, abs, pow, dot, normalize, reflect, attribute, positionGeometry, positionLocal, normalWorld, positionWorld, cameraPosition, mix, fract } = TSL;
   const object = new THREE.Group(); object.name = 'guide';
   const NW = room.walls.length;
@@ -336,7 +336,8 @@ export function createGuide({ THREE, TSL, room }) {
       L('0,90', xl, ZY0, 'left', 0.55, 0.3), L('1,60', xl, ZY1, 'left', 0.55, 0.3)];
   }
   function stepFine(dt, b, on) {
-    const want = on && b !== 'intro' && b !== 'wait' ? (LABELS[b] || '') : '';   // art round 5: none in the wait, half in the pom
+    // studio 24-11: lab metadata never reaches the walls; only a lab page that asks for it (res-obra3d ?fine=1, lab mode) draws it
+    const want = fine && on && b !== 'intro' && b !== 'wait' ? (LABELS[b] || '') : '';   // art round 5: none in the wait, half in the pom
     FINE.a = ease(FINE.a, want ? (b === 'pom' ? 0.5 : 1) : 0, dt, 1.5); fineA.value = FINE.a; fineObj.visible = FINE.a > 0.003;
     if (want !== FINE.label) {                                                    // the old labels go out of focus, then the new come in
       FINE.out = Math.min(1, FINE.out + dt / 0.5);
