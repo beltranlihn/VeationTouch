@@ -1,0 +1,25 @@
+{
+  "id": "res-acta",
+  "name": "Ressonància study — Closing",
+  "description": "Study of the pre-designed closing, l'acta: the group's castell as the colles write it, the four values as bars, the closing sentence and the credits, over the intro's dust and horizon. 40 s; loops every 48 s in the study.",
+  "entry": "index.html",
+  "params": [
+    { "key": "progress", "label": "Study: progress", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
+    { "key": "start", "label": "Study: start at", "type": "number", "min": 0, "max": 40, "step": 1, "default": 0, "unit": "s" },
+    { "key": "outcome", "label": "Outcome", "type": "select", "default": "descarregat", "options": [["descarregat", "Descarregat"], ["carregat", "Carregat"], ["intent", "Intent"]] },
+    { "key": "structure", "label": "Structure (people per floor)", "type": "number", "min": 2, "max": 4, "step": 1, "default": 3 },
+    { "key": "floors", "label": "Floors", "type": "number", "min": 1, "max": 9, "step": 1, "default": 7 },
+    { "key": "forca", "label": "Força (strength)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.82 },
+    { "key": "equilibri", "label": "Equilibri (balance)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.64 },
+    { "key": "valor", "label": "Valor (courage)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.91 },
+    { "key": "seny", "label": "Seny (good sense)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.73 },
+    { "key": "hands", "label": "Hands (most at once)", "type": "number", "min": 1, "max": 32, "step": 1, "default": 14 },
+    { "key": "stillS", "label": "Seconds of silence", "type": "number", "min": 0, "max": 90, "step": 1, "default": 22, "unit": "s" },
+    { "key": "brightness", "label": "Brightness", "type": "number", "min": 0.3, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "bloom", "label": "Bloom", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "dust", "label": "Dust", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "handStir", "label": "Hand stirs the dust", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "lineHeight", "label": "Horizon height", "type": "number", "min": 1.0, "max": 1.6, "step": 0.01, "default": 1.25, "unit": "m" },
+    { "key": "quality", "label": "Quality", "type": "select", "default": "high", "options": [["low", "Low"], ["medium", "Medium"], ["high", "High"]] }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "id": "res-intro3d",
+  "name": "Ressonància — Intro 3D (La plaça)",
+  "description": "The 70-second opening in 3D: a night square of Barcelona round the room, a line of light drawn round the walls, four castells of light rising and dissolving, the square breaking into floating mirrors, the motto and the title on the walls.",
+  "entry": "index.html",
+  "params": [
+    {
+      "key": "t",
+      "label": "Start at",
+      "type": "number",
+      "min": 0,
+      "max": 70,
+      "step": 0.5,
+      "default": 0,
+      "unit": "s"
+    },
+    {
+      "key": "loop",
+      "label": "Loop",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "key": "renderer",
+      "label": "Renderer",
+      "type": "select",
+      "default": "auto",
+      "options": [
+        [
+          "auto",
+          "Automatic (WebGPU when available)"
+        ],
+        [
+          "webgl2",
+          "WebGL2"
+        ]
+      ]
+    },
+    {
+      "key": "bloom",
+      "label": "Bloom",
+      "type": "number",
+      "min": 0,
+      "max": 2,
+      "step": 0.05,
+      "default": 0.6
+    },
+    {
+      "key": "exposure",
+      "label": "Exposure",
+      "type": "number",
+      "min": 0.2,
+      "max": 3,
+      "step": 0.05,
+      "default": 1
+    },
+    {
+      "key": "quality",
+      "label": "Quality",
+      "type": "select",
+      "default": "high",
+      "options": [
+        [
+          "low",
+          "Low (laptop: 60 % resolution, fewer particles)"
+        ],
+        [
+          "medium",
+          "Medium (80 %)"
+        ],
+        [
+          "high",
+          "High (the room: 100 %, antialiased)"
+        ]
+      ]
+    }
+  ]
+}

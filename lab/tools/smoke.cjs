@@ -29,6 +29,9 @@ app.whenReady().then(async () => {
   const errors = [];
   // offscreen: it paints while hidden (a plain hidden window gets no frames)
   const win = new BrowserWindow({ show: false, width: W, height: H, useContentSize: true, webPreferences: { backgroundThrottling: false, offscreen: true, partition: `vt-lab-${process.pid}` } });
+  // checks are silent: nobody listens to a hidden window, and it would play through the computer's speakers. The page's audio
+  // graph still runs (meters, analysers); only the output is muted. LAB_AUDIBLE=1 lets it sound.
+  if (process.env.LAB_AUDIBLE !== '1') win.webContents.setAudioMuted(true);
   win.webContents.on('console-message', (e, level, message) => {
     const lv = e?.level ?? level, msg = e?.message ?? message;
     if (lv === 'error' || lv === 3) errors.push(String(msg).slice(0, 300));

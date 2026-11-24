@@ -1,0 +1,18 @@
+{
+  "id": "res-earth",
+  "name": "Ressonància study — Body and earth",
+  "description": "Study of the Pinya universe: warm clay that yields under the hand and keeps its print; rings of handprints round each wall, a ring of linked hands that closes the circle, and clay that dries and cracks into the first shards of the mosaic.",
+  "entry": "index.html",
+  "params": [
+    { "key": "progress", "label": "Study: progress", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
+    { "key": "crack", "label": "Crack (dry into shards)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
+    { "key": "relief", "label": "Relief", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+    { "key": "depth", "label": "Hand dent depth", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+    { "key": "memory", "label": "Clay memory", "type": "number", "min": 2, "max": 60, "step": 1, "default": 10, "unit": "s" },
+    { "key": "glow", "label": "Inner glow", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+    { "key": "breath", "label": "Breath", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 1 },
+    { "key": "brightness", "label": "Brightness", "type": "number", "min": 0.3, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "bloom", "label": "Bloom", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "quality", "label": "Quality", "type": "select", "default": "high", "options": [["low", "Low"], ["medium", "Medium"], ["high", "High"]] }
+  ]
+}

@@ -1,0 +1,14 @@
+[
+  {"key": "floors", "label": "Tronc: floors fixed (-1 = from progress)", "type": "number", "min": -1, "max": 9, "step": 1, "default": -1},
+  {"key": "floorProgress", "label": "Tronc: the next floor forming", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.4},
+  {"key": "cycle", "label": "Tronc: automatic rise loop (0 = off)", "type": "number", "min": 0, "max": 120, "step": 5, "default": 0, "unit": "s"},
+  {"key": "lean", "label": "Tronc: lean (stand-in, -1..1)", "type": "number", "min": -1, "max": 1, "step": 0.05, "default": 0},
+  {"key": "weak", "label": "Tronc: weakness (stand-in, 0..3)", "type": "number", "min": 0, "max": 3, "step": 0.1, "default": 0},
+  {"key": "reward", "label": "Tronc: reward (the trencad\u00eds goes out)", "type": "bool", "default": false},
+  {"key": "kind", "label": "Tronc: castell kind (stand-in)", "type": "select", "default": "tres", "options": [["tres", "Tres"], ["quatre", "Quatre"]]},
+  {"key": "tiers", "label": "Tronc: castell tiers (stand-in)", "type": "number", "min": 4, "max": 7, "step": 1, "default": 5},
+  {"key": "walls", "label": "Tronc: structure walls (stand-in)", "type": "number", "min": 2, "max": 4, "step": 1, "default": 4},
+  {"key": "arrive", "label": "Tronc: arrive (0 = not there, 1 = there)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 1},
+  {"key": "leave", "label": "Tronc: leave (0 = there, 1 = gone)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0},
+  {"key": "gain", "label": "Tronc: brightness", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1}
+]

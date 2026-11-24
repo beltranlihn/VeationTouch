@@ -1,0 +1,14 @@
+{
+  "id": "res-obra",
+  "name": "Ressonància — the whole work (assembly)",
+  "description": "The whole 10-minute work assembled: the score walks the pass from the wait to the acta and each block shows its own universe (fire, earth, stone, night, resonance), with the hand targets and the text that guide the public.",
+  "entry": "index.html",
+  "params": [
+    { "key": "jump", "label": "Go to", "type": "select", "default": "none", "options": [["none", "—"], ["wait", "Wait"], ["intro", "Intro: La plaça"], ["brasa", "I. Brasa"], ["pinya", "II. Pinya"], ["tronc", "III. Tronc"], ["pom", "IV. Pom de dalt"], ["crown", "V. L'aleta: the crown"], ["festa", "V. La ressonància"], ["baixada", "La baixada"], ["fall", "The fall"], ["acta", "L'acta"]] },
+    { "key": "pace", "label": "Pace", "type": "number", "min": 0.5, "max": 8, "step": 0.25, "default": 1 },
+    { "key": "guide", "label": "Guide (targets and text)", "type": "bool", "default": true },
+    { "key": "brightness", "label": "Brightness", "type": "number", "min": 0.3, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "bloom", "label": "Bloom", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "quality", "label": "Quality", "type": "select", "default": "high", "options": [["low", "Low"], ["medium", "Medium"], ["high", "High"]] }
+  ]
+}

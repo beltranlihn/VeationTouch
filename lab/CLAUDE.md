@@ -11,6 +11,10 @@ y añade las reglas del laboratorio. Si algo de aquí contradice a la raíz, man
 
 ## 1. Misión y límites
 
+> **23-11-2026 — Permiso de Beltrán (comunicado por Vicente):** para Ressonància se puede modificar todo el repositorio, no sólo `lab/`;
+> trabajamos en el mismo repo e integramos todo en conjunto después. Los cambios fuera de `lab/` se hacen sólo cuando hagan falta y con
+> `npm test` y `npm run check` en verde. El resto de este contrato sigue siendo la guía. Coordinación del trabajo: `lab/estudio/`.
+
 - **Sólo se escribe dentro de `lab/`.** Nunca se toca `engine/`, `ui/`, `app/`, `cloud/`, `experiences/`, `tests/`, `profiles/`,
   `docs/`, `ARCHITECTURE.md`, `package.json` ni nada fuera de `lab/`. Si una tarea parece pedirlo, no lo hagas: explícalo a Vicente.
 - **Si falta algo en el runtime** (una función de `vt`, un parámetro, un dato de la sala, un tipo de manifiesto), **no lo parchees ni lo

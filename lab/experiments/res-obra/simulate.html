@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ressonància — simulated pass</title>
+<!-- LAB ONLY. The whole work playing on its own: a virtual audience follows the guide from the wait to the acta.
+     The room is shown in two rows (P4 · P1 above, P2 · P3 below) so it reads on a laptop. Not part of the piece: the app loads
+     index.html; this page needs the lab harness (window.__labRoom). -->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; color: #E0E0E0; font: 12px/1.45 Geist, "Segoe UI", system-ui, -apple-system, sans-serif; }
+  canvas#c { opacity: 0; pointer-events: none; }
+  #view { position: fixed; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 8px 0 64px; box-sizing: border-box; }
+  .row { position: relative; overflow: hidden; width: 100%; background: #000; }
+  .row video { position: absolute; top: 0; height: 100%; width: auto; }
+  .tag { position: absolute; top: 6px; font-size: 10px; letter-spacing: .14em; color: rgba(229,181,103,.55); text-transform: uppercase; pointer-events: none; }
+  #bar { position: fixed; left: 16px; right: 16px; bottom: 14px; height: 40px; }
+  #now { font-size: 13px; letter-spacing: .06em; margin-bottom: 6px; display: flex; justify-content: space-between; }
+  #now b { color: #fff; font-weight: 500; }
+  #track { position: relative; height: 6px; background: #1B1B1B; border-radius: 3px; display: flex; overflow: hidden; }
+  #track i { display: block; height: 100%; border-right: 1px solid #000; }
+  #head { position: absolute; top: -3px; width: 2px; height: 12px; background: #4FC3E8; }
+  #start { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(0,0,0,.82); cursor: pointer; z-index: 10; }
+  #start h1 { font-weight: 300; letter-spacing: .3em; margin: 0; font-size: 34px; }
+  #start p { margin: 0; color: #B8B8B8; }
+  .lk-hud, .lk-hint { display: none !important; }
+  body > canvas:not(#c) { display: none !important; }   /* the harness overlay (wall labels, hand rings, meters) */
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="view"></div>
+<div id="bar"><div id="now"><span id="block">—</span><span id="clock">0:00</span></div><div id="track"></div><div id="head"></div></div>
+<div id="start"><h1>RESSONÀNCIA</h1><p>A simulated pass with a virtual audience · click to start (with sound)</p><p style="font-size:11px">Volume: the fader top right, or the keys − / +</p><p style="font-size:11px">?people=2…15 · &amp;from=pinya (start at a chapter) · faster: &amp;params={"pace":2}</p></div>
+<script type="module" src="./experience.js"></script>
+<script type="module" src="./autopilot.js"></script>
+</body>
+</html>

@@ -105,7 +105,8 @@ function baseHandle() {
 
 /**
  * Same signature as the app's connectExperience. { sound: true, id } → a SOUND piece's vt (no canvas); otherwise a visual one.
- * Extra for the lab: ?scale=1 (default 0.5: half-size render, fast), ?params={json}, ?sound=<id> (a sound piece plays with this one).
+ * Extra for the lab: ?scale=1 (default 0.5: half-size render, fast), ?params={json}, ?sound=<id> (a sound piece plays with this one),
+ * ?soundParams={json} (that sound piece's parameters, e.g. {"lang":"es"}).
  */
 export async function connectExperience(opt = {}) {
   const manifest = await manifestOf();
@@ -187,6 +188,7 @@ async function startAlongside(id, R, visual) {
   const manifest = await within(fetch(`/experiences/${encodeURIComponent(id)}/manifest.json`).then((r) => r.json()), 2500).catch(() => null);
   const svt = Object.assign(baseHandle(), { id, closedLoop: true });
   for (const p of manifest?.params || []) if (p && p.key && 'default' in p) svt.params[p.key] = p.default;
+  try { if (q.has('soundParams')) Object.assign(svt.params, JSON.parse(q.get('soundParams'))); } catch { /* ignore a bad ?soundParams */ }   // e.g. ?soundParams={"lang":"es"}
   const K = R.K, RM = K.ROOM;
   svt.sink = 'sound'; svt.canvas = { ...RM.strip }; svt.scale = 1; svt.size = { ...RM.strip };
   svt.walls = RM.walls.map((w) => ({ id: w.id, name: w.name, width: w.width, height: RM.wallHeight }));

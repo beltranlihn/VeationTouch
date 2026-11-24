@@ -1,0 +1,70 @@
+{
+  "id": "ressonancia-sound",
+  "name": "Ressonància — sound",
+  "description": "The sound of Ressonància: a cinematic electronic-ambient score in layers that follow the public (one sound world per chapter, stems that open floor by floor and with the room's resonance), the gralla and the timbal as granulated raw material travelling round the walls, tuned hand sounds, and a close voice that guides. It runs the piece's director and leads the visual piece 'ressonancia'.",
+  "kind": "sound",
+  "entry": "sound.js",
+  "params": [
+    {
+      "key": "lang",
+      "label": "Voice language",
+      "type": "select",
+      "default": "en",
+      "options": [
+        [
+          "en",
+          "English"
+        ],
+        [
+          "es",
+          "Spanish (Spain)"
+        ]
+      ]
+    },
+    {
+      "key": "voice",
+      "label": "Voice-over volume",
+      "type": "number",
+      "min": 0,
+      "max": 1.5,
+      "step": 0.05,
+      "default": 1
+    },
+    {
+      "key": "music",
+      "label": "Music volume",
+      "type": "number",
+      "min": 0,
+      "max": 1.5,
+      "step": 0.05,
+      "default": 1
+    },
+    {
+      "key": "drums",
+      "label": "Pulse and drums volume",
+      "type": "number",
+      "min": 0,
+      "max": 1.5,
+      "step": 0.05,
+      "default": 1
+    },
+    {
+      "key": "effects",
+      "label": "Ambience and effects volume",
+      "type": "number",
+      "min": 0,
+      "max": 1.5,
+      "step": 0.05,
+      "default": 1
+    },
+    {
+      "key": "touch",
+      "label": "Hand sounds volume",
+      "type": "number",
+      "min": 0,
+      "max": 1.5,
+      "step": 0.05,
+      "default": 1
+    }
+  ]
+}

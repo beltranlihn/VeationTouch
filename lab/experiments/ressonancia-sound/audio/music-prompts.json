@@ -1,0 +1,85 @@
+{
+ "_about": "ElevenLabs music (POST /v1/music), 2026-11-23. model music_v2_5, force_instrumental true (prompt jobs), output mp3_44100_128. The crown was generated twice: a first take with a composition plan (plan below as m-crown-take1, discarded: long silent gaps) and the prompt take kept.",
+ "pieces": {
+  "m-crown": {
+   "model": "music_v2_5",
+   "ms": 25000,
+   "prompt": "Instrumental, 25 seconds, the crowning moment of an immersive contemporary art installation. It opens on a breathless hush: a thin high tone and a reverse swell that rises for about four seconds, then a huge cinematic release: a deep sub-bass drop under a vast, bright, sustained D major chord that blooms and keeps ringing, processed church bells and shimmering granular textures pouring out, wide and luminous. In the last eight seconds a driving electronic pulse at 100 BPM enters and lifts the energy toward a celebration. Continuous sound throughout, no silent gaps. Contemporary cinematic electronic, euphoric, elegant, pristine modern production. No vocals, no folk tune.",
+   "use": "the crown (starts under the pom's reward so its release at 4.0 s lands on the crown)",
+   "seconds": 25.05
+  },
+  "m-tronc": {
+   "model": "music_v2_5",
+   "ms": 76800,
+   "prompt": "Instrumental. Contemporary electronic music at exactly 100 BPM in 4/4, in D minor, for an immersive art installation about a human tower made of stone and ceramic. A deep, resonant pulse on the first beat of every bar, like a huge processed bass drum in a stone hall; precise interlocking metallic and ceramic percussion (struck tiles, porcelain, small bells, wood blocks); a sub-bass that locks to the pulse; resonant bowed-metal drones; a stretched, granular double-reed shawm texture far in the background, never a tune. Hypnotic, tense, architectural, minimal and precise. Every element plays from the very first second to the last, steady density, no intro, no breakdown, no ending, so it loops. Pristine modern production, wide stereo. No vocals.",
+   "use": "NOT IN THE FOLDER: separated into st-tronc-bass / drums / other",
+   "measured": "100.00 BPM, first downbeat 0.045 s, 32 bars"
+  },
+  "m-festa": {
+   "model": "music_v2_5",
+   "ms": 76800,
+   "prompt": "Instrumental. Euphoric, modern, rhythmic electronic music at exactly 100 BPM in 4/4, in D major: the climax of an immersive contemporary art installation, a town square that resonates. Deep sub-bass and a tight, punchy kick; crisp intricate percussion built from processed festival street drums and hand claps; shimmering arpeggiated synths; bright resonant plucked bells; wide evolving pads; a processed, chopped and stretched double-reed shawm sound used as a soaring textural lead, not a folk melody. Joyful, immersive, elegant and powerful. Every layer plays from the very first second to the last, consistent energy, no intro, no breakdown, no ending, so it loops. Pristine modern production, wide stereo. No vocals.",
+   "use": "NOT IN THE FOLDER: separated into st-festa-bass / drums / other",
+   "measured": "100.00 BPM, first downbeat 0.045 s, 32 bars"
+  },
+  "m-pinya": {
+   "model": "music_v2_5",
+   "ms": 76800,
+   "prompt": "Instrumental. Contemporary cinematic ambient for an immersive art installation about human bodies pressed together, holding each other up. In D minor: a warm sub-bass drone that swells like pressure; a slow, deep, felt heartbeat pulse at 50 BPM; low, warm choir-like synth pads with breathy vowel formants (no words); soft breath and skin textures; slow evolving granular warmth. Intimate, heavy, tender, mysterious. No melody hooks, no folk instruments. Steady density from the very first second to the last, no intro, no ending, so it loops. Pristine modern production, wide stereo. No vocals.",
+   "use": "NOT IN THE FOLDER: separated into st-pinya-bass / other",
+   "measured": "no pulse; fades in over ~5 s"
+  },
+  "m-brasa": {
+   "model": "music_v2_5",
+   "ms": 64000,
+   "prompt": "Instrumental. Dark contemporary cinematic ambient for an immersive sound installation about fire. A deep sub-bass rumble and a slow evolving drone on D; granular crackle and ember textures; hot spectral noise that breathes in and out; and very far away, the processed reverberant thunder of festival street drums heard through smoke, irregular and distant. No melody, no folk tune. Mysterious, warm, menacing, elegant. Steady from the very first second to the last, no intro, no ending, so it loops. Pristine modern production, wide stereo. No vocals.",
+   "use": "Brasa bed (loop 9–62 s)",
+   "seconds": 64.03
+  },
+  "m-pom": {
+   "model": "music_v2_5",
+   "ms": 60000,
+   "prompt": "Instrumental. Near-silent high-altitude ambient for an immersive art installation: vertigo and night air at the top of a human tower. Very sparse and delicate: thin high glassy harmonics around D and A, a faint sustained high tone, airy breath-like noise, distant soft bell harmonics, enormous space, slow and suspended. No drums, no bass line, no melody, no vocals. Very quiet, consistent from the first second to the last, no ending, so it loops.",
+   "use": "Pom de dalt bed (loop 5–55 s; very quiet take, normalised at load)",
+   "seconds": 60.03
+  },
+  "m-baixada": {
+   "model": "music_v2_5",
+   "ms": 48000,
+   "prompt": "Instrumental. Slow, descending cinematic ambient in D major for an immersive art installation, after a celebration: a gentle rain of glass and ceramic shards turned into music. Slowly falling glissando tones, shimmering descending arpeggios of bells and glass, a warm low drone on D, soft reverse swells, a gradual release of tension. Calm and luminous. No drums, no vocals. Consistent from the first second to the last, so it loops.",
+   "use": "baixada bed (0–16 s, then loop 16–46 s)",
+   "seconds": 48.04
+  },
+  "m-intro": {
+   "model": "music_v2_5",
+   "ms": 72000,
+   "prompt": "Instrumental, 72 seconds, the opening of an immersive contemporary sound installation: a Catalan town square at night, holding its breath. Dark cinematic electronic ambient on D. It begins in near silence with a deep sub-bass breath and floating dust-like granular textures; distant church bells smeared into long resonant drones; the far murmur of a crowd falling silent, processed into texture; a slow evolving spectral drone that swells very gradually; rare, very distant deep drum hits with long reverb; near the end a stretched, granular double-reed shawm tone rises out of the drone, and it ends open and unresolved. Mysterious, elegant, spacious, sparse enough to leave room for a narrator. No melody, no folk tune, no vocals.",
+   "use": "intro (70 s, plays through; voice over it)",
+   "seconds": 72.05
+  },
+  "m-acta": {
+   "model": "music_v2_5",
+   "ms": 42000,
+   "prompt": "Instrumental, 42 seconds, the tender ending of an immersive contemporary art installation. Minimal warm ambient in D major: a soft low pad, gentle ember crackle textures, a slowed, granular double-reed shawm tone as a distant memory, soft bell tones, one slow warm chord swell that resolves, then a long fade to silence. Intimate, luminous, bittersweet, sparse enough to leave room for a narrator. No drums, no vocals, no folk tune.",
+   "use": "acta (plays through)",
+   "seconds": 42.03
+  }
+ },
+ "discarded": {
+  "m-crown-take1": {
+   "model": "music_v2_5",
+   "composition_plan": "three chunks (held breath 5 s / the crown 10 s / lift-off 10 s), see NOTES.md; result had 5 s of digital silence and a silent gap 12–20 s"
+  }
+ },
+ "stems": {
+  "_about": "POST /v1/music/stem-separation, stem_variation_id six_stems_v1, mp3_44100_128. Only bass, drums and other came back non-silent (vocals, guitar, piano empty); pinya has no drums. Stems of one take share one normalisation in sound.js (their mix is kept).",
+  "st-tronc-bass": "m-tronc",
+  "st-tronc-drums": "m-tronc",
+  "st-tronc-other": "m-tronc",
+  "st-festa-bass": "m-festa",
+  "st-festa-drums": "m-festa",
+  "st-festa-other": "m-festa",
+  "st-pinya-bass": "m-pinya",
+  "st-pinya-other": "m-pinya"
+ }
+}

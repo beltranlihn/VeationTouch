@@ -1,0 +1,17 @@
+{
+  "id": "res-night",
+  "name": "Ressonància study — Air and night",
+  "description": "Study of the Pom de dalt universe: deep night, gold threads, three lights that climb.",
+  "entry": "index.html",
+  "params": [
+    { "key": "progress", "label": "Study: progress", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
+    { "key": "calm", "label": "Study: stillness", "type": "select", "default": "auto", "options": [["auto", "From the hands"], ["still", "Force still (no flicker)"], ["restless", "Force restless (flicker)"]] },
+    { "key": "towers", "label": "Castell below", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 0.75 },
+    { "key": "stars", "label": "Stars and dust", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "wind", "label": "Wind veils", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "gold", "label": "Gold (lights and threads)", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "brightness", "label": "Brightness", "type": "number", "min": 0.3, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "bloom", "label": "Bloom", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "quality", "label": "Quality", "type": "select", "default": "high", "options": [["low", "Low"], ["medium", "Medium"], ["high", "High"]] }
+  ]
+}

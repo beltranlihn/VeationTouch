@@ -1,0 +1,20 @@
+{
+  "id": "res-stone",
+  "name": "Ressonància study — Stone",
+  "description": "Study of the Tronc universe: the trencadís, a castell of glazed shards that rises floor by floor, leans, is crowned in gold and comes down.",
+  "entry": "index.html",
+  "params": [
+    { "key": "progress", "label": "Study: progress", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
+    { "key": "arrive", "label": "Arrive (clay to shards)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 1 },
+    { "key": "floors", "label": "Floors (0 = from progress)", "type": "number", "min": 0, "max": 9, "step": 1, "default": 6 },
+    { "key": "walls", "label": "Structure", "type": "select", "default": "4", "options": [["2", "Torre (2 walls)"], ["3", "Tres (3 walls)"], ["4", "Quatre (4 walls)"]] },
+    { "key": "lean", "label": "Lean", "type": "number", "min": -1, "max": 1, "step": 0.01, "default": 0 },
+    { "key": "crown", "label": "Crown", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
+    { "key": "fall", "label": "Fall", "type": "bool", "default": false },
+    { "key": "pulse", "label": "Pulse (2.4 s)", "type": "bool", "default": true },
+    { "key": "tile", "label": "Shard size", "type": "number", "min": 0.08, "max": 0.3, "step": 0.01, "default": 0.15, "unit": "m" },
+    { "key": "brightness", "label": "Brightness", "type": "number", "min": 0.3, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "bloom", "label": "Bloom", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+    { "key": "quality", "label": "Quality", "type": "select", "default": "high", "options": [["low", "Low"], ["medium", "Medium"], ["high", "High"]] }
+  ]
+}

@@ -51,6 +51,17 @@
 
   // ------------------------------------------------------------------------------------------------ small helpers
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  // the LISTENING volume (lab only): one value for every simulated room of the page, after its limiter, kept in this browser.
+  // It is what the person at the laptop turns; it says nothing about the piece's levels (the meters do).
+  const VOL_KEY = 'lab.volume';
+  let VOLUME = 0.5;
+  try { const v = parseFloat(localStorage.getItem(VOL_KEY)); if (v >= 0 && v <= 1) VOLUME = v; } catch { /* no storage */ }
+  const volRooms = new Set(), volViews = new Set();
+  function setVolume(v) {
+    VOLUME = Math.round(clamp(v, 0, 1) * 100) / 100;
+    try { localStorage.setItem(VOL_KEY, String(VOLUME)); } catch { /* no storage */ }
+    for (const r of volRooms) r.applyVolume(); for (const f of volViews) f(VOLUME);
+  }
   const lerp = (a, b, t) => a + (b - a) * t;
   const smooth = (k) => k * k * (3 - 2 * k);
   function mulberry(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -76,7 +87,9 @@
   .lk-tog { grid-column:2 / 4; text-align:left; cursor:pointer; color:#E0E0E0; font-size:11px; }
   .lk-tog span { display:inline-block; width:26px; height:3px; margin-right:8px; vertical-align:middle; background:#262626; }
   .lk-tog.on span { background:#4FC3E8; }
-  body.lk-capture .lk-hud, body.lk-capture .lk-hint, body.lk-capture .lk-help, body.lk-capture .lk-params { display:none !important; }
+  .lk-vol { position:fixed; right:16px; top:12px; width:200px; display:grid; grid-template-columns:52px 1fr 40px; gap:8px; align-items:center; padding:4px 10px; background:rgba(17,17,17,.7); border:1px solid #262626; border-radius:6px; z-index:2147483602; font:10px/1.4 Geist,"Segoe UI",system-ui,sans-serif; color:#B8B8B8; letter-spacing:.12em; text-transform:uppercase; }
+  .lk-vol span:last-child { text-align:right; color:#E0E0E0; letter-spacing:0; }
+  body.lk-capture .lk-hud, body.lk-capture .lk-hint, body.lk-capture .lk-help, body.lk-capture .lk-params, body.lk-capture .lk-vol { display:none !important; }
   `;
 
   // ------------------------------------------------------------------------------------------------ the stage
@@ -128,7 +141,7 @@
     const fromEvent = (e) => { const { r } = metrics(); const s = (e.clientX - r.x) / r.w, t = (e.clientY - r.y) / r.h; return { s, t, ok: s >= 0 && s <= 1 && t >= 0 && t <= 1 }; };
 
     addEventListener('pointerdown', (e) => {
-      if (e.target.closest?.('.lk-help,.lk-params')) return;
+      if (e.target.closest?.('.lk-help,.lk-params,.lk-vol')) return;
       lastInput = performance.now(); onFirstGesture();
       const p = fromEvent(e); if (!p.ok) return;
       if (e.shiftKey) { // pin / unpin
@@ -190,6 +203,8 @@
       else if (k === 'r') { for (const h of [...hands.values()]) if (h.pinned) releaseHand(h.key); }
       else if (k === 'l') { S.lidar = !S.lidar; opt.onLidar?.(S.lidar); }
       else if (k === 's') { S.soundOn = !S.soundOn; opt.onSound?.(S.soundOn); }
+      else if (k === '-' || k === '_') setVolume(VOLUME - 0.05);
+      else if (k === '=' || k === '+') setVolume(VOLUME + 0.05);
       else if (k === 'p') { if (paramsEl) paramsEl.style.display = paramsEl.style.display === 'block' ? 'none' : 'block'; }
       else if (k === 'c') { S.cursor = !S.cursor; document.documentElement.style.cursor = S.cursor ? '' : 'none'; }
       else { opt.onKey?.(k, e); for (const fn of keyfns) fn(k, e); }
@@ -202,9 +217,20 @@
     const helpEl = el('div'); helpEl.className = 'lk-help'; document.body.appendChild(helpEl);
     const keysList = [['Click / drag', 'a hand (touch)'], ['Shift + click', 'pin a hand · again to remove'], ['F', opt.fixedStrip ? 'room overlay on / off' : 'room strip / full window'], ['B', 'body scale: 1.70 m adult, child, reach'],
       ['D', 'virtual hands at human speed'], ['G', 'virtual group: 1 · 2 · 4 · 8'], ['R', 'remove pinned hands'], ['L', 'LiDAR feel: 10 Hz, 150 ms late, missed readings'],
-      ['S', 'sound on / off'], ['P', 'parameters'], ['C', 'cursor on / off'], ...(opt.help || [])];
+      ['S', 'sound on / off'], ['- / +', 'listening volume (also the fader, top right)'], ['P', 'parameters'], ['C', 'cursor on / off'], ...(opt.help || [])];
     helpEl.innerHTML = '<h4>Controls</h4>' + keysList.map(([a, b]) => `<div class="r"><span><kbd>${a}</kbd></span><span>${b}</span></div>`).join('') +
       '<div style="margin-top:8px;font-size:11px">With no input for 4 s the virtual hands play. The surface wraps: P3 continues into P4.</div>';
+    const volEl = el('div'); volEl.className = 'lk-vol'; volEl.title = 'Listening volume ( - / + )';
+    volEl.innerHTML = '<span>Volume</span><div class="lk-fader"><i></i><b></b></div><span></span>'; document.body.appendChild(volEl);
+    const volFader = volEl.children[1], volVal = volEl.children[2];
+    const paintVol = (v) => { volFader.lastChild.style.width = v * 100 + '%'; volVal.textContent = Math.round(v * 100) + '%'; };
+    volViews.add(paintVol); paintVol(VOLUME);
+    volFader.addEventListener('pointerdown', (e) => {
+      e.stopPropagation(); volFader.setPointerCapture(e.pointerId);
+      const at = (ev) => { const b = volFader.getBoundingClientRect(); setVolume((ev.clientX - b.left) / b.width); };
+      at(e); const mv = (ev) => at(ev); volFader.addEventListener('pointermove', mv);
+      volFader.addEventListener('pointerup', () => volFader.removeEventListener('pointermove', mv), { once: true });
+    });
     const cv = el('canvas', 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2147483500'); document.body.appendChild(cv);
     const g = cv.getContext('2d'); let dpr = 1;
     const fit = () => { dpr = Math.min(2, devicePixelRatio || 1); cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr); };
@@ -309,6 +335,9 @@
       ROOM, state: S, rect, rnd,
       get lidar() { return S.lidar; }, get soundOn() { return S.soundOn; }, get overlay() { return S.overlay; },
       hands: () => [...hands.values()],
+      /** lab tools (simulations): put a scripted hand by key at s (strip fraction) / t (top-down fraction), or lift it */
+      put(key, s, t) { if (hands.has(key)) moveHand(key, s, t); else { addHand(key, s, t); lastInput = performance.now(); } },
+      lift(key) { releaseHand(key); },
       on(type, fn) { subs[type].add(fn); return () => subs[type].delete(fn); },
       onKey(fn) { keyfns.push(fn); },
       onGesture(fn) { if (gesture) fn(); else gestureFns.push(fn); },
@@ -368,7 +397,9 @@
     const ctx = new AC({ sampleRate: 48000, latencyHint: 'interactive' });
     const master = ctx.createGain(); master.gain.value = opt.master ?? 0.8;
     const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -6; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.12;
-    master.connect(lim); lim.connect(ctx.destination);
+    const vol = ctx.createGain(); vol.gain.value = VOLUME * VOLUME;               // a squared law: the fader feels even
+    master.connect(lim); lim.connect(vol); vol.connect(ctx.destination);
+    volRooms.add({ applyVolume() { vol.gain.setTargetAtTime(VOLUME * VOLUME, ctx.currentTime, 0.03); } });
     const analyser = () => { const a = ctx.createAnalyser(); a.fftSize = 1024; return a; };
     const subSum = ctx.createGain(); const lp1 = ctx.createBiquadFilter(), lp2 = ctx.createBiquadFilter();
     for (const f of [lp1, lp2]) { f.type = 'lowpass'; f.frequency.value = 110; f.Q.value = 0.707; }

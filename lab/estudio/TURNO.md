@@ -1,0 +1,34 @@
+# Turnos
+
+**Próximo número libre de ticket: T-026** (T-007…T-010 planes de mejora; T-011 rendimiento del castell, 3D-FE; T-012 3D-PI, T-013 3D-BR; T-014 3D-FE; T-015 3D-PO; T-016 3D-PI; T-017 3D-BR; T-018 3D-FE; T-019 3D-PI; T-020 3D-BR; T-021 3D-PO; T-022 transiciones, varios; T-023 3D-PI; T-024 3D-BR; T-025 INT)
+
+## Recursos compartidos
+| Recurso | Quién lo tiene | Desde | Tope | Cola |
+|---|---|---|---|---|
+| GPU-MEDICIÓN (medir fps; nadie más mide mientras tanto) | libre (QA devolvió a las 04:39) | — | — | QA: T-014b/T-018 festa, T-016 pinya, fall3d, baixada3d cuando estén |
+
+## Historial de devoluciones
+| Hora | Quién | Recurso | Estado en que lo deja | Pendiente |
+|---|---|---|---|---|
+| 22:20 | director | todos | la sesión se cerró a las 19:53 y paró a los 6 agentes; se reanudan desde su transcripción | plazos replanificados |
+| 22:24 | director | GPU-MEDICIÓN | regla nueva: durante un turno de medición, NADIE abre ventanas de check.mjs (contaminaban las medidas de QA) | congelado hasta 22:50 |
+| 22:33 | QA | GPU-MEDICIÓN | libre y limpio: ninguna ventana de QA abierta; instrumento `bench.sh` (control positivo, dosis-respuesta, vigía de contaminación) en `notas/QA.md` §1 | línea de base y fps de festa3d y brasa3d hechos; quien siga en la cola: medir sólo con `others=0` |
+| 22:35 | director | GPU-MEDICIÓN | congelación levantada; regla nueva: **sólo QA mide fps**, con su instrumento (control positivo: _example 1,3–1,6 ms frente a intro alta 33 ms); cada medición abre una ventana de congelación avisada por el director | — |
+| 22:43 | QA | GPU-MEDICIÓN (ventana 22:40–23:00) | libre y limpio: ninguna ventana de QA abierta; pinya3d y pom3d medidos (`notas/QA.md` §3) | se puede levantar la congelación; queda medir res-obra3d entero cuando INT lo entregue |
+| 22:45 | director | GPU-MEDICIÓN | congelación levantada. Medido (fps-eq, M1 Max, WebGPU): brasa3d 135 (115 con 15 manos) · festa3d 112 (93) · pinya3d 179 (161) · pom3d 137–160 (83 con 15 manos); latencia de mano 1 frame | pom3d: coste por mano alto |
+| 23:05 | QA | GPU-MEDICIÓN (22:57–23:12) | libre y limpio: ninguna ventana de QA abierta; T-010 y T-005 (obra entera, high y medium) medidos, costura re-comprobada (`notas/QA.md` §3) | se puede levantar la congelación |
+| 23:06 | director | GPU-MEDICIÓN | congelación levantada. res-obra3d (M1 Max): calidad media ≥ 56 fps-eq en todos los bloques; alta: tronc y bajada 33, intro 49 (castell cercano a densidad 1 + MSAA 4). festa T-010: 122 (WebGL2 con 15 manos 94). Costura: salto de luma 7 (antes 28–44) | INT: abaratar el castell en alta |
+| 23:20 | director | GPU-MEDICIÓN → QA | concedido con congelación hasta las 23:50 (o antes si QA devuelve): pom3d paso 0 (0/4/15 manos), brasa3d tras T-009, pinya3d T-007, T-011 (tronc y bajada en alta). Los demás trabajan sin ventanas de check | QA devuelve y avisa |
+| 23:24 | QA | GPU-MEDICIÓN (23:20–23:50, empezada 23:16) | libre y limpio: ninguna ventana de QA abierta; lote medido (castell, pom, brasa, pinya, tirones) en `notas/QA.md` §3 | alguien abrió check.mjs durante la congelación (5 corridas marcadas y repetidas) |
+| 23:25 | QA | GPU-MEDICIÓN (23:18–23:25) | libre; 5 tandas repetidas porque hubo capturas de check.mjs al principio (3D-PO, 23:17–23:19: aún no le había llegado la congelación). T-011: tronc y bajada en alta 37–38 (antes 33; objetivo 45 NO alcanzado), intro 49–50 · pom3d 95/93/93 con 0/4/15 manos · brasa3d T-009 91 (81 con 15) · pinya3d T-007 162; create() 4 ms; tirones reales en las transiciones de obra3d 31–70 ms | T-011 paso 5 |
+| 23:26 | director | GPU-MEDICIÓN | congelación levantada. Regla nueva: **una ventana de medición empieza a la hora anunciada, nunca antes**, para que la congelación haya llegado a todos | — |
+| 23:28 | director | GPU-MEDICIÓN | próxima ventana anunciada: **QA, de 23:50 a 00:10**, con congelación (nadie abre check.mjs desde las 23:50): T-011 paso 5 (tronc y bajada en alta, MSAA 2), brasa3d T-013, pom3d final | QA empieza a las 23:50, no antes |
+| 23:50 | director | GPU-MEDICIÓN → QA | ventana anunciada abierta: CONGELACIÓN hasta las 00:10 (nadie abre check.mjs) | QA devuelve y avisa |
+| 23:55 | QA | GPU-MEDICIÓN (23:50–00:10) | libre y limpio: ninguna ventana de QA abierta; T-011 paso 5 (tronc 49–50, baixada 46 en high), brasa, pom, festa, pinya y tirones medidos (`notas/QA.md` §3) | se puede levantar la congelación |
+| 23:56 | director | GPU-MEDICIÓN | congelación levantada (antes de las 00:10: QA terminó). Medido: T-011 tronc alta 49–50, bajada 46 · brasa 99 (89 con 15) · pom 93–97 · festa 121 (95 con 15; WebGL2 93) · pinya 159 · transiciones en frío 21–70 ms. `castell.js` vuelve a INT | — |
+| 03:12 | director | todos | reanudación tras el límite de uso (parada 00:18–03:11, todos en punto seguro); plazos replanificados: arreglos 05:00, ventana de GPU de QA 05:00–05:25, álbum final 06:00, humo final 07:00 | — |
+| 03:30 | director | todos | plan adelantado (casi todo entregado): auditoría natural 04:00 (3D-PI) · ventana de GPU de QA 04:30–04:55 · álbum final 05:15 (3D-PI) · humo final 06:00 (QA) · congelación 06:30 · PARA-VICENTE 07:00 | — |
+| 04:30 | director | GPU-MEDICIÓN → QA | ventana abierta hasta las 04:55, congelación | QA devuelve y avisa |
+| 04:39 | QA | GPU-MEDICIÓN (04:30–04:55) | libre y limpio: ninguna ventana de QA abierta; obra entera high/medium, piezas y tirones medidos (`notas/QA.md` §3) | se puede levantar la congelación; humo final a las 06:00 |
+| 04:40 | director | GPU-MEDICIÓN | congelación levantada. Obra entera: media ≥ 60 fps-eq en todos los bloques; alta: tronc 49, bajada 46, el resto 65–286. Transiciones en frío ≤ 19–29 ms (antes hasta 70). Partes: brasa 99 (88 con 15), festa 118 (97 con 15), pinya 161, fall3d 124; pom con ciudad +0,6–1,1 ms, su salida v3 a 0,3 = 55 fps-eq (aceptado: la sala es mucho más rápida) | — |
+| 05:00 | director | todos | CONGELACIÓN: obra terminada y entregada (PARA-VICENTE.md). Nadie toca archivos. Sin commits | — |

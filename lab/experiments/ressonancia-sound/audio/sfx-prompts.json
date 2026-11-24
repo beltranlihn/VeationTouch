@@ -1,0 +1,133 @@
+{
+ "_about": "ElevenLabs sound effects (POST /v1/sound-generation), 2026-11-23. model eleven_text_to_sound_v2, output mp3_44100_128; loop true where marked. Kept from the first version: sfx-crown (crowd roar at the crown), sfx-fall (the collapse), sfx-tile (floors up and down) — their prompts below.",
+ "effects": {
+  "s-embers-loop": {
+   "seconds": 20,
+   "loop": true,
+   "influence": 0.5,
+   "prompt": "Close, soft crackle of glowing embers in a dying fire at night, gentle pops and ticks, no wind, no voices, seamless loop",
+   "use": "wait, brasa, intro (low), acta",
+   "measured_seconds": 20.04
+  },
+  "s-fire-loop": {
+   "seconds": 20,
+   "loop": true,
+   "influence": 0.5,
+   "prompt": "Deep low roar of a large bonfire with a slow breathing whoosh and dense crackling, warm rumble, no wind, no voices, seamless loop",
+   "use": "brasa, grows with progress",
+   "measured_seconds": 20.04
+  },
+  "s-breath-loop": {
+   "seconds": 20,
+   "loop": true,
+   "influence": 0.6,
+   "prompt": "A crowd of people breathing slowly together in a quiet room, soft deep inhales and exhales, close and warm, no talking, seamless loop",
+   "use": "pinya (and faintly in the intro, 20–50 s)",
+   "measured_seconds": 20.04
+  },
+  "s-wind-loop": {
+   "seconds": 22,
+   "loop": true,
+   "influence": 0.5,
+   "prompt": "High altitude night wind on a rooftop, thin airy whistle, soft gusts, vast and empty, no rain, seamless loop",
+   "use": "pom, on a slow rotor; gusts on climber:n",
+   "measured_seconds": 22.05
+  },
+  "s-rain-loop": {
+   "seconds": 16,
+   "loop": true,
+   "influence": 0.6,
+   "prompt": "Small pieces of glass and ceramic shards gently raining down onto stone, delicate tinkling and ticking, sparse and calm, seamless loop",
+   "use": "baixada, on a slow rotor",
+   "measured_seconds": 16.04
+  },
+  "s-crowd-loop": {
+   "seconds": 20,
+   "loop": true,
+   "influence": 0.5,
+   "prompt": "Large festive crowd in an outdoor town square at night, cheering, clapping and murmuring in waves, echo off stone buildings, no music, seamless loop",
+   "use": "festa/crown, on a rotor that speeds with resonance",
+   "measured_seconds": 20.04
+  },
+  "s-bells": {
+   "seconds": 9,
+   "influence": 0.6,
+   "prompt": "Distant church bells ringing slowly over a sleeping city at night, heard from far away, long reverberant tail",
+   "use": "intro (2.5 s far wall, at 0.947 = D; 46 s, lower)",
+   "measured_seconds": 9.04
+  },
+  "s-tabals": {
+   "seconds": 4,
+   "influence": 0.6,
+   "prompt": "A fast roll of deep festival street drums building quickly and ending on one huge booming hit, outdoors, cinematic",
+   "use": "brasa wave: one copy per wall, 0.16 s apart, round the room",
+   "measured_seconds": 4.05
+  },
+  "s-ember-burst": {
+   "seconds": 1.5,
+   "influence": 0.6,
+   "prompt": "A short burst of fire sparks: a quick whoosh, sizzling crackle and fizzing embers, close",
+   "use": "brasa hand",
+   "measured_seconds": 1.52
+  },
+  "s-clay": {
+   "seconds": 1.2,
+   "influence": 0.6,
+   "prompt": "A hand pressing firmly into soft wet clay, a muffled warm thump with a soft body resonance, close",
+   "use": "pinya hand; wall:n",
+   "measured_seconds": 1.23
+  },
+  "s-ceramic": {
+   "seconds": 1,
+   "influence": 0.6,
+   "prompt": "A single small glazed ceramic tile struck lightly with a fingertip, bright clear ring, short",
+   "use": "tronc / festa / baixada hand transient, re-pitched (its ring is ~1605 Hz)",
+   "measured_seconds": 1.04
+  },
+  "s-impact": {
+   "seconds": 5,
+   "influence": 0.6,
+   "prompt": "A deep cinematic impact with a sub bass drop and a long dark reverberant tail, trailer hit",
+   "use": "brasa awake (REVERSED: a 5 s swell), fall",
+   "measured_seconds": 5.04
+  },
+  "s-crack": {
+   "seconds": 3,
+   "influence": 0.6,
+   "prompt": "Dry clay hardening and cracking into pieces, ceramic fracture, crisp crackles over a low groan",
+   "use": "pinya reward: the clay cracks into trencadís",
+   "measured_seconds": 3.03
+  },
+  "s-gralla": {
+   "seconds": 6,
+   "influence": 0.7,
+   "prompt": "A single long sustained note played on a gralla, a loud bright Catalan double-reed shawm, steady pitch, solo, dry, no melody",
+   "use": "the granular reed: one sustained note (measured f0 415 Hz, G#4), re-tuned per grain to D/A",
+   "measured_seconds": 6.03
+  },
+  "s-timbal": {
+   "seconds": 2.5,
+   "influence": 0.6,
+   "prompt": "A single deep hit on a large traditional bass drum played with a mallet, warm boom with a short stone room tail",
+   "use": "the tronc's pulse (layered with a synth skin, at 1.06 = D), far timbal under hands in wait",
+   "measured_seconds": 2.51
+  }
+ },
+ "kept_from_v1": {
+  "sfx-crown": {
+   "prompt": "A crowd in a town square erupting in joyful cheers and applause after a breathless silence, outdoors, festive",
+   "seconds": 9,
+   "use": "crown: the square roars, on the crowd rotor"
+  },
+  "sfx-fall": {
+   "prompt": "A wall of ceramic tiles collapsing and shattering on stone, tumbling shards, then settling debris and silence",
+   "seconds": 5,
+   "use": "fall"
+  },
+  "sfx-tile": {
+   "prompt": "A single ceramic tile set into place on stone with a firm, dry, satisfying click and a short clay resonance",
+   "seconds": 1.5,
+   "use": "floor / down"
+  }
+ }
+}

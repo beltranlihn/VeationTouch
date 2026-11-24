@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ressonància 3D — review</title>
+<!-- LAB ONLY. The review page of the 3D work (res-obra3d) alone, as res-obra/review.html shows the 2D one. The whole work playing on its own: a virtual audience follows the guide from the wait to the acta.
+     The room is shown in two rows (P4 · P1 above, P2 · P3 below) so it reads on a laptop. Not part of the piece: the app loads
+     index.html; this page needs the lab harness (window.__labRoom). -->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; color: #E0E0E0; font: 12px/1.45 Geist, "Segoe UI", system-ui, -apple-system, sans-serif; }
+  canvas#c { opacity: 0; pointer-events: none; }
+  #view { position: fixed; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 8px 0 64px; box-sizing: border-box; }
+  .row { position: relative; overflow: hidden; width: 100%; background: #000; }
+  .row video { position: absolute; top: 0; height: 100%; width: auto; }
+  .tag { position: absolute; top: 6px; font-size: 10px; letter-spacing: .14em; color: rgba(229,181,103,.55); text-transform: uppercase; pointer-events: none; }
+  #bar { position: fixed; left: 16px; right: 16px; bottom: 14px; height: 40px; }
+  #now { font-size: 13px; letter-spacing: .06em; margin-bottom: 6px; display: flex; justify-content: space-between; }
+  #now b { color: #fff; font-weight: 500; }
+  #track { position: relative; height: 6px; background: #1B1B1B; border-radius: 3px; display: flex; overflow: hidden; }
+  #track i { display: block; height: 100%; border-right: 1px solid #000; }
+  #head { position: absolute; top: -3px; width: 2px; height: 12px; background: #4FC3E8; }
+  #start { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(0,0,0,.86); z-index: 10; }
+  #start h1 { font-weight: 300; letter-spacing: .3em; margin: 0 0 6px; font-size: 34px; color: #E0E0E0; }
+  #start p { margin: 0; color: #B8B8B8; }
+  #start .card { background: #111; border: 1px solid #262626; border-radius: 10px; padding: 18px 22px 16px; display: grid; grid-template-columns: auto 1fr; gap: 12px 18px; align-items: center; max-width: 920px; }
+  #start .lab { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #B8B8B8; }
+  #start .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  #start .chip { font: inherit; font-size: 12px; color: #B8B8B8; background: #1B1B1B; border: 1px solid #262626; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  #start .chip:hover { color: #E0E0E0; border-color: #3a3a3a; }
+  #start .chip.on { color: #E5B567; border-color: #E5B567; background: #262626; }
+  #start .go { grid-column: 1 / -1; justify-self: center; margin-top: 6px; font: inherit; font-size: 14px; letter-spacing: .08em; color: #111; background: #E5B567; border: 0; border-radius: 8px; padding: 10px 26px; cursor: pointer; }
+  #start .note { grid-column: 1 / -1; text-align: center; font-size: 11px; color: #8a8a8a; }
+  .lk-hud, .lk-hint { display: none !important; }
+  body > canvas:not(#c) { display: none !important; }   /* the harness overlay (wall labels, hand rings, meters) */
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "../ressonancia/vendor/three-r187/build/three.webgpu.js",
+  "three/webgpu": "../ressonancia/vendor/three-r187/build/three.webgpu.js",
+  "three/tsl": "../ressonancia/vendor/three-r187/build/three.tsl.js",
+  "three/addons/": "../ressonancia/vendor/three-r187/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="view"></div>
+<div id="bar"><div id="now"><span id="block">—</span><span id="clock">0:00</span></div><div id="track"></div><div id="head"></div></div>
+<div id="start"><h1>RESSONÀNCIA</h1><p>The whole work in 3D with a virtual audience</p>
+<div class="card" id="chooser">
+  <span class="lab">Start at</span><div class="chips" data-key="from"></div>
+  <span class="lab">Voice</span><div class="chips" data-key="lang"></div>
+  <span class="lab">People</span><div class="chips" data-key="people"></div>
+  <span class="lab">Quality</span><div class="chips" data-key="q3"></div>
+  <button class="go" id="go">Start (with sound)</button>
+  <span class="note" id="note">Volume: the fader top right, or the keys − / +</span>
+</div></div>
+<script type="module">
+// LAB ONLY — the chooser on the start card. The choices are the page's URL parameters (links keep working): from, people, q3, and the
+// sound piece's language (?soundParams={"lang":"es"}). The page reads them at load (the audience, the room's quality, the voice), so a
+// changed choice reloads the page with the new parameters and the card then waits for one click (the browser needs a click for sound).
+const q = new URLSearchParams(location.search);
+let sp = {}; try { sp = JSON.parse(q.get('soundParams') || '{}'); } catch { sp = {}; }
+const OPTS = {
+  from: [['wait', 'Wait'], ['intro', 'Intro'], ['brasa', 'I · Brasa'], ['pinya', 'II · Pinya'], ['tronc', 'III · Tronc'], ['pom', 'IV · Pom de dalt'], ['crown', 'The crown'], ['festa', 'The resonance'], ['baixada', 'La baixada'], ['fall', 'The fall'], ['acta', "L'acta"]],
+  lang: [['en', 'English'], ['es', 'Español']],
+  people: [['2', '2'], ['6', '6'], ['15', '15']],
+  q3: [['medium', 'Medium (laptop)'], ['high', 'High (the room)']],
+};
+const now = { from: q.get('from') || 'wait', lang: sp.lang || 'en', people: q.get('people') || '6', q3: q.get('q3') || 'high' };
+const pick = { ...now };
+const card = document.getElementById('chooser'), go = document.getElementById('go'), note = document.getElementById('note');
+card.addEventListener('click', (e) => { if (e.target !== go) e.stopPropagation(); });   // choosing does not start the pass
+for (const box of card.querySelectorAll('.chips')) {
+  const key = box.dataset.key;
+  for (const [v, label] of OPTS[key]) {
+    const b = document.createElement('button'); b.className = 'chip'; b.textContent = label; b.dataset.v = v;
+    b.addEventListener('click', () => { pick[key] = v; for (const c of box.children) c.classList.toggle('on', c.dataset.v === v); refresh(); });
+    if (v === pick[key]) b.classList.add('on');
+    box.appendChild(b);
+  }
+}
+const changed = () => !q.has('sound') || Object.keys(pick).some((k) => pick[k] !== now[k]);   // without ?sound the pass would be silent
+function refresh() { go.textContent = changed() ? 'Apply and get ready' : 'Start (with sound)'; note.textContent = changed() ? 'The page reloads with these choices; then one click starts it.' : 'Volume: the fader top right, or the keys − / +'; }
+go.addEventListener('click', (e) => {
+  if (!changed()) return;                       // the click goes on to #start: the audience and the sound begin
+  e.stopPropagation();
+  const u = new URLSearchParams(location.search);
+  u.set('from', pick.from); u.set('people', pick.people); u.set('q3', pick.q3); u.set('soundParams', JSON.stringify({ ...sp, lang: pick.lang }));
+  if (!u.has('sound')) u.set('sound', 'ressonancia-sound');
+  location.search = u.toString();
+});
+refresh();
+// ready only once the work and the audience are (the audience listens for the start click from then on)
+go.disabled = true; go.style.opacity = '0.45'; const goLabel = go.textContent; go.textContent = 'Loading…';
+(async () => { while (!window.__obra || !window.__labRoom?.stage) await new Promise((r) => setTimeout(r, 100)); await new Promise((r) => setTimeout(r, 300)); go.disabled = false; go.style.opacity = ''; go.textContent = goLabel; refresh(); })();
+</script>
+<script type="module" src="./experience.js"></script>
+<script type="module" src="../res-obra/autopilot.js"></script>
+</body>
+</html>

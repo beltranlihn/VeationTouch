@@ -1,0 +1,15 @@
+{
+  "id": "res-obra3d",
+  "name": "Ressonància — the whole work in 3D",
+  "description": "The whole 10-minute work in 3D: the score walks the pass from the wait to the acta; each block shows its universe (a night square, a castell of light, fire, bodies, night, resonance), arriving and leaving as fragments, with hand targets and words on the walls that guide the public.",
+  "entry": "index.html",
+  "params": [
+    { "key": "jump", "label": "Go to", "type": "select", "default": "none", "options": [["none", "—"], ["wait", "Wait"], ["intro", "Intro: La plaça"], ["brasa", "I. Brasa"], ["pinya", "II. Pinya"], ["tronc", "III. Tronc"], ["pom", "IV. Pom de dalt"], ["crown", "V. L'aleta: the crown"], ["festa", "V. La ressonància"], ["baixada", "La baixada"], ["fall", "The fall"], ["acta", "L'acta"]] },
+    { "key": "pace", "label": "Pace", "type": "number", "min": 0.5, "max": 8, "step": 0.25, "default": 1 },
+    { "key": "guide", "label": "Guide (targets and text)", "type": "bool", "default": true },
+    { "key": "bloom", "label": "Bloom", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 0.6 },
+    { "key": "exposure", "label": "Exposure", "type": "number", "min": 0.2, "max": 3, "step": 0.05, "default": 1 },
+    { "key": "quality", "label": "Quality", "type": "select", "default": "high", "options": [["low", "Low (laptop: 60 % resolution, fewer particles)"], ["medium", "Medium (80 %)"], ["high", "High (the room: 100 %, antialiased)"]] },
+    { "key": "renderer", "label": "Renderer", "type": "select", "default": "auto", "options": [["auto", "Automatic (WebGPU when available)"], ["webgl2", "WebGL2"]] }
+  ]
+}

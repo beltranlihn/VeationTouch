@@ -1,0 +1,13 @@
+{
+  "id": "res-3d",
+  "name": "Ressonància — 3D base",
+  "description": "The technical base of the 3D universes: four off-axis cameras from the centre of the room (a CAVE), a test world behind the walls, hands on the wall planes, bloom. three.js r187, WebGPU or WebGL2.",
+  "entry": "index.html",
+  "params": [
+    { "key": "renderer", "label": "Renderer", "type": "select", "default": "auto", "options": [["auto", "Automatic (WebGPU when available)"], ["webgl2", "WebGL2"]] },
+    { "key": "eye", "label": "Eye height", "type": "number", "min": 1.0, "max": 2.0, "step": 0.05, "default": 1.6, "unit": "m" },
+    { "key": "bloom", "label": "Bloom", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 0.6 },
+    { "key": "exposure", "label": "Exposure", "type": "number", "min": 0.2, "max": 3, "step": 0.05, "default": 1 },
+    { "key": "grid", "label": "Calibration grid", "type": "bool", "default": true }
+  ]
+}
