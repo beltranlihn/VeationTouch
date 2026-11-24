@@ -3,7 +3,7 @@
 - **Status:** prototype
 - **Kind:** visual (pairs with `ressonancia-sound`)
 - **Author:** Vicente (studio agents: INT)
-- **Updated:** 2026-11-24
+- **Updated:** 2026-11-24 (T-052)
 
 ## Concept
 The whole ~10-minute work (GUION.md) in 3D. The score (`../ressonancia/score.js`) walks the pass — wait, intro, Brasa, Pinya, Tronc,
@@ -75,6 +75,11 @@ Hands only. Parameters: `jump` (rehearsal: go to a block), `pace` (score speed, 
 `quality` (low / medium / high: render scale 0.6 / 0.8 / 1, MSAA 0 / 0 / 4, castell particle density 0.4 / 0.6 / 1; default high =
 the room's RTX 6000 Ada), `renderer` (auto / WebGL2).
 Lab only: `?parts=a,b` loads only those parts; `?q3=low|medium|high` overrides the quality (review page).
+**Room thresholds (T-052, live):** `tuning` (lab = the score's TIMES / sala = a tolerant start for the real S2E) and 37 `t.<block>.<field>`
+params (`../ressonancia/tuning.js`): applied to the score at once, no reload, and sent to the sound piece as `ctl { times }` (needs the
+small sound.js patch in `lab/estudio/notas/TUN.md`; until then they only rule while this page runs its own score). A param moved by
+hand beats the preset. `mode` (auto / room / lab, read at load): in the room the lab URL switches (`?q3 ?tiles ?eye ?aa ?parts`) are
+ignored; auto = room when the app opens the page (`?run=1`). Room test guide: `lab/PRUEBA-SALA.md`.
 
 ## Audio
 None here: `ressonancia-sound` leads the score when it runs (BroadcastChannel `ressonancia`, a LOCAL WORKAROUND as in res-obra); without

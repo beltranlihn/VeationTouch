@@ -27,16 +27,22 @@ import * as TSL from 'three/tsl';
 import { createRoom3D } from '../ressonancia/scenes3d/room3d.js';
 import { createScore, TIMES } from '../ressonancia/score.js';
 import { createGuide } from '../ressonancia/scenes3d/guide3d.js';
+import { overrides as tuneOverrides, applyTimes } from '../ressonancia/tuning.js';   // T-052: the score's thresholds as live params
 
 const vt = await connectExperience();
 const canvas = document.getElementById('c');
 canvas.width = vt.size.width; canvas.height = vt.size.height;
 const q = new URLSearchParams(location.search);
-const P = Object.assign({ jump: 'none', pace: 1, guide: true, bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: true, eye: true, aa: 'auto' }, vt.params);
-if (q.get('tiles') === '0') P.tiles = false;                      // lab: ?tiles=0 the old crossing, ?eye=0 no global eye, ?aa=taa
-if (q.get('eye') === '0') P.eye = false;
-if (q.get('aa')) P.aa = q.get('aa');
-if (q.get('q3')) P.quality = q.get('q3');                          // lab only (review.html): the 3D quality from the URL
+const P = Object.assign({ jump: 'none', pace: 1, guide: true, bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: true, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab' }, vt.params);
+// T-052 «modo sala»: in the room (mode 'room', or 'auto' inside the app, which opens the page with ?run=1) the lab's URL switches are
+// ignored, so a stray ?q3 / ?parts / ?tiles can never reach the walls. Read at load: changing `mode` needs a reload (Stop / Play).
+const LAB = P.mode === 'lab' || (P.mode !== 'room' && !q.has('run'));
+if (LAB) {
+  if (q.get('tiles') === '0') P.tiles = false;                    // lab: ?tiles=0 the old crossing, ?eye=0 no global eye, ?aa=taa
+  if (q.get('eye') === '0') P.eye = false;
+  if (q.get('aa')) P.aa = q.get('aa');
+  if (q.get('q3')) P.quality = q.get('q3');                        // lab only (review.html): the 3D quality from the URL
+}
 const QS = { low: 0.6, medium: 0.8, high: 1 }, DENS = { low: 0.4, medium: 0.6, high: 1 };
 const room = await createRoom3D(vt, canvas, { forceWebGL: P.renderer === 'webgl2', bloom: { strength: P.bloom }, exposure: P.exposure, renderScale: QS[P.quality] ?? 1, samples: P.quality === 'high' ? 2 : 0, aa: P.aa === 'auto' ? (P.quality === 'high' ? 'taa' : 'msaa') : P.aa });   // aa 'auto': TAA at high (RND-F's variance-clipped TAA), MSAA below — switch the default after QA's fps window   // MSAA 2 at high (T-011, DECISIONES 23:26; was 4)
 const NW = room.walls.length;
@@ -49,7 +55,7 @@ const TR = 4;                                                      // a part's a
 const NAMES = ['umbral3d', 'atmos', 'plaza', 'castell', 'tronc3d', 'fall3d', 'introtext', 'actatext', 'brasa3d', 'pinya3d', 'pom3d', 'festa3d', 'baixada3d'];
 const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d', 'pom3d', 'festa3d', 'baixada3d', 'fall3d', 'tronc3d']);
 const parts = {}, byName = {}, list = [];
-const only = q.get('parts');                                       // lab: ?parts=plaza,castell loads only those
+const only = LAB ? q.get('parts') : null;                                       // lab: ?parts=plaza,castell loads only those
 async function exists(url) { try { const r = await fetch(url, { method: 'HEAD' }); return r.ok; } catch { return false; } }
 for (const name of NAMES) {
   if (only && !only.split(',').includes(name)) continue;
@@ -104,7 +110,13 @@ const tell = (o) => { try { bc?.postMessage({ type: 'ctl', ...o }); } catch { /*
 { const raw = score.jump; score.jump = (b) => { raw(b); tell({ jump: b }); }; }
 let lastJump = 'none';
 const doJump = () => { if (P.jump !== lastJump) { lastJump = P.jump; if (P.jump && P.jump !== 'none') score.jump(P.jump); } };
-vt.on('params', (p) => { Object.assign(P, p); room.setBloom({ strength: P.bloom }); room.renderer.toneMappingExposure = P.exposure; doJump(); });
+// T-052: the thresholds (params `tuning` + `t.<block>.<field>`, ressonancia/tuning.js) go LIVE into this page's score and, over the
+// channel, into the sound piece's score (which leads): { type: 'ctl', times } on every change and every 1 s (a sound started later
+// picks them up). The score reads T.<block>.<field> on every step: no reload.
+let tuned = tuneOverrides(P);
+const tune = () => { tuned = tuneOverrides(P); const n = applyTimes(score.times, tuned, TIMES); if (n) { console.info('res-obra3d: thresholds', JSON.stringify(Object.fromEntries(Object.entries(tuned).filter(([, v]) => v != null)))); tell({ times: tuned }); } };
+vt.on('params', (p) => { Object.assign(P, p); room.setBloom({ strength: P.bloom }); room.renderer.toneMappingExposure = P.exposure; tune(); doJump(); });
+tune();
 doJump();
 
 // ------------------------------------------------------------------------------------------------ hands
@@ -384,7 +396,7 @@ function frame(dt) {
   frameEvents.length = 0;
   if (following()) {
     if (S.block === 'tronc') S.beat = (link.beat + (((Date.now() - link.ts) / 1000) * link.pace) / score.times.tronc.period) % 1;   // between two messages the pulse keeps moving
-    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1 }); }
+    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: tuned }); }
     frameEvents.push(...link.events.splice(0));
   } else { score.step(dt * (P.pace || 1), scoreHands); frameEvents.push(...S.events); S.events.length = 0; }
   if ((time - actaAt > 0.5 || S.block !== lastBlock) && S.block !== 'wait' && S.block !== 'intro') { actaAt = time; acta = link.acta && following() ? link.acta : score.acta(); }   // kept through the wait: the acta leaving must not read a reset score
@@ -514,5 +526,5 @@ async function warmUp() {
 }
 try { await warmUp(); } catch (err) { console.info('res-obra3d: warm-up skipped (' + err.message + ')'); }
 
-window.__obra = { tr, pal, score, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
+window.__obra = { tr, pal, score, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
 vt.loop(frame, canvas);
