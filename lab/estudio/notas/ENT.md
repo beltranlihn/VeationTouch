@@ -543,3 +543,60 @@ path` corregido; sound NOTES al día.
   los .bak encima.
 - **Coronación (15:05):** `v-aleta-crowned` = v-aleta-1 recortada tras su primera frase (EN desde 2,23 s, ES desde 1,86 s, fundidos 30/120 ms; originales intactos); STT «The castell is crowned» / «El castell está coronado»; suena 1,6 s después del disparo.
 - **15:25:** `learned.brasa` en la primera ola grande de la llamada y `learned.festa` en el primer eco devuelto (ambas copias idénticas); node: con el gesto 29,3 s / 33,8 s, sin él nunca.
+
+## T-050 · Pom: tres subidas distintas · Acta: la huella — NOMBRES DEL ESTADO (POS, para POV/T-051; escritos ANTES del código)
+Posición de una mano en todo lo nuevo = `{ stroke, wall, dx, y, s }` (muro, m desde su centro + a la derecha, m desde el suelo, m a lo
+largo del perímetro como entra en la partitura). `S.strokes[]` gana `dx`, `s`, `size` y `still` (s seguidos quieta: < 15 cm en 1 s).
+**Pom** (`climber` 0/1/2 y `climb` 0..1 siguen como antes; `progress` = (climber + climb) / 3):
+- `pomStage`: `'relay' | 'breath' | 'silence'` (= climber 0/1/2: Dosos / Acotxador / Enxaneta). `pomRest` (s, > 0): ella descansa tras
+  llegar (`arrived:n` → `climber:n+1`), la subida siguiente no avanza hasta que vuelve a 0 (7 s).
+- **relay** · `pomHolder` = posición de la mano que la tiene (o `null` si aún no hay manos; se queda en la última posición si la mano se
+  pierde) · `pomFrom` = de dónde voló · `pomFly` 0..1 (vuelo de 1,5 s; 1 = posada) · `pomFalter` 0..1 (la mano que la tiene se mueve:
+  tiembla; en 1 vuelve a la anterior) · `pomThread[]` = posiciones de TODAS las manos que la llevaron, en orden (máx. 24; queda durante
+  aliento y silencio, se borra al empezar el Pom) · `pomHandoffs` (cuántos relevos) · `pomHandoff` = `{ from, to, back, at }` del último
+  vuelo (`back` = vuelve tras titubear; `at` = `S.clock`). `lightWall` = muro de `pomHolder`, `nextWall` = muro del siguiente candidato.
+  Eventos: `'handoff:<muro destino>'` (el vuelo empieza; aterriza 1,5 s después) · `'falter'` (empieza a titubear).
+- **breath** · `pomBreath` 0..1,25 (velocidad de subida: cuota de manos quietas² × más manos quietas = más) · `pomGust` 0..1 (una
+  racha: decae en 1,5 s; mientras > 0,3 no sube, nunca baja). Evento `'gust:<muro>'` (una mano se movió > 35 cm en 1 s; ≥ 1,5 s entre rachas).
+- **silence** · `pomHush` 0..1 (lo hondo del silencio: 1 = todas quietas) · evento `'hush:break:<muro>'` (alguien se movió; pierde un
+  poco, ≥ 1,2 s entre roturas) · al llegar: `phase 'reward'` = **1,5 s de silencio** → `phase 'aleta'` (igual que hoy).
+- `restless`: relay = la mano que la tiene se mueve; breath/silence = alguna mano se mueve. Avisos, plazo y `max` como hoy.
+**Acta**: `prints[]` = `{ wall, dx, y, s, size, t }` (t = `S.t` del acta al posarse). Una huella por mano que reposa ≥ 0,5 s entre los
+3 y los 15 s del acta (una mano nueva = una huella nueva; no dos a < 15 cm en el mismo muro), máx. 60; se borran al entrar en el acta y
+al volver a la espera. Evento `'print:<muro>'`. `acta()` devuelve además `prints` (cuántas). `printOpen` (bool): la ventana 3–15 s.
+Valores (§4.10): Força y Equilibri como hoy; **Valor** = quietud en el Pom (60 %) + manos alzadas en l'aleta (40 %); **Seny** = suavidad
+de la bajada (descensos limpios / descensos + crujidos + soltados), 0,15 si cayó.
+**Cadena de muro del acta** (GUI/POV): **«Dejad vuestra mano»** (EN «Leave your hand»), de 3 a 15 s.
+
+## T-050 hecho — Pom tres subidas · Acta la huella · sonido · público virtual (score.js ×2 idénticos; respaldos `*.T050.bak`)
+Ajustes respecto a los nombres de arriba: `pomRest` = **7 s**; el nacimiento de la luz también emite `'handoff:<muro>'` con
+`pomHandoff.from = null` (nace allí, sin vuelo; `pomHandoffs` no cuenta el nacimiento); al volver tras titubear pierde `relay.cost` 0,04.
+TIMES: `pom.climb [38, 16, 10]` (relevo ≈ 32 s tras la cartela; aliento a velocidad 1 = 16 s), `pom.rest 7`, `pom.reward 1.5` (el
+silencio), `pom.relay { every 4, fly 1.5, ready 1, falter 1.2, cost 0.04, gone 1, thread 24 }`, `pom.breath { slow 0.7, more 0.35, many 4 }`,
+`pom.gust 0.35`, `pom.gustGap 1.5`, `pom.breakGap 1.2`, `pom.breakCost 0.06`, `print { from 3, to 15, rest 0.5, max 60, near 0.15 }`.
+**Para TUN (nombres al estilo `t.<ruta>`, NO añadidos a tuning.js — es de TUN):** `pinya.nearFull` (1,8 m: el paquete cuenta entero
+hasta aquí del centro), `pinya.nearZero` (3 m: 0 aquí), `tronc.base` (0,15 m: una mano que no sube y se movió menos es base) — ya en
+TIMES y leídos en cada paso. Candidatos del Pom nuevo: `pom.relay.every`, `pom.relay.falter`, `pom.gust`, `pom.breakCost`, `print.rest`.
+**Parche de TUN aplicado en sound.js:** `import { createScore, TIMES }` + `import { applyTimes } from './tuning.js'`; la rama `ctl` hace
+`applyTimes(T, m.times, TIMES)` (cabecera: `{ type: 'ctl', pace?, jump?, times? }`).
+**Arreglo de estabilidad (fold, #28):** dos manos plegadas como una (id nuevo a < 10 cm) que luego se separan > 30 cm vuelven a ser dos.
+Antes la segunda quedaba invisible para la partitura mientras siguiera apoyada (p. ej. dos personas juntas en la Pinya que luego se
+abren). Efecto en el pase virtual: con el público repartido, el Tronc sube algo antes (121 s en vez de 127,6 con 6 personas).
+**Pruebas (node, `scratchpad/pos/t050.mjs`): 20/20 PASAN; con la partitura anterior 15 fallan** (5 pasan: sala vacía, todos
+se van, `max`, acta sin manos, y el aliento de 4 manos que por casualidad caía en 16 s). Anteriores: `items.mjs` 16/16, `solo.mjs` igual que antes salvo el Pom.
+| subida | 0 manos | 1 mano | 2 manos (una persona) | 4 manos |
+|---|---|---|---|---|
+| relevo | aviso 10 s, cae 20 s | 38 s, sin relevos (hilo 1) | 38 s, 7 relevos entre sus dos manos | 38 s, 7 relevos, hilo de 4 manos en 2 muros |
+| aliento | — | 22,9 s | 20,4 s | 16,7 s (grupo grande ≈ 15 s) |
+| silencio | — | 10 s → 1,5 s callado → l'aleta | 10 s | 10 s |
+| acta | 0 huellas | 2 (una mano que se levanta y vuelve) | — | 5 |
+Manos que se mueven: la que tiene la luz → `falter` y vuelve a la anterior (+2–3 s); una sola mano inquieta no sube (sólo la red tardía);
+2 de 4 manos moviéndose en el aliento → más del doble de lento; un golpe brusco → `gust`, no cae; en el silencio una mano que se mueve
+→ `hush:break` y no llega. Pase virtual completo (2/6/15 personas): **9:24 / 9:18 / 9:18**; Pom 84/82/82 s.
+`check.mjs /sound/ressonancia-sound` en silencio, saltando a pom y acta con 4 manos: 0 errores; eventos handoff/gust/arrived/print llegan.
+**Sonido:** campana de vidrio en el muro que la recibe al posarse (más baja y suave si vuelve) y una nota tenue bajo la mano que deja;
+`falter` = un destello inseguro; el aliento abre el aire con `pomBreath`, la racha = una banda de viento en ese muro; el silencio = el
+lecho del Pom a 0,06, viento ×0,15, el hilo como tono sostenido y el latido; `hush:break` = un «ah» de tres voces muy bajo; la llegada =
+un destello y 1,5 s a cero; cada huella = un toque cálido grave (D pentatónica) y un golpe suave al sub (más flojo en ráfagas).
+Voz nueva propuesta (no grabada; necesita el sí de Vicente): «The square holds its breath.» al empezar el aliento.
+**Cadena de muro del acta:** «Dejad vuestra mano» (EN «Leave your hand»), de 3 a 15 s (`printOpen`).

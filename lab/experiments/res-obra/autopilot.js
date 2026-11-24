@@ -1,6 +1,6 @@
 // LAB ONLY — a virtual audience for simulate.html. It reads the score (window.__obra) and plays the visitors the guide asks for:
-// they touch in Brasa, hold the circles in Pinya, press on the beat and hold both sides in Tronc, stay still in Pom de dalt, play
-// in the Ressonància, hold while the castell comes down. Hands go through the lab harness's stage (window.__labRoom.stage.put /
+// they touch in Brasa, hold the circles in Pinya, press on the beat and hold both sides in Tronc, stay still in Pom de dalt (T-050: the relay,
+// the breath, the silence), play in the Ressonància, hold while the castell comes down, rest a hand in the acta (a handprint). Hands go through the lab harness's stage (window.__labRoom.stage.put /
 // lift), so the visual piece and the sound piece both see them, exactly as they would see real hands. Not part of the piece.
 const q = new URLSearchParams(location.search);
 const PEOPLE = q.get('people') === '0' ? 0 : Math.min(15, Math.max(2, Number(q.get('people')) || 6));   // 0 = «sólo yo»: no virtual audience (T-046)
@@ -93,7 +93,7 @@ const put = (h, s, ym) => { h.s = ((s % 1) + 1) % 1; h.t = tOf(ym); h.on = true;
 const lift = (h) => { if (h.on) { h.on = false; stage.lift(h.key); } };
 const liftAll = () => { for (const p of people) for (const h of p.hands) lift(h); };
 const structure = () => { const a = []; for (let w = 0; w < S.walls.length; w++) if (S.walls[w]) a.push(w); return a.length ? a : [0, 1]; };
-let last = performance.now(), t = 0, mode = '', modeT = 0, tapAt = 0, lastBeat = 0;
+let last = performance.now(), t = 0, mode = '', modeT = 0, tapAt = 0, lastBeat = 0, pomSt = '', pomStT = 0;
 
 function hold(p, w, dx, ym, both = false) {          // a person standing at wall w, hands near (centre + dx), still, a tiny sway
   const c = wallC[w] + dx * sPerM, sway = 0.01 * Math.sin(t * 0.7 + p.i);
@@ -121,7 +121,9 @@ function tick() {
   else if (b === 'wait') {                            // two visitors walk up and hold the walls
     if (modeT > 2) { hold(people[0], 0, 0, 1.25); hold(people[1], 1, 0, 1.25); } else liftAll();
     for (const p of people.slice(2)) for (const h of p.hands) lift(h);
-  } else if (b === 'intro' || b === 'crown' || b === 'acta' || b === 'fall' || phase === 'title') {
+  } else if (b === 'acta') {                          // T-050 l'acta: from ~3 s they come up one by one and rest a hand on the wall (a handprint), then step back
+    people.forEach((p, k) => { const at = 3 + k * 0.7; if (S.t >= at && S.t < 19 + k * 0.3) put(p.hands[0], wallC[p.wall] + (((p.i >> 2) - 1) * 0.9 + 0.2 * (k % 2)) * sPerM, 1.1 + 0.12 * (k % 4)); else lift(p.hands[0]); lift(p.hands[1]); });
+  } else if (b === 'intro' || b === 'crown' || b === 'fall' || (phase === 'title' && b !== 'pom')) {
     liftAll();                                        // they watch and listen
   } else if (b === 'brasa') {
     if (phase === 'reward') liftAll();
@@ -153,8 +155,16 @@ function tick() {
     });
   } else if (b === 'pom' && phase === 'aleta') {     // l'aleta: they raise one hand, like the enxaneta
     people.forEach((p, k) => raiseOne(p, sw[k % sw.length], 1.25, modeT - 0.6));
-  } else if (b === 'pom') {                           // still, hands on the wall
-    people.forEach((p, k) => { const w = sw[k % sw.length]; hold(p, w, 0, 1.25); });
+  } else if (b === 'pom') {                           // T-050: still, hands on the wall, each person on their own wall round the room (the relay crosses it)
+    const st = S.pomStage || 'relay';
+    if (st !== pomSt) { pomSt = st; pomStT = 0; } else pomStT += dt;
+    people.forEach((p) => {
+      const dx = ((p.i >> 2) - 1) * 0.9;
+      hold(p, p.wall, dx, 1.25);
+      // the sloppy one: in the relay shifts a hand now and then (if the light is on it, it falters and goes back); in the breath, one gust
+      if (p.sloppy && st === 'relay' && pomStT % 11 > 9.5) put(p.hands[0], wallC[p.wall] + (dx + 0.3 * Math.sin(t * 4)) * sPerM, 1.25);
+      if (p.sloppy && st === 'breath' && pomStT > 6 && pomStT < 6.5) put(p.hands[0], wallC[p.wall] + (dx + 0.9 * Math.sin((pomStT - 6) * 6)) * sPerM, 1.25);
+    });
   } else if (b === 'festa' && S.festaStage === 'call' && S.call) {   // the final call (24-11): everybody strikes on the TOK
     const C = S.call, dtT = S.clock - C.at;
     for (const p of people) { const off = p.sloppy ? 0.4 : 0.08; if (dtT >= off - 0.02 && dtT < off + 0.35 && C.n <= 4) put(p.hands[0], wallC[p.wall] + ((p.i >> 2) - 1) * 0.9 * sPerM, 1.0 + 0.15 * (p.i % 4)); else lift(p.hands[0]); lift(p.hands[1]); }

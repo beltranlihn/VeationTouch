@@ -45,7 +45,7 @@ proyecto original se conserva debajo: frío y expectante (intro, Brasa), tensió
 | 7:40 | **V. L'aleta** — la coronación | 0:25 fija | no | la coronación entera |
 | 8:05 | **V. La ressonància** — la fiesta | 1:05 (0:50–1:15) | **sí, libre** | — |
 | 9:10 | **La bajada — Seny** | 0:40 (0:30–0:50) | sí | — |
-| 9:50 | **Cierre: l'acta** | 0:40 fija | no | acta, frase final, créditos |
+| 9:50 | **Cierre: l'acta** | 0:40 fija | sí (la huella, 3–15 s) | acta, huellas de oro, frase final, créditos |
 
 Cada capítulo interactivo tiene **tres tiempos**: *enseñar* (10–15 s: la voz dice qué hay que hacer y la sala lo muestra una vez),
 *jugar* (con metas que crecen) y *premio* (la recompensa visual y sonora, y la transición). Si el grupo acaba pronto, el capítulo no
@@ -101,10 +101,21 @@ junto al pie de esa torre, o pierde un piso (no cae). Pasado el tiempo previsto 
 el reloj de la música. *Solo:* una persona levanta su torre (pilar), 7 pisos. *Grupo:* hasta 9 si se asienta el temblor.
 
 ### IV. Pom de dalt — Valor (≈1:20) · universo Aire y noche
-**Quietos, con las manos en el muro.** La luz sube por el muro que le toca; si ese muro no tiene manos, **pasa por cualquier muro que
-las tenga**. Sube mientras las manos de ESE muro estén quietas (se han movido < 15 cm en el último segundo, medido a lo largo de la
-sala, sin saltos en esquinas ni costura); una mano que el sensor pierde está ausente, no inquieta. Tres subidas (21/23/25 s). Sólo una
-sala **vacía** cae (*intent*): aviso a los 10 s sin manos, caída a los 20 s. Al llegar al máximo corona igual (estrecho), nunca cae.
+**Quietos, con las manos en el muro.** Tres subidas, tres gestos distintos de la quietud (T-050). Una mano está quieta si se movió
+< 15 cm en el último segundo (medido a lo largo de la sala, sin saltos en esquinas ni costura); una mano que el sensor pierde está
+ausente, no inquieta. Tras cada llegada ella descansa 7 s (se nombra la siguiente) antes de que cuente la subida siguiente.
+1. **Dosos, el relevo (≈ 32 s tras la cartela).** La luz nace bajo la mano más quieta. Cada 4 s quieta busca la siguiente mano quieta
+   en cualquier muro (la que aún no la llevó, mejor en otro muro) y vuela hasta ella en 1,5 s; una campana de vidrio suena en el muro
+   que la recibe. Entre todas las manos que la llevaron queda tendido un hilo de oro (la constelación del grupo). Si la mano que la
+   tiene se mueve, la luz titubea y, a los 1,2 s, vuelve a la anterior (pierde un poco). *Solo:* va y viene entre las dos manos de la
+   persona; con una sola mano, sube quieta sobre ella. *Grupo:* da la vuelta a la sala.
+2. **Acotxador, el aliento (≈ 15 s con un grupo; ≈ 20 s solo).** Sube mientras **toda la sala** está quieta: la velocidad es la cuota
+   de manos quietas al cuadrado, y más manos quietas (hasta 5) la aceleran. El aire sube con la quietud. Un movimiento brusco (> 35 cm
+   en 1 s) es una racha de viento: ella se agarra (no sube un momento; nunca cae ni baja).
+3. **Enxaneta, el silencio (≈ 10 s).** El sonido baja casi a nada: un tono sostenido y el latido. Sólo sube mientras todos están quietos;
+   cualquier movimiento se oye (un «ah» contenido de la plaza) y le cuesta un poco. Llega arriba: **1,5 s de silencio total** y l'aleta.
+Sólo una sala **vacía** cae (*intent*): aviso a los 10 s sin manos, caída a los 20 s. Pasado el tiempo previsto (90 s) la luz encuentra
+su camino; al llegar al máximo (120 s) corona igual (estrecho), nunca cae.
 
 ### V. L'aleta y la ressonància (≈1:40) · universo Luz
 **L'aleta** (ventana de 10 s tras el premio del Pom): «Ella levanta la mano.» … «Levantad la vuestra.» Cuenta cada mano que sube ≥ 28 cm
@@ -122,10 +133,16 @@ en el descenso, bajan dos pisos. Suave (≤ 0,4 m/s) es limpio; brusco cruje; si
 cruje; tres soltados seguidos es *carregat*. Sostener sin bajar no baja (sólo la red del reloj en los últimos 12 s). Una sala vacía:
 aviso a los 5 s, *carregat* a los 10 s. *Solo y grupo:* el mismo gesto; una mano basta.
 
-### Cierre: l'acta (0:40, prediseñado)
-- **Imagen:** negro y tipografía. El acta de este grupo, como la escriben las colles: **«3 de 7 · descarregat»**, y debajo cuatro
-  barras —Força, Equilibri, Valor, Seny— que se llenan según cómo jugó el grupo (las cuatro barras, en rojo sobre oro).
-- **Voz:** «This was your castell. When bodies resonate together, culture is born.»
+### Cierre: l'acta (0:40) · la huella
+- **Imagen:** negro y tipografía. El acta de este grupo, como la escriben las colles: **«3 de 7 · descarregat»**, y los cuatro valores
+  —Força, Equilibri, Valor, Seny— que brillan más o menos según cómo jugó el grupo.
+- **La huella (T-050):** de los 3 a los 15 s el muro dice **«Dejad vuestra mano»**; cada mano que se apoya y reposa medio segundo deja una
+  **huella de oro que se queda** (un toque cálido y grave en su muro). Una mano nueva es una huella nueva (hasta 60); las huellas se
+  ordenan alrededor del acta. El acta cuenta cuántas manos firmaron. *Solo:* una o dos huellas, la suya. *Grupo:* el anillo del grupo.
+- **Los valores (§4.10):** Força = cuánto y cuán pronto se apretó la pinya; Equilibri = encajes con todas las torres rectas; Valor =
+  quietud en el Pom (60 %) y manos alzadas en l'aleta (40 %); Seny = suavidad de la bajada (descensos limpios frente a crujidos y
+  soltados; poco si cayó).
+- **Voz:** la frase del resultado, y «This was your castell. When bodies resonate together, culture is born.»
 - **Después:** créditos (Barcelona XR Lab × Alma Digital Studio, Generalitat de Catalunya) y vuelta a la espera.
 
 ## 5. Cómo se adapta al grupo (2–15 personas)

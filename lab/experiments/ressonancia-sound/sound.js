@@ -6,7 +6,7 @@
 //   LOCAL WORKAROUND, clearly marked: the runtime has no channel between a visual piece and its sound piece. Every window of the
 //   app loads from the same origin, so this piece posts the score's state on a BroadcastChannel ('ressonancia') after every
 //   step — { type: 'state', ts, pace, s: { ...state, events }, acta } — and the visual follows it. It also accepts
-//   { type: 'ctl', pace?, jump? } (rehearsal: run the score's clock faster, go to a block). Without the channel both pieces still
+//   { type: 'ctl', pace?, jump?, times? } (rehearsal: run the score's clock faster, go to a block). Without the channel both pieces still
 //   run: each one walks its own score from the same hands. Remove this when the runtime gives the two pieces a link.
 //
 // The sound (NOTES.md has the whole design): contemporary, cinematic, electronic-ambient. Every chapter is its own sound world,
@@ -27,7 +27,8 @@
 // The score runs on the wall clock (performance.now()): it goes on even if the audio context is suspended; no sound is
 // scheduled while the context is not running (so nothing piles up to burst out when it resumes); a wanted bed starts late,
 // where it would be, once the context runs or its file arrives.
-import { createScore } from './score.js';
+import { createScore, TIMES } from './score.js';
+import { applyTimes } from './tuning.js';   // T-052: the visual piece sends the room's thresholds (ctl.times)
 
 // ---------------------------------------------------------------------------------------------------------------- the voice
 // The intro's six lines, in seconds from the start of the 70 s intro, against the picture of ressonancia/scenes/intro.js
@@ -467,6 +468,23 @@ export default async function start(host) {
     env.gain.setValueAtTime(0, at); env.gain.linearRampToValueAtTime(gain, at + dur * 0.35); env.gain.setTargetAtTime(0, at + dur * 0.5, dur * 0.18);
     for (const o of os) { o.start(at); o.stop(at + dur * 1.5); }
   }
+  // T-050 the pom's three climbs and the acta's handprints
+  const WARM = [[1, 1, 1.8], [2.0, 0.22, 0.9], [3.01, 0.07, 0.45]];   // a warm low touch: round, short upper partials
+  function gustBurst(at, w) {   // the breath's gust: a band of wind that swells over the wall where the hand moved and falls away
+    const n = ctx.createBufferSource(), f = F('bandpass', 500, 0.9), g = G(0, toWall(w)), g2 = G(0, toWall(w + 1)); n.buffer = NOISE; series(n, f, g); f.connect(g2); g.connect(G(0.5, verbIn));
+    f.frequency.setValueAtTime(500, at); f.frequency.exponentialRampToValueAtTime(2600, at + 0.35); f.frequency.exponentialRampToValueAtTime(900, at + 1.1);
+    for (const [x, k] of [[g, 1], [g2, 0.45]]) { x.gain.setValueAtTime(0, at); x.gain.linearRampToValueAtTime(0.03 * k * P.effects, at + 0.25); x.gain.exponentialRampToValueAtTime(0.0004, at + 1.2); }
+    n.start(at, Math.random() * 1.5, 1.3);
+  }
+  function ah(at, w) {          // the silence broken: a soft contained «ah» of the square, round the wall where it moved
+    [57, 62, 66].forEach((m, j) => voiceNote(at + j * 0.05, m, 1.2, 0.007, toWall(w + j - 1)));
+  }
+  const printAt = walls.map(() => -1);
+  function printTouch(at, w, n) {   // a handprint: a soft warm low touch on its wall (a burst of prints on one wall stays soft)
+    const close = at - printAt[w] < 0.15; printAt[w] = at;
+    modal(at, midiHz(50 + MAJOR_PENTA[n % 5] + (n % 10 >= 5 ? 12 : 0)), close ? 0.012 : 0.024, toWall(w), WARM, 0.6);
+    if (!close) drum(at, toWall(w), { f0: 64, f1: 46, dur: 0.7, gain: 0.018, noise: 0, sub: 0.25, subDest: touchSub });
+  }
   function heart(at, level) {   // lub-dub: felt in the sub, a little skin on the walls
     for (const [dt, k] of [[0, 1], [0.28, 0.7]]) {
       const o = osc('sine', 62), g = G(0, outSub); o.frequency.setValueAtTime(62, at + dt); o.frequency.exponentialRampToValueAtTime(40, at + dt + 0.16); o.connect(g);
@@ -793,6 +811,17 @@ export default async function start(host) {
       for (let j = 0; j < 6; j++) modal(t + 0.06 + j * rand(0.04, 0.1), midiHz(86 + MAJOR_PENTA[Math.floor(Math.random() * 5)]), 0.01, toWall(j), CERAMIC, 0.6);
       drum(t + 0.02, drumBus, { f0: 90, f1: 40, dur: 0.6, gain: 0.06, noise: 0.2, sub: 0.3 }); return;
     }
+    // ---- IV. Pom (T-050): the relay's glass bell on the wall that receives her (when she lands); the breath's gust; the silence's «ah»
+    if (k === 'handoff') {
+      const H = S.pomHandoff || {}, w = +arg, fly = H.from ? (T.pom.relay?.fly || 1.5) / pace : 0, n = S.pomHandoffs || 0;
+      modal(t + 0.02 + fly, midiHz(H.back ? 79 : 86 + MAJOR_PENTA[n % 5]), H.back ? 0.012 : 0.024, toWall(w), GLASS, 0.9);
+      if (H.from && !H.back) modal(t + 0.02, midiHz(74 + MAJOR_PENTA[n % 5]), 0.006, toWall(H.from.wall), GLASS, 0.7);   // she leaves: a faint note under the old hand
+      return;
+    }
+    if (k === 'falter') { modal(t + 0.02, midiHz(80), 0.007, toWall(S.lightWall >= 0 ? S.lightWall : 0), GLASS, 0.5); return; }   // unsure
+    if (k === 'gust') { gustUntil = t + 1.6; gustBurst(t + 0.01, +arg || 0); return; }
+    if (k === 'hush') { ah(t + 0.02, +(arg.split(':')[1]) || 0); return; }   // 'hush:break:w'
+    if (k === 'print') { printTouch(t + 0.01, +arg || 0, (S.prints || []).length); return; }
     if (k === 'call') {   // the brasa's call (24-11): timbal tok… tok… TOK, gap s apart; the TOK on the answering wall (or all four)
       const C = S.call || {}, g = (C.gap || 0.8) / pace, from = C.from || 0, to = C.to ?? from;
       for (let j = 0; j < 2; j++) { play('s-timbal', { gain: 0.09, dest: toWall(from), at: t + 0.01 + j * g, rate: 0.92 }); drum(t + 0.01 + j * g, toWall(from), { f0: 110, f1: 70, dur: 0.25, gain: 0.03, noise: 0.05 }); }
@@ -834,7 +863,8 @@ export default async function start(host) {
       play('sfx-tile', { gain: 0.16, dest: toWall(S.floors), at: t + 0.02 });
       const at = onGrid('tronc', t + 0.3, 1.3) ?? t + 0.05;       // the floor rings on a downbeat
       modal(at, midiHz(62 + MINOR_PENTA[S.floors % 5] + 12 * Math.floor(S.floors / 5)), 0.06, toWall(S.floors + 1), CERAMIC, 0.5);
-    } else if (k === 'climber') { riser(t, 2.2, 0.025, fxIn['s-wind-loop'] || fxBus); gustUntil = t + 2.6; }
+    } else if (k === 'climber') { if (+arg < 2) { riser(t, 2.2, 0.025, fxIn['s-wind-loop'] || fxBus); gustUntil = t + 2.6; } }   // T-050: the silence comes in without a riser
+    else if (k === 'arrived' && +arg === 2) modal(t + 0.02, midiHz(98), 0.008, toWall(S.lightWall >= 0 ? S.lightWall : 0), GLASS, 1);   // the enxaneta at the top: one glint, then 1.5 s of silence
     else if (k === 'arrived') {   // a glass chord on the wall where she arrived
       const w = S.lightWall >= 0 ? S.lightWall : 0, base = [81, 86, 93][clamp(+arg, 0, 2)];
       for (const [j, d] of [[0, 0], [1, 7], [2, 12]]) modal(t + 0.02 + j * 0.07, midiHz(base + d), 0.035, toWall(w), GLASS, 0.9);
@@ -921,7 +951,9 @@ export default async function start(host) {
         while (arpAt < t + 0.2) { modal(arpAt, midiHz(ARP[arpN % ARP.length] + 12), 0.022, toWall(arpN % NW), CERAMIC, 0.4); arpN++; arpAt += BAR / 8; }
       }
     }
-    if (pom) layer('pom', 'bed', 0.6 + 0.4 * prog, 1.5);
+    // T-050: the silence is near nothing (the bed almost gone, a held tone, the heart); she arrives → 1.5 s of silence → l'aleta
+    const sil = pom && S.pomStage === 'silence' && ph !== 'aleta' ? (ph === 'reward' ? 2 : 1) : 0, br = pom && S.pomStage === 'breath' ? clamp(S.pomBreath || 0, 0, 1.25) : 0;
+    if (pom) layer('pom', 'bed', sil === 2 ? 0 : sil ? 0.06 : ph === 'aleta' ? 0.7 : 0.6 + 0.4 * prog, sil === 2 ? 0.12 : sil ? 1.2 : 1.5);
     if (b === 'festa' || b === 'crown') {
       const r = b === 'crown' ? 0 : res;
       layer('festa', 'bass', bl ? 0.85 : 0.6 + 0.25 * r, bl ? 0.15 : 0.8);
@@ -941,7 +973,7 @@ export default async function start(host) {
       's-embers-loop': b === 'wait' ? L.embers : b === 'brasa' ? L.embers * 1.3 : b === 'intro' ? L.embers * 0.3 : b === 'acta' ? L.embers * 0.8 : 0,
       's-fire-loop': b === 'brasa' ? (ph === 'reward' ? 0 : L.fire * (0.2 + 0.8 * prog)) : 0,
       's-breath-loop': b === 'pinya' ? L.breath * (ph === 'title' ? 0.4 : 0.4 + 0.6 * prog) : b === 'intro' && S.t > 20 && S.t < 50 ? L.breath * 0.35 : 0,
-      's-wind-loop': pom ? L.wind * (ph === 'reward' ? 0.3 : 0.5 + 0.5 * prog) * (t < gustUntil ? 1.7 : 1) : 0,
+      's-wind-loop': pom ? L.wind * (sil === 2 ? 0 : sil ? 0.15 : ph === 'reward' ? 0.3 : (0.5 + 0.5 * prog) * (br ? 0.6 + 0.4 * br : 1)) * (t < gustUntil ? 1.7 : 1) : 0,
       's-rain-loop': b === 'baixada' ? L.rain * (0.6 + 0.4 * prog) : 0,
       's-crowd-loop': b === 'festa' ? L.crowd * (bl ? 1.8 : 0.35 + 0.9 * res) : b === 'crown' ? L.crowd * 0.8 : 0,
     };
@@ -973,11 +1005,11 @@ export default async function start(host) {
       const lk = climbing ? clamp(0.25 + mvLiftV * 2.5, 0, 1) : 0;
       liftG.gain.setTargetAtTime(0.03 * lk * P.effects, t, climbing ? 0.8 : 0.012); liftOG.gain.setTargetAtTime(0.012 * lk * P.effects, t, climbing ? 0.8 : 0.012);   // the reward's dry cut takes it too
       liftLp.frequency.setTargetAtTime(180 + 30 * h, t, 1); liftBp.frequency.setTargetAtTime(150 + 12 * h, t, 1);
-      const pomOn = b === 'pom' && ph !== 'reward' ? 1 : b === 'pom' ? 0.4 : 0, ht = pom ? prog : 0;
+      const pomOn = (b === 'pom' && ph !== 'reward' ? 1 : b === 'pom' ? 0.4 : 0) * (sil === 2 ? 0 : sil ? 0.3 : 1), ht = pom ? prog : 0;
       const below = pomOn * Math.pow(1 - ht, 1.6);
       cityG.gain.setTargetAtTime(0.1 * below * P.effects, t, 1.5); cityRoomG.gain.setTargetAtTime(0.03 * below * P.effects, t, 1.5); cityOG.gain.setTargetAtTime(0.01 * below * P.effects, t, 1.5);
       cityLp.frequency.setTargetAtTime(120 + 200 * (1 - ht), t, 1.5);
-      airG.gain.setTargetAtTime((0.003 + 0.022 * ht) * pomOn * P.effects, t, 1.5); airBp.frequency.setTargetAtTime(2200 + 5000 * ht, t, 1.5);
+      airG.gain.setTargetAtTime((0.003 + 0.022 * ht) * pomOn * (S.pomStage === 'breath' ? 0.5 + 0.7 * br : 1) * P.effects, t, S.pomStage === 'breath' ? 0.6 : 1.5);   // T-050: the breath's air rises with the stillness airBp.frequency.setTargetAtTime(2200 + 5000 * ht, t, 1.5);
       if (pom) { ambDest['s-wind-loop'].phase -= (prog - mvPomP) * (45 / 360); }   // the wind field turns with the world's 45°
       mvPomP = pom ? prog : 0;
       // the re-made chapters' colours
@@ -996,8 +1028,9 @@ export default async function start(host) {
     if (!(b === 'tronc' && ph === 'reward')) { droneG.gain.setTargetAtTime(drone * 0.9, t, 1.2); droneSubG.gain.setTargetAtTime(drone * 1.3, t, 1.2); }
     // ---- the pom: the thread rises D5 → D6 with the three climbers and flickers when hands move
     thread.frequency.setTargetAtTime(midiHz(74) * Math.pow(2, prog), t, 0.4);
-    threadG.gain.setTargetAtTime(pom && ph === 'play' ? 0.01 + 0.025 * prog : 0, t, 0.3);
-    flickG.gain.setTargetAtTime(pom && S.restless ? 0.7 : 0, t, 0.08); flickD.gain.setTargetAtTime(pom && S.restless ? 25 : 0, t, 0.08);
+    threadG.gain.setTargetAtTime(sil === 2 ? 0 : sil ? 0.012 : pom && ph === 'play' ? 0.01 + 0.025 * prog : 0, t, sil === 2 ? 0.08 : 0.3);   // T-050: in the silence the thread is a held tone
+    const flk = pom && S.restless && !sil && (S.pomStage !== 'relay' || (S.pomFalter || 0) > 0);
+    flickG.gain.setTargetAtTime(flk ? 0.7 : 0, t, 0.08); flickD.gain.setTargetAtTime(flk ? 25 : 0, t, 0.08);
     // ---- the creak of a leaning tower (from the third floor on): each structure wall by its own lean, the sub by the mean
     let leanSum = 0, leanN = 0;
     for (let w = 0; w < walls.length; w++) { const l = S.balance && tronc && S.walls[w] ? Math.min(1, Math.abs(S.lean[w] || 0)) : 0; creakG[w].gain.setTargetAtTime(l * 0.1, t, 0.3); if (S.walls[w]) { leanSum += l; leanN++; } }
@@ -1019,7 +1052,7 @@ export default async function start(host) {
   // LOCAL WORKAROUND (see the top of the file): the BroadcastChannel to the visual piece.
   let bc = null;
   try { bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { bc = null; }
-  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (m.jump) score.jump(m.jump); };
+  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
   const lastPos = new Map(), hands = [], handPool = [];
   const wallS0 = walls.reduce((a, w, i) => { a.push(i ? a[i - 1] + (walls[i - 1].width || 4) : 0); return a; }, []);   // where each wall starts along the perimeter (m)
   let last = performance.now();
