@@ -1,17 +1,17 @@
 act     size brasa     pinya     tronc     pom       crown     festa     baixada   total  castell
-hold    1    A         A2        A9+0      A         A         A3        A         535s   2 de 9
+hold    1    A         A2        A9+0      A         A         A3        A         528s   2 de 9
 hold    2    A         A2        A9+0      A         A         A3        A         507s   2 de 9
 hold    4    A         A4        A9+0      A         A         A3        A         500s   4 de 9
 hold    8    A         A4        A9+0      A         A         A3        A         499s   4 de 9
 hold    15   A         A4        A9+0      A         A         A3        A         498s   4 de 9
-passive 1    B+c       A1        B0+5+c    A+c       B         B1+c      B+c       625s   pilar de 5
-passive 2    B+c       A1        B0+5+c    A         B         B1+c      B+c       601s   pilar de 5
+passive 1    B+c       A1        B0+5+c    A         B         B1+c      B+c       622s   pilar de 5
+passive 2    B+c       A1        B0+5+c    A         B         B1+c      B+c       600s   pilar de 5
 passive 4    B+c       A4        B0+5+c    A         B         B2+c      B+c       597s   4 de 5
 passive 8    B+c       A4        B0+5+c    A         A         B2+c      B+c       585s   4 de 5
 passive 15   B+c       B4+c      B0+5+c    A         B         B1+c      B+c       615s   4 de 5
 strike  1    B+c       B1+c      B0+5+c    B+c       A         B1+c      B+c       687s   pilar de 5
 strike  2    B+c       B1+c      B0+5+c    B+c       A         B1+c      B+c       681s   pilar de 5
-strike  4    B+c       B4+c      B0+5+c    A         A         B1+c      B+c       608s   4 de 5
-strike  8    B+c       B1+c      B0+5+c    A         A         B1+c      B+c       593s   pilar de 5
+strike  4    B+c       B4+c      B0+5+c    A         A         B1+c      B+c       606s   4 de 5
+strike  8    B+c       B1+c      B0+5+c    A         A         B1+c      B+c       592s   pilar de 5
 strike  15   B+c       A4        B0+5+c    A         A         B1+c      B+c       577s   4 de 5
-(15 passes in 2.8 s)
+(15 passes in 3.3 s)
