@@ -47,6 +47,9 @@ if (LAB) {
   if (q.get('aa')) P.aa = q.get('aa');
   if (q.get('q3')) P.quality = q.get('q3');                        // lab only (review.html): the 3D quality from the URL
 }
+// 05-plan §6.3 / analysis #13: the app's VIEWER (vt.sink 'viewer': Live's preview, ≤ 0.5×, 30 fps) is a second full copy of the work on
+// the same GPU as the room. It always renders at LOW quality (60 % scale, fewer particles, no MSAA / TAA): nobody watches it closely.
+if (vt.sink === 'viewer') P.quality = 'low';
 const QS = { low: 0.6, medium: 0.8, high: 1 }, DENS = { low: 0.4, medium: 0.6, high: 1 };
 const LT = { start: performance.now() }; const lt = (k) => { LT[k] = Math.round(performance.now() - LT.start); };   // T-057: load phases (ms), window.__obra.load
 const room = await createRoom3D(vt, canvas, { forceWebGL: P.renderer === 'webgl2', bloom: { strength: P.bloom }, exposure: P.exposure, renderScale: QS[P.quality] ?? 1, samples: P.quality === 'high' ? 2 : 0, aa: P.aa === 'auto' ? (P.quality === 'high' ? 'taa' : 'msaa') : P.aa });   // aa 'auto': TAA at high (RND-F's variance-clipped TAA), MSAA below — switch the default after QA's fps window   // MSAA 2 at high (T-011, DECISIONES 23:26; was 4)
