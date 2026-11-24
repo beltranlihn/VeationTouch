@@ -5,9 +5,9 @@
 //   T3.update(dt, { targets: S.targets, block: S.block, time, on });   // every frame; on = the "guide" parameter
 //
 // One target = a band of trencadís on the wall plane (Ø 2·r, r = 0.22 m by default; the band ~6.5 cm wide), centred at (wall, dx, y):
-// 18 glazed tesserae of uneven thickness and tilt (each catches the light on its own), grout between them, a soft dark disc behind so
-// it reads over light universes too. Its states:
-//   idle      the band in the chapter's LIGHT tone (palette.js › PAL[block].light; on light chapters half-way to its shadow), low contrast and breathing slowly (16 of them must
+// 18 glazed tesserae of uneven thickness and tilt (each catches the light on its own), grout between them; on DARK chapters a soft dark disc behind so
+// it reads over the dark (on light chapters no disc: the band itself is darker). Its states:
+//   idle      the band in the chapter's LIGHT tone (palette.js › PAL[block].light; on light chapters a fired-earth band, terracotta → ombra, no disc), low contrast and breathing slowly (16 of them must
 //             not clutter the room); it assembles from its pieces when it is born
 //   (hands)   a hand inside (t.on > 0): it grows ~15 % in 300–600 ms and its glaze lights up (the sound answers at once)
 //   charging  the tesserae turn ACHIEVEMENT GOLD (palette.js › ACH, `or`) one by one, clockwise from the top, and a faint gold fill
@@ -20,7 +20,7 @@
 // kind 'palm' (Pinya: the figure's palm IS the target): a quieter band, no disc. ≤ 16 live targets + 'done' ones (pool of 20).
 // Nothing is allocated per frame: the pool is built once, each target with its own uniforms.
 import { OVER } from './typo3d.js';
-import { PAL, ACH, chapter } from './palette.js';
+import { PAL, ACH, chapter, lin } from './palette.js';
 
 const MAXT = 20, NSEG = 18, R0 = 0.22, TUBE = 0.033, FLAT = 0.45;   // 20: ≤ 16 live + the 'done' ones kept 0.8 s for their break
 // done → the consequence, per kind: where the tesserae go (m, in the target's frame: x along the wall, y up, z into the room),
@@ -45,7 +45,9 @@ export function createTargets3D({ THREE, TSL, room }) {
   const restNow = PAL.wait.lin.light.slice();
   // the rest tone: the chapter's light tone on dark chapters; on light ones (Pinya, Tronc, crown, festa, bajada, acta) a light tone would
   // vanish into the wall, so the band is the light tone half-way to the chapter's shadow, and the disc behind darkens a little more
-  const restOf = (b) => { const c = chapter(b); return c.dark ? c.lin.light : c.lin.light.map((v, k) => v + (c.lin.shadow[k] - v) * 0.55); };
+  // on LIGHT chapters the band is a fired-earth ceramic (terracotta half-way to `ombra`): the contrast is a darker ring, never a dark hole
+  const EARTH = lin('terracota').map((v, k) => v + (lin('ombra')[k] - v) * 0.45);
+  const restOf = (b) => (chapter(b).dark ? chapter(b).lin.light : EARTH);
   const LIGHTK = uniform(0); let lightNow = 0;
   const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate));
   const ease3 = (k) => float(1).sub(float(1).sub(k).mul(float(1).sub(k)).mul(float(1).sub(k)));
@@ -81,7 +83,7 @@ export function createTargets3D({ THREE, TSL, room }) {
     {
       const d = uv().sub(0.5).mul(HALF * 2), r = length(d);
       const vis = smoothstep(0.15, 0.9, U.asm).mul(float(1).sub(U.burst)).mul(float(1).sub(U.subtle));
-      const shade = float(1).sub(smoothstep(R0 * 0.85, R0 * 1.8, r)).mul(LIGHTK.mul(0.16).add(0.36)).mul(vis);
+      const shade = float(1).sub(smoothstep(R0 * 0.85, R0 * 1.8, r)).mul(0.36).mul(float(1).sub(LIGHTK)).mul(vis);   // dark chapters only: on cal / porcelain no disc, the inside stays the wall
       const inside = float(1).sub(smoothstep(R0 - TUBE * 0.9, R0 - TUBE * 0.5, r));
       const level = float(-(R0 - TUBE)).add(U.charge.mul(2 * (R0 - TUBE)));
       const below = smoothstep(level.add(0.005), level.sub(0.005), d.y).mul(step(0.002, U.charge));
