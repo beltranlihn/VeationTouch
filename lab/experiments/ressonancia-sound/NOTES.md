@@ -278,5 +278,20 @@ artefacts, whether the pulse and the take really coincide in the room (computed,
 BroadcastChannel reach the output window? does a hidden audio window throttle the 25 ms timer?), a suspended context or a missing
 BroadcastChannel in practice (handled in code only), and the real 4.1 routing (today's map shares channels and has no sub).
 
+### Numerical checks of the night (25-11; nobody could listen — Beltrán and the director must)
+- **Voice per wall** (`/sound/ressonancia-sound`, rehearsal `say`): wall line −8 dBFS on its wall, −23 on the others; room line −11
+  on all four; floor of the wait −30.
+- **Pass at ×12 with 4 virtual hands, `?cuelog`** (87 cues reached in ~70 s): every block's title, the relay, the colla (brasa,
+  tronc, festa, baixada), the call and «Posad la mano» after 8 s, wallfull / next / pack / close / the structure's name, floors
+  2…7 on the busiest wall, the tower, handoff, arrived 0/1, breath, silence, l'aleta, ¡Coronado!, the festa's card, echo («Lanzad
+  una onda» → «Devolvedla» on the arrival wall), call, bloom, the baixada's line, the acta's print / outcome / final. At ×12 the
+  lines overlap, so many achievements were (correctly) left as text only; at ×1 they have room. Peak on a wall before the limiter:
+  −6 dBFS. No console errors.
+- **Mix with 15 virtual hands** (master chroma 60 Hz–4 kHz, 9 s per chapter; a flat noise floor alone scores ~58 % in a 7-note key,
+  so read these as «tonal energy mostly in key»): festa 87 % in B♭ (B♭ 50 % of the energy), pinya 72 % in A minor, baixada 72 %
+  in D, pom 69 % in C# (G# 28 %), tronc 66 % in D, brasa 54 % (its own bed carries C# / G#: by design of m-brasa). Wall peaks
+  −7 … −14 dBFS before the limiter (target ≤ −3). Not measured: the voice-over-rest ratio in 1–4 kHz while it speaks, and the
+  attack-to-grid timing — to be listened in the room.
+
 ## Requests to the studio
 See `ressonancia/NOTES.md`: audio samples (an exception to "no samples"), a channel between a visual piece and its sound piece.
