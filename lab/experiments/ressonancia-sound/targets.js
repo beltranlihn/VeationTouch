@@ -10,12 +10,13 @@
 //
 //   const TG = createTargets({ lengths, heights, masks, seed, emit });
 //   TG.offer({ mode, goal, need, walls, y: [0.9, 1.4], r: 0.22, charge: 0.5, hold: 0.5, grace: 0.8, pairs, kind, rungs, sides, chains, life, max });
-//   TG.place({ wall, dx, y, kind, life, chain });   // one explicit target (the echo's arrival, the wait's ring…), any mode
+//   TG.place({ wall, dx, y, kind, life, chain, dir });   // one explicit target (the echo's arrival, the wait's ring…), any mode
 //   TG.clear();                                      // no targets (a stage without them)
 //   TG.step(dt, strokes, n, now);                    // strokes = S.strokes ({ stroke, wall, dx, s, y }), n = S.n, now = S.clock
 //   TG.list      → S.targets: [{ id, wall, dx, s, y, r, kind, mode, state: 'idle'|'charging'|'active'|'done', charge 0..1, hold 0..1,
 //                               on (hands inside now), chain, link (its number in its chain), rung, side (−1 left of the wall's centre,
-//                               +1 right), pairOf (id | 0), bornAt, doneAt, life }]
+//                               +1 right), pairOf (id | 0), bornAt, doneAt, life, dir (placed ones: the way a wave travels along the
+//                               perimeter, +1 / −1; 0 = none) }]
 //   TG.progress  0..1 of the stage's goal · TG.reached (the goal was met) · TG.stats { done, links, ladders, together, byWall[], bySide[][2] }
 //   TG.need      the together-call's need now · TG.activeN  how many are active now
 //   events (through `emit`, else TG.drain()): 'tg:on:<id>' 'tg:charge:<id>' 'tg:active:<id>' 'tg:done:<id>' 'tg:off:<id>' (gone unused)
@@ -40,7 +41,7 @@
 // hands: nobody has to insist or repeat).
 
 export const TG = { r: 0.22, catch: 0.10, charge: 0.5, hold: 0.5, grace: 0.8, decay: 3, corner: 0.5, apart: 0.8, near: 1.2, person: 1.6,
-  pair: [0.6, 1.2], link: [0.8, 2.5], keepDone: 0.8, max: 16, drawn: 20, y: [0.9, 1.4], rungs: [0.9, 1.25, 1.6], kidRungs: [0.7, 1.05, 1.4] };
+  pair: [0.6, 1.2], link: [0.8, 2.5], keepDone: 0.8, max: 16, drawn: 20, holdGrace: 0.35, y: [0.9, 1.4], rungs: [0.9, 1.25, 1.6], kidRungs: [0.7, 1.05, 1.4] };
 
 export function createTargets(opt = {}) {
   const LEN = (opt.lengths && opt.lengths.length ? opt.lengths : [7.33, 6.483, 7.353, 6.411]).map((l) => (l > 0 ? l : 6.9));
@@ -67,6 +68,7 @@ export function createTargets(opt = {}) {
     if (y - r < 0.05 || y + r > HGT[w] - 0.05) return false;
     for (const m of MASK[w]) if (dx + r > m.dx0 && dx - r < m.dx1 && y + r > m.y0 && y - r < m.y1) return false;
     const s = sOf(w, dx), apart = spec && spec.apart > 0 ? spec.apart : TG.apart;
+    if (!opt.underHands) for (const h of handBuf) if (Math.hypot(cd(h.s, s), h.y - y) < r + TG.catch + 0.1) return false;   // never born under a resting hand: a hand has to come to it
     for (const t of list) {
       if (t.id === ignore) continue;
       const d = Math.hypot(cd(t.s, s), t.y - y), min = partner && t.id === partner ? TG.pair[0] : apart;
@@ -78,7 +80,7 @@ export function createTargets(opt = {}) {
   function make(w, dx, y, extra = {}) {
     const r = spec && spec.r > 0 ? spec.r : TG.r;
     const t = { id: ++idSeq, wall: w, dx, s: sOf(w, dx), y, r, kind: (spec && spec.kind) || extra.kind || '', mode: spec ? spec.mode : 'manual', state: 'idle',
-      charge: 0, hold: 0, on: 0, chain: 0, link: 0, rung: -1, side: dx < 0 ? -1 : 1, pairOf: 0, bornAt: now, doneAt: 0, life: 0, ...extra };
+      charge: 0, hold: 0, on: 0, chain: 0, link: 0, rung: -1, side: dx < 0 ? -1 : 1, pairOf: 0, bornAt: now, doneAt: 0, life: 0, dir: 0, ...extra };
     list.push(t); inner.set(t.id, { lost: 0, occ: -1, by: -1, kid: false, dir: 1 }); emit('tg:on:' + t.id);
     return t;
   }
@@ -98,7 +100,7 @@ export function createTargets(opt = {}) {
         else if (sg > 0 === dx > 0) { w = (w + (dx > 0 ? 1 : W - 1)) % W; dx = dx > 0 ? -(LEN[w] / 2 - TG.corner) : LEN[w] / 2 - TG.corner; }
         else dx = Math.sign(dx) * lim;
       }
-      const yy = clamp(y + (k ? (rnd() - 0.5) * 0.3 : 0), y0, y1);
+      const yy = k >= 8 ? (k % 2 ? y0 : y1) : clamp(y + (k ? (rnd() - 0.5) * 0.3 : 0), y0, y1);   // late tries: the band's edges (a crowd's hands block the middle)
       if (free(w, dx, yy, r, 0, partner)) return { w, dx, y: yy };
     }
     return null;
@@ -154,7 +156,7 @@ export function createTargets(opt = {}) {
     if (full()) recycle(true);
     if (full()) return null;
     const lim = LEN[p.wall] / 2 - TG.corner, dx = clamp(p.dx || 0, -lim, lim), y = clamp(p.y ?? 1.2, 0.3, HGT[p.wall] - 0.3);
-    return make(p.wall, dx, y, { kind: p.kind || (spec && spec.kind) || '', life: p.life || 0, chain: p.chain || 0, placed: true });
+    return make(p.wall, dx, y, { kind: p.kind || (spec && spec.kind) || '', life: p.life || 0, chain: p.chain || 0, dir: p.dir || 0, placed: true });
   }
   // when the room is full: an unused target nobody needs — not the last free one of its wall, and every person near it has another
   // one near her — the oldest first (force: any unused one)
@@ -197,8 +199,8 @@ export function createTargets(opt = {}) {
       const t = make(sp.w, sp.dx, yy, { chain: ++chainSeq, link: 0, rung: 0 }); ladderSeq++; inner.get(t.id).kid = R0 !== (spec.rungs || TG.rungs);
       return;
     }
-    let sp = spotNear(p.s, clamp(p.y, ...band()), 0.4, 0.9, 0, false) || spotNear(p.s, clamp(p.y, ...band()), 0.1, 1.15, 0, false);
-    if (!sp) { const a = spec.apart; spec.apart = 0.62; sp = spotNear(p.s, clamp(p.y, ...band()), 0.1, 1.15, 0, false); spec.apart = a; }   // a crowded spot: a little closer
+    let sp = spotNear(p.s, clamp(p.y, ...band()), 0.6, 1.1, 0, false) || spotNear(p.s, clamp(p.y, ...band()), 0.3, 1.15, 0, false);
+    if (!sp) { const a = spec.apart; spec.apart = 0.62; sp = spotNear(p.s, clamp(p.y, ...band()), 0.3, 1.15, 0, false); spec.apart = a; }   // a crowded spot: a little closer
     if (!sp) return;
     const t = make(sp.w, sp.dx, sp.y, m === 'chain' ? { chain: ++chainSeq, link: 0 } : {});
     if (m === 'chain') inner.get(t.id).dir = rnd() < 0.5 ? -1 : 1;
@@ -260,21 +262,24 @@ export function createTargets(opt = {}) {
         else if (t.state === 'active' && !together) { t.hold = Math.min(1, t.hold + dt / holdT); if (t.hold >= 1) finish(t, I); }
       } else {
         I.lost += dt;
+        // the HOLD forgives only the sensor's drops (holdGrace); the CHARGE is kept for grace s: a tap never completes a target
+        if (t.state === 'active' && I.lost > TG.holdGrace) { if (together) { if (I.lost > grace) t.state = 'charging'; } else { t.state = 'charging'; t.hold = 0; } }
         if (I.lost > grace) {
-          if (t.state === 'active') { t.state = 'charging'; t.hold = 0; }
           if (t.state === 'charging') { t.charge = Math.max(0, t.charge - dt / TG.decay); if (t.charge <= 0) t.state = 'idle'; }
         }
         if (t.life > 0 && t.state === 'idle' && now - t.bornAt >= t.life) { remove(t); continue; }
       }
     }
-    let active = 0; for (const t of list) if (t.state === 'active') active++;
+    let active = 0, heldNow = 0, heldTol = 0;
+    for (const t of list) if (t.state === 'active') { active++; const I = inner.get(t.id); if (t.on) heldNow++; if (t.on || I.lost <= TG.holdGrace) heldTol++; }
     api.activeN = active;
     if (!spec) { api.progress = 0; return api; }
     // 2. the goal
     if (together) {
       api.need = needOf();
       if (!api.reached) {
-        togetherT = active >= api.need ? togetherT + dt : Math.max(0, togetherT - dt * 2);
+        // the time held together counts only while the hands are there (a drop of ≤ holdGrace s pauses it; a tap's gap undoes it)
+        if (heldNow >= api.need) togetherT += dt; else if (heldTol < api.need) togetherT = Math.max(0, togetherT - dt * 2);
         let partial = 0; for (const t of list) if (t.state === 'charging') partial += t.charge;
         api.progress = clamp((Math.min(active + 0.5 * partial, api.need) / api.need) * 0.85 + 0.15 * (togetherT / holdT), 0, 1);
         if (togetherT >= holdT) {

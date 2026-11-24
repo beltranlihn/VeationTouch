@@ -51,13 +51,13 @@ for (const mode of ['field', 'together', 'chain', 'ladder']) for (const np of [1
     const R = mode === 'chain' ? 2.6 : mode === 'ladder' ? 1.7 : 1.2 + 0.3;
     for (const p of P) {
       const has = live(TG).some((t) => Math.abs(cd(t.s, p.s)) <= R);
-      if (!has) { worstPerson++; if (process.env.DBG) console.log(mode, np, i, p.s.toFixed(2), live(TG).length, TG.list.length); }
+      if (!has) { worstPerson++; if (process.env.DBG) console.log(mode, np, i, p.s.toFixed(2), live(TG).length, TG.list.length, i === 200 ? JSON.stringify({ hands: H.filter((h) => Math.abs(cd(h.s, p.s)) < 2.5).map((h) => [h.s.toFixed(2), h.y.toFixed(2)]), tg: live(TG).filter((t) => Math.abs(cd(t.s, p.s)) < 3).map((t) => [t.s.toFixed(2), t.y.toFixed(2), t.state, t.on]), reached: TG.reached }) : ""); }
     }
   }
   ok(worstWall >= 1, `${mode} ${np}p: a wall without a free target (min ${worstWall})`);
   ok(worstPerson === 0, `${mode} ${np}p: ${worstPerson} person-steps without a target near`);
   ok(maxN <= 16 && maxD <= 20, `${mode} ${np}p: ${maxN} alive (≤ 16), ${maxD} drawn (≤ 20)`);
-  if (mode === 'field') { const want = Math.min(16, Math.max(4, Math.ceil(0.75 * n) + 4)); ok(live(TG).length >= Math.min(want, 16) - 1, `field ${np}p: ${live(TG).length} alive, want ~${want}`); }
+  if (mode === 'field') { const want = Math.min(16, Math.max(4, Math.ceil(0.75 * n) + 4)); ok(live(TG).length >= Math.min(want, 16) - 3, `field ${np}p: ${live(TG).length} alive, want ~${want}`); }
 }
 
 // 2. a hand on a target: charge in 0.5 s, active, done after 0.5 s more; the sensor drops it 0.6 s mid-charge: the charge is kept
@@ -92,6 +92,20 @@ for (const mode of ['field', 'together', 'chain', 'ladder']) {
     done += TG.drain().filter((e) => e.startsWith('tg:done') || e === 'tg:goal').length;
   }
   ok(done === 0, `strikes only (${mode}): ${done} targets completed`);
+}
+
+// 3b. a fast tapper on ONE target (0.25 s down, 0.6 s up: inside the charge's grace) never completes it, nor a together call
+for (const mode of ['manual', 'together']) {
+  const TG = createTargets({ lengths: LEN, seed: 6 });
+  TG.offer({ mode, need: 1 });
+  const t = mode === 'manual' ? TG.place({ wall: 1, dx: 0, y: 1.2 }) : null;
+  let clock = 0, done = 0;
+  for (let k = 0; k < 40 * 20; k++) {
+    clock += DT; const tt = t || live(TG)[0];
+    const hs = clock % 0.85 < 0.25 && tt ? [{ stroke: 1, wall: tt.wall, dx: tt.dx, s: tt.s, y: tt.y }] : [];
+    TG.step(DT, hs, 1, clock); done += TG.drain().filter((e) => e.startsWith('tg:done') || e === 'tg:goal').length;
+  }
+  ok(done === 0, `fast tapper (${mode}): ${done} completed`);
 }
 
 // 4. no monopoly: A holds a target; B stands 0.9 m from it with nothing else near → B gets her own within 1.2 m
