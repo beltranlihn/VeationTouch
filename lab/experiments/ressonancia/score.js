@@ -439,9 +439,10 @@ export function createScore(nWalls, opt = {}) {
       a.sort((p, q) => (p.dx || 0) - (q.dx || 0));
       let best = 0, bestN = 0, bestX = 0, total = 0;
       for (const h of a) total += h.size > 0 ? h.size : T.hand.size;
-      for (let i = 0, j = 0, sum = 0; i < a.length; i++) {           // the densest window of T.hand.span metres
+      const spanWin = clamp(T.hand.span + 0.25 * (a.length - 4), T.hand.span, 4.5);   // 25-11 (A5): 2 m, wider with a crowd (to 4.5 m)
+      for (let i = 0, j = 0, sum = 0; i < a.length; i++) {           // the densest window
         sum += a[i].size > 0 ? a[i].size : T.hand.size;
-        while ((a[i].dx || 0) - (a[j].dx || 0) > T.hand.span) { sum -= a[j].size > 0 ? a[j].size : T.hand.size; j++; }
+        while ((a[i].dx || 0) - (a[j].dx || 0) > spanWin) { sum -= a[j].size > 0 ? a[j].size : T.hand.size; j++; }
         if (sum > best) { best = sum; bestN = i - j + 1; bestX = ((a[i].dx || 0) + (a[j].dx || 0)) / 2; }
       }
       S.span[w] = best; spanN[w] = bestN; spanTotal[w] = total; S.packX[w] = bestX;
@@ -527,47 +528,50 @@ export function createScore(nWalls, opt = {}) {
       } else if (S.phase === 'reward') { S.progress = 1; if (S.tp >= B.reward) go('pinya'); }
     } else if (S.block === 'pinya') {
       if (playing) {
-        // II. Pinya = GATHER (24-11, plan step 4): palm to palm, then the figures slide to the wall's centre and the hands follow them;
-        // a wall fills by how PACKED its hands are (their width inside the densest 2 m, against what the group should show there, times
-        // the share of the wall's hands inside that window), not by time. From B.net s the crowd of light closes the gap (assist).
+        // II. Pinya = GATHER (25-11, D3b/D8, plan 05 A2/A5/A6/B2). PALM: palm-targets — holding one, a figure puts her weight on you
+        // ('palm'); then PACK: the hands gather toward the wall's centre and the wall fills by how packed they are (the window widens
+        // with the crowd: clamp(2 + 0.25 × (hands − 4), 2, 4.5) m). The STRUCTURE = the walls FILLED during the block (one after the other
+        // counts: one person who fills two walls makes a torre), at least one. It closes when the walls asked NOW (needNow = clamp(walls
+        // with hands, 1, needWalls)) have been filled and a filled wall is held for B.hold s. From B.net s the colla closes the gap (named).
         S.pinyaStage = S.t < B.palm ? 'palm' : 'pack';
-        if (downs && now - palmAt > 0.3) { palmAt = now; emit('palm'); }
-        S.assist = clamp((S.tp - B.net) / 10, 0, 1);
+        if (S.pinyaStage === 'palm') { if (!offered) { offer({ mode: 'field', kind: 'palm', pairs: true }); offered = true; } for (const t of tgDone) emit('palm'); }
+        else if (offered) { TG.clear(); offered = false; }
+        let filled0 = 0, hands0 = 0; for (let w = 0; w < W; w++) { if (fullOnce[w]) filled0++; if (S.count[w]) hands0++; }
+        S.assist = filled0 >= clamp(hands0, 1, S.needWalls) ? 0 : clamp((S.tp - B.net) / 10, 0, 1);   // the colla only while the walls asked are not filled yet
         let packedHands = 0;
         for (let w = 0; w < W; w++) {
-          // packed = most of THIS wall's hands (≥ 80 %, at least one) inside its densest 2 m window, and that window near the wall's centre
-          // (where the palms lead): one hand that followed its palm packs its wall; a group spread along the wall does not
-          const frac = S.count[w] ? spanN[w] / S.count[w] : 0, near = clamp(1 - (Math.abs(S.packX[w]) - B.nearFull) / Math.max(0.05, B.nearZero - B.nearFull), 0, 1);   // full to 1.8 m from the centre, 0 at 3 m
+          const nf = Math.max(B.nearFull, LEN[w] / 2), nz = Math.max(B.nearZero, nf + 0.5);
+          const frac = S.count[w] ? spanN[w] / S.count[w] : 0, near = clamp(1 - (Math.abs(S.packX[w]) - nf) / Math.max(0.05, nz - nf), 0, 1);
           S.pack[w] = S.count[w] >= 1 ? clamp((frac - 0.5) / 0.3, 0, 1) * near : 0;
           const wasPacked = S.packed[w]; S.packed[w] = S.pack[w] >= 0.9 || (wasPacked && S.pack[w] >= 0.75);
           if (S.packed[w] && !wasPacked) emit('pack:' + w);
           if (S.packed[w]) packedHands += spanN[w];
         }
         if (S.hands && packedHands >= S.hands / 2) learn('pinya');
-        let full = 0, fullHeld = 0;
         for (let w = 0; w < W; w++) {
           const before = S.fill[w], r = B.pack, k = Math.max(clamp((S.pack[w] - r[0]) / (r[1] - r[0]), 0, 1), S.count[w] ? S.assist * 0.6 : 0);
           S.fill[w] = S.count[w] > 0 && k > 0 ? Math.min(1, S.fill[w] + (dt / B.fill) * k) : Math.max(0, S.fill[w] - dt / 40);
-          if (before < 1 && S.fill[w] >= 1) { emit('wall:' + w); if (!fullOnce[w]) { fullOnce[w] = true; achieve('wallfull', S.fill.filter((f) => f >= 1).length, w, S.assist > 0 ? 'colla' : 'group'); } }
-          if (S.fill[w] >= 1) { full++; if (S.held[w]) fullHeld++; }
+          if (before < 1 && S.fill[w] >= 1) { emit('wall:' + w); if (!fullOnce[w]) { fullOnce[w] = true; achieve('wallfull', fullOnce.filter(Boolean).length, w, S.assist > 0 ? 'colla' : 'group'); } }
         }
-        let withHands = 0; for (let w = 0; w < W; w++) if (S.count[w]) withHands++;
-        const needNow = withHands === 1 ? 1 : S.needWalls;   // the whole group on one wall (or one person): that wall closes the circle
-        holdAll = fullHeld >= needNow ? holdAll + dt : Math.max(0, holdAll - dt * 2);
+        let withHands = 0, filled = 0, heldFull = false;
+        for (let w = 0; w < W; w++) { if (S.count[w]) withHands++; if (fullOnce[w]) filled++; if (fullOnce[w] && S.held[w] && S.fill[w] >= 0.6) heldFull = true; }
+        const needNow = clamp(withHands, 1, S.needWalls);
+        holdAll = filled >= needNow && heldFull ? holdAll + dt : Math.max(0, holdAll - dt * 2);
         S.closed = clamp(holdAll / B.hold, 0, 1);
         const top = S.fill.slice().sort((a, b) => b - a).slice(0, needNow).reduce((a, b) => a + b, 0) / needNow;
-        S.progress = clamp(top * 0.8 + S.closed * 0.2, 0, 1);
-        if (S.tp > 20 && full < needNow) hint('more'); else if (full >= needNow && S.closed < 1 && S.tp > 30) hint('hold');
+        S.progress = clamp(Math.max(top, Math.min(1, filled / needNow)) * 0.8 + S.closed * 0.2, 0, 1);
+        if (S.tp > 20 && filled < needNow) hint('more'); else if (filled >= needNow && S.closed < 1 && S.tp > 30) hint('hold');
         const timeUp = S.t >= B.max - B.reward;
         if ((S.closed >= 1 && S.t >= B.min) || timeUp) {
-          // the structure: the walls the group holds (at least the two fullest)
-          const rank = S.fill.map((f, w) => [f + (S.held[w] ? 1 : 0), w]).sort((a, b) => b[0] - a[0]);
-          const n = clamp(Math.max(needNow, timeUp ? 0 : fullHeld), needNow < 2 ? 1 : Math.min(2, W), W);   // one wall = a pilar
-          S.walls = zeros(false); for (let i = 0; i < n; i++) S.walls[rank[i][1]] = true; S.structure = n;
+          // the structure: the walls filled (at least the fullest one)
+          S.walls = zeros(false); let n = 0;
+          for (let w = 0; w < W; w++) if (fullOnce[w]) { S.walls[w] = true; n++; }
+          if (!n) { let bw = 0; for (let w = 1; w < W; w++) if (S.fill[w] > S.fill[bw]) bw = w; S.walls[bw] = true; n = 1; }
+          S.structure = n;
           fillSpeed = clamp(1 - (S.t - B.min) / (B.max - B.min), 0, 1);
           const byG = S.closed >= 1 && !pinyaHelped && S.assist <= 0;
           S.result.pinya = { n: S.structure, by: byG ? 'group' : 'colla' }; S.castell.structure = S.structure;
-          S.closed = 1; emit('close'); achieve('close', S.structure, -1, byG ? 'group' : 'colla'); phase('reward');
+          S.closed = 1; TG.clear(); emit('close'); achieve('close', S.structure, -1, byG ? 'group' : 'colla'); phase('reward');
         }
       } else if (S.phase === 'reward') { S.progress = 1; if (S.tp >= B.reward) { beatT = 0; evalAt = 0; phraseClock = 0; wobbles = 0; S.wobble = 0; S.wobbleWall = -1; S.phrase = 'gather'; go('tronc'); } }
     } else if (S.block === 'tronc') {
