@@ -9,17 +9,18 @@ export function create({ THREE, TSL, room, params }) {
   const object = new THREE.Group(); object.name = 'bodies';
   const kit = createBodies({ THREE, TSL, room, max: 24 });
   object.add(kit.object);
-  const R = room.lightRecipe({ warm: 0xFFE4C4, cool: 0x9FB4D8, key: 2.6, fill: 0.16 });
-  object.add(R.group);
+  const K0 = kit.uniforms.key.value.clone();
+  // no light of its own: the bodies are self-lit (as in the work); the floor is a basic gradient
   // the floor: warm lime (cal-foc), lit by the recipe; a soft darkening far away so the horizon is not a hard line
   const lin = (h) => new THREE.Color(h);
-  const floorMat = new THREE.MeshStandardNodeMaterial({ color: lin(0xE6D6BC), roughness: 0.85, metalness: 0 });
+  const floorMat = new THREE.MeshBasicNodeMaterial();
   { const { positionWorld, length, smoothstep, mix, vec3, float } = TSL;
     const d = length(positionWorld.xz), far = smoothstep(6, 26, d);
-    floorMat.colorNode = mix(vec3(0.79, 0.67, 0.5), vec3(0.42, 0.3, 0.22), far); }
+    // night (25-11): a dark stone floor with a warm pool of light round each wall's bodies
+    floorMat.colorNode = mix(vec3(0.045, 0.04, 0.045), vec3(0.012, 0.016, 0.03), far); }
   const floor = new THREE.Mesh(new THREE.CircleGeometry(40, 96).rotateX(-Math.PI / 2), floorMat); floor.name = 'bodies:floor';
   object.add(floor);
-  room.setBackground?.({ bottom: [0.62, 0.5, 0.38], top: [0.16, 0.2, 0.3] });
+  room.setBackground?.('pinya');
 
   const slots = [];
   room.walls.forEach((w, wi) => {
@@ -46,7 +47,7 @@ export function create({ THREE, TSL, room, params }) {
     update(dt, input) {
       place(dt);
       kit.uniforms.crack.value = P.crack ?? 0.35; kit.uniforms.rim.value = P.rim ?? 0.55;
-      R.key.intensity = 2.6 * (P.light ?? 1);
+      kit.uniforms.key.value.copy(K0).multiplyScalar(P.light ?? 1);
       floor.visible = P.floor !== false;
       // a hand: the nearest body on that wall offers its palm (pose blend toward 'palm')
       for (const s of slots) touched.set(s, Math.max(0, (touched.get(s) || 0) - dt * 0.6));

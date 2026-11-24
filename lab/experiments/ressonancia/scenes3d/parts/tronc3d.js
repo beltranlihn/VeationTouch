@@ -51,6 +51,11 @@ export function create(ctx) {
   const object = new THREE.Group(); object.name = 'tronc3d';
   const world = new THREE.Group(); object.add(world);              // the room's rise moves this group (the towers)
   const lone = () => !!ctx.parts && Object.keys(ctx.parts).length === 0;   // fall3d's private tower (parts: {}): floors only
+  // 25-11 framing (director): the castell at HUMAN scale, close — its pinya on the floor of the square, the floor line low on the wall,
+  // the forming floor in the reach band (1.0–2.0 m on the wall); the room rises with it (M6). fall3d's private tower keeps the old frame.
+  const OLD = lone() || P.towerScale === 2.5;
+  const SC = P.towerScale ?? (OLD ? 2.5 : 1.0), TOWER_D = P.towerD ?? (OLD ? 6.5 : 2.3);
+  const FORM_Y = OLD ? 4.3 : 1.35, FORM_Y0 = OLD ? 4.3 : 1.45;
 
   // -------------------------------------------------------------------------------------------- shared uniforms
   const uTime = uniform(0), uGain = uniform(1), uDecor = uniform(1), uAway = uniform(0), uLeave = uniform(0);
@@ -506,17 +511,19 @@ export function create(ctx) {
         const shown = c.lv === 0 || (S.shown && !S.taken && (S.solid > 0.001 || S.forming || S.goneT >= 0));
         if (!shown || (S.goneT >= 1.6)) { kit.hide(i); continue; }
         // a floor that forms climbs into place with the lift; one that slips drops and goes
-        let dy = 0;
-        if (c.lv > 0 && S.forming && S.solid < 1) dy = -(1 - (S.lift * 0.7 + S.solid * 0.3)) * 1.1;
-        if (S.goneT >= 0) dy = -4.9 * S.goneT * S.goneT;
+        // particles: a forming floor ASSEMBLES from streams (with the lift), a slipping one falls as dust; no body moves as a block
+        let dy = 0, form = 1, fmode = 'gather';
+        if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, S.lift * 0.75 + S.solid * 0.5); dy = -(1 - form) * 0.15; }
+        if (S.goneT >= 0) { form = Math.max(0, 1 - S.goneT / 1.4); fmode = 'dust'; }
+        if (c.lv === 0) form = 0.85 + 0.15 * Math.sin(time * 0.4 + c.x * 3 + c.z * 2);   // the pinya's mass breathes
         const lx = c.x * SC, ly = (c.y + dy) * SC, lz = c.z * SC;
         const tx = lx * ct - ly * st, ty = lx * st + ly * ct;                       // the lean (tower frame, about its z)
         _bp.set(t.g.position.x + cp * tx + sp * lz, ty, t.g.position.z - sp * tx + cp * lz);
         const away = uAway.value;
-        if (away > 0.001) _bp.y -= away * away * 6 * (c.lv + 1) * 0.4;                   // arrive / leave: the tiers sink in order
+        // arrive / leave: the particles gather / scatter (form below), no block movement
         const pose2 = c.enx ? (crowned ? 'raise' : 'stand') : c.pose;
         kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw, pose: c.pose === 'lock' && c.lv > 0 && S.forming && S.solid < 0.5 ? 'carry' : c.pose, pose2, mix: c.enx ? (crowned ? 1 : 0) : 1,
-          scale: c.s * SC, build: c.build, glow: S.flash * 0.6 + (c.enx && crowned ? 0.5 : 0), tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
+          form: form * (1 - uAway.value), fmode, lod: c.lv > 0 ? 'near' : 'far', scale: c.s * SC, build: c.build, glow: S.flash * 0.6 + (c.enx && crowned ? 0.5 : 0), tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
       }
     }
     for (let i = n; i < kit.count; i++) kit.hide(i);
@@ -853,7 +860,7 @@ export function create(ctx) {
     labGeo.dispose(); tickGeo.dispose(); lineGeo.dispose();
   }
   const api = {
-    object, update, setParams, dispose, impacts, setMode, kit,
+    object, update, setParams, dispose, impacts, setMode, kit, towerD: TOWER_D, scale: SC,
     get rise() { return rise; },
     collapse, restore, takeFloor, giveFloor, levels,
     get collapsing() { return { on: col.on, t: col.t, mode: col.mode, duration: col.dur }; },
