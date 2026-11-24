@@ -377,6 +377,11 @@ const thread = (() => {
 // visible only for the synchronous part of compileAsync (no frame sees them). Cheap when already compiled.
 const NEXT = { wait: ['intro'], intro: ['brasa'], brasa: ['pinya'], pinya: ['tronc'], tronc: ['pom'], pom: ['crown', 'fall'], crown: ['festa'], festa: ['baixada'], baixada: ['fall', 'acta'], fall: ['acta'], acta: ['wait'] };
 const prewarm = { block: '', busy: false };
+// the background light-set warm-up (warmSetsLater, below): running from the first frame until it ends; `done` resolves then (lab scripts:
+// `await __obra.warm.done` before jumping, or the picture waits for it)
+let warmEnd = () => {};
+const warmLater = { running: P.warmSets !== false && room.backend === 'webgpu', held: '', done: null };
+warmLater.done = warmLater.running ? new Promise((r) => { warmEnd = r; }) : Promise.resolve();
 function prewarmNext() {
   if (prewarm.busy || prewarm.block === S.block || tr.on || S.t < 1.5) return;
   prewarm.block = S.block; prewarm.busy = true;
@@ -414,13 +419,18 @@ function frame(dt) {
     frameEvents.push(...link.events.splice(0));
   } else { score.step(dt * (P.pace || 1), scoreHands); frameEvents.push(...S.events); S.events.length = 0; }
   if ((time - actaAt > 0.5 || S.block !== lastBlock) && S.block !== 'wait' && S.block !== 'intro') { actaAt = time; acta = link.acta && following() ? link.acta : score.acta(); }   // kept through the wait: the acta leaving must not read a reset score
-  const changed = S.block !== lastBlock && lastBlock !== '', fromBlock = lastBlock;
-  if (S.block !== lastBlock) {
+  // Studio 24-11 (T-057 race): while the light sets warm up in the background (≤ ~10 s after load), a part shown for the first time
+  // raced the async compile of its own bindings (console: «writeBuffer … not of type GPUBuffer») and stalled ~2.5 s. A jump (Go to)
+  // in that window changes the score at once (the sound follows) but the PICTURE holds the block it shows until the warm-up ends.
+  const VB = warmLater.running && lastBlock !== '' ? lastBlock : S.block;
+  if (VB !== S.block && warmLater.held !== S.block) { warmLater.held = S.block; console.info(`res-obra3d: «${S.block}» is shown once the light-set warm-up ends (the score is already there)`); }
+  const changed = VB !== lastBlock && lastBlock !== '', fromBlock = lastBlock;
+  if (VB !== lastBlock) {
     prevBlock = lastBlock;
-    try { room.setEnvironment?.(S.block); } catch (err) { console.info('res-obra3d: setEnvironment skipped (' + err.message + ')'); }   // RND-F: the shared envMap per block (HDRI / tint), re-baked in place
-    room.setBackground?.(S.block);                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
-    if ((S.block === 'wait' || S.block === 'intro') && parts.baixada3d?.part.releaseTronc) { try { parts.baixada3d.part.releaseTronc(); } catch (err) { console.info('res-obra3d: releaseTronc skipped (' + err.message + ')'); } }   // 3D-PO: a new pass gives the tower's floors back to tronc3d
-    if (S.block === 'fall') {
+    try { room.setEnvironment?.(VB); } catch (err) { console.info('res-obra3d: setEnvironment skipped (' + err.message + ')'); }   // RND-F: the shared envMap per block (HDRI / tint), re-baked in place
+    room.setBackground?.(VB);                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
+    if ((VB === 'wait' || VB === 'intro') && parts.baixada3d?.part.releaseTronc) { try { parts.baixada3d.part.releaseTronc(); } catch (err) { console.info('res-obra3d: releaseTronc skipped (' + err.message + ')'); } }   // 3D-PO: a new pass gives the tower's floors back to tronc3d
+    if (VB === 'fall') {
       fallSet = ['atmos']; for (const n of ['plaza', 'castell', 'tronc3d']) if (parts[n] && (parts[n].state === 'on' || parts[n].state === 'in')) fallSet.push(n);   // tronc3d: fall3d (3D-PI) calls its collapse()
       const F = parts.fall3d, C = parts.castell;
       if (F) {
@@ -433,16 +443,16 @@ function frame(dt) {
         }                                       // from the pom (intent): fall3d arrives as usual (it assembles the group's castell) while pom3d leaves
       }
     }
-    lastBlock = S.block;
+    lastBlock = VB;
   }
 
   // who comes, who goes
-  const W = wanted(S.block);
+  const W = wanted(VB);
   const tk = tr.on && P.tiles !== false ? room.tiles.mix.value : -1;
   for (const e of list) {
     if (W.includes(e.name)) {
-      if (e.home !== S.block) { e.home = S.block; e.fallK = 0; }
-      if (e.state === 'off') { for (const l of e.lights) l.visible = true; placeRig(e.rig, 0, tr.mv); e.state = 'in'; e.came = true; e.arrive = 0; e.leave = 0; e.clock = 0; steadyOn(e); e.wait = S.block === 'baixada' && prevBlock === 'festa' ? 0.9 : 0; e.part.object.visible = true; }   // festa→baixada: the festa is dark by ~1.5 s, the bajada starts at 0.9 s so the two cross
+      if (e.home !== VB) { e.home = VB; e.fallK = 0; }
+      if (e.state === 'off') { for (const l of e.lights) l.visible = true; placeRig(e.rig, 0, tr.mv); e.state = 'in'; e.came = true; e.arrive = 0; e.leave = 0; e.clock = 0; steadyOn(e); e.wait = VB === 'baixada' && prevBlock === 'festa' ? 0.9 : 0; e.part.object.visible = true; }   // festa→baixada: the festa is dark by ~1.5 s, the bajada starts at 0.9 s so the two cross
       else if (e.state === 'out') { e.state = 'in'; e.came = true; e.arrive = 1 - e.leave; e.leave = 0; }
     } else if (e.state === 'on' || e.state === 'in') { e.leave = 1 - e.arrive; e.arrive = 1; e.state = 'out'; e.outAt = time; e.came = false; }   // came: a part arriving in an unfinished transition must not stay in the 'in' world (RND-F 24-11: else it is in neither)
     // while the tiles carry a change, the slabs must carry IMAGES: the new world assembles fast (it is revealed slab by slab) and the old
@@ -453,7 +463,7 @@ function frame(dt) {
   }
 
   if (changed) {
-    if ((P.tiles !== false || P.eye !== false) && list.some((e) => e.state === 'out')) startTransition(fromBlock, S.block);
+    if ((P.tiles !== false || P.eye !== false) && list.some((e) => e.state === 'out')) startTransition(fromBlock, VB);
     else if (!tr.on) for (const e of list) e.came = false;
   }
   stepTransition(dt);
@@ -558,7 +568,7 @@ async function warmUp() {
 }
 lt('pre-warmup'); try { await warmUp(); } catch (err) { console.info('res-obra3d: warm-up skipped (' + err.message + ')'); }
 
-window.__obra = { load: LT, tr, pal, score, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
+window.__obra = { load: LT, tr, pal, score, warm: warmLater, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
 lt('loop'); vt.loop(frame, canvas);
 
 // T-057 (warmSets): the light sets the load did not draw, compiled in the background while the wait plays (~2.5 s each on the M1 Max;
@@ -567,7 +577,10 @@ lt('loop'); vt.loop(frame, canvas);
 // scene is shown / the lights set only for the synchronous part of the call (no frame sees it). Pipelines and shaders are shared by
 // every camera and target with the same format, so the walls' real frames find them built.
 async function warmSetsLater() {
-  if (P.warmSets === false || room.backend !== 'webgpu') return;   // WebGL2: its compiles block the main thread (a 200 ms hitch in the wait): as before
+  if (!warmLater.running) return;   // warmSets false, or WebGL2 (its compiles block the main thread: a 200 ms hitch in the wait): as before
+  // a block other than the wait already on screen (a Go to stored in the profile, applied at load): its parts must not be warmed
+  // under it (the race above). Skipped: the sets compile when first seen, as before T-057
+  if (lastBlock && lastBlock !== 'wait') { warmLater.running = false; warmEnd(); console.info(`res-obra3d: light-set warm-up skipped (the page started in «${lastBlock}»)`); return; }
   const t0 = performance.now(), cam = room.walls[0].camera.clone();
   const lit = (o) => o.isLight && !o.isDirectionalLight && !o.isHemisphereLight;
   const carriers = list.filter((e) => { let n = 0; e.part.object.traverse((o) => { if (lit(o) && o.layers.test(cam.layers)) n++; }); return n > 0; });
@@ -594,4 +607,4 @@ async function warmSetsLater() {
     console.info(`res-obra3d: warmed ${order.length + 1} light sets (${carriers.map((e) => e.name).join(', ') || 'none'}), ${Math.round(performance.now() - t0)} ms in the background`);
   } finally { prewarm.busy = false; }
 }
-setTimeout(() => { warmSetsLater().catch((err) => console.info('res-obra3d: light-set warm-up skipped (' + err.message + ')')); }, 500);
+setTimeout(() => { warmSetsLater().catch((err) => console.info('res-obra3d: light-set warm-up skipped (' + err.message + ')')).finally(() => { warmLater.running = false; warmEnd(); }); }, 500);

@@ -92,6 +92,16 @@ None here: `ressonancia-sound` leads the score when it runs (BroadcastChannel `r
 it this page runs its own score.
 
 ## Status and tests
+- **Jump during the light-set warm-up (studio, 2026-11-24, Windows dev PC).** The T-057 background warm-up (`warmSetsLater`) runs
+  ~10 s after the loop starts. A jump in that window (Go to right after Play, or a lab script) made a part render for the first time
+  while the async compile was building its bindings: console `TypeError: Failed to execute 'writeBuffer' on 'GPUQueue'` (three.js
+  `updateBinding`) and a ~2.3 s freeze (Pom; the freeze also happens with warmSets off: cold light sets). Now the score (and the
+  sound) jump at once, but the PICTURE holds the block it shows until the warm-up ends (`VB` in `frame()`; console says so); if
+  the page starts in a block other than the wait (a Go to stored in the profile), the warm-up is skipped. Measured: jump to Pom
+  0.1 s after load → no error, Pom shown at ~11 s, worst frame after it 42 ms; after the warm-up, jumps cost ≤ 120 ms (Pom 117,
+  Brasa 22, festa 30). Lab scripts: `await __obra.warm.done` before jumping. **Still open:** the warm-up's first step blocks the
+  main thread ~3.3 s about 0.5 s after the wait appears (none with warmSets off) — harmless before the audience arrives; decide in
+  the room (`warmSets` stays on).
 - `review.html`: the 3D work alone with the virtual audience (`../res-obra/autopilot.js`), two-row view from the canvas stream, timeline,
   the harness volume fader; `?people=`, `&from=`, `&q3=`, `&params={"pace":4}`.
 - Smoke (2026-11-23, M1 Max, WebGPU, quality low, hidden Electron window): every block reached by jumps in two runs with no console
