@@ -67,7 +67,7 @@ function linesPlay(S, acta, learned, warn) {
   if (b === 'pinya') return S.phase === 'reward' || learned ? {} : { line: [S.pinyaStage === 'pack' ? CT('stage:pinya:pack') : CT('title:pinya'), ''] };
   if (b === 'tronc') {
     if (S.phase === 'reward') return {};
-    const fl = S.floors ? FLOOR_NAMES[S.floors - 1] : '';
+    const fl = '';   // 25-11: the floor's name is the achievement layer's (it rises with the tower); no label over the consigna
     if (S.wobble > 0) return { line: [CT('wobble'), fl] };            // the tower trembles: hands to its foot
     if (S.focus && S.focus.kind === 'lean') return { line: [CT('ach:lean'), fl] };
     return { line: [learned ? '' : CT('title:tronc'), fl] };
@@ -82,7 +82,7 @@ function linesPlay(S, acta, learned, warn) {
   // the acta's wall line («Dejad vuestra mano», 3–15 s) is drawn by parts/actatext (it sits under the castell, the ring of prints round it)
   if (b === 'crown') return S.t > 3 && S.t < 14 ? { card: ['V', 'Coronado', acta?.castell || "L'aleta"] } : {};
   if (b === 'festa') return S.t < 7 ? { card: ['', CT('block:festa'), ''] } : S.festaStage === 'echo' ? { line: [S.focus && S.focus.kind === 'echo' ? CT('focus:echo') : CT('stage:festa:echo'), ''] } : S.festaStage === 'call' ? { line: [CT('stage:festa:call'), ''] } : {};
-  if (b === 'baixada') return { line: [learned ? '' : CT('block:baixada'), S.floors ? FLOOR_NAMES[S.floors - 1] : ''] };   // the floors' names going down
+  if (b === 'baixada') return { line: [learned ? '' : CT('block:baixada'), ''] };   // the floors' names go down in the achievement layer
   if (b === 'fall') return S.t > 2 ? { card: ['', 'Ha caído', 'Quedan las brasas'] } : {};
   return {};
 }

@@ -14,7 +14,7 @@
 // transform, Felzenszwalb & Huttenlocher — the method of tiny-sdf), so they are crisp at any size on the 7196 × 912 room and can be
 // thinned or haloed in the shader. Each glyph is an instance of a 4 × 4 grid of tiles; the motion lives in the vertex shader:
 //   arrive (asm 0 → 1): tiles fly in from scattered offsets in front of the wall, turning, and lock into the letter, left to right
-//                       with a little chance; the tracking opens from tight to its final width; bright and iridescent in flight
+//                       with a little chance; the tracking opens from tight to its final width; a little brighter in flight (ink only)
 //   sweep:              a band of warm light crosses the words once they stand (and again, softly, every few seconds)
 //   leave (out 0 → 1):  the tiles break off, drift up and apart, turning, and thin out
 //   T-048 (ARTE-3 §3): item.reveal = 'blur' — no tiles: each WORD comes from out of focus to sharp, 60 ms after the previous one
@@ -221,12 +221,12 @@ function makeMaterial(U, a, lag, flash) {
   const aa = max(fwidth(d).mul(0.75), float(0.004)).add(vBlur);
   const ink = smoothstep(vEdge.sub(aa), vEdge.add(aa), d).mul(step(0.0, vMask)).mul(float(1).sub(vBlur.mul(1.4)));   // out of focus: wider and fainter
   const halo = smoothstep(0.25, vEdge, d).mul(U.halo).mul(step(0.0, vMask));
-  // the one luxury: a thin-film sweep across the words as they stand (and the iridescence of the tiles in flight)
+  // the sweep across the words as they stand and the tiles in flight only BRIGHTEN THE INK itself (director 25-11: no iridescence,
+  // no colour that is not the chapter's ink or the achievement's gold)
   const sw = vOrd.sub(U.sweep), glow = exp(sw.mul(sw).mul(-260.0)).mul(U.sweepK);
-  const iri = vec3(0.5).add(vec3(0.5).mul(cos(vec3(0.0, 0.33, 0.67).add(vOrd.mul(0.8)).add(uTime.mul(0.12)).mul(6.2831853))));
   // T-048: «la mano es una linterna» — the words brighten a little near a hand (room.flash), never past the bloom threshold
   const lamp = flash ? flash(TSL.positionWorld).mul(0.22) : float(0);
-  const col = vCol.mul(lamp.add(1)).add(iri.mul(glow).mul(0.45)).add(iri.mul(vFl).mul(0.9));
+  const col = vCol.mul(lamp.add(1).add(glow.mul(0.25)).add(vFl.mul(0.35)));
   m.colorNode = col.mul(ink).mul(vVis).mul(a);
   m.opacityNode = max(ink, halo).mul(vVis).mul(a);
   return m;
