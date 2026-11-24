@@ -28,6 +28,7 @@ import { createRoom3D } from '../ressonancia/scenes3d/room3d.js';
 import { createScore, TIMES } from '../ressonancia/score.js';
 import { createGuide } from '../ressonancia/scenes3d/guide3d.js';
 import { setSink, canEmit } from '../ressonancia/scenes3d/emit.js';
+import { createTargets3D } from '../ressonancia/scenes3d/targets3d.js';   // 05-plan §2.6: the hold-targets of S.targets, drawn
 import { overrides as tuneOverrides, applyTimes } from '../ressonancia/tuning.js';   // T-052: the score's thresholds as live params
 
 const vt = await connectExperience();
@@ -95,7 +96,8 @@ const has = (n) => !!parts[n];
 function steadyOff(e) { for (const l of e.steady) { if (l.intensity > 0) l.userData.hostIntensity = l.intensity; l.intensity = 0; } }
 function steadyOn(e) { for (const l of e.steady) if (l.intensity === 0 && l.userData.hostIntensity != null) l.intensity = l.userData.hostIntensity; }
 lt('parts'); const guide = createGuide({ THREE, TSL, room, fine: LAB && q.get('fine') === '1' });   // lab ?fine=1: the instrument graphics (rulers, «P4», «1,25 m»); never in the room
-room.overlay.add(guide.object);   // T-028: the guide is drawn over the final image (after the tiles: the words never break); its materials are depthTest-free
+room.overlay.add(guide.object);
+const targets3d = createTargets3D({ THREE, TSL, room }); room.overlay.add(targets3d.object);   // over the image, like the guide (the rules: ../ressonancia/targets.js)   // T-028: the guide is drawn over the final image (after the tiles: the words never break); its materials are depthTest-free
 // compile every material once, now, so a universe arriving later does not stall the room
 // T-057 (prewarmRT): into the strip's format — with no target, compileAsync built pipelines for the canvas that no frame uses
 const toStrip = async (fn) => { const rt0 = room.renderer.getRenderTarget(); if (P.prewarmRT !== false) room.renderer.setRenderTarget(room.strip); try { return await fn(); } finally { room.renderer.setRenderTarget(rt0); } };
@@ -511,6 +513,7 @@ function frame(dt) {
     const p0 = performance.now(); e.part.update(dt, input); prof.max(e.name, performance.now() - p0);
   }
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
+  targets3d.update(dt, { targets: S.targets, block: S.block, time, on: P.guide !== false });
   p1 = performance.now(); const ib = stepIntroBreak();
   for (const e of list) e.rig.visible = !e.torn;
   room.render(dt, tr.on ? pass : ib); if (tr.on || ib) for (const e of list) e.rig.visible = !e.torn; prof.max('render', performance.now() - p1);
@@ -568,7 +571,7 @@ async function warmUp() {
 }
 lt('pre-warmup'); try { await warmUp(); } catch (err) { console.info('res-obra3d: warm-up skipped (' + err.message + ')'); }
 
-window.__obra = { load: LT, tr, pal, score, warm: warmLater, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
+window.__obra = { load: LT, tr, pal, score, warm: warmLater, targets3d, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
 lt('loop'); vt.loop(frame, canvas);
 
 // T-057 (warmSets): the light sets the load did not draw, compiled in the background while the wait plays (~2.5 s each on the M1 Max;
