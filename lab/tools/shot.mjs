@@ -72,17 +72,25 @@ env.LAB_SMOKE = JSON.stringify({
   evalFile: flag('--eval-file') ? path.resolve(flag('--eval-file')) : null, max: maxMs, rows: has('--rows'),
   crop: true, width: flag('--width') ? Number(flag('--width')) : undefined, stats: !has('--no-stats'),
 });
-const child = spawn(electron, [path.join(HERE, 'smoke.cjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-let out = '', err = '';
-child.stdout.on('data', (d) => { out += d; });
-child.stderr.on('data', (d) => { err += d; });
-child.on('error', (e) => { err += String(e); });
-const guard = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, maxMs + 5000);
-const code = await new Promise((r) => child.on('exit', r));
-clearTimeout(guard);
+// one window; a run that ends with no result line (the window crashed or never started: a GPU-process restart, another Electron
+// starting at the same moment) is tried ONCE more, still under the lock
+async function runOnce() {
+  const child = spawn(electron, [path.join(HERE, 'smoke.cjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '', err = '';
+  child.stdout.on('data', (d) => { out += d; });
+  child.stderr.on('data', (d) => { err += d; });
+  child.on('error', (e) => { err += String(e); });
+  const guard = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, maxMs + 5000);
+  const code = await new Promise((r) => child.on('close', r));   // 'close': stdout fully read (not just the process gone)
+  clearTimeout(guard);
+  return { code, line: out.split(/\r?\n/).find((l) => l.startsWith('SMOKE ')), err };
+}
+let run = await runOnce();
+if (!run.line) { console.log(`shot: no result from the window (exit ${run.code}${run.err ? ', ' + run.err.trim().split('\n').pop().slice(0, 160) : ''}); trying once more`); run = await runOnce(); }
+const code = run.code;
 await lab?.close();
 release();
-const smoke = out.split(/\r?\n/).find((l) => l.startsWith('SMOKE ')) || 'SMOKE ' + JSON.stringify({ error: 'no output from the window', exitCode: code, stderr: err.slice(-400) });
+const smoke = run.line || 'SMOKE ' + JSON.stringify({ error: 'no output from the window', exitCode: code, stderr: run.err.slice(-400) });
 console.log(smoke);
 try {
   const o = JSON.parse(smoke.slice(6));

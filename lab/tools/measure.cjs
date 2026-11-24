@@ -10,10 +10,12 @@ const os = require('node:os');
 const cfg = JSON.parse(process.env.LAB_MEASURE || '{}');
 const MAX = Math.max(30000, Number(cfg.max) || 120000);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// the result line, then quit once it is flushed (app.exit right after console.log can lose the line on a Windows pipe)
+const say = (o, code) => { process.stdout.write('MEASURE ' + (typeof o === 'string' ? o : JSON.stringify(o)) + '\n', () => app.exit(code)); setTimeout(() => app.exit(code), 1500).unref(); };
 app.setPath('userData', path.join(os.tmpdir(), `vt-lab-measure-${process.pid}`));
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 if (cfg.uncapped) app.commandLine.appendSwitch('disable-frame-rate-limit');   // --uncapped: rAF is not held to 60 (the headroom)
-setTimeout(() => { console.log('MEASURE ' + JSON.stringify({ error: `timeout (${Math.round(MAX / 1000)} s)` })); app.exit(2); }, MAX).unref();
+setTimeout(() => say({ error: `timeout (${Math.round(MAX / 1000)} s)` }, 2), MAX).unref();
 
 const READY = `(async () => { const w = (ms) => new Promise((r) => setTimeout(r, ms)); for (let i = 0; i < 600 && !window.__obra; i++) await w(100); if (!window.__obra) return 'no __obra'; await window.__obra.warm?.done; return 'ok'; })()`;
 const JUMP = (b) => `(async () => { const o = window.__obra; o.score.jump(${JSON.stringify(b)}); await new Promise((r) => setTimeout(r, 300)); if (o.tr) o.tr.t = 99; return o.score.state.block; })()`;
@@ -51,11 +53,9 @@ app.whenReady().then(async () => {
     await Promise.all([room.webContents.executeJavaScript(JUMP(cfg.block)), viewer?.webContents.executeJavaScript(JUMP(cfg.block))]);
     await sleep(Number(cfg.settle ?? 3000));                          // the block's first frames and its transition are not the steady state
     const [r, v] = await Promise.all([room.webContents.executeJavaScript(MEASURE(Number(cfg.secs) || 20)), viewer ? viewer.webContents.executeJavaScript(MEASURE(Number(cfg.secs) || 20)) : null]);
-    console.log('MEASURE ' + JSON.stringify({ ...r, viewer: v ? { fps: v.obraFps.med, rafFps: v.fps, worst: v.worst, size: v.size } : null, errors }));
-    app.exit(errors.length ? 1 : 0);
+    say({ ...r, viewer: v ? { fps: v.obraFps.med, rafFps: v.fps, worst: v.worst, size: v.size } : null, errors }, errors.length ? 1 : 0);
   } catch (e) {
-    console.log('MEASURE ' + JSON.stringify({ error: String(e.message || e), errors }));
-    app.exit(2);
+    say({ error: String(e.message || e), errors }, 2);
   }
 });
 app.on('window-all-closed', () => {});

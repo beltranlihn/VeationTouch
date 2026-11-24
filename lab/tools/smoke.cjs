@@ -28,10 +28,12 @@ const MAX = Math.max(5000, Number(cfg.max) || 15000);
 const SHOT = cfg.shot || null;
 const SCRIPT = cfg.evalFile ? fs.readFileSync(cfg.evalFile, 'utf8') : cfg.eval || null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// the result line, then quit once it is flushed (app.exit right after console.log can lose the line on a Windows pipe)
+const say = (o, code) => { process.stdout.write('SMOKE ' + (typeof o === 'string' ? o : JSON.stringify(o)) + '\n', () => app.exit(code)); setTimeout(() => app.exit(code), 1500).unref(); };
 
 app.setPath('userData', path.join(os.tmpdir(), `vt-lab-smoke-${process.pid}`));
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-setTimeout(() => { console.log('SMOKE ' + JSON.stringify({ error: `timeout (${Math.round(MAX / 1000)} s)` })); app.exit(2); }, MAX).unref();
+setTimeout(() => say({ error: `timeout (${Math.round(MAX / 1000)} s)` }, 2), MAX).unref();
 
 // In the page: the room in two rows (the canvas into two <video>s via captureStream), filling the window's width.
 const TWO_ROWS = `(() => {
@@ -69,7 +71,7 @@ function imageStats(img) {
 }
 
 app.whenReady().then(async () => {
-  if (!URL_) { console.log('SMOKE {"error":"no url"}'); return app.exit(2); }
+  if (!URL_) return say({ error: 'no url' }, 2);
   const errors = [];
   // offscreen: it paints while hidden (a plain hidden window gets no frames)
   const win = new BrowserWindow({ show: false, width: W, height: H, useContentSize: true, webPreferences: { backgroundThrottling: false, offscreen: true, partition: `vt-lab-${process.pid}` } });
@@ -98,11 +100,9 @@ app.whenReady().then(async () => {
       if (cfg.width && img.getSize().width !== Number(cfg.width)) img = img.resize({ width: Number(cfg.width), quality: 'best' });
       if (SHOT) fs.writeFileSync(SHOT, img.toPNG());
     }
-    console.log('SMOKE ' + JSON.stringify({ url: win.webContents.getURL(), title: win.getTitle(), errors, result, ...(stats ? { stats } : {}) }));
-    app.exit(errors.length ? 1 : 0);
+    say({ url: win.webContents.getURL(), title: win.getTitle(), errors, result, ...(stats ? { stats } : {}) }, errors.length ? 1 : 0);
   } catch (e) {
-    console.log('SMOKE ' + JSON.stringify({ error: String(e.message || e), errors }));
-    app.exit(2);
+    say({ error: String(e.message || e), errors }, 2);
   }
 });
 app.on('window-all-closed', () => {});
