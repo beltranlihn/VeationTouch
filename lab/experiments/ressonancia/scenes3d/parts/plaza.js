@@ -875,7 +875,10 @@ export function create(ctx) {
   const silOut = Fn(() => {
     const N = normalize(normalWorld), V = normalize(cameraPosition.sub(positionWorld));
     const edge = pow(float(1).sub(abs(dot(N, V))), 4), toE = max(dot(N, uEast), 0);
-    return vec4(vec3(1.0, 0.55, 0.3).mul(edge.mul(toE).mul(0.35)), 1);
+    // VFX 25-11: albergínia in the dawn air (aerial perspective towards the room's sky), never black cardboard; the warm rim stays
+    const dv = positionWorld.sub(cameraPosition), dd = length(dv), air = float(1).sub(exp(dd.mul(-0.022))).mul(0.85);
+    const base = mix(vec3(...palLin('albergínia', 0.55)), roomSky(dv.div(dd)), air);
+    return vec4(base.add(vec3(...palLin('alba-rosa')).mul(edge.mul(toE).mul(0.45))), 1);
   });
   function finish(m, shatterKind) {
     if (shatterKind !== undefined) m.positionNode = shatterPos(shatterKind); m.fog = false; m.outputNode = mix(fogOut(), silOut(), uSil);
@@ -1218,7 +1221,7 @@ export function create(ctx) {
     moon.intensity = 0.32 * moonK * (pr.moonKey ?? 1); hemi.intensity = 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1));   // the moon's key also fills the shadows with a cool sky
     uDay.value = dayK;
     nightK += (((blk === 'brasa' || (!input.state && pr.brasa)) ? 1 : 0) - nightK) * Math.min(1, dt * 1.5); uNightK.value = nightK;
-    if (nightK > 0) { uStars.value *= 0.3; uWin.value *= 1 - 0.5 * nightK; moon.intensity *= 1 - 0.75 * nightK; hemi.intensity *= 1 - 0.75 * nightK; for (const m of envMats) m.envMapIntensity *= 1 - 0.6 * nightK; }
+    if (nightK > 0) { uStars.value *= 0.3; uWin.value *= 1 - 0.5 * nightK; moon.intensity *= 1 - 0.4 * nightK; hemi.intensity *= 1 - 0.45 * nightK; for (const m of envMats) m.envMapIntensity *= 1 - 0.6 * nightK; }
     if (dayK > 0) {
       uDayTone.value.fromArray(litCfg.toneL); uDayFloor.value.fromArray(litCfg.floorL); uDayAir.value = litCfg.air;
       moonDay.fromArray(litCfg.dir).normalize(); _md.copy(moonNight).lerp(moonDay, dayK).normalize(); moon.position.copy(_md).multiplyScalar(60);

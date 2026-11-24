@@ -22,6 +22,10 @@
 // arrive, leave, rain, gain, floorH.
 // Sound (wave 2, ENT's snippet): a caught shard 'glass'/'hit', a shard that shatters 'glass'/'floor', a flower that opens 'petal'/'bloom'.
 
+// STUDIO NIGHT 25-11 (VFX, plan 05 §5.6 bajada, §2.7): the dawn in the palette of the work — `alba-rosa` at the horizon, `alba-blau` up to
+// the zenith (a LIGHT sky that fills the wall, no night-violet zenith), `crema` where the sun is about to rise; the glass in rose, dawn
+// blue and bone only (no aqua / mint / lilac); the quiet zones barely dim the light sky (dark ink reads on it).
+import { lin as palLin } from '../palette.js';
 import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 export function create(ctx) {
   const { THREE, TSL, room } = ctx;
@@ -43,11 +47,12 @@ export function create(ctx) {
   const plines = (x, per, fw, px) => { const d = abs(fract(x.div(per).add(0.5)).sub(0.5)).mul(per); return mix(lineAA(d, fw, px), min(fw.mul(px + 1).div(per), 0.5).mul(0.3), smoothstep(per * 0.06, per * 0.25, fw)); };
 
   // -------------------------------------------------------------------------------------------- palette (ARTE §2, row «Bajada»; linear)
+  // VFX 25-11: from palette.js (bajada: alba-rosa · alba-blau · albergínia, pale gold); the old names kept so the code reads the same
   const C = {
-    top: [0.023, 0.015, 0.051], horizon: [0.62, 0.34, 0.30], rose: [0.93, 0.47, 0.56], lilac: [0.485, 0.366, 0.807],
-    aqua: [0.275, 0.745, 0.644], peach: [1.0, 0.63, 0.39], sun: [1.0, 0.92, 0.75], mint: [0.55, 0.9, 0.7], pearl: [0.92, 0.88, 0.95],
+    top: palLin('alba-blau', 0.62), horizon: palLin('alba-rosa'), rose: palLin('alba-rosa'), lilac: palLin('alba-blau'),
+    aqua: palLin('alba-blau', 0.85), peach: palLin('or-clar', 0.9), sun: palLin('crema'), mint: palLin('os'), pearl: palLin('os'),
   };
-  const FLOORCOL = [C.peach, C.rose, C.lilac, C.aqua, C.rose, C.peach, C.lilac, C.aqua, C.rose];   // floor 0 (base) … 8 (top)
+  const FLOORCOL = [C.rose, C.lilac, C.pearl, C.rose, C.lilac, C.pearl, C.rose, C.lilac, C.pearl];   // floor 0 (base) … 8 (top)
   const v3 = (c) => vec3(c[0], c[1], c[2]);
 
   // -------------------------------------------------------------------------------------------- uniforms, groups
@@ -89,7 +94,7 @@ export function create(ctx) {
     const y = dir.y, az = atan(dir.z, dir.x);
     const sAz = max(dot(normalize(dir.xz.add(vec2(0.0001, 0))), normalize(uSun.xz)), -1.0), east = pow(sAz.mul(0.5).add(0.5), 3.0);
     const yy = max(y, 0.0);
-    const lil = vec3(0.485, 0.366, 0.807).mul(0.34), ros = vec3(0.896, 0.485, 0.434).mul(0.5), warm = vec3(1.0, 0.92, 0.745);
+    const lil = v3(C.lilac).mul(0.62), ros = v3(C.rose).mul(0.72), warm = v3(C.sun);   // VFX 25-11: palette (was lilac / coral)
     const sky0 = mix(mix(v3(C.top), lil, smoothstep(0.5, 0.14, yy)), ros, smoothstep(0.16, 0.0, yy));
     const glowE = warm.mul(pow(east, 2.0)).mul(exp(yy.div(0.07).negate()).mul(0.38).add(exp(yy.div(0.22).negate()).mul(0.1)));
     // ARTE round 4: a LUMINOUS EAST WALL (P1) in peach #FFD0A8, rising well up the sky, the sun's glow concentrated low at its azimuth
@@ -113,9 +118,9 @@ export function create(ctx) {
     const R = normalize(vec3(dir.x.add(rip.x), ny, dir.z.add(rip.y)));
     const fres = pow(float(1).sub(ny), 5).mul(0.9).add(0.06);
     const refl = skyCol(R).mul(fres);
-    const slab = vec3(0.05, 0.035, 0.06).mul(float(1).sub(fres));
+    const slab = vec3(...palLin('albergínia', 0.5)).mul(float(1).sub(fres));
     const mist = smoothstep(90.0, 420.0, t).mul(0.7);                              // mist only low, far, on the water
-    const mistC = mix(vec3(0.896, 0.485, 0.434).mul(0.42), vec3(1.0, 0.92, 0.745).mul(0.6), pow(max(dot(normalize(dir.xz.add(vec2(0.0001, 0))), normalize(uSun.xz)), 0), 3));
+    const mistC = mix(v3(C.rose).mul(0.55), v3(C.sun).mul(0.6), pow(max(dot(normalize(dir.xz.add(vec2(0.0001, 0))), normalize(uSun.xz)), 0), 3));
     return mix(slab.add(refl), mistC, mist);
   });
   const domeCol = Fn(([dir]) => mix(groundCol(dir), skyCol(dir), smoothstep(-0.003, 0.003, dir.y)));
@@ -125,7 +130,7 @@ export function create(ctx) {
       const dir = normalize(positionWorld.sub(cameraPosition));
       const h = hash13(floor(dir.mul(9.0)).add(vec3(3.1, 7.7, 1.3)));
       const a = smoothstep(h.mul(0.75), h.mul(0.75).add(0.12), uDomeIn);
-      return vec4(domeCol(dir).mul(uWorld.mul(0.85).add(0.15)).mul(uGain).mul(colDim(0.75)), a);
+      return vec4(domeCol(dir).mul(uWorld.mul(0.85).add(0.15)).mul(uGain).mul(colDim(0.12)), a);   // VFX 25-11: a light sky: the quiet zone barely dims it
     })();
     m.fog = false; mats.push(m);
     var dome = new THREE.Mesh(new THREE.SphereGeometry(330, 64, 32), m); geos.push(dome.geometry);
