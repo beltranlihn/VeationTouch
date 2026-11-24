@@ -43,10 +43,11 @@ export const CUES = {
   'ach:fire': { voice: 'v-brasa-fire', where: 'ach', energy: 'soft', text: 'Ha prendido', place: 'ach', kind: 'ach' },          // voice «El fuego prende» («Ha prendido» = «aprendido» by ear)
   'relay:start': { voice: 'v-brasa-pass', where: 'focus', energy: 'warm', text: 'Pasad el fuego', place: 'travel', kind: 'task' },
   'relay:assist': { voice: 'v-colla-1', where: 'focus', energy: 'warm', text: 'La colla os ayuda', place: 'ach', kind: 'ach', repeat: true, cooldown: 30 },
-  'ach:lap': { voice: 'v-brasa-lap', where: 'room', energy: 'lift', text: 'El fuego ha dado la vuelta', place: 'all', kind: 'ach' },
+  'assist:on:brasa': { alias: 'relay:assist' },
+  'ach:lap': { voice: 'v-brasa-lap', where: 'room', energy: 'lift', text: 'El fuego da la vuelta', place: 'all', kind: 'ach' },
   'tg:charge': { voice: 'v-hold', where: 'ach', energy: 'soft', text: null, kind: 'hint' },                                   // the first target charging, once a pass
   'stage:brasa:call': { voice: 'v-brasa-2', where: 'room', energy: 'soft', text: 'Todos a la vez', place: 'all', kind: 'task' },
-  'call:late': { voice: 'v-brasa-hold', where: 'focus', energy: 'soft', text: 'Posad la mano en la luz', place: 'focus', kind: 'task' },   // a call open 8 s (sound's clock)
+  'call:late': { voice: 'v-brasa-hold', where: 'focus', energy: 'soft', text: 'Posad la mano', place: 'focus', kind: 'task' },   // a call open 8 s (sound's clock)
   'ach:wave': { voice: { 1: 'v-brasa-wave' }, where: 'room', energy: 'lift', text: WAVE_NAME, place: 'ach', kind: 'ach', repeat: true },
   'ach:awake': { voice: 'v-brasa-awake', where: 'room', energy: 'warm', text: 'Despierta', place: 'all', kind: 'ach', colla: 'v-colla-1' },   // by: colla → «La colla os ayuda» first
   // ---- 3.2 II · Pinya
@@ -90,6 +91,9 @@ export const CUES = {
   'ach:echo': { voice: null, text: 'Eco', place: 'ach', kind: 'ach', repeat: true },
   'stage:festa:call': { voice: 'v-festa-call', where: 'room', energy: 'joy', text: 'Todos a la vez', place: 'all', kind: 'task' },
   'ach:bloom': { voice: 'v-festa-bloom', where: 'room', energy: 'joy', text: 'Ressonància', place: 'all', kind: 'ach', cap: 0.22 },
+  'assist:on:pom': { voice: 'v-colla-1', where: 'room', energy: 'whisper', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 30 },
+  'assist:on:festa': { voice: 'v-colla-1', where: 'room', energy: 'warm', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 30 },
+  'assist:on:baixada': { voice: 'v-colla-1', where: 'room', energy: 'soft', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 30 },
   // ---- 3.6 baixada, fall and acta
   'block:baixada': { voice: 'v-baixada-1', where: 'room', energy: 'soft', text: 'Bajadlo despacio', place: 'structure', kind: 'card' },
   'ach:clean': { voice: { 1: 'v-baixada-ok' }, where: 'focus', energy: 'soft', text: null, kind: 'ach', repeat: true },
@@ -126,7 +130,6 @@ export function cueKey(ev, S) {
   if (k === 'focus') return S && S.focus ? 'focus:' + S.focus.kind : null;
   if (k === 'tg') return arg.startsWith('charge') ? 'tg:charge' : null;
   if (k === 'gust' || k === 'hush') return 'hush';
-  if (k === 'call') return b === 'brasa' ? 'stage:brasa:call' : b === 'festa' ? 'stage:festa:call' : null;   // the score's call (until stage: events)
   if (k === 'hint') return arg === 'still' ? 'pom:near' : null;
   return CUES[ev] ? ev : null;
 }

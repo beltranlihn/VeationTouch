@@ -46,8 +46,8 @@ export function create({ THREE, TSL, room, params = {} }) {
 
   // ---- the words
   const T = (y, opt = {}, x = 0) => { const t = typo.text({ placements: typo.onWalls(room, y, x), renderOrder: 12, ...opt }); object.add(t.object); return { t, prev: 0 }; };
-  const castellT = T(Y.castell, { plate: 0.5 }), glossT = T(Y.gloss, { plate: 0.35 }), statT = T(Y.invite, { plate: 0.3 }), sentT = T(Y.sentence, { plate: 0.55, depth: 0.45 }), credT = T(Y.credits, { plate: 0.35 });
-  const inviteT = T(Y.invite, { plate: 0.3, flash });
+  const castellT = T(Y.castell, { plate: 0 }), glossT = T(Y.gloss, { plate: 0 }), statT = T(Y.invite, { plate: 0 }), sentT = T(Y.sentence, { plate: 0, depth: 0.45 }), credT = T(Y.credits, { plate: 0 });
+  const inviteT = T(Y.invite, { plate: 0, flash });
   const labelT = DIAL.pos.map(([x, y]) => T(y - DIAL.r - 0.37, { plate: 0, max: 16, flash }, x));
   const numT = DIAL.pos.map(([x, y]) => { const o = T(y - DIAL.r - 0.16, { plate: 0, max: 8 }, x); o.shown = -1; return o; });   // ART r5: the figure, in mono, ×2
   sentT.t.set([{ text: SENTENCE[0], font: 'italic', size: 0.13, y: 0.36, track: 0.015, alpha: 0.75, color: INK, rise: true },

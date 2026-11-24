@@ -14,11 +14,21 @@
 // Words (typo3d.js): the chapter card like a film title (small roman numeral, big serif name, the value in italic on a hairline) at
 // ~2.15 m, and the instruction (Geist) at ~1.92 m, on the walls (from Tronc on, only the castell's walls); old words break before new
 // ones assemble; the instruction dims once the group is already doing it. Everything in Spanish; casteller words in Catalan.
-// T-048 (SIS, ARTE-3 §3): the instructions come into focus word by word (typo3d 'blur'), labels in Geist Mono; the fine graphics layer
-// (rulers, «+», dotted grid, mono labels) in the chapter's accent — LAB ONLY since 24-11 (option `fine`, off by default: never in the room); rims, plates, words and graphics catch the hands' light (room.flash).
+// T-048 (SIS, ARTE-3 §3): the instructions come into focus word by word (typo3d 'blur'); rims, plates and words catch the hands' light (room.flash).
 // Nothing is allocated per frame: every mesh is made once; words are laid out only when they change.
+// STUDIO 25-11 (05-plan N5, D7): the words follow cues.js (the script's table) and the room's scale — the instruction (consigna) is
+// ONE line centred at 1.62 m with capitals of 0.18 m (<= 22 characters), its label (a floor's or a climber's name) above it at 0.14 m;
+// the chapter card is centred at 1.95 m and the consigna waits for it to leave; the ink is the chapter's (palette.js PAL[b].ink:
+// bone on the dark chapters, dark ink on the light ones). NO backing plates (director 25-11: they read as dirty patches on the wall):
+// legibility comes from the ink, the size and a tight soft glyph halo. The consigna steps aside from the chapter's hero object
+// (CONSIGNA_X: the brasa's drop, the tower). The fine instrument layer (rulers, «+», grid, «P4», «1,25 m») and the mono labels are
+// GONE. The rings are drawn by targets3d.js (Tech/QA) from S.targets: the guide draws none (option rings: true brings them back as a
+// fallback only).
 import { FLOOR_NAMES, CLIMBERS } from '../score.js';
+import { CUES } from '../cues.js';
 import { typo, OVER } from './typo3d.js';
+import { chapter } from './palette.js';
+const CT = (k) => (CUES[k] && typeof CUES[k].text === 'string' ? CUES[k].text : '');   // a cue's text (the table wins)
 
 // [numeral, name, value]
 export const CARDS = { brasa: ['I', 'Brasa', 'El despertar'], pinya: ['II', 'Pinya', 'Fuerza'], tronc: ['III', 'Tronc', 'Equilibrio'], pom: ['IV', 'Pom de dalt', 'Valor'] };
@@ -48,31 +58,36 @@ function linesPlay(S, acta, learned, warn) {
   const b = S.block;
   if (warn === 'fall') return { line: ['Manos al muro', ''] };      // the score warns before a fall / before giving up (analysis #19)
   if (warn === 'abandon') return { line: ['Volved al muro', ''] };
-  if (b === 'wait') return { line: (S.reveal ?? 1) >= 1 ? ['Sostened el anillo para empezar', ''] : ['Tocad. Jugad con la sala.', ''] };   // strings agreed with ENT (voice)
-  if (b === 'brasa') return S.phase === 'reward' ? {} : S.brasaStage === 'call' ? (learned ? {} : { line: ['Con el tambor', ''] }) : S.brasaStage === 'relay' ? { line: ['Pasad el fuego', ''] } : { line: ['Tocad el muro', ''] };   // by the score's stage (#18)
-  if (b === 'pinya') return S.phase === 'reward' || learned ? {} : { line: ['Juntaos', ''] };   // follow the palm to the centre, pack together (#17)
+  if (b === 'wait') return { line: (S.reveal ?? 1) >= 1 ? [CT('reveal'), ''] : ['Jugad con la sala', ''] };   // the voice: «Tocad. Jugad con la sala.»
+  if (b === 'brasa') return S.phase === 'reward' ? {} : S.brasaStage === 'call' ? (learned ? {} : { line: [CT('stage:brasa:call'), ''] }) : S.brasaStage === 'relay' ? { line: [CT('relay:start'), ''] } : { line: [CT('title:brasa'), ''] };   // by the score's stage (#18)
+  if (b === 'pinya') return S.phase === 'reward' || learned ? {} : { line: [S.pinyaStage === 'pack' ? CT('stage:pinya:pack') : CT('title:pinya'), ''] };
   if (b === 'tronc') {
     if (S.phase === 'reward') return {};
     const fl = S.floors ? FLOOR_NAMES[S.floors - 1] : '';
-    if (S.wobble > 0) return { line: ['Sujetad la base', fl] };          // the tower trembles: hands to its foot
-    return { line: [learned ? '' : 'Levantad', fl] };
+    if (S.wobble > 0) return { line: [CT('wobble'), fl] };            // the tower trembles: hands to its foot
+    if (S.focus && S.focus.kind === 'lean') return { line: [CT('ach:lean'), fl] };
+    return { line: [learned ? '' : CT('title:tronc'), fl] };
   }
-  if (b === 'pom') {                                                 // l'aleta: no words
-    if (S.phase === 'aleta') return {};
-    // T-051 (POV): three climbs (state.pomStage, POS T-050) — the relay asks for still hands; the breath holds it; the silence has no words
-    if (S.pomStage === 'breath') return { line: ['Contened el aliento', CLIMBERS[S.climber] || ''] };
-    if (S.pomStage === 'silence') return { line: ['', CLIMBERS[S.climber] || ''] };
-    return { line: [learned ? '' : 'Quietos', CLIMBERS[S.climber] || ''] };
+  if (b === 'pom') {
+    if (S.phase === 'aleta') return { line: [CT('aleta'), ''] };     // «Levantad la mano» (05-plan §3.4)
+    // T-051 (POV): three climbs — the relay asks for still hands; the breath holds it; the silence: her name only
+    if (S.pomStage === 'breath') return { line: [CT('climber:1'), CLIMBERS[S.climber] || ''] };
+    if (S.pomStage === 'silence') return { line: [CT('climber:2'), ''] };
+    return { line: [learned ? '' : CT('pom:play'), CLIMBERS[S.climber] || ''] };
   }
   // the acta's wall line («Dejad vuestra mano», 3–15 s) is drawn by parts/actatext (it sits under the castell, the ring of prints round it)
   if (b === 'crown') return S.t > 3 && S.t < 14 ? { card: ['V', 'Coronado', acta?.castell || "L'aleta"] } : {};
-  if (b === 'festa') return S.t < 7 ? { card: ['', 'La plaza es vuestra', ''] } : {};
-  if (b === 'baixada') return { line: [learned ? '' : 'Bajadlo despacio', S.floors ? FLOOR_NAMES[S.floors - 1] : ''] };   // the floors' names going down
+  if (b === 'festa') return S.t < 7 ? { card: ['', CT('block:festa'), ''] } : S.festaStage === 'echo' ? { line: [S.focus && S.focus.kind === 'echo' ? CT('focus:echo') : CT('stage:festa:echo'), ''] } : S.festaStage === 'call' ? { line: [CT('stage:festa:call'), ''] } : {};
+  if (b === 'baixada') return { line: [learned ? '' : CT('block:baixada'), S.floors ? FLOOR_NAMES[S.floors - 1] : ''] };   // the floors' names going down
   if (b === 'fall') return S.t > 2 ? { card: ['', 'Ha caído', 'Quedan las brasas'] } : {};
   return {};
 }
-// ink: bone #F2EEE6 at 92 %, kept under the bloom's threshold (no neon halo; the luxury is the thin-film sweep and the tiles)
-const INK = [0.76, 0.73, 0.68];
+// ink: the chapter's (palette.js): bone at 90 % on the dark chapters (under the bloom's threshold), dark ink on the light ones
+const inkOf = (b) => { const c = chapter(b); return c.dark === false ? c.lin.ink.slice() : c.lin.ink.map((v) => v * 0.9); };
+let INK = inkOf('wait');
+export const TEXT = { line: 1.62, lineCap: 0.18, labelCap: 0.14, card: 1.95, max: 22 };   // D7 (05-plan §3): metres; caps = 0.667 x size
+// the consigna's offset along the wall (m from its centre) where the chapter has a hero object at the centre: the text stands beside it
+const CONSIGNA_X = { brasa: -1.75, tronc: -2.7, baixada: -2.7 };
 // the card: the numeral first (0.2 s ahead), the name (caps ≈ 0.31 m), the hairline drawn from the centre out, the value rising
 // from behind its baseline
 function cardItems(C) {
@@ -82,12 +97,12 @@ function cardItems(C) {
   if (C[2]) it.push({ text: C[2], font: 'italic', size: 0.17, y: -0.3, track: 0.015, rules: 0.5, alpha: 0.85, color: INK, rise: true, delay: 0.35 });
   return it;
 }
-// the instruction: ONE centred piece (caps ≈ 0.10 m, ≤ 28 characters), the second idea under it as a label in small caps
+// the instruction: ONE centred line (caps 0.18 m, <= 22 characters) at 1.62 m; the label (a name) ABOVE it at ~1.95 m (the targets live at 0.9–1.4 m), caps 0.14 m, Geist too
 const lineItems = (L) => {
   const it = [];
-  // T-048: the words come into focus one by one (typo3d reveal 'blur', 60 ms per word); the label under them in Geist Mono caps
-  if (L[0]) it.push({ text: L[0], font: 'sans', size: 0.15, y: L[1] ? 0.07 : 0, track: 0.02, alpha: 0.88, color: INK, edge: 0.5, reveal: 'blur' });
-  if (L[1]) it.push({ text: L[1], font: 'mono', size: 0.082, y: -0.15, track: 0.14, alpha: 0.6, color: INK, upper: true, edge: 0.48, delay: 0.15, reveal: 'blur' });
+  // T-048: the words come into focus one by one (typo3d reveal 'blur', 60 ms per word)
+  if (L[0]) it.push({ text: L[0], font: 'sans', size: TEXT.lineCap / 0.667, y: 0, track: 0.02, alpha: 0.92, color: INK, edge: 0.5, reveal: 'blur' });
+  if (L[1]) it.push({ text: L[1], font: 'sans', size: TEXT.labelCap / 0.667, y: L[0] ? 0.33 : 0, track: 0.06, alpha: 0.8, color: INK, edge: 0.5, delay: 0.15, reveal: 'blur' });
   return it;
 };
 
@@ -100,7 +115,7 @@ const PALETTES = {
   baixada: [[1.0, 0.62, 0.75], [0.7, 0.6, 1.0], [0.5, 0.95, 0.85]],
 };
 
-export function createGuide({ THREE, TSL, room, fine = false }) {   // fine: the lab's instrument graphics (rulers, «+», grid, «P4», «1,25 m»); OFF in the room
+export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {   // fine: ignored (the instrument layer is gone, 25-11); rings: true = the old rings as a fallback
   const { pmremTexture, refract, cross, uniform, uv, vec2, vec3, float, smoothstep, exp, length, step, texture, select, clamp: tclamp, max, min, cos, sin, abs, pow, dot, normalize, reflect, attribute, positionGeometry, positionLocal, normalWorld, positionWorld, cameraPosition, mix, fract } = TSL;
   const object = new THREE.Group(); object.name = 'guide';
   const NW = room.walls.length;
@@ -274,82 +289,14 @@ export function createGuide({ THREE, TSL, room, fine = false }) {   // fine: the
   }
 
   // ------------------------------------------------------------------ the words
-  const card = typo.slot({ placements: typo.onWalls(room, 2.68),   // high: the play's invitation stands under it from the first second
-    renderOrder: 24, outDur: 0.5, plate: 0.5, flash: room.flash });
-  // the instruction: one centred piece, its first line's caps at ~2.05 m, the label under it (always between 1.75 and 2.15 m)
-  const line = typo.slot({ placements: typo.onWalls(room, 1.98), renderOrder: 23, outDur: 0.5, plate: 0.45, spread: 2.4, flash: room.flash });
+  const card = typo.slot({ placements: typo.onWalls(room, TEXT.card),   // centred at 1.95 m (D7: <= 2.1 m); the consigna waits for it
+    renderOrder: 24, outDur: 0.5, plate: 0, halo: 0.3, flash: room.flash });
+  // the instruction: one centred line at 1.62 m (caps 0.18 m), the label above it at ~1.95 m
+  const line = typo.slot({ placements: typo.onWalls(room, TEXT.line), renderOrder: 23, outDur: 0.5, plate: 0, halo: 0.3, spread: 2.4, flash: room.flash });
+  // move a slot's words along each wall (only while nothing is up: words never slide in view)
+  const lineBase = typo.onWalls(room, TEXT.line), rightOf = room.walls.map((w) => w.right.clone());
+  const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], x); }); };
   object.add(card.object, line.object);
-
-  // ------------------------------------------------------------------ T-048: the fine graphics (ARTE-3 §3, «gráfica de instrumento»)
-  // On every wall, 1 px lines in the chapter's accent at ~40 %: a vertical ruler at each edge of the wall (0.22 m in, ticks every 5 cm
-  // pointing inwards, the hands' band 0.9–1.6 m marked by a second hairline and long ticks at 0.90 / 1.25 / 1.60), «+» marks at the
-  // corners of the play zone (±0.9 m × 0.9–1.6 m), a faint dotted grid (10 cm) behind the two quiet zones, and small mono labels
-  // (`II · PINYA`, `P1`, `1,25 m`) that come into focus word by word. All of it brightens near a hand (room.flash), across a corner too.
-  // One plane per wall, procedural (fwidth-antialiased: 1 px at the room's resolution whatever the render scale); additive, ≤ 0.5 HDR.
-  const FINE = { a: 0, label: '', out: 0, asm: 0, want: '' };
-  const fineA = uniform(0);
-  const fineObj = new THREE.Group(); fineObj.name = 'guide:fine'; object.add(fineObj);
-  const EDGE = 0.22, ZX = 0.9, ZY0 = 0.9, ZY1 = 1.6;
-  room.walls.forEach((w, wi) => {
-    const Wm = w.width, Hm = Math.min(w.height, 2.9);
-    const m = new THREE.MeshBasicNodeMaterial(OVER);
-    const q = uv(), x = q.x.sub(0.5).mul(Wm), y = q.y.mul(Hm);                    // metres: x from the wall's centre, y from the floor
-    const fx = max(TSL.fwidth(x), float(1e-4)), fy = max(TSL.fwidth(y), float(1e-4));
-    const hair = (d, f) => tclamp(float(1).sub(abs(d).div(f)), 0, 1);           // a 1 px line at distance d (m) from it
-    const inR = (v, a, b) => step(a, v).mul(step(v, b));
-    // the two rulers: e = distance from the wall's edge (m), inwards
-    const e = min(x.add(Wm / 2), float(Wm / 2).sub(x));
-    const spine = hair(e.sub(EDGE), fx).mul(inR(y, 0.5, 2.3)).mul(mix(float(0.55), float(1), inR(y, ZY0, ZY1)));
-    const band = hair(e.sub(EDGE + 0.014), fx).mul(inR(y, ZY0, ZY1)).mul(0.8);
-    const t5 = abs(fract(y.div(0.05).add(0.5)).sub(0.5)).mul(0.05), t10 = abs(fract(y.div(0.1).add(0.5)).sub(0.5)).mul(0.1);
-    const key = min(min(abs(y.sub(ZY0)), abs(y.sub(1.25))), abs(y.sub(ZY1)));
-    const tl = select(key.lessThan(0.004), float(0.12), select(t10.lessThan(0.004), float(0.055), float(0.028)));   // tick length (m)
-    const tickY = select(key.lessThan(0.004), key, select(t10.lessThan(0.004), t10, t5));
-    const ticks = hair(tickY, fy).mul(step(EDGE, e)).mul(step(e, tl.add(EDGE))).mul(inR(y, 0.5, 2.3)).mul(select(key.lessThan(0.004), float(1), float(0.7)));
-    // «+» at the play zone's corners
-    const cx = abs(abs(x).sub(ZX)), cy = min(abs(y.sub(ZY0)), abs(y.sub(ZY1)));
-    const plus = hair(cx, fx).mul(step(cy, 0.045)).max(hair(cy, fy).mul(step(cx, 0.045)));
-    // the dotted grid behind the quiet zones (text ±1.6 × 1.75–2.2, button ±0.9 × 0.9–1.6), softly faded at their edges
-    const gx = fract(x.div(0.1).add(0.5)).sub(0.5).mul(0.1), gy = fract(y.div(0.1).add(0.5)).sub(0.5).mul(0.1);
-    const dot = tclamp(float(1.3).sub(length(vec2(gx.div(fx), gy.div(fy)))), 0, 1);
-    const zT = smoothstep(1.6, 1.3, abs(x)).mul(smoothstep(1.7, 1.8, y)).mul(smoothstep(2.25, 2.15, y));
-    const zB = smoothstep(0.9, 0.6, abs(x)).mul(smoothstep(0.85, 0.95, y)).mul(smoothstep(1.65, 1.55, y)).mul(smoothstep(0.3, 0.45, length(vec2(x, y.sub(1.25)))));   // not inside the ring
-    const grid = dot.mul(zT.max(zB)).mul(0.45);
-    const lamp = room.flash ? room.flash(positionWorld) : float(0);
-    const k = spine.add(band).add(ticks).add(plus.mul(0.9)).min(1).mul(0.16).add(grid.mul(0.07));
-    m.colorNode = ACC.mul(k).mul(lamp.mul(2.2).add(1)).mul(fineA);
-    m.opacityNode = float(0);                                                     // pure light (premultiplied «over»: adds)
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(Wm, Hm), m);
-    mesh.position.copy(w.centre).setY(Hm / 2).addScaledVector(w.normal, -0.05); mesh.quaternion.copy(basis[wi]);
-    mesh.renderOrder = 18; mesh.frustumCulled = false; fineObj.add(mesh);
-  });
-  // the labels: per wall (each its own width), Geist Mono caps, focus in word by word
-  const fineText = typo.text({ placements: room.walls.map((w, wi) => ({ position: w.centre.clone().addScaledVector(w.normal, -0.05), quaternion: basis[wi] })), renderOrder: 18, plate: 0, halo: 0, flash: room.flash });
-  object.add(fineText.object);
-  const LABELS = { wait: 'UMBRAL', intro: 'LA PLAÇA', brasa: 'I · BRASA', pinya: 'II · PINYA', tronc: 'III · TRONC', pom: 'IV · POM DE DALT', crown: 'V · CORONA', festa: 'V · LA PLAÇA', baixada: 'VI · BAIXADA', fall: 'CAIGUDA', acta: 'ACTA' };
-  const wallName = (w, wi) => (typeof w.id === 'string' && /^P\d/i.test(w.id) ? w.id.toUpperCase() : 'P' + (wi + 1));
-  function fineItems(wi, label, acc) {
-    const w = room.walls[wi], xl = -w.width / 2 + EDGE + 0.17, xr = w.width / 2 - EDGE - 0.17;
-    const c = [0.3 * (0.6 + 0.4 * acc[0]), 0.3 * (0.6 + 0.4 * acc[1]), 0.3 * (0.6 + 0.4 * acc[2])];   // ink tinted by the accent, ~40 %
-    const L = (text, x, y, align, alpha = 1, delay = 0, upper = true) => ({ text, font: 'mono', size: 0.08, y, x, align, track: 0.08, alpha, color: c, edge: 0.48, upper, reveal: 'blur', delay });
-    return [L(label, xl, 2.42, 'left'), L(wallName(w, wi), xr, 2.42, 'right', 0.85, 0.12), L('1,25 m', xl, 1.25, 'left', 0.9, 0.24, false),
-      L('0,90', xl, ZY0, 'left', 0.55, 0.3), L('1,60', xl, ZY1, 'left', 0.55, 0.3)];
-  }
-  function stepFine(dt, b, on) {
-    // studio 24-11: lab metadata never reaches the walls; only a lab page that asks for it (res-obra3d ?fine=1, lab mode) draws it
-    const want = fine && on && b !== 'intro' && b !== 'wait' ? (LABELS[b] || '') : '';   // art round 5: none in the wait, half in the pom
-    FINE.a = ease(FINE.a, want ? (b === 'pom' ? 0.5 : 1) : 0, dt, 1.5); fineA.value = FINE.a; fineObj.visible = FINE.a > 0.003;
-    if (want !== FINE.label) {                                                    // the old labels go out of focus, then the new come in
-      FINE.out = Math.min(1, FINE.out + dt / 0.5);
-      if (!FINE.label || FINE.out >= 1) {
-        FINE.label = want; FINE.out = 0; FINE.asm = 0;
-        if (want) { const acc = accentOf(b); for (let i = 0; i < NW; i++) fineText.setFor(i, fineItems(i, want, acc)); }
-      }
-    } else if (want) FINE.asm = Math.min(1, FINE.asm + dt / Math.max(0.5, fineText.dur));
-    fineText.U.asm.value = FINE.asm; fineText.U.out.value = FINE.out;
-    for (let i = 0; i < NW; i++) fineText.alpha[i] = FINE.label ? FINE.a : 0;
-    fineText.apply(1);
-  }
 
   // ------------------------------------------------------------------ per frame
   let guideA = 0, guideKey = '', nT = 0, softNow = 0, stillNow = 0, time0 = 0, revealNow = 1;
@@ -445,7 +392,7 @@ export function createGuide({ THREE, TSL, room, fine = false }) {   // fine: the
   }
   let warnKind = '', warnUntil = -1;
   // walls outside the castell's structure still have a role (#11d): their own line
-  const lineOut = typo.slot({ placements: typo.onWalls(room, 1.98), renderOrder: 23, outDur: 0.5, plate: 0.45, flash: room.flash });
+  const lineOut = typo.slot({ placements: typo.onWalls(room, TEXT.line), renderOrder: 23, outDur: 0.5, plate: 0, halo: 0.3, flash: room.flash });
   object.add(lineOut.object);
   const nearX = (hands, wi) => { for (const h of hands) if (h.wall === wi && Math.abs((h.u - 0.5) * room.walls[wi].width) <= 0.55) return true; return false; };   // the score's test for the start ring
   let structureOnly = false; const inS = [];
@@ -461,7 +408,8 @@ export function createGuide({ THREE, TSL, room, fine = false }) {   // fine: the
     time0 = time; uTime.value = time; typo.setTime(time);
     const b = S.block, playing = S.phase !== 'title';
     const key = b + '|' + (b === 'tronc' ? +S.balance : 0) + '|' + S.buttons;
-    const wantT = on && (b === 'wait' || b === 'pinya' || b === 'tronc' || b === 'pom') && !(b === 'tronc' && S.phase === 'reward') && S.phase !== 'aleta';   // l'aleta: no ring, only the ghost hands rising
+    const ringsNow = rings === true;   // targets3d.js draws S.targets (25-11)
+    const wantT = on && ringsNow && (b === 'wait' || b === 'pinya' || b === 'tronc' || b === 'pom') && !(b === 'tronc' && S.phase === 'reward') && S.phase !== 'aleta';   // l'aleta: no ring, only the ghost hands rising
     if (key !== guideKey) { guideA = ease(guideA, 0, dt, 5); let gone = true; for (const T of targets) if (T.used && T.asm > 0.04) gone = false; if (guideA < 0.03 && gone) { guideKey = key; for (const T of targets) { T.held = 0; T.burst = 0; T.arcPrev = 0; } } } else guideA = ease(guideA, wantT ? 1 : 0, dt, 3);
     const gb = guideKey.slice(0, guideKey.indexOf('|'));
     const verb = learning(S, dt);
@@ -474,7 +422,7 @@ export function createGuide({ THREE, TSL, room, fine = false }) {   // fine: the
     for (let k = 0; k < 3; k++) { for (let c = 0; c < 3; c++) palNow[k][c] = ease(palNow[k][c], pal[k][c], dt, 2); PAL[k].value.setRGB(palNow[k][0], palNow[k][1], palNow[k][2]); }
     { const a = accentOf(b); for (let c = 0; c < 3; c++) accNow[c] = ease(accNow[c], a[c], dt, 1.5); ACC.value.set(accNow[0], accNow[1], accNow[2]);
       for (const sl of [card, line, lineOut]) for (const t of sl.texts) t.U.lamp.value.set(0.5 + 0.5 * accNow[0], 0.5 + 0.5 * accNow[1], 0.5 + 0.5 * accNow[2]); }
-    stepFine(dtT, b, on);
+    INK = inkOf(b); const lightCh = chapter(b).dark === false;   // the next words laid out take the chapter's ink
     nT = 0;
     for (const T of targets) T.used = false;
     softNow = gb === 'pinya' || gb === 'tronc' || gb === 'baixada' ? 1 : 0;
@@ -526,10 +474,8 @@ export function createGuide({ THREE, TSL, room, fine = false }) {   // fine: the
     card.want(g.card ? 'c|' + g.card.join('|') : '', g.card ? cardItems(g.card) : null);
     const L = g.line && (g.line[0] || g.line[1]) ? g.line : null;   // (an empty invitation with a label: the floor's / climber's name alone)
     line.want(L ? 'l|' + L.join('|') : '', L ? lineItems(L) : null);
-    // readability (audit 24-11): the dark plates under the words are stronger where the world behind is busy (Tronc, Pom: 60 %)
-    const plateK = b === 'baixada' ? 0.75 : b === 'tronc' || b === 'pom' ? 0.6 : null;   // art round 5b: 75 % in the baixada only   // art round 5: baixada too (white porcelain behind)
-    for (const t of card.texts) t.U.plate.value = plateK ?? 0.5;
-    for (const t of line.texts) t.U.plate.value = plateK ?? 0.45;
+    // 25-11: no plates; a tight soft halo (lighter on the light chapters, where the ink is dark)
+    for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.12 : 0.3; }
     card.step(dtT, { hold, gate: waveGate });
     // the wait's words come with the button (reveal) and thin out as the hands start the pass
     const st = b === 'wait' ? Math.min(1, S.start || 0) : 0;
@@ -545,20 +491,21 @@ export function createGuide({ THREE, TSL, room, fine = false }) {   // fine: the
     const mask = (w) => !!warn || !structureOnly || inS[w];   // a warning goes on every wall
     // the wait: the instruction is the lintel inscription of ENT-F's doorway (keystone ~1.95 m): one line centred at 2.12 m. It moves
     // only while no words are up (never slides in view)
-    if (!line.up) line.object.position.y = b === 'wait' ? 2.12 - 1.98 : (b === 'tronc' && S.phase !== 'title') || b === 'baixada' ? 2.30 - 1.98 : 0;   // art round 5 (not under Tronc's card: there the 60 % plate): above the porcelain in tronc / baixada
-    if (!lineOut.up) lineOut.object.position.y = (b === 'tronc' && S.phase !== 'title') || b === 'baixada' ? 2.30 - 1.98 : 0;
-    line.step(dtT, { gain: warn ? 1 : gain, hold, mask, gate: waveGate });
+    // 25-11: the consigna stands at 1.62 m everywhere (D7), beside the chapter's hero, and waits while the chapter card is up
+    if (!line.up) placeX(line, CONSIGNA_X[b] || 0);
+    if (!lineOut.up) placeX(lineOut, CONSIGNA_X[b] || 0);
+    line.step(dtT, { gain: warn ? 1 : gain, hold: hold || (cardUp && !warn), mask, gate: waveGate });
     if (warn) for (const t of line.texts) { t.U.sweepK.value = 1; t.U.sweep.value = ((time0 * 0.9) % 1.6) - 0.3; }   // the warning pulses
     // the walls outside the structure: «Ayudad desde aquí» (they count at 50 %), while the structure's walls carry the invitation
     const outOn = on && structureOnly && !warn && S.phase !== 'reward' && !learnedNow && (b === 'tronc' || b === 'pom' || b === 'baixada');
-    lineOut.want(outOn ? 'o|ayudad' : '', outOn ? lineItems(['Ayudad desde aquí', '']) : null);
-    for (const t of lineOut.texts) t.U.plate.value = plateK ?? 0.45;
-    lineOut.step(dtT, { gain, hold, mask: (w) => !inS[w], gate: waveGate });
+    const outWord = b === 'tronc' ? CUES['title:tronc'].others : 'Ayudad desde aquí';
+    lineOut.want(outOn ? 'o|' + outWord : '', outOn ? lineItems([outWord, '']) : null);
+    lineOut.step(dtT, { gain, hold: hold || cardUp, mask: (w) => !inS[w], gate: waveGate });
   }
   function dispose() {
     ringGeo.dispose(); discGeo.dispose(); tileGeo.dispose(); handTex.dispose(); gq.dispose(); for (const G of ghosts) for (const H of G.h) H.mesh.material.dispose();
     for (const T of targets) T.group.traverse((o) => { if (o.material) o.material.dispose(); });
-    for (const s of [card, line, lineOut]) s.dispose(); fineText.dispose(); fineObj.traverse((o) => { if (o.material) { o.material.dispose(); o.geometry.dispose(); } });
+    for (const s of [card, line, lineOut]) s.dispose();
   }
-  return { object, update, dispose, ghost, targets, layers: { card, line, fine: fineText }, get learned() { return learnedNow; } };
+  return { object, update, dispose, ghost, targets, layers: { card, line }, get learned() { return learnedNow; } };
 }

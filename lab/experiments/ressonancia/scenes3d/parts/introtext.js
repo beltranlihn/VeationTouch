@@ -14,13 +14,13 @@ export function create({ THREE, room }) {
   const object = new THREE.Group(); object.name = 'introtext';
   const walls = typo.onWalls(room, 2.0);
   const motto = room.walls.map((w, i) => {
-    const t = typo.text({ placements: [walls[i]], renderOrder: 10, plate: 0.35, spread: 2.2, depth: 0.4 });
+    const t = typo.text({ placements: [walls[i]], renderOrder: 10, plate: 0, spread: 2.2, depth: 0.4 });
     const [es, ca] = MOTTO[i % MOTTO.length];
     t.set([{ text: es, font: 'serif', size: 0.5, y: 0.1, track: 0.01, color: INK }, { text: ca, font: 'sans', size: 0.085, y: -0.3, track: 0.4, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
     t.alpha[0] = 1; object.add(t.object);
     return t;
   });
-  const title = typo.text({ placements: typo.onWalls(room, 2.05), renderOrder: 10, plate: 0.4, spread: 2.0, depth: 0.45 });
+  const title = typo.text({ placements: typo.onWalls(room, 2.05), renderOrder: 10, plate: 0, spread: 2.0, depth: 0.45 });
   title.set([{ text: 'Ressonància', font: 'serif', size: 0.68, y: 0.14, track: 0.02, color: INK }]);
   title.alpha.fill(1); object.add(title.object);
   // a word's life on the intro's clock: assemble from s (35 ms a letter, 0.9 s each), stand, break from e; the sweep crosses once it stands
