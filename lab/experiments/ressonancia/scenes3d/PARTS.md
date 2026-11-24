@@ -178,3 +178,19 @@ the one light recipe, a halo behind the hero object, `room.flash` on whatever th
 - **The guide's fine graphics** (guide3d, on every wall, over everything): rulers at each wall edge (0.22 m in, 0.5–2.3 m, the 0.9–1.6 m
   band marked), «+» at ±0.9 m × 0.9 / 1.6 m, a dotted grid behind the quiet zones, mono labels at 2.42 m (`II · PINYA` left, `P1` right) and
   `0,90` / `1,25 m` / `1,60` by the left ruler. Parts: leave the outer 0.4 m of each wall edge between 0.5 and 2.5 m free of bright detail.
+
+## Lights and first frames (T-057, 24-11)
+
+- **Steady lights come back.** A part's directional / hemisphere lights are moved to `room.scene` by the host and kept there for good
+  (a changing set of lights rebuilds every lit material). While the part is gone the host sets their `intensity` to 0; when the part
+  arrives again it gives back the last intensity > 0 the light had (`light.userData.hostIntensity`). So a part may set a steady light's
+  intensity once (e.g. a `room.lightRecipe().group`) and it is lit on every visit, not only the first. A part that sets it every frame
+  is unaffected. Do not hold a reference that assumes the light is still under your `object` (its parent is the scene).
+- **Lights on the render layers are expensive to add.** Every lit material's shaders depend on the exact set of lights the renderer sees
+  (by light, not by count). Today only `umbral3d` (rims, hand lights, beams) and `actatext` (the recipe's key PointLight) carry such
+  lights; the host compiles every combination of them (2^n sets: keep n small) — all lit at load, the others in the background while
+  the wait plays (`warmSets`, ~2.5 s each). Lights for the atmos only: put them
+  on layer 31 (`light.layers.set(31)`), as brasa3d and plaza do. **A new part with its own render-layer light: tell the host owner**
+  (it is warmed automatically, but every carrier doubles the warm-up).
+- **No first-frame work.** Allocate buffers, geometries and materials in `create()`, not on the first `update` / arrive (the host
+  pre-compiles the next block 1.5 s into each block, but only what exists then). Materials created later compile in the frame they show.

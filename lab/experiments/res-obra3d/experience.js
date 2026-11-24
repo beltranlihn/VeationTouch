@@ -33,7 +33,7 @@ const vt = await connectExperience();
 const canvas = document.getElementById('c');
 canvas.width = vt.size.width; canvas.height = vt.size.height;
 const q = new URLSearchParams(location.search);
-const P = Object.assign({ jump: 'none', pace: 1, guide: true, bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: true, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab' }, vt.params);
+const P = Object.assign({ jump: 'none', pace: 1, guide: true, bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: true, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab', warmSets: true, prewarmRT: true }, vt.params);   // T-057: warmSets / prewarmRT (see 'pre-warming'), false = as before
 // T-052 «modo sala»: in the room (mode 'room', or 'auto' inside the app, which opens the page with ?run=1) the lab's URL switches are
 // ignored, so a stray ?q3 / ?parts / ?tiles can never reach the walls. Read at load: changing `mode` needs a reload (Stop / Play).
 const LAB = P.mode === 'lab' || (P.mode !== 'room' && !q.has('run'));
@@ -44,8 +44,9 @@ if (LAB) {
   if (q.get('q3')) P.quality = q.get('q3');                        // lab only (review.html): the 3D quality from the URL
 }
 const QS = { low: 0.6, medium: 0.8, high: 1 }, DENS = { low: 0.4, medium: 0.6, high: 1 };
+const LT = { start: performance.now() }; const lt = (k) => { LT[k] = Math.round(performance.now() - LT.start); };   // T-057: load phases (ms), window.__obra.load
 const room = await createRoom3D(vt, canvas, { forceWebGL: P.renderer === 'webgl2', bloom: { strength: P.bloom }, exposure: P.exposure, renderScale: QS[P.quality] ?? 1, samples: P.quality === 'high' ? 2 : 0, aa: P.aa === 'auto' ? (P.quality === 'high' ? 'taa' : 'msaa') : P.aa });   // aa 'auto': TAA at high (RND-F's variance-clipped TAA), MSAA below — switch the default after QA's fps window   // MSAA 2 at high (T-011, DECISIONES 23:26; was 4)
-const NW = room.walls.length;
+lt('room'); const NW = room.walls.length;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const smooth = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate));
@@ -72,7 +73,7 @@ for (const name of NAMES) {
     if (name === 'pinya3d') params.density = DENS[P.quality] ?? 1;
     if (name === 'baixada3d') params.town = false;                // the real square (plaza, silhouette) is the town behind the dawn   // 3D-PI: fewer points at medium / low
     if (name === 'fall3d') params.duration = TIMES.fall;           // its 15 s script rescaled to the score's fall
-    const part = (await import(src.href)).create({ THREE, TSL, room, params, parts: byName });
+    const t0p = performance.now(); const part = (await import(src.href)).create({ THREE, TSL, room, params, parts: byName }); LT['part:' + name] = Math.round(performance.now() - t0p);
     // every part hangs from a rig of the host: the global eye moves the rigs (T-028), and the tile passes show / hide them
     const rig = new THREE.Group(); rig.name = 'rig:' + name; rig.add(part.object); room.scene.add(rig);
     part.object.visible = false;
@@ -81,17 +82,24 @@ for (const name of NAMES) {
     // scene's set of lights changes, every lit material is rebuilt (the square's 17 cost ~40 ms on EVERY appearance, not just the first)
     const steady = [];
     part.object.traverse((o) => { if (o.isDirectionalLight || o.isHemisphereLight) steady.push(o); });
-    for (const l of steady) { room.scene.attach(l); if (l.target) room.scene.attach(l.target); }
+    for (const l of steady) { room.scene.attach(l); if (l.target) room.scene.attach(l.target); l.userData.hostIntensity = l.intensity; }
     const e = { name, rig, part, params, lights, steady, base: { ...params }, state: 'off', arrive: 0, leave: 0, home: 'wait', clock: 0, progress: 0, fallK: 0 };
     parts[name] = e; byName[name] = part; list.push(e);
   } catch (err) { console.warn(`res-obra3d: part "${name}" failed to load (${err.message}); skipped`); }
 }
 const has = (n) => !!parts[n];
-const guide = createGuide({ THREE, TSL, room });
+// T-057: a steady light is dimmed to 0 while its part is gone and given back its intensity when the part comes back (parts that set the
+// intensity once, e.g. a room.lightRecipe().group, stayed dark after their first exit). The value kept is the last one > 0 the light had.
+function steadyOff(e) { for (const l of e.steady) { if (l.intensity > 0) l.userData.hostIntensity = l.intensity; l.intensity = 0; } }
+function steadyOn(e) { for (const l of e.steady) if (l.intensity === 0 && l.userData.hostIntensity != null) l.intensity = l.userData.hostIntensity; }
+lt('parts'); const guide = createGuide({ THREE, TSL, room });
 room.overlay.add(guide.object);   // T-028: the guide is drawn over the final image (after the tiles: the words never break); its materials are depthTest-free
 // compile every material once, now, so a universe arriving later does not stall the room
-try { for (const e of list) e.part.object.visible = true; await room.renderer.compileAsync(room.scene, room.walls[0].camera); } catch (err) { console.info('res-obra3d: precompile skipped (' + err.message + ')'); }
+// T-057 (prewarmRT): into the strip's format — with no target, compileAsync built pipelines for the canvas that no frame uses
+const toStrip = async (fn) => { const rt0 = room.renderer.getRenderTarget(); if (P.prewarmRT !== false) room.renderer.setRenderTarget(room.strip); try { return await fn(); } finally { room.renderer.setRenderTarget(rt0); } };
+try { for (const e of list) e.part.object.visible = true; await toStrip(() => room.renderer.compileAsync(room.scene, room.walls[0].camera)); } catch (err) { console.info('res-obra3d: precompile skipped (' + err.message + ')'); }
 for (const e of list) e.part.object.visible = false;
+lt('compile');
 
 // ------------------------------------------------------------------------------------------------ the score: led by the sound piece, or its own
 const score = createScore(NW), S = score.state;
@@ -376,7 +384,11 @@ function prewarmNext() {
       const e = parts[n]; if (!e || e.state !== 'off') continue;
       const v0 = e.part.object.visible, r0 = e.rig.visible;
       e.part.object.visible = true; e.rig.visible = true;
+      // T-057: compile for the strip (HDR, its sample count): with no target set, compileAsync built pipelines for the canvas' format,
+      // which the real frame could not use (it built its own, synchronously, in the first frame the part was seen)
+      const rt0 = room.renderer.getRenderTarget(); if (P.prewarmRT !== false) room.renderer.setRenderTarget(room.strip);
       let pr = null; try { pr = room.renderer.compileAsync(e.rig, room.walls[0].camera, room.scene); } catch { /* the first real frame compiles */ }
+      room.renderer.setRenderTarget(rt0);
       e.part.object.visible = v0; e.rig.visible = r0;
       try { await pr; } catch { /* idem */ }
     }
@@ -414,8 +426,8 @@ function frame(dt) {
         // once, and castell.js is hidden at once — no fade, no dissolve, so there is no jump at the handover
         fallSet = fallSet.filter((n) => n !== 'castell'); fallSet.push('fall3d');
         if (C && C.state !== 'off') {           // from the baixada: the castell on screen becomes fall3d in this frame
-          F.state = 'on'; F.arrive = 1; F.leave = 0; F.home = 'fall'; F.clock = 0; F.part.object.visible = true;
-          C.state = 'off'; C.arrive = 0; C.leave = 1; C.part.object.visible = false;
+          F.state = 'on'; F.arrive = 1; F.leave = 0; F.home = 'fall'; F.clock = 0; F.part.object.visible = true; steadyOn(F);
+          C.state = 'off'; C.arrive = 0; C.leave = 1; C.part.object.visible = false; steadyOff(C);
         }                                       // from the pom (intent): fall3d arrives as usual (it assembles the group's castell) while pom3d leaves
       }
     }
@@ -428,14 +440,14 @@ function frame(dt) {
   for (const e of list) {
     if (W.includes(e.name)) {
       if (e.home !== S.block) { e.home = S.block; e.fallK = 0; }
-      if (e.state === 'off') { for (const l of e.lights) l.visible = true; placeRig(e.rig, 0, tr.mv); e.state = 'in'; e.came = true; e.arrive = 0; e.leave = 0; e.clock = 0; e.wait = S.block === 'baixada' && prevBlock === 'festa' ? 0.9 : 0; e.part.object.visible = true; }   // festa→baixada: the festa is dark by ~1.5 s, the bajada starts at 0.9 s so the two cross
+      if (e.state === 'off') { for (const l of e.lights) l.visible = true; placeRig(e.rig, 0, tr.mv); e.state = 'in'; e.came = true; e.arrive = 0; e.leave = 0; e.clock = 0; steadyOn(e); e.wait = S.block === 'baixada' && prevBlock === 'festa' ? 0.9 : 0; e.part.object.visible = true; }   // festa→baixada: the festa is dark by ~1.5 s, the bajada starts at 0.9 s so the two cross
       else if (e.state === 'out') { e.state = 'in'; e.came = true; e.arrive = 1 - e.leave; e.leave = 0; }
     } else if (e.state === 'on' || e.state === 'in') { e.leave = 1 - e.arrive; e.arrive = 1; e.state = 'out'; e.outAt = time; e.came = false; }   // came: a part arriving in an unfinished transition must not stay in the 'in' world (RND-F 24-11: else it is in neither)
     // while the tiles carry a change, the slabs must carry IMAGES: the new world assembles fast (it is revealed slab by slab) and the old
     // one stays whole until most of its slabs have turned (then it breaks, quickly, under the last of them); a part left over from an
     // earlier change (rapid jumps) goes quickly; the acta's words never linger over the threshold (QA 24-11): 1.2 s, no hold
     if (e.state === 'in') { if (e.wait > 0) e.wait -= dt; else { e.arrive = Math.min(1, e.arrive + dt / (tk >= 0 ? 1.6 : TR)); if (e.arrive >= 1) e.state = 'on'; } }
-    else if (e.state === 'out') { e.leave = Math.min(1, e.leave + (e.name === 'actatext' ? dt / 1.2 : tk < 0 ? dt / TR : e.outAt < tr.at - 1.0 ? dt / 1.2 : tk < 0.6 ? 0 : dt / 1.5)); if (e.leave >= 1) { e.state = 'off'; e.part.object.visible = false; for (const l of e.lights) l.visible = false; for (const l of e.steady) l.intensity = 0; } }
+    else if (e.state === 'out') { e.leave = Math.min(1, e.leave + (e.name === 'actatext' ? dt / 1.2 : tk < 0 ? dt / TR : e.outAt < tr.at - 1.0 ? dt / 1.2 : tk < 0.6 ? 0 : dt / 1.5)); if (e.leave >= 1) { e.state = 'off'; e.part.object.visible = false; for (const l of e.lights) l.visible = false; steadyOff(e); } }
   }
 
   if (changed) {
@@ -510,10 +522,28 @@ async function warmUp() {
     room.scene.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
     room.overlay.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
     if (noSquare && parts.plaza) parts.plaza.part.object.visible = false;
-    try { await room.renderer.compileAsync(room.scene, room.walls[0].camera); } catch { /* render below compiles too */ }
+    try { await toStrip(() => room.renderer.compileAsync(room.scene, room.walls[0].camera)); } catch { /* render below compiles too */ }
     for (let k = 0; k < 6; k++) { room.render(1 / 60); await new Promise((r) => requestAnimationFrame(r)); }
     for (let i = 0; i < saved.length; i += 2) saved[i].visible = saved[i + 1];
   }
+  lt('warm:states');
+  // T-057: the set of lights the renderer sees changes with the parts that carry lights of their own on the render layers (umbral3d's
+  // rims, hand lights and beams; the acta's key): every lit material keys its shaders on that set (by light), so a set the warm-up never
+  // drew was compiled in the first frame it appeared — every block change after the wait (the warm-up above draws all lights at once).
+  // Here (load, cheap): two frames through the tile pass with everything shown — the tiles' outgoing strip, the composition target and
+  // the guiding thread (it joins the overlay only in a transition). The other light sets: warmSetsLater(), once the wait is on screen.
+  if (P.warmSets !== false) {
+    for (const m of thread.meshes) room.overlay.add(m);
+    saved.length = 0;
+    room.scene.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
+    room.overlay.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
+    room.setTiles({ on: true, mix: 0.5 });
+    for (let k = 0; k < 2; k++) { room.render(1 / 60, () => {}); await new Promise((r) => requestAnimationFrame(r)); }
+    room.setTiles({ on: false, mix: 0 });
+    for (let i = 0; i < saved.length; i += 2) saved[i].visible = saved[i + 1];
+    for (const m of thread.meshes) { room.overlay.remove(m); m.visible = false; }
+  }
+  lt('warm:sets');
   // the square's own environment (T-034): captured once, the square alone at rest (t 30), from the eye
   const pl = parts.plaza;
   if (pl?.part.captureEnv) {
@@ -522,9 +552,44 @@ async function warmUp() {
     try { pl.part.captureEnv(); } catch (err) { console.info('res-obra3d: square environment skipped (' + err.message + ')'); }
     for (const e of list) e.rig.visible = true;
   }
-  for (const e of list) { e.part.object.visible = false; for (const l of e.lights) l.visible = false; for (const l of e.steady) l.intensity = 0; }
+  for (const e of list) { e.part.object.visible = false; for (const l of e.lights) l.visible = false; steadyOff(e); }
 }
-try { await warmUp(); } catch (err) { console.info('res-obra3d: warm-up skipped (' + err.message + ')'); }
+lt('pre-warmup'); try { await warmUp(); } catch (err) { console.info('res-obra3d: warm-up skipped (' + err.message + ')'); }
 
-window.__obra = { tr, pal, score, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
-vt.loop(frame, canvas);
+window.__obra = { load: LT, tr, pal, score, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
+lt('loop'); vt.loop(frame, canvas);
+
+// T-057 (warmSets): the light sets the load did not draw, compiled in the background while the wait plays (~2.5 s each on the M1 Max;
+// the wait lasts ≥ 18 s). The chapters' set (no carrier lit) first, then the acta's, then the wait's alone. Each compile runs on a camera
+// of its own (its own render list, so the frames drawn meanwhile do not change the lights it compiles with) into the strip's format; the
+// scene is shown / the lights set only for the synchronous part of the call (no frame sees it). Pipelines and shaders are shared by
+// every camera and target with the same format, so the walls' real frames find them built.
+async function warmSetsLater() {
+  if (P.warmSets === false || room.backend !== 'webgpu') return;   // WebGL2: its compiles block the main thread (a 200 ms hitch in the wait): as before
+  const t0 = performance.now(), cam = room.walls[0].camera.clone();
+  const lit = (o) => o.isLight && !o.isDirectionalLight && !o.isHemisphereLight;
+  const carriers = list.filter((e) => { let n = 0; e.part.object.traverse((o) => { if (lit(o) && o.layers.test(cam.layers)) n++; }); return n > 0; });
+  const lightsOf = (e) => { const L = []; e.part.object.traverse((o) => { if (lit(o)) L.push(o); }); return L; };
+  const full = (1 << carriers.length) - 1, order = [];
+  for (let n = 0; n < carriers.length; n++) for (let m = 0; m < full; m++) if (popcount(m) === n) order.push(m);   // fewest lights first; all lit: done at load
+  function popcount(m) { let c = 0; for (; m; m &= m - 1) c++; return c; }
+  while (prewarm.busy) await new Promise((r) => setTimeout(r, 100));
+  prewarm.busy = true;                                               // the next-block pre-warm waits for this
+  try {
+    for (const mask of order) {
+      const saved = [], culled = [];
+      room.scene.traverse((o) => { saved.push(o, o.visible); o.visible = true; if (o.frustumCulled) { culled.push(o); o.frustumCulled = false; } });   // one camera, every wall's objects
+      carriers.forEach((e, i) => { for (const l of lightsOf(e)) l.visible = !!(mask & (1 << i)); });
+      const rt0 = room.renderer.getRenderTarget(); room.renderer.setRenderTarget(room.strip);
+      let pr = null; try { pr = room.renderer.compileAsync(room.scene, cam); } catch { /* the first real frame compiles */ }
+      room.renderer.setRenderTarget(rt0);
+      for (let i = 0; i < saved.length; i += 2) saved[i].visible = saved[i + 1];
+      for (const o of culled) o.frustumCulled = true;
+      try { await pr; } catch { /* idem */ }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    lt('warm:setsLater');
+    console.info(`res-obra3d: warmed ${order.length + 1} light sets (${carriers.map((e) => e.name).join(', ') || 'none'}), ${Math.round(performance.now() - t0)} ms in the background`);
+  } finally { prewarm.busy = false; }
+}
+setTimeout(() => { warmSetsLater().catch((err) => console.info('res-obra3d: light-set warm-up skipped (' + err.message + ')')); }, 500);
