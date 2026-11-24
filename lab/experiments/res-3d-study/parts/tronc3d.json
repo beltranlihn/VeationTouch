@@ -17,5 +17,7 @@
   {"key": "lift", "label": "Tronc: lift — the forming floor gathers from grains with the band", "type": "bool", "default": true},
   {"key": "level", "label": "Tronc: lift — left minus right hand height (stand-in)", "type": "number", "min": -0.6, "max": 0.6, "step": 0.05, "default": 0, "unit": "m"},
   {"key": "wobble", "label": "Tronc: lift — the wobble (a crack round the top floor)", "type": "bool", "default": false},
-  {"key": "wobbleEnd", "label": "Tronc: lift — wobble outcome after 5 s", "type": "select", "default": "steady", "options": [["steady", "Steady"], ["slip", "Slip (loses a floor)"]]}
+  {"key": "wobbleEnd", "label": "Tronc: lift — wobble outcome after 5 s", "type": "select", "default": "steady", "options": [["steady", "Steady"], ["slip", "Slip (loses a floor)"]]},
+  {"key": "liftAt", "label": "Tronc: lift — fixed (-1 = the stand-in phrase)", "type": "number", "min": -1, "max": 1, "step": 0.05, "default": -1},
+  {"key": "quiet", "label": "Tronc: shade behind the guide's quiet zones", "type": "number", "min": 0, "max": 1, "step": 0.02, "default": 0.84}
 ]

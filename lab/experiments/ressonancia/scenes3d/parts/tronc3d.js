@@ -72,7 +72,7 @@ export function create(ctx) {
     g.rotation.y = Math.atan2(w.normal.x, w.normal.z);
     return { w, tw: i, U, g, tilt, root, on: false, solid: [], grain: [], theta: 0, omega: 0, colTilt: 0, dist: TOWER_D, built: 0, brk: 1, cracked: false,
       st: Array.from({ length: NL }, () => ({ solid: 0, forming: 0, lift: 0, goneT: -1, flash: 0, taken: false, gone: false, shown: false })),
-      slots: Array.from({ length: 4 }, () => ({ stroke: null, p: new THREE.Vector3(0, -50, 0), tgt: new THREE.Vector3(), amt: 0, want: 0, fresh: true })) };
+      slots: Array.from({ length: 4 }, () => ({ stroke: null, p: new THREE.Vector3(0, -50, 0), tgt: new THREE.Vector3(), amt: 0, want: 0, fresh: true, seen: -9, seenHere: false })) };
   });
 
   // -------------------------------------------------------------------------------------------- materials
@@ -128,7 +128,9 @@ export function create(ctx) {
     const occ = pow(ao, 1.6).mul(0.85).add(0.15);
     let col = alb.mul(keyC.add(hemi).add(fill)).mul(occ);
     const fr = pow(float(1).sub(ndv), 3);
-    col = col.add(vec3(0.62, 0.76, 1.0).mul(fr.mul(max(dot(n, RIM_L), 0).mul(1.1).add(max(dot(n, RIM_R), 0).mul(0.5)))).mul(occ));
+    const rim = vec3(0.62, 0.76, 1.0).mul(fr.mul(max(dot(n, RIM_L), 0).mul(1.1).add(max(dot(n, RIM_R), 0).mul(0.5)))).mul(occ);
+    col = col.add(rim);
+    shade.rim = rim;
     const Hh = normalize(KEY.add(V)), nh = max(dot(n, Hh), 0);
     col = col.add(vec3(1.0, 0.92, 0.82).mul(pow(nh, mix(26, 110, sash)).mul(mix(0.09, 1.1, sash))).mul(occ).mul(mix(1, grout, sash)));
     col = col.add(mix(vec3(0.1, 0.1, 0.12), vec3(0.4, 0.45, 0.55), n.y.mul(0.5).add(0.5)).mul(fr.mul(0.35).add(0.04)).mul(sash).mul(grout));   // the glaze's reflection
@@ -139,11 +141,12 @@ export function create(ctx) {
     const e = vec3(_eyeU.x, _eyeU.y, _eyeU.z), d = pw.sub(e);
     const tt = dot(U.wc.sub(e), U.wn).div(min(dot(d, U.wn), -1e-4));
     const hit = e.add(d.mul(tt)), u = abs(dot(hit.sub(U.wc), U.wr)), v = hit.y;
-    const box = (hu, v0, v1) => float(1).sub(smoothstep(hu, hu + 0.25, u)).mul(smoothstep(v0 - 0.2, v0, v)).mul(float(1).sub(smoothstep(v1, v1 + 0.2, v)));
-    const pool = mix(float(0.5), float(1), smoothstep(0.7, 2.6, v));     // the key's pool: the light falls from above
-    return float(1).sub(max(box(1.6, 1.75, 2.2).mul(0.4), box(0.9, 0.9, 1.6).mul(0.5)).mul(U.veil)).mul(mix(float(1), pool, U.veil));
+    const box = (hu, v0, v1) => float(1).sub(smoothstep(hu, hu + 0.35, u)).mul(smoothstep(v0 - 0.25, v0, v)).mul(float(1).sub(smoothstep(v1, v1 + 0.25, v)));
+    const pool = mix(float(0.42), float(1), smoothstep(0.9, 2.75, v));     // the key's pool: the light falls from above
+    return float(1).sub(box(1.6, -1.0, 2.25).mul(U.veil).mul(uQuiet)).mul(mix(float(1), pool, U.veil));
   }
   const _eyeU = uniform(room.eye.clone());
+  const uQuiet = uniform(0.84);   // how much the sculpture is shaded behind the guide's quiet zones (T-054: p95 ≤ 35 %)
 
   function solidMaterial(U) {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.FrontSide });
@@ -165,7 +168,9 @@ export function create(ctx) {
       const V = normalize(U.eyeL.sub(p)), rimT = pow(float(1).sub(max(dot(n, V), 0)), 2.5);
       col = col.add(ACCENT.mul(room.flash(positionWorld)).mul(rimT.mul(0.5).add(lip.mul(0.6))).mul(0.5));
     }
-    m.colorNode = col.mul(uGain).mul(veil(U, positionWorld));
+    // in the shaded quiet zones the cool rim keeps the silhouettes (thin edges: little area, the p95 stays low)
+    const vk = veil(U, positionWorld);
+    m.colorNode = col.mul(uGain).mul(vk).add(shade.rim.mul(uGain).mul(float(1).sub(vk)).mul(0.55));
     m.opacityNode = float(1).sub(step(0.5, E.x));
     m.alphaTest = 0.5;
     m.fog = false;
@@ -186,14 +191,15 @@ export function create(ctx) {
     // the forming floor is gathered from grains: they come in on their own delays (seed), loose and low around the top of the tower,
     // and RISE with the band into the figures of the new floor; the lock then turns them to porcelain (below)
     const lift = U.lift.y, hF = U.lift.z;
-    const k = smoothstep(s2.mul(0.35), s2.mul(0.35).add(0.65), lift), kk = k.mul(k).mul(float(3).sub(k.mul(2)));
+    // T-054: the grains are drawn INTO the figures early (most are on the silhouette by ~40 % of the lift); the floor as a whole
+    // rises the last stretch with the band; only a few loose grains still hang below
+    const k = smoothstep(s2.mul(0.3), s2.mul(0.3).add(0.32), lift), kk = k.mul(k).mul(float(3).sub(k.mul(2)));
     const breath = float(1).sub(U.beat.mul(0.05).mul(kk));
-    const spread = mix(float(1.25), breath, kk);
-    const fx = p.x.mul(spread).add(s3.sub(0.5).mul(0.25).mul(float(1).sub(kk)));
-    const fz = p.z.mul(spread).add(float(1).sub(kk).mul(0.25));
-    const fy = p.y.sub(float(1).sub(kk).mul(hF).mul(0.42)).add(sin(t.mul(1.1).add(s1)).mul(0.03).mul(float(1).sub(kk)));
-    q = mix(q, vec3(fx, fy, fz).add(flow.mul(0.03).mul(float(1).sub(kk))), forming);
-    const formVis = mix(float(1), step(s2, lift.mul(1.05).add(0.06)), forming);
+    const loose = float(1).sub(kk), sway = vec3(s3.sub(0.5), sin(t.mul(1.1).add(s1)).mul(0.5), seed.sub(0.5)).mul(0.22).mul(loose);
+    const fx = p.x.mul(breath), fz = p.z.mul(breath);
+    const fy = p.y.sub(float(1).sub(smoothstep(0.0, 1.0, lift)).mul(hF).mul(0.28)).sub(loose.mul(hF).mul(0.3));
+    q = mix(q, vec3(fx, fy, fz).add(sway).add(flow.mul(0.012).mul(loose)), forming);
+    const formVis = mix(float(1), step(s2, lift.mul(1.5).add(0.1)), forming);
     // leaning: a stream from the falling side (each grain falls, fades, and is home again)
     const ph = fract(t.mul(0.32).add(seed.mul(3.1)));
     const fall = vec3(U.lean.x.mul(ph.mul(0.6).add(0.08)), ph.mul(ph).mul(-2.6), s3.sub(0.5).mul(0.4).mul(ph));
@@ -285,7 +291,7 @@ export function create(ctx) {
     const U = { k: uniform(0), flash: uniform(0), hx: uniform(0), hk: uniform(0) };
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
     const q = uv().sub(vec2(0.5, 0.5)).mul(vec2(BAND_W + 0.4, 0.3));               // metres in the band
-    const x = abs(q.x), core = float(1).sub(smoothstep(0.003, 0.007, abs(q.y))), glow = exp(q.y.mul(q.y).mul(-900)).mul(0.22);
+    const x = abs(q.x), core = float(1).sub(smoothstep(0.003, 0.007, abs(q.y))), glow = exp(q.y.mul(q.y).mul(-5000)).mul(0.16);
     const ends = float(1).sub(smoothstep(BAND_W / 2 - 0.25, BAND_W / 2, x));
     const tick = step(abs(x.sub(BAND_W / 2)), 0.004).mul(step(abs(q.y), 0.045));                   // a fine end mark
     const spot = exp(q.x.sub(U.hx).mul(q.x.sub(U.hx)).mul(-6)).mul(U.hk);
@@ -381,7 +387,7 @@ export function create(ctx) {
   }
 
   // -------------------------------------------------------------------------------------------- picking: the ray eye → hand, on the SDF
-  const _m = new THREE.Matrix4(), _o = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _best = new THREE.Vector3();
+  const _hit = new THREE.Vector3(), _m = new THREE.Matrix4(), _o = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _best = new THREE.Vector3();
   function pick(t, handPos, out) {
     _m.copy(t.root.matrixWorld).invert();
     _o.copy(_eyeW).applyMatrix4(_m); _d.copy(handPos).applyMatrix4(_m).sub(_o).normalize();
@@ -458,6 +464,7 @@ export function create(ctx) {
     if (!S && (!pr.collapse || pr.collapse === 'off') && col.on) restore();
     uGain.value = (pr.gain ?? 1) * (col.on ? 1 - smooth(col.dur - 2.5, col.dur, col.t) : 1);
     _eyeW.copy(room.eye); object.updateMatrixWorld(); _eyeU.value.copy(room.eye);
+    uQuiet.value = Math.min(1, Math.max(0, pr.quiet ?? 0.84));
 
     // ---- the score (or the study's stand-in)
     let floors, prog, structure, rewarding;
@@ -470,7 +477,7 @@ export function create(ctx) {
     liftOn = S ? (Array.isArray(S.yMed) && pr.lift !== false) : pr.lift !== false;
     if (liftOn && !S) {
       const ph = (time % PHRASE) / PHRASE;
-      prog = smooth(0.2, 0.72, ph);
+      prog = (pr.liftAt ?? -1) >= 0 ? pr.liftAt : smooth(0.2, 0.72, ph);
       if (pr.cycle > 0) floors = Math.min(9, Math.floor((time % (PHRASE * 10)) / PHRASE));
     }
     if (!S) floors -= standDrop;
@@ -604,20 +611,25 @@ export function create(ctx) {
 
     // ---- brushes: the hands on a tower's wall, picked on the sculpture
     for (const t of towers) {
-      for (const sl of t.slots) sl.want = 0;
+      // LiDAR (10 Hz, missed readings, a new id after a miss): a slot keeps its brush ~0.3 s after its hand is last seen and is let go
+      // after 0.6 s; a new stroke that lands where a recent one was takes over its slot quietly (no new sound, no dip)
+      for (const sl of t.slots) { sl.seenHere = false; if (time - sl.seen > 0.3) sl.want = 0; }
       if (t.on && built && !col.on && !lone()) {
         for (const h of hands) {
           if ((h.wall ?? -1) !== t.tw || !h.pos) continue;
+          const k = pick(t, h.pos, _hit);
           let sl = t.slots.find((x) => x.stroke === h.stroke);
+          if (!sl && k > 0) { sl = t.slots.find((x) => x.stroke !== null && !x.seenHere && time - x.seen < 0.6 && x.p.distanceTo(_hit) < 0.35 && !hands.some((o) => o.stroke === x.stroke)); if (sl) sl.stroke = h.stroke; }
           if (!sl) { sl = t.slots.find((x) => x.stroke === null) || t.slots.reduce((a, x) => (x.amt < a.amt ? x : a)); sl.stroke = h.stroke; sl.fresh = true; }
-          const k = pick(t, h.pos, sl.tgt);
+          sl.seenHere = true; sl.seen = time;
           if (k > 0) {
+            sl.tgt.copy(_hit);
             if (sl.fresh || sl.amt < 0.05) { sl.p.copy(sl.tgt); if (sl.fresh) impact(t.tw, h.u ?? 0.5, 0.25 + 0.25 * k, 'ceramic', 'hit'); }
             sl.fresh = false; sl.want = k;
-          }
+          } else sl.want = 0;
         }
-        for (const sl of t.slots) if (sl.stroke !== null && !hands.some((h) => h.stroke === sl.stroke && (h.wall ?? -1) === t.tw)) sl.stroke = null;
-      }
+        for (const sl of t.slots) if (sl.stroke !== null && !sl.seenHere && time - sl.seen > 0.6) sl.stroke = null;
+      } else for (const sl of t.slots) { sl.stroke = null; sl.want = 0; }
       for (let i = 0; i < 4; i++) {
         const sl = t.slots[i];
         if (sl.want > 0) sl.p.lerp(sl.tgt, ease(16, dt));

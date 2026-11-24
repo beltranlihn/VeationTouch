@@ -208,8 +208,12 @@ function bodyPrims(k, person, out) {
   E(k.S(0.82), k.side, k.sd, dp, 0.185, 0.1, 0.098, 1);
   E(k.S(-0.08), k.side, k.sd, dp, 0.15, 0.1, 0.115, 1);
   C(k.neck, k.neckTop, 0.052, 0.046, 1);
-  const hdp = norm(cross(k.hd, k.side));
-  out.push(ellPrim(k.headC, k.side, k.hd, hdp, 0.077 * k.hsc * s, 0.108 * k.hsc * s, 0.094 * k.hsc * s, person, 1));
+  // the head: a sculpted, stylised head — a slightly narrower skull, a jaw and chin, the plane of the brow and a hint of nose (T-054)
+  const hdp = norm(cross(k.hd, k.side)), hs = k.hsc * s, H = (a, b) => madd(madd(k.headC, k.hd, a * hs), hdp, b * hs);
+  out.push(ellPrim(H(0.012, -0.008), k.side, k.hd, hdp, 0.074 * hs, 0.1 * hs, 0.09 * hs, person, 1));      // the skull
+  out.push(ellPrim(H(-0.05, 0.022), k.side, k.hd, hdp, 0.054 * hs, 0.05 * hs, 0.062 * hs, person, 1));     // jaw and chin
+  out.push(ellPrim(H(0.03, 0.06), k.side, k.hd, hdp, 0.062 * hs, 0.022 * hs, 0.03 * hs, person, 1));       // the brow's plane
+  out.push(conePrim(H(0.012, 0.078), H(-0.022, 0.094), 0.011 * hs, 0.016 * hs, person, 1));                // the nose
   // limbs (round cones), mitten hands, feet
   C('shL', 'eL', 0.05, 0.04); C('shR', 'eR', 0.05, 0.04);
   C('eL', 'wL', 0.04, 0.03); C('eR', 'wR', 0.04, 0.03);

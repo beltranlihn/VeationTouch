@@ -57,3 +57,21 @@ Evidencias en `/private/tmp/claude-501/-Users-vicentemanzano-Desktop-INTERACTIVE
 - No probado con **L** (LiDAR) ni a `?scale=1` en el portátil de la sala. No toqué PARTS.md (la API no cambió de firma).
 - Volver atrás: `cp parts/tronc3d.T049.js.bak parts/tronc3d.js` y `cp res-3d-study/parts/tronc3d.T049.json.bak res-3d-study/parts/tronc3d.json`
   (la carpeta `parts/tronc3d/` sólo la usa la versión nueva).
+
+## T-054 · pulido (24-11, noche) — respaldos `*.T054.js.bak` / `tronc3d.T054.json.bak`
+Capturas en el scratchpad `tron/`: `forming_sheet.png` (lift 0,2 · 0,4 · 0,7), `p5_w1.png` (final, lift 0,4), `p5gl.png` (WebGL2), `ld1.png` / `ld4.png` (LiDAR).
+1. **Cabeza** (`sculpt.js`): cráneo algo más estrecho, mandíbula y mentón, el plano de la ceja y un apunte de nariz (cono): lee como
+   cabeza esculpida, no óvalo. En la pinya (rejilla 3,4 cm) la nariz casi no se resuelve: a propósito, lejos.
+2. **Piso en formación**: los granos van a la silueta pronto (retraso por grano 0–0,3 de la fase, llegan en 0,32); a 40 % ya se leen
+   las figuras de cintura arriba; el piso entero sube el último tramo con la banda. Parámetro de estudio `liftAt` para fijarlo.
+3. **Zonas tranquilas**: una sola zona de sombra suave (±1,6 m × suelo–2,25 m, bordes 0,25–0,35 m) × `quiet` (0,84, parámetro) + caída
+   de la llave hacia abajo; el filo frío sobrevive a la sombra (siluetas). Estudio: texto 25 % (**p95 33–34 %**), botón 19 % (**p95 29–30 %**).
+   En la obra el p95 del botón (~70 %) lo ponen las dianas del guía, no la escultura. Coste estético: los pisos bajo 2,25 m se ven gris
+   porcelana en sombra y la luz queda arriba (el piso nuevo); si Beltrán lo quiere más blanco, bajar `quiet` a ~0,7 (p95 ≈ 40 %).
+4. **`room.lightRecipe`**: no lo adopto. Mis materiales son `MeshBasicNodeMaterial` con la receta en ~30 operaciones TSL; pasar a
+   materiales iluminados (PointLight + hemisferio + alphaTest) costaría más por fragmento y no se vería mejor. La receta es la misma.
+5. **LiDAR (L)**, obra, manos fijadas por el arnés: 1 mano → primera respuesta 230–310 ms (10 Hz + 150 ms de reproducción), el pincel
+   no cae (mín 0,96 de 1); 4 manos → 1,72–2,25 en la torre con 2 manos, 58–60 fps-eq. Arreglo: cada pincel aguanta 0,3 s tras la última
+   lectura y suelta a 0,6 s; un trazo nuevo que cae donde estaba otro hereda su hueco sin sonido nuevo ni parpadeo.
+- baixada (1787 piezas, modo tronc) y caída (collapse + esquirlas de fall3d) siguen bien; WebGL2 en el estudio sin errores; la obra en
+  WebGL2 no cupo en los 15 s de check.mjs con la máquina cargada (load 18), ya probada en T-049.
