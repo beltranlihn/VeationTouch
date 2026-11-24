@@ -49,7 +49,7 @@ function linesPlay(S, acta, learned, warn) {
   if (warn === 'fall') return { line: ['Manos al muro', ''] };      // the score warns before a fall / before giving up (analysis #19)
   if (warn === 'abandon') return { line: ['Volved al muro', ''] };
   if (b === 'wait') return { line: (S.reveal ?? 1) >= 1 ? ['Sostened el anillo para empezar', ''] : ['Tocad. Jugad con la sala.', ''] };   // strings agreed with ENT (voice)
-  if (b === 'brasa') return S.phase === 'reward' ? {} : S.brasaStage === 'call' ? (learned ? {} : { line: ['Con el tambor', ''] }) : { line: ['Tocad el muro', ''] };   // by the score's stage (#18)
+  if (b === 'brasa') return S.phase === 'reward' ? {} : S.brasaStage === 'call' ? (learned ? {} : { line: ['Con el tambor', ''] }) : S.brasaStage === 'relay' ? { line: ['Pasad el fuego', ''] } : { line: ['Tocad el muro', ''] };   // by the score's stage (#18)
   if (b === 'pinya') return S.phase === 'reward' || learned ? {} : { line: ['Juntaos', ''] };   // follow the palm to the centre, pack together (#17)
   if (b === 'tronc') {
     if (S.phase === 'reward') return {};

@@ -1,5 +1,5 @@
 // LAB ONLY — a virtual audience for simulate.html. It reads the score (window.__obra) and plays the visitors the guide asks for:
-// they touch in Brasa, hold the circles in Pinya, press on the beat and hold both sides in Tronc, stay still in Pom de dalt (T-050: the relay,
+// they light lamps in the intro (T-055), touch in Brasa and carry the fire devil round the room (T-055 the relay), hold the circles in Pinya, press on the beat and hold both sides in Tronc, stay still in Pom de dalt (T-050: the relay,
 // the breath, the silence), play in the Ressonància, hold while the castell comes down, rest a hand in the acta (a handprint). Hands go through the lab harness's stage (window.__labRoom.stage.put /
 // lift), so the visual piece and the sound piece both see them, exactly as they would see real hands. Not part of the piece.
 const q = new URLSearchParams(location.search);
@@ -91,6 +91,8 @@ const sPerM = 1 / ROOM.perimeter, tOf = (ym) => 1 - ym / H;
 const people = Array.from({ length: PEOPLE }, (_, i) => ({ i, wall: i % 4, hands: [{ key: `auto${i}a`, on: false, s: 0, t: 0 }, { key: `auto${i}b`, on: false, s: 0, t: 0 }], next: rnd() * 2, sloppy: i % 5 === 4 }));
 const put = (h, s, ym) => { h.s = ((s % 1) + 1) % 1; h.t = tOf(ym); h.on = true; stage.put(h.key, h.s, h.t); };
 const lift = (h) => { if (h.on) { h.on = false; stage.lift(h.key); } };
+const putM = (h, m, ym) => { const q = ROOM.perim(m), st = ROOM.toStrip(q.wallId, q.xm, ym); h.s = st.s; h.t = st.t; h.on = true; stage.put(h.key, h.s, h.t); };   // T-055: metres along the perimeter (P4 = 0)
+let relayInit = false;
 const liftAll = () => { for (const p of people) for (const h of p.hands) lift(h); };
 const structure = () => { const a = []; for (let w = 0; w < S.walls.length; w++) if (S.walls[w]) a.push(w); return a.length ? a : [0, 1]; };
 let last = performance.now(), t = 0, mode = '', modeT = 0, tapAt = 0, lastBeat = 0, pomSt = '', pomStT = 0;
@@ -123,11 +125,22 @@ function tick() {
     for (const p of people.slice(2)) for (const h of p.hands) lift(h);
   } else if (b === 'acta') {                          // T-050 l'acta: from ~3 s they come up one by one and rest a hand on the wall (a handprint), then step back
     people.forEach((p, k) => { const at = 3 + k * 0.7; if (S.t >= at && S.t < 19 + k * 0.3) put(p.hands[0], wallC[p.wall] + (((p.i >> 2) - 1) * 0.9 + 0.2 * (k % 2)) * sPerM, 1.1 + 0.12 * (k % 4)); else lift(p.hands[0]); lift(p.hands[1]); });
+  } else if (b === 'intro') {                         // T-055: now and then someone touches a wall and lights the lamp nearest to the hand
+    relayInit = false;
+    for (const p of people) { p.next -= dt; const h = p.hands[0]; if (h.on && p.next < 2) lift(h); if (p.next <= 0) { p.next = 3 + rnd() * 5; if (S.t > 6 && S.t < 44) put(h, wallC[p.wall] + (rnd() - 0.5) * 5 * sPerM, 0.9 + rnd() * 0.6); } lift(p.hands[1]); }
+  } else if (b === 'brasa' && phase !== 'reward' && S.brasaStage === 'relay' && S.relay) {
+    // T-055 the relay: a chain of hands ahead of the fire devil. A small group leapfrogs (a hand the devil passed lifts and lands 2 m ahead
+    // of the front one); a big group (≥ 2.3 m a person round the room) stands in a ring and nobody moves. Heights vary: children low.
+    const R = S.relay, PER = R.perimeter || ROOM.perimeter, rr = R.s0 + R.lap * PER, ring = PEOPLE * 2.3 >= PER;
+    if (!relayInit) { relayInit = true; people.forEach((p, k) => { p.rm = R.s0 + (ring ? (k + 1) * PER / PEOPLE : 1.8 * (k + 1)); p.off = 0; }); }
+    let front = Math.max(...people.map((p) => p.rm));
+    for (const p of people) { if (p.off > 0) { p.off -= dt; if (p.off <= 0) { p.rm = front + 2.0; front = p.rm; } } else if (!ring && p.rm < rr - 0.6) p.off = 1.2; }
+    for (const p of people) { if (p.off > 0) lift(p.hands[0]); else putM(p.hands[0], p.rm, 0.8 + 0.15 * (p.i % 5)); lift(p.hands[1]); }
   } else if (b === 'intro' || b === 'crown' || b === 'fall' || (phase === 'title' && b !== 'pom')) {
     liftAll();                                        // they watch and listen
   } else if (b === 'brasa') {
     if (phase === 'reward') liftAll();
-    else if (S.brasaStage ? S.brasaStage === 'spark' : modeT < 14) {   // first, each one touches on their own (the spark)
+    else if (S.brasaStage ? S.brasaStage === 'spark' : modeT < 14) {   // (T-055: the relay is handled above)   // first, each one touches on their own (the spark)
       for (const p of people) { p.next -= dt; const h = p.hands[0]; if (h.on && p.next < 1.2) lift(h); if (p.next <= 0) { p.next = 2 + rnd() * 3; put(h, wallC[p.wall] + (rnd() - 0.5) * 4 * sPerM, 1.05 + rnd() * 0.4); } }
     } else if (S.brasaStage === 'call' && S.call) {   // the call (24-11): they listen to tok… tok… and strike on the TOK (the sloppy ones a little late)
       const C = S.call, dtT = S.clock - C.at;

@@ -108,7 +108,7 @@ export default async function start(host) {
   const { audio, vt } = host;
   const ctx = audio.ctx, P = { voice: 1, music: 1, drums: 1, effects: 1, touch: 1, lang: 'es', ...host.params };   // Spanish by default (Vicente, 24-11); English stays in the selector
   const walls = vt.walls || [], NW = Math.max(1, walls.length), wallIdx = new Map(walls.map((w, i) => [w.id, i]));
-  const score = createScore(NW), S = score.state, T = score.times;
+  const score = createScore(NW, { lengths: walls.map((w) => w.width || 4) }), S = score.state, T = score.times;   // T-055: the walls' lengths (the relay runs along the perimeter)
   const now = () => ctx.currentTime;
   const running = () => ctx.state === 'running';
   const G = (v, to) => { const g = ctx.createGain(); g.gain.value = v; if (to) g.connect(to); return g; };
@@ -485,6 +485,25 @@ export default async function start(host) {
     modal(at, midiHz(50 + MAJOR_PENTA[n % 5] + (n % 10 >= 5 ? 12 : 0)), close ? 0.012 : 0.024, toWall(w), WARM, 0.6);
     if (!close) drum(at, toWall(w), { f0: 64, f1: 46, dur: 0.7, gain: 0.018, noise: 0, sub: 0.25, subDest: touchSub });
   }
+  // T-055 the intro's lamps and the brasa's relay
+  const BELL = [[1, 1, 3.2], [2.0, 0.3, 2.2], [2.76, 0.16, 1.4], [5.4, 0.06, 0.6]];   // a small soft bell (a lamp)
+  function whoosh(at, from, to, gain, n) {   // a jump: a short fiery breath from one wall to the next, an ember where it lands
+    const src = ctx.createBufferSource(), f = F('bandpass', 600, 1.2), ga = G(0, toWall(from)), gb = G(0, toWall(to)); src.buffer = NOISE; series(src, f, ga); f.connect(gb); gb.connect(G(0.3, verbIn));
+    f.frequency.setValueAtTime(500, at); f.frequency.exponentialRampToValueAtTime(2400, at + 0.22); f.frequency.exponentialRampToValueAtTime(900, at + 0.4);
+    const k = gain * P.effects; ga.gain.setValueAtTime(0, at); ga.gain.linearRampToValueAtTime(k, at + 0.06); ga.gain.linearRampToValueAtTime(0, at + 0.25);
+    gb.gain.setValueAtTime(0, at); gb.gain.linearRampToValueAtTime(k, at + 0.18); gb.gain.exponentialRampToValueAtTime(0.0004, at + 0.45);
+    src.start(at, Math.random() * 1.5, 0.5);
+    play('s-ember-burst', { gain: 0.05, dest: toWall(to), at: at + 0.18, rate: 1.0 + 0.06 * (n % 5) });
+  }
+  function flare(at, w, n) {   // a corner: the fire flares up — a burst, a rising rush over both walls of the corner, a tuned low stone
+    play('s-ember-burst', { gain: 0.15, dest: toWall(w), at, rate: 0.7 }); play('s-ember-burst', { gain: 0.08, dest: toWall(w - 1), at: at + 0.04, rate: 0.8 });
+    const src = ctx.createBufferSource(), f = F('bandpass', 300, 0.9), g = G(0, toWall(w)), g2 = G(0, toWall(w - 1)); src.buffer = NOISE; series(src, f, g); f.connect(g2); g.connect(G(0.5, verbIn));
+    f.frequency.setValueAtTime(300, at); f.frequency.exponentialRampToValueAtTime(3200, at + 0.5); f.frequency.exponentialRampToValueAtTime(800, at + 1.3);
+    for (const [x, k] of [[g, 1], [g2, 0.5]]) { x.gain.setValueAtTime(0, at); x.gain.linearRampToValueAtTime(0.035 * k * P.effects, at + 0.3); x.gain.exponentialRampToValueAtTime(0.0004, at + 1.4); }
+    src.start(at, Math.random() * 0.5, 1.5);
+    modal(at + 0.02, midiHz(50 + MINOR_PENTA[n % 5]), 0.04, toWall(w), STONE, 0.5);
+    drum(at + 0.02, toWall(w), { f0: 72, f1: 40, dur: 0.9, gain: 0.05, noise: 0.05, sub: 0.4 });
+  }
   function heart(at, level) {   // lub-dub: felt in the sub, a little skin on the walls
     for (const [dt, k] of [[0, 1], [0.28, 0.7]]) {
       const o = osc('sine', 62), g = G(0, outSub); o.frequency.setValueAtTime(62, at + dt); o.frequency.exponentialRampToValueAtTime(40, at + dt + 0.16); o.connect(g);
@@ -562,6 +581,10 @@ export default async function start(host) {
   // brasa: the room sinks into the liquid chrome as the ring wakes — a viscous churn (band-passed, breathing) and its body in the sub
   const liqN = noiseSrc(), liqBp = F('bandpass', 420, 2.2), liqG = G(0, outRoom), liqLp = F('lowpass', 120, 3), liqSubG = G(0, outSub);
   series(liqN, liqBp, liqG); liqN.connect(liqLp); liqLp.connect(liqSubG);
+  // T-055 brasa, the relay: the running fire — a crackling band of noise on the walls round the devil, louder and brighter the faster it runs
+  const runN = noiseSrc(), runBp = F('bandpass', 900, 1.1), runMix = G(1); series(runN, runBp, runMix);
+  const runG = walls.map((_, w) => { const g = G(0, toWall(w)); runMix.connect(g); return g; });
+  let runCrackle = 0;
   // pinya: the whole pinya turns with the rotllana — a soft rush of bodies that goes round the walls
   const rotTurn = rotor(0, 0.2), turnN = noiseSrc(), turnBp = F('bandpass', 700, 0.8), turnG = G(0, rotTurn.inp); series(turnN, turnBp, turnG);
   // tronc: the elevator beside the tower — a deep stone grind and a low fifth while the room climbs
@@ -635,10 +658,11 @@ export default async function start(host) {
     const far = (k) => { const g = handVoice(e.wallId, u, 2.6, 0.9); play('s-timbal', { gain: 0.12 * k * dense, dest: g, at: t, rate: rand(0.78, 0.86) }); drum(t, G(0, g), { sub: 0.35 * k * dense, gain: 0.1, subDest: touchSub }); };
     if (b === 'wait') far(0.4);                           // softer now: the threshold's tiles answer the hand too (impacts)
     else if (b === 'intro' || b === 'acta') { const g = handVoice(e.wallId, u, 4, 1.2); modal(t, midiHz(74 + MAJOR_PENTA[deg] + 12 * (oct > 1 ? 1 : 0)), 0.012 * dense, g, GLASS); }   // dust: a faint glint
-    else if (b === 'brasa') {   // an ember burst; a low thump in the sub
-      const g = handVoice(e.wallId, u, 2.2, 0.5);
-      play('s-ember-burst', { gain: 0.17 * dense, dest: g, at: t, rate: rand(0.8, 1.25) });
-      drum(t, g, { f0: 70, f1: 38, dur: 0.7, gain: 0.06 * dense, noise: 0, sub: 0.9, subDest: touchSub });
+    else if (b === 'brasa') {   // an ember burst; a low thump in the sub — T-055: its pitch by the hand's height (low hands = low notes: the children's)
+      const g = handVoice(e.wallId, u, 2.2, 0.5), hk = clamp((metres - 0.5) / 1.4, 0, 1), step = Math.round(hk * 9), m = 38 + 12 * Math.floor(step / 5) + MINOR_PENTA[step % 5];
+      play('s-ember-burst', { gain: 0.17 * dense, dest: g, at: t, rate: (0.7 + 0.65 * hk) * rand(0.95, 1.05) });
+      drum(t, g, { f0: midiHz(m + 12), f1: midiHz(m), dur: 0.7, gain: 0.06 * dense, noise: 0, sub: 0.9 * (1 - 0.5 * hk), subDest: touchSub });
+      modal(t + 0.01, midiHz(m + 24), 0.022 * dense, g, STONE, 0.3);   // the tone: D minor pentatonic, two octaves from 0.5 to 1.9 m
     } else if (b === 'pinya') {   // clay and body
       const g = handVoice(e.wallId, u, 1.6, 0.35);
       play('s-clay', { gain: 0.2 * dense, dest: g, at: t, rate: rand(0.85, 1.1) });
@@ -822,6 +846,26 @@ export default async function start(host) {
     if (k === 'gust') { gustUntil = t + 1.6; gustBurst(t + 0.01, +arg || 0); return; }
     if (k === 'hush') { ah(t + 0.02, +(arg.split(':')[1]) || 0); return; }   // 'hush:break:w'
     if (k === 'print') { printTouch(t + 0.01, +arg || 0, (S.prints || []).length); return; }
+    // ---- T-055 intro: a hand lights the nearest lamp — a soft bell on that wall, in the intro's key (D major pentatonic)
+    if (k === 'lamp') {
+      const L0 = S.lamp || {}, w = +arg || 0, n = L0.n || 0, many = Math.sqrt(Math.max(1, (S.lamps || []).length)), hi = (L0.y || 1) > 1.5 ? 12 : 0;
+      modal(t + 0.02, midiHz(62 + hi + MAJOR_PENTA[n % 5]), 0.02 / many, toWall(w), BELL, 1.0);
+      modal(t + 0.03, midiHz(50 + MAJOR_PENTA[n % 5]), 0.008 / many, toWall(w), WARM, 0.6);
+      return;
+    }
+    // ---- T-055 Brasa, the relay: a whoosh per jump, a flare per corner, the devils that come to fetch it, the whole lap
+    if (k === 'relay') {
+      const R = S.relay || {};
+      if (arg === 'jump') { const J = R.jump || {}; whoosh(t + 0.01, J.from ?? R.holderWall ?? 0, J.to ?? R.holderWall ?? 0, 0.022, R.jumps || 0); }
+      else if (arg === 'start') { play('s-ember-burst', { gain: 0.12, dest: toWall(R.holderWall >= 0 ? R.holderWall : 0), at: t + 0.01, rate: 0.85 }); }
+      else if (arg === 'assist') { const w = R.holderWall >= 0 ? R.holderWall : 0; for (let j = 0; j < 3; j++) play('s-ember-burst', { gain: 0.05, dest: toWall(w + j - 1), at: t + 0.05 + j * 0.18, rate: rand(1.2, 1.5) }); play('s-tabals', { gain: 0.035, dest: toWall(w), at: t + 0.1, rate: 1.25 }); }
+      else if (arg === 'lap') {   // the trail goes all the way round: a flare on every wall and a deep landing
+        for (let w = 0; w < NW; w++) { play('s-ember-burst', { gain: 0.14, dest: toWall(w), at: t + 0.02 + w * 0.12, rate: 0.75 }); modal(t + 0.04 + w * 0.12, midiHz(50 + MINOR_PENTA[w % 5]), 0.03, toWall(w), STONE, 0.5); }
+        drum(t + 0.02 + NW * 0.12, drumBus, { f0: 76, f1: 36, dur: 1.5, gain: 0.12, noise: 0.04, sub: 0.5 });
+      }
+      return;
+    }
+    if (k === 'corner') { const C = (S.relay && S.relay.corner) || {}; flare(t + 0.01, C.wall ?? 0, (S.relay && S.relay.corners) || 0); return; }
     if (k === 'call') {   // the brasa's call (24-11): timbal tok… tok… TOK, gap s apart; the TOK on the answering wall (or all four)
       const C = S.call || {}, g = (C.gap || 0.8) / pace, from = C.from || 0, to = C.to ?? from;
       for (let j = 0; j < 2; j++) { play('s-timbal', { gain: 0.09, dest: toWall(from), at: t + 0.01 + j * g, rate: 0.92 }); drum(t + 0.01 + j * g, toWall(from), { f0: 110, f1: 70, dur: 0.25, gain: 0.03, noise: 0.05 }); }
@@ -998,6 +1042,17 @@ export default async function start(host) {
       liqG.gain.setTargetAtTime(0.02 * sink * P.effects, t, 1.5); liqSubG.gain.setTargetAtTime(0.12 * sink * P.effects, t, 1.5);
       liqBp.frequency.setTargetAtTime(300 + 260 * (0.5 + 0.5 * Math.sin(t * 0.4)), t, 0.8);
       if (sink > 0.1 && Math.random() < dt * (0.3 + 1.2 * sink)) { const w = Math.floor(Math.random() * NW); liquid(t + 0.01, midiHz(rand(38, 50)), 0.012 * sink * P.effects, toWall(w)); }   // a slow bubble
+      // T-055 the relay's running fire, on the devil's wall (and the next one near a corner)
+      const R = S.relay, relayOn = brasa && S.brasaStage === 'relay' && R && !R.done && ph !== 'reward';
+      const sp = relayOn ? clamp((R.speed || 0) / 1.2, 0, 1.5) : 0, lvl = relayOn ? (0.004 + 0.02 * Math.min(1, sp)) * P.effects : 0;
+      if (relayOn && R.perimeter > 0 && R.holderWall >= 0) {
+        const L0 = walls.map((x) => x.width || 4), s0 = L0.reduce((a, l, w) => { a.push(w ? a[w - 1] + L0[w - 1] : 0); return a; }, []);
+        const into = (R.s - s0[R.holderWall]) / L0[R.holderWall], nx = into > 0.85 ? (into - 0.85) / 0.3 : 0, pv = into < 0.15 ? (0.15 - into) / 0.3 : 0;
+        for (let w = 0; w < NW; w++) runG[w].gain.setTargetAtTime(lvl * (w === R.holderWall ? 1 - nx - pv : w === (R.holderWall + 1) % NW ? nx : w === (R.holderWall + NW - 1) % NW ? pv : 0), t, 0.12);
+        runBp.frequency.setTargetAtTime(700 + 900 * Math.min(1, sp) + (R.assist ? 500 : 0), t, 0.2);
+        runCrackle += dt * (1 + 6 * Math.min(1, sp));
+        if (runCrackle > 1) { runCrackle = rand(0, 0.5); play('s-ember-burst', { gain: 0.025 + 0.03 * Math.min(1, sp), dest: toWall(R.holderWall), at: t + 0.01, rate: rand(1.1, 1.5) }); }
+      } else for (const g of runG) g.gain.setTargetAtTime(0, t, 0.3);
       const turning = b === 'pinya' && (S.closed || 0) >= 1 ? (ph === 'reward' ? clamp(1 - S.tp / 7, 0, 1) : 1) : 0;
       turnG.gain.setTargetAtTime(0.018 * turning * P.effects, t, 1.2); rotTurn.speed = 0.04 + 0.04 * turning;
       const h = (S.floors || 0) + (S.floorProgress || 0), climbing = b === 'tronc' && ph === 'play';

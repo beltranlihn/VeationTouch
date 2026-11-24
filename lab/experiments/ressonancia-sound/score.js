@@ -31,7 +31,8 @@ export const TIMES = {                       // seconds
   reveal: { down: 0.035, downMax: 3, hold: 0.02, holdMax: 4, rate: 0.055, soloRate: 0.08, bank: 0.2, idle: 6, decay: 60, keep: 25, settle: 1, button: 0.55 },   // the wait's button: see step()
   intro: 70,
   title: 6,                                  // the chapter card
-  brasa: { min: 45, target: 60, max: 75, reward: 7, spark: 20, gap: 0.8, slower: 0.2, early: 0.5, late: 0.7, pause: 3.2, lead: 1.0 },   // 24-11: the call (tok… tok… TOK; window −early/+late around the TOK)
+  brasa: { min: 45, target: 60, max: 75, reward: 7, spark: 12, gap: 0.8, slower: 0.2, early: 0.5, late: 0.7, pause: 3.2, lead: 1.0,   // 24-11: the call (tok… tok… TOK; window −early/+late around the TOK)
+    relayReach: 2.5, relayRun: 1.2, relayCrawl: 0.08, relayStall: 6, relayFetch: 0.9, relayMax: 30, relayNear: 0.15 },   // T-055 the relay (spark 20 → 12): see notas/ENT.md › T-055
   pinya: { min: 50, target: 75, max: 100, reward: 8, fill: 10, hold: 3, palm: 15, pack: [0.55, 0.9], net: 40, nearFull: 1.8, nearZero: 3 },   // nearFull/nearZero (T-050, tunable): the packed window counts fully up to nearFull m from the wall's centre, 0 at nearZero   // 24-11: gather (pack: the fill's ramp on `pack`)
   tronc: { min: 85, target: 115, max: 145, reward: 6, period: 2.4, phrase: 4.8, rise: 0.33, wobble: 5, foot: 0.95, gain: 0.72, help: 0.5, base: 0.15 },   // base (T-050, tunable): a hand that did not lift and moved < base m in 1 s is the tower's base   // 24-11: lift and level (period: the music's pulse; phrase: gather → rise → lock)
   pom: { min: 70, target: 90, max: 120, reward: 1.5, climb: [38, 16, 10], rest: 7, empty: 20, still: 0.15, stillSpeed: 0.3,   // still: a hand moved less than this (m) in 1 s (filtered); stillSpeed: unused since 24-11, kept for compatibility
@@ -50,6 +51,13 @@ export function createScore(nWalls, opt = {}) {
   const W = Math.max(1, nWalls), T = { ...TIMES, ...(opt.times || {}) };
   const zeros = (v = 0) => Array.from({ length: W }, () => v);
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  // T-055 the room along its perimeter (m): each wall's length and where it starts (P4 = 0 in the XR Lab), the same frame as a hand's `s`
+  const LEN = Array.from({ length: W }, (_, w) => (opt.lengths && opt.lengths[w] > 0 ? opt.lengths[w] : W === 4 ? [7.33, 6.483, 7.353, 6.411][w] : 6.9));
+  const S0 = LEN.reduce((a, l, w) => { a.push(w ? a[w - 1] + LEN[w - 1] : 0); return a; }, []), PER = LEN.reduce((a, b) => a + b, 0);
+  const wrapP = (x) => ((x % PER) + PER) % PER;
+  const perimOf = (wall, dx) => wrapP(S0[wall] + LEN[wall] / 2 + (dx || 0));
+  const wallAtS = (x) => { x = wrapP(x); for (let w = W - 1; w >= 0; w--) if (x >= S0[w]) return w; return 0; };
+  const relayFresh = () => ({ s: 0, lap: 0, holderWall: -1, holder: null, y: 1.1, speed: 0, target: null, stall: 0, assist: false, jumps: 0, corners: 0, jump: null, corner: null, done: false, s0: 0, perimeter: PER });
   const S = {
     block: 'wait', phase: 'play', t: 0, tp: 0, clock: 0, pass: 0, passT: 0,
     hands: 0, count: zeros(), held: zeros(false), left: zeros(false), right: zeros(false),
@@ -59,6 +67,8 @@ export function createScore(nWalls, opt = {}) {
     start: 0, reveal: 0,                                     // wait: the start ring, and how much of the start button play has revealed
     touched: 0, waves: 0, brasaStage: 'spark', waveBig: false,   // brasa
     call: { n: 0, at: 0, gap: 0.8, phase: 0, from: 0, to: 0, hits: 0, need: 2 },   // brasa: the call (24-11)
+    relay: null,                                             // T-055 brasa: the relay (set below; notas/ENT.md › T-055)
+    lamp: null, lamps: [], lampN: 0,                         // T-055 intro: the lamp a landing hand lights (lamp:w)
     fill: zeros(0), closed: 0,                               // pinya: each wall's circles, the circle closing
     walls: zeros(false), structure: 0,                       // the castell's structure, set when the pinya closes
     beat: 0, pulses: 0, floors: 0, floorProgress: 0, lean: zeros(0), weak: zeros(0), balance: false,   // tronc
@@ -82,8 +92,11 @@ export function createScore(nWalls, opt = {}) {
     outcome: null,
     values: { forca: 0, equilibri: 0, valor: 0, seny: 0 },   // the acta's four bars, 0..1
     stats: { maxHands: 0, maxFloors: 0, stillS: 0 },
-    events: [],   // drained by the caller: 'block:x' 'phase:x' 'reveal' 'start' 'aleta' 'palm' 'pack:w' 'learned:x' 'lift' 'level' 'wobble' 'steady' 'slip' 'lower' 'crack' 'wave' 'awake' 'wall:n' 'close' 'pulse' 'floor' 'weak' 'balance' 'climber:n' 'arrived:n' 'handoff:w' 'falter' 'gust:w' 'hush:break:w' 'print:w' 'crown' 'bloom' 'down' 'fall' 'hint:x' 'abandon'
+    events: [],   // drained by the caller (T-055: + 'lamp:w' 'relay:start' 'relay:jump' 'relay:assist' 'relay:lap' 'corner'): 'block:x' 'phase:x' 'reveal' 'start' 'aleta' 'palm' 'pack:w' 'learned:x' 'lift' 'level' 'wobble' 'steady' 'slip' 'lower' 'crack' 'wave' 'awake' 'wall:n' 'close' 'pulse' 'floor' 'weak' 'balance' 'climber:n' 'arrived:n' 'handoff:w' 'falter' 'gust:w' 'hush:break:w' 'print:w' 'crown' 'bloom' 'down' 'fall' 'hint:x' 'abandon'
   };
+  S.relay = relayFresh();
+  let relayR = 0;                                                        // T-055 the runner, unwrapped (m)
+  const landed = [], lampAt = zeros(-1e9);                               // T-055 the hands that landed this step; a wall's last lamp
   const lastSeen = zeros(-1e9), lastDown = zeros(-1e9), seenL = zeros(-1e9), seenR = zeros(-1e9);
   let strokes = new Set(), peak = 0, emptyFor = 0, lastHint = -1e9, stuckFor = 0;
   let downTimes = [], waveAt = -1e9, holdAll = 0, beatT = 0, evalAt = 0, pulseAt = 0, pulsesBalanced = 0, pulsesEval = 0, fillSpeed = 0;
@@ -139,6 +152,7 @@ export function createScore(nWalls, opt = {}) {
     Object.assign(S, { festaStage: 'free', echoHits: 0, bloomSize: 0, bloomDur: 0, brasaStage: 'spark', waveBig: false, start: 0, reveal: 0, touched: 0, waves: 0, closed: 0, structure: 0, beat: 0, pulses: 0, floors: 0, floorProgress: 0, balance: false, climber: 0, climb: 0, lightWall: -1, nextWall: -1, resonance: 0, blooms: 0, outcome: null, passT: 0 });
     S.fill = zeros(0); S.walls = zeros(false); S.lean = zeros(0); S.weak = zeros(0);
     S.values = { forca: 0, equilibri: 0, valor: 0, seny: 0 }; S.stats = { maxHands: 0, maxFloors: 0, stillS: 0 };
+    S.relay = relayFresh(); S.lamp = null; S.lamps = []; S.lampN = 0;   // T-055
     S.prints = []; printed.clear(); S.printOpen = false; S.pomThread = []; S.pomHolder = null; S.pomHandoff = null; cracksB = 0;
     phraseClock = 0; wobbles = 0; levelEval = 0; levelOk = 0; S.wobble = 0; S.wobbleWall = -1; S.descents = 0; S.dropped = 0; S.lowerK = 0; revealedAt = -1e9; revealBank = 0; stillRun = 0; S.pack = zeros(0); S.packed = zeros(false); S.learned = {}; S.assist = 0; S.aletaHands = 0; S.aletaWidth = 0; peak = 0; pulsesBalanced = 0; pulsesEval = 0; fillSpeed = 0; stillT = 0; pomT = 0;
     go('wait');
@@ -159,6 +173,57 @@ export function createScore(nWalls, opt = {}) {
   function pomInit() {
     S.climber = 0; S.climb = 0; order = structureWalls(); holderId = null; holdT = 0; goneT = 0; gustAt = breakAt = falterAt = -1e9;
     Object.assign(S, { pomStage: 'relay', pomRest: 0, pomHolder: null, pomFrom: null, pomFly: 1, pomFalter: 0, pomThread: [], pomHandoffs: 0, pomHandoff: null, pomBreath: 0, pomGust: 0, pomHush: 0, restless: false });
+  }
+  // T-055 THE RELAY (proposal §4.2; notas/ENT.md › T-055). A fire devil runs along the walls (+s) at a person's pace to the nearest hand
+  // AHEAD within relayReach and jumps to it; a hand dragged ahead is followed; with no hand ahead it nearly stops and, after relayStall s,
+  // the other devils fetch it (relayFetch m/s to the next hand at any distance). The net: in the last 10 s of relayMax it hurries just
+  // enough to close the lap. Goal: once round the room. Every corner crossed is a flare.
+  function relayStart(now) {
+    const R = S.relay = relayFresh();
+    let born = null, bt = -1e9;
+    for (const o of S.strokes) { const tr = track.get(o.stroke), lt = tr ? tr.land : 0; if (!born || lt > bt) { born = o; bt = lt; } }
+    relayR = born ? perimOf(born.wall, born.dx) : perimOf(0, 0);
+    R.s = R.s0 = relayR; R.holderWall = wallAtS(relayR);
+    if (born) { R.holder = born.stroke; R.y = born.y || 1.1; }
+    emit('relay:start');
+  }
+  function relayStep(dt, now, B) {
+    const R = S.relay; if (R.done) return true;
+    const near = B.relayNear, back = 0.5;
+    let best = null, bd = Infinity, bs = 0;
+    for (const o of S.strokes) {
+      const hs = perimOf(o.wall, o.dx); let fd = wrapP(hs - relayR); if (fd > PER - back) fd -= PER;
+      if (fd <= near || (!R.assist && fd > B.relayReach)) continue;
+      if (fd < bd) { bd = fd; best = o; bs = hs; }
+    }
+    // the net: in the last 10 s of relayMax, at least the speed that closes the lap in time
+    const left = B.spark + B.relayMax - S.t, need = Math.max(0, (1 - R.lap) * PER), net = left < 10 ? need / Math.max(0.25, left) : 0;
+    if (net > B.relayRun && !R.assist) { R.assist = true; emit('relay:assist'); }
+    let v;
+    if (best) {
+      R.target = { stroke: best.stroke, wall: best.wall, s: bs, y: best.y }; R.stall = 0;
+      // a person's pace; catching up with a hand dragged faster
+      v = Math.max(R.assist ? Math.max(B.relayFetch, B.relayRun) : B.relayRun, best.stroke === R.holder && bd <= B.relayReach ? (bd - near) * 2 : 0, net);
+    } else {
+      R.target = null; R.stall += dt;
+      if (R.stall >= B.relayStall && !R.assist) { R.assist = true; emit('relay:assist'); }
+      v = Math.max(R.assist ? B.relayFetch : B.relayCrawl, net);
+    }
+    R.speed += (v - R.speed) * (1 - Math.exp(-dt / (v > R.speed ? 0.35 : 0.6)));
+    if (net > R.speed) R.speed = net;
+    let move = R.speed * dt;
+    if (best && move >= bd - near * 0.5) move = Math.max(0, bd - near * 0.5);   // lands on the hand
+    const from = relayR; relayR += move;
+    for (let w = 0; w < W; w++) if (Math.floor((relayR - S0[w]) / PER) > Math.floor((from - S0[w]) / PER)) { R.corners++; R.corner = { wall: w, s: S0[w], at: now }; emit('corner'); }
+    if (best && bd - move <= near) {   // it reached the hand: it jumps onto it
+      if (best.stroke !== R.holder) { const fw = R.holder === null ? R.holderWall : (strokeOf(R.holder) || { wall: R.holderWall }).wall; R.jumps++; R.jump = { from: fw, to: best.wall, at: now }; emit('relay:jump'); }
+      R.holder = best.stroke; R.assist = net > B.relayRun; R.stall = 0;
+    }
+    const h = R.holder === null ? null : strokeOf(R.holder);
+    R.y = h ? h.y || R.y : best ? best.y || R.y : R.y;
+    R.s = wrapP(relayR); R.holderWall = wallAtS(relayR); R.lap = clamp((relayR - R.s0) / PER, 0, 1);
+    if (R.lap >= 1) { R.done = true; R.speed = 0; R.target = null; R.assist = false; emit('relay:lap'); return true; }
+    return false;
   }
   function fall(outcome) { S.outcome = outcome; emit('fall'); go('fall'); }
   function finish() {       // the four values, as the group played them
@@ -207,14 +272,14 @@ export function createScore(nWalls, opt = {}) {
   function step(dt, hands) {
     S.clock += dt; S.t += dt; S.tp += dt; if (S.block !== 'wait') S.passT += dt;
     const now = S.clock, seen = new Set(); let downs = 0, maxSpeed = 0;
-    onButton = 0; downsW.fill(0);
+    onButton = 0; downsW.fill(0); landed.length = 0; if (S.lamps.length) S.lamps = [];
     S.count.fill(0);
     hands = fold(hands, now);
     for (const h of hands) {
       if (!(h.wall >= 0 && h.wall < W)) continue;
       S.count[h.wall]++; lastSeen[h.wall] = now; seen.add(h.stroke);
       if ((h.dx || 0) <= 0.15) seenL[h.wall] = now; if ((h.dx || 0) >= -0.15) seenR[h.wall] = now;
-      if (!strokes.has(h.stroke)) { lastDown[h.wall] = now; downs++; downsW[h.wall]++; downTimes.push(now); }
+      if (!strokes.has(h.stroke)) { lastDown[h.wall] = now; downs++; downsW[h.wall]++; downTimes.push(now); landed.push(h); }
       if (h.speed > maxSpeed) maxSpeed = h.speed;
       if (Math.abs(h.dx || 0) <= T.reveal.button) onButton++;
     }
@@ -283,6 +348,13 @@ export function createScore(nWalls, opt = {}) {
       S.start = pressing ? Math.min(1, S.start + (dt / T.start) * (onButton >= 2 ? 1 : 1 / 1.5)) : Math.max(0, S.start - dt / (T.start * 2)); S.progress = S.start;
       if (S.start >= 1) { S.pass++; emit('start'); go('intro'); }
     } else if (S.block === 'intro') {
+      // T-055 (proposal §4.1): no goals; each hand that lands lights the lamp nearest to it (the visual picks it): 'lamp:w'
+      for (const h of landed) {
+        if (now - lampAt[h.wall] < 0.25) continue;
+        lampAt[h.wall] = now; S.lampN++;
+        S.lamp = { wall: h.wall, s: typeof h.s === 'number' && isFinite(h.s) ? h.s : perimOf(h.wall, h.dx), dx: h.dx || 0, y: typeof h.y === 'number' && isFinite(h.y) ? h.y : 0, at: now, n: S.lampN };
+        S.lamps.push(S.lamp); emit('lamp:' + h.wall);
+      }
       S.progress = S.t / T.intro; if (S.t >= T.intro) go('brasa');
     } else if (S.block === 'brasa') {
       if (playing) {
@@ -293,7 +365,9 @@ export function createScore(nWalls, opt = {}) {
         const C = S.call;
         if (S.brasaStage === 'spark') {
           S.progress = clamp(Math.min(1, S.touched / Math.min(8, S.people)) * 0.25, 0, 0.25);
-          if (S.t >= B.spark) {   // the spark lasts B.spark s from the block's start (the card is a layer)
+          if (S.t >= B.spark) { S.brasaStage = 'relay'; relayStart(now); }   // the spark lasts B.spark s from the block's start (the card is a layer)
+        } else if (S.brasaStage === 'relay') {
+          if (relayStep(dt, now, B)) {   // the fire went once round the room: the call, as before
  S.brasaStage = 'call'; hint('together'); C.n = 1; C.gap = B.gap; C.from = Math.floor(Math.random() * W); C.to = C.from; C.at = now + B.lead + 2 * C.gap; C.hits = 0; C.armed = true; C.tokDone = false; }
         } else {
           C.need = S.solo ? 1 : clamp(Math.round(S.people * 0.4), 2, 5);
@@ -660,7 +734,7 @@ export function createScore(nWalls, opt = {}) {
     const after = (b) => BLOCKS.indexOf(block) > BLOCKS.indexOf(b);
     if (after('pinya') && !S.structure) { const n = Math.min(W, Math.max(S.solo ? 1 : 2, S.needWalls)); S.walls = zeros(false); for (let w = 0; w < n; w++) S.walls[w] = true; S.structure = n; S.fill = S.walls.map((v) => (v ? 1 : 0)); S.closed = 1; }
     if (after('tronc') && S.floors < 5) { S.floors = 7; S.stats.maxFloors = Math.max(S.stats.maxFloors, 7); }
-    if (block === 'brasa') { S.brasaStage = 'spark'; S.waves = 0; S.touched = 0; S.call.n = 0; S.waveBig = false; }
+    if (block === 'brasa') { S.brasaStage = 'spark'; S.waves = 0; S.touched = 0; S.call.n = 0; S.waveBig = false; S.relay = relayFresh(); }
     if (block === 'tronc') { S.floors = 0; S.floorProgress = 0; beatT = 0; evalAt = 0; phraseClock = 0; wobbles = 0; S.wobble = 0; S.wobbleWall = -1; }
     if (block === 'pom') pomInit();
     if (block === 'fall') S.outcome = S.outcome || 'intent';

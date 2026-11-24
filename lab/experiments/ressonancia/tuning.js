@@ -27,6 +27,14 @@ export const TUNE = [
   ['brasa.early',      'Brasa call: early window before TOK (s)',      0.2,   1.5,  0.05, 0.5,  's'],
   ['brasa.late',       'Brasa call: late window after TOK (s)',        0.2,   2,    0.05, 0.7,  's'],
   ['brasa.max',        'Brasa: longest (s)',                           45,    120,  5,    75,   's'],
+  // T-055 the relay (spark → relay → call): the fire devil runs round the room from hand to hand
+  ['brasa.spark',      'Brasa: spark lasts (s), then the relay',       6,     25,   1,    12,   's'],
+  ['brasa.relayReach', 'Brasa relay: jumps to a hand ahead within (m)', 1,    4,    0.1,  2.5,  'm'],
+  ['brasa.relayRun',   'Brasa relay: running speed (m/s)',             0.5,   2.5,  0.1,  1.2,  'm/s'],
+  ['brasa.relayStall', 'Brasa relay: no hand ahead → fetched after (s)', 2,   15,   0.5,  6,    's'],
+  ['brasa.relayFetch', 'Brasa relay: fetched at (m/s)',                0.3,   2,    0.1,  0.9,  'm/s'],
+  ['brasa.relayMax',   'Brasa relay: the lap closes by (s)',           15,    45,   1,    30,   's'],
+  ['brasa.relayNear',  'Brasa relay: on the hand within (m)',          0.05,  0.5,  0.01, 0.15, 'm'],
   ['pinya.pack.0',     'Pinya: packed from (0–1)',                     0.2,   0.9,  0.05, 0.55, ''],
   ['pinya.pack.1',     'Pinya: fully packed at (0–1)',                 0.4,   1,    0.05, 0.9,  ''],
   ['pinya.hold',       'Pinya: hold the circle (s)',                   1,     8,    0.5,  3,    's'],
@@ -73,6 +81,7 @@ export const PRESETS = {
   lab: {},
   sala: {
     linger: 3, abandon: 60,
+    'brasa.relayReach': 3.0, 'brasa.relayStall': 5, 'brasa.relayNear': 0.22,   // T-055: hands lost to occlusion leave wider gaps; a noisier «on the hand»
     'brasa.early': 0.7, 'brasa.late': 1.0, 'festa.early': 0.7, 'festa.late': 1.0, 'festa.window': 1.0,
     'pinya.pack.0': 0.45, 'pinya.pack.1': 0.8,
     'tronc.rise': 0.25, 'tronc.foot': 1.1, 'tronc.wobble': 7,

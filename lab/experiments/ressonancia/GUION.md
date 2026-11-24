@@ -67,6 +67,8 @@ entre 9:30 y 11:30 minutos.
   siluetas hechas de puntos de luz —una torre humana sugerida, nunca dibujada— que se deshace antes de terminar. Las cuatro palabras
   del lema aparecen, una por muro. Título: RESSONÀNCIA.
 - **Sonido:** compuesto de antemano: respiraciones, el rumor de una plaza que calla, un timbal lejano, la primera nota de gralla.
+- **Faroles con la mano (T-055):** sin metas. Cada mano que se posa en un muro enciende el farol más cercano (`lamp:<muro>`) con una
+  campana suave en ese muro (Re mayor pentatónico, como la intro). Si nadie toca, los faroles se encienden solos al ritmo de siempre.
 - **Voz (borrador, inglés):**
   > For more than two hundred years, in the squares of Catalonia, people have built towers. No stone. No rope. Only bodies, one
   > standing on another, as high as ten storeys. They call them castells.
@@ -75,11 +77,19 @@ entre 9:30 y 11:30 minutos.
   > Strength. Balance. Courage. Good sense. Put your hands on the wall.
 
 ### I. Brasa — el despertar (≈0:50) · universo Fuego
-**Chispa** (20 s desde el inicio del bloque; la cartela es una capa y los toques ya cuentan): cada toque levanta un chorro y un diable.
+**Chispa** (12 s desde el inicio del bloque; la cartela es una capa y los toques ya cuentan): cada toque levanta un chorro y un diable.
+La altura de la mano decide el tono (y la altura del chorro): las manos bajas hacen los graves (Re menor pentatónico, dos octavas de
+0,5 a 1,9 m): los niños tienen su voz.
+**El relevo (T-055, ~20–30 s):** un diable de fuego nace junto a la última mano y corre por el muro a paso de persona (1,2 m/s) hacia la
+mano de delante a ≤ 2,5 m y salta a ella (soplo); una mano arrastrada por delante se sigue (una persona sola lo pasea alrededor de la
+sala). Sin mano delante casi se para; a los 6 s otros diables lo van a buscar y lo llevan a la siguiente mano. Cada esquina, una
+llamarada. Meta: una vuelta entera (siempre se cierra: a los 30 s de relevo como mucho). Grupo grande: un anillo de manos quietas y el
+fuego salta de mano en mano. Pruebas (node): 12 manos en anillo 23 s; cadena de 4 manos que se adelantan 22 s; una mano arrastrada a
+1 m/s 28 s; una mano quieta o nadie 28–30 s (con ayuda). Parámetros `t.brasa.relay*` (preset «sala»: alcance 3 m, ayuda a los 5 s).
 **La llamada:** timbal *tok… tok… TOK* (0,8 s) y todos golpean: cuenta cada mano que se posa desde el primer tok hasta 0,7 s después
 del TOK, y media por cada mano ya apoyada que se movió > 10 cm o se posó hace < 2 s (el sensor no ve «apretar»). Hacen falta 1 mano
 (una persona) o 2–5 (grupo). Tres llamadas (un muro; uno y el de enfrente; los cuatro: el anillo arde). Si falla: ola pequeña y la sala
-llama más despacio. La intro ya no pide tocar (la voz y el texto «Poned las manos…» de la intro están callados): lo pide la Brasa.
+llama más despacio. La llamada empieza al cerrarse la vuelta del relevo (sin cambios en sus reglas); bloque ~57 s (antes ~52). La intro ya no pide tocar (la voz y el texto «Poned las manos…» de la intro están callados): lo pide la Brasa.
 
 ### II. Pinya — Força (≈1:00) · universo Cuerpo y tierra
 *Reglas del 24-11 (lo que mide `score.js`).* La cartela es una capa: la partitura escucha desde el primer segundo. **Palma con palma**

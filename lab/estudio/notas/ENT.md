@@ -604,3 +604,45 @@ Voz nueva propuesta (no grabada; necesita el sí de Vicente): «The square holds
 `pom.relay.every/.ready/.falter`, `pom.gust`, `pom.breakCost`, `print.rest`; «sala»: nearFull 2,1 · nearZero 3,3 · base 0,22 · ready 1,2 ·
 falter 1,8 · gust 0,5 · breakCost 0,03 · print.rest 0,6. `res-obra3d/manifest.json` regenerado desde `manifestParams()` (58 parámetros;
 los 37 de antes idénticos). `PRUEBA-SALA.md`: tabla de `t.…` (49) y filas Pom / acta. Respaldos `*.T050.bak`.
+
+## T-055 · Intro: faroles con la mano · Brasa: altura → tono + EL RELEVO — NOMBRES DEL ESTADO (SCO2, para VIS2/T-056; escritos ANTES del código)
+Marco de posición: `s` en **metros a lo largo del perímetro**, el mismo de las manos (`P4` empieza en 0; sala XR Lab 27,577 m; esquinas en
+0 · 7,33 · 13,813 · 21,166). La partitura lo calcula de `wall` + `dx` con las longitudes de los muros (`createScore(nW, { lengths })`;
+por omisión las del XR Lab), así que no depende de que la mano traiga `s`.
+**Intro** (`block === 'intro'`; sin metas, sólo escucha esto):
+- Evento `'lamp:<muro>'` por cada mano que **aterriza** (≥ 0,25 s entre dos del mismo muro). Carga: `S.lamp = { wall, s, dx, y, at, n }`
+  (la última; `at` = `S.clock`, `n` = cuántas en esta intro) y `S.lamps[]` = las de ESTE paso (se vacía cada paso). La parte visual
+  elige el farol más cercano a `(wall, dx)` / `s`. Sin manos no se emite nada: los faroles siguen encendiéndose solos al ritmo de hoy.
+**Brasa** — `brasaStage`: `'spark'` (0–12 s, `brasa.spark` 20 → **12**) → **`'relay'`** → `'call'` (la llamada, sin cambios).
+- `relay` = `{ s (m, posición del diable en el perímetro), lap (0..1 de la vuelta), holderWall (muro donde está el diable), holder
+  (stroke de la mano sobre la que está, o null), y (m, altura a la que dibujarlo: la de su mano o la de la mano a la que corre),
+  speed (m/s ahora), target ({ stroke, wall, s, y } | null: la mano a la que corre), stall (s sin mano delante), assist (bool: otros
+  diables lo van a buscar), jumps, corners, jump ({ from, to, at } último salto: muros), corner ({ wall (el muro en que entra), s, at }),
+  done (bool), s0 (m, donde nació), perimeter (m) }`. Vive desde que empieza el relevo hasta el final de la Brasa (en `'call'` queda `done`).
+- Reglas: nace junto a la mano que aterrizó la última (sin manos: centro del muro 0). Corre a paso de persona (`relayRun` 1,2 m/s) hacia la
+  mano **por delante** (sentido +s) más cercana a ≤ `relayReach` 2,5 m y **salta** a ella (`'relay:jump'`). Una mano arrastrada por
+  delante se sigue (una persona sola lo pasea). Sin mano delante: casi se para (`relayCrawl` 0,08 m/s) y cuenta `stall`; a los
+  `relayStall` 6 s otros diables lo buscan (`'relay:assist'`, `assist` true): va a `relayFetch` 0,9 m/s hasta la siguiente mano a
+  cualquier distancia. Red: en los últimos 10 s de `relayMax` 30 s acelera lo justo para cerrar la vuelta (siempre se completa).
+  Vuelta entera → `'relay:lap'` y empieza la llamada como hoy.
+- Eventos: `'relay:start'` (nace) · `'relay:jump'` (salta de una mano a otra: `relay.jump`) · `'corner'` (cruza una esquina:
+  `relay.corner`, una llamarada) · `'relay:assist'` (los otros diables salen a buscarlo) · `'relay:lap'` (la vuelta completa: la estela entera).
+- `progress` no cambia de forma: chispa hasta 0,25, el relevo la deja en 0,25, la llamada +0,25 por ola grande.
+- Altura → tono: nada nuevo en el estado (el sonido lee la altura de la mano).
+TIMES nuevos (planos dentro de `brasa`, ajustables `t.brasa.relay*`): `relayReach 2.5, relayRun 1.2, relayCrawl 0.08, relayStall 6,
+relayFetch 0.9, relayMax 30, relayNear 0.15`.
+
+## T-055 hecho — faroles · altura → tono · el relevo (score.js ×2 y tuning.js ×2 idénticos; respaldos `*.T055.bak`)
+Implementado como en los nombres de arriba. `createScore(nW, { lengths })` (sound.js pasa los anchos de `vt.walls`; por omisión XR Lab).
+**Pruebas (node, `scratchpad/t055/relay.mjs`): 24/24 PASAN** (con la partitura anterior no corre: no hay relevo). Vuelta del relevo:
+0 manos 30 s (ayuda a los 6 s, 4 esquinas) · 1 mano quieta 27,9 s (ayuda 6 s) · 1 mano arrastrada a 1 m/s 28,3 s sin ayuda · a 0,5 m/s
+30 s (red) · 4 manos quietas en 2 muros 29,8 s (4 saltos + ayuda) · cadena de 4 manos que se adelantan 22,4 s, 11 saltos, sin ayuda ·
+anillo de 12 manos 23,3 s, 11 saltos, luego 3 olas grandes y despierta (bloque 56,7 s). La llamada igual (fallos: 0,8 → 1,0 → 1,2).
+Intro: sin manos 0 faroles y Brasa a los 70 s; un toque cada 3 s → 24 faroles en su muro. Anteriores: `pos/t050.mjs` 20/20,
+`t038/items.mjs` 16/16. Pase virtual (node, cadena en el relevo): **9:31 / 9:18 / 9:24** (2/6/15 personas; antes 9:24/9:18/9:26).
+`check.mjs` del sonido (intro + Brasa con manos) y de `res-obra/simulate.html` (6 personas, relevo con cadena: 14 saltos, vuelta
+entera): 0 errores. **Sonido:** farol = campana suave + toque cálido en su muro (Re mayor pent.); Brasa: ember + tambor + piedra
+afinados por la altura (Re menor pent., 0,5–1,9 m); relevo: fuego que corre (ruido en banda en el muro del diable, más brillante con la
+velocidad, chisporroteo), salto = soplo de muro a muro, esquina = llamarada + piedra, ayuda = chispas y tabals suaves, vuelta = llamarada
+en los cuatro muros + golpe grave. **Para GUI:** `guide3d.js:52` muestra «Tocad el muro» también en `brasaStage 'relay'` (quizá
+«Pasad el fuego»). Voz propuesta (no grabada; necesita el sí de Vicente): «Carry it. Pass it on.» al empezar el relevo.
