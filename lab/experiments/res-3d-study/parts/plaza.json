@@ -12,5 +12,6 @@
   { "key": "wet", "label": "Plaza: wet floor", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.75 },
   { "key": "drift", "label": "Plaza: fragment drift", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
   { "key": "mirror", "label": "Plaza: mirror fragments", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.45 },
-  { "key": "handWarm", "label": "Plaza: hands warm the lamps", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 0.5 }
+  { "key": "handWarm", "label": "Plaza: hands warm the lamps", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 0.5 },
+  { "key": "handLamp", "label": "Plaza: a hand lights the nearest lamp (T-056)", "type": "bool", "default": true }
 ]

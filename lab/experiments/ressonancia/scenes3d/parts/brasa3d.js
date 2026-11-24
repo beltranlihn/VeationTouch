@@ -70,6 +70,7 @@ export function create({ THREE, TSL, room, params }) {
   const PX_ANG = pxM / dWall0;
   const wrapC = (x) => x - PER * Math.floor(x / PER + 0.5);           // signed circular difference
   const wrapP = (x) => ((x % PER) + PER) % PER;
+  const s0h = (h) => cum[h.wall] + h.u * walls[h.wall].width;          // a hand's perimeter position
   // a point of the floor ring: the wall point at perimeter s, pushed out from the eye by d metres. Writes out (Vector3), returns tw.
   function ringPoint(s, d, out) {
     s = wrapP(s);
@@ -483,7 +484,8 @@ export function create({ THREE, TSL, room, params }) {
     return meshes;
   })();
   const devils = [];
-  for (let i = 0; i < MAXD; i++) devils.push({ on: false, s: 0, d: DEV_D, dir: 1, spd: 0.7, age: 0, life: 8, k: 0, dis: 0, style: 0, phase: 0, wave: null, h: 1, acc: 0, born: 0 });
+  for (let i = 0; i < MAXD; i++) devils.push({ on: false, s: 0, d: DEV_D, dir: 1, spd: 0.7, age: 0, life: 8, k: 0, dis: 0, style: 0, phase: 0, wave: null, h: 1, acc: 0, born: 0, res: i >= MAXD - 4, hop: 0, gain: 1 });
+  // T-056: the last 4 slots are the relay's (the runner + up to 3 that run to fetch it); spawnDevil never takes them
   // skeleton scratch
   const J = []; for (let i = 0; i < NJ; i++) J.push(new THREE.Vector3());
   const F = new THREE.Vector3(), Sd = new THREE.Vector3(), UPV = new THREE.Vector3(0, 1, 0), root = new THREE.Vector3(), tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3(), poleD = new THREE.Vector3(), barD = new THREE.Vector3(), toEye = new THREE.Vector3();
@@ -505,7 +507,7 @@ export function create({ THREE, TSL, room, params }) {
     const sp = (time * 0.11 + dv.born * 0.37) % 1, spinK = sp < 0.09 ? sp / 0.09 : 0;   // now and then a full turn with a leap
     F.multiplyScalar(1 - 0.75 * turn * turn).addScaledVector(toEye, 0.75 * turn * turn).normalize();
     if (spinK > 0) F.applyAxisAngle(UPV, spinK * Math.PI * 2);
-    root.y += 0.28 * h * Math.sin(spinK * Math.PI);
+    root.y += 0.28 * h * Math.sin(spinK * Math.PI) + (dv.hop || 0);   // T-056: the relay's leap
     Sd.crossVectors(F, UPV).normalize();                                // the devil's right
     const bob = 0.06 * Math.abs(Math.sin(ph));
     const lean = 0.16 + 0.1 * Math.sin(ph * 0.5 + dv.born);
@@ -547,13 +549,13 @@ export function create({ THREE, TSL, room, params }) {
   }
   let devilCount = 0;
   function spawnDevil(s, dir, spd, life, wave, time) {
-    for (const dv of devils) if (dv.on && dv.dis === 0 && Math.abs(wrapC(dv.s - s)) < 1.6 && !wave && !dv.wave) return null;   // one per place
-    { let n = 0, all = 0; for (const dv of devils) if (dv.on && dv.dis === 0) { all++; if (!dv.wave) n++; }
+    for (const dv of devils) if (dv.on && dv.dis === 0 && Math.abs(wrapC(dv.s - s)) < 1.6 && !wave && !dv.wave) return null;   // one per place (the relay's runner too: no second devil on its hand)
+    { let n = 0, all = 0; for (const dv of devils) if (dv.on && dv.dis === 0 && !dv.res) { all++; if (!dv.wave) n++; }
       if (!wave && n >= (crowdN > 4 ? 2 : 5)) return null;               // a crowd: at most 2 hand devils (5 for a few people)
       if (wave && all >= (crowdN > 4 ? 4 : 6)) return null; }            // and the wave's relay only while few dance
-    const dv = devils.find((x) => !x.on);
+    const dv = devils.find((x) => !x.on && !x.res);
     if (!dv) return null;
-    Object.assign(dv, { on: true, s, d: DEV_D + (Math.random() - 0.5) * 1.2, dir, spd, stride: 0.3, age: 0, life, k: 0, dis: 0, style: devilCount % 2, phase: Math.random() * 6, wave, h: 1 + Math.random() * 0.1, acc: 0, born: devilCount++ * 1.37 % 100 });
+    Object.assign(dv, { hop: 0, gain: 1, on: true, s, d: DEV_D + (Math.random() - 0.5) * 1.2, dir, spd, stride: 0.3, age: 0, life, k: 0, dis: 0, style: devilCount % 2, phase: Math.random() * 6, wave, h: 1 + Math.random() * 0.1, acc: 0, born: devilCount++ * 1.37 % 100 });
     return dv;
   }
 
@@ -1069,6 +1071,22 @@ export function create({ THREE, TSL, room, params }) {
   let level = 0.1, awakeEnv = 0, awakeT = -1e9, contract = 0, cool = 0, prevArrive = -1, lastWave = -1e9, prevWaveP = false, prevAwakeP = false, nextAutoWave = 0;
   const recentUps = []; for (let i = 0; i < 8; i++) recentUps.push({ s: 0, y: 0, t: -1e9 });
   let upI = 0, served = 'brasa', servedPhase = 'play', crowdN = 0, crowdK = 1, waitK = 0, breathPh = 0, trailI = 0, puffCount = 0, ambAcc = 0, columnAcc = 0, leaveAcc = 0, frame = 0, rewardT = 0;
+  // ---- T-056: the relay (score state `relay` {s, lap, holderWall}, events 'relay:jump' {from, to} and 'corner'; study: params.relay)
+  const lapCells = new Float32Array(NC);           // 1 where the fire has passed on this lap (the trail of embers in the bed)
+  const RL = { on: false, s: 0, prevS: 0, vel: 0, hopK: 1, hopFrom: 0, hopDur: 0.5, k: 0, assist: false, assistT: 0, trailK: 0, emberAcc: 0, full: false, cornerAt: [], st: { s: 0, lap: 0, run: 0, travelled: 0, lastHand: null }, jumps: 0, corners: 0 };
+  for (let i = 0; i < NW; i++) RL.cornerAt.push(-1e9);
+  const evName = (e) => (typeof e === 'string' ? e : e && typeof e === 'object' ? String(e.type ?? e.name ?? e.e ?? e.event ?? '') : '');
+  function markLap(a, b) {                         // cells between perimeter a and b (the short way round)
+    const d = wrapC(b - a), n = Math.min(NC, Math.ceil(Math.abs(d) / CELL) + 1);
+    for (let k = 0; k <= n; k++) { const j = Math.round(wrapP(a + (d * k) / Math.max(1, n)) / CELL) % NC; lapCells[j] = 1; }
+  }
+  function cornerFlare(i, time) {
+    if (time - RL.cornerAt[i] < 2.5) return; RL.cornerAt[i] = time; RL.corners++;
+    const cs = cum[i], dR = Number(P.relayD ?? 2.6);
+    maxHeat(flare, cs, 3.0, 1.0); addHeat(dyn, cs, 1.6, 1.0);
+    ringPoint(cs, dR, _v); emit(Math.max(260, 600 * crowdK), _v.x, 0.15, _v.z, 0.5, 0, 1, 0, 0.3, 3.5, 8.5, 1.0, 2.2, 2.3, 0.9, 0.35);   // a flare at the corner
+    ringPoint(cs, RING0 + 1.5, _v); emit(220, _v.x, 0.1, _v.z, 0.9, 0, 1, 0, 0.45, 2, 6, 0.8, 1.6, 2.0, 0.9, 0.4);
+  }
   const addHeat = (arr, s, amt, sigma) => {
     const n = Math.ceil((sigma * 3) / CELL), c = Math.round(wrapP(s) / CELL);
     for (let k = -n; k <= n; k++) { const j = ((c + k) % NC + NC) % NC, x = (k * CELL) / sigma; arr[j] += amt * Math.exp(-0.5 * x * x); }
@@ -1249,6 +1267,103 @@ export function create({ THREE, TSL, room, params }) {
     fxImpact(wi, 0.5 + ((e.x + dx * t - w.centre.x) * w.right.x + (e.z + dz * t - w.centre.z) * w.right.z) / w.width, strength, mat, kind);
   }
 
+  function relayStandIn(dt, time, hs, events) {   // the study: the fire runs at 1.3 m/s; a hand ahead within 2.5 m takes it (a jump)
+    const st = RL.st;
+    if (!P.relay) { st.run = 0; return null; }
+    if (!st.run) { st.run = 1; st.s = hs.length ? s0h(hs[0]) : hearthS[0] - 1.5; st.travelled = 0; st.lastHand = hs.length ? hs[0].stroke : null; }
+    let ahead = null, best = 2.5;
+    for (const h of hs) { const d = wrapC(s0h(h) - st.s); if (h.stroke !== st.lastHand && d > 0.4 && d < best) { best = d; ahead = h; } }
+    const s1 = st.s;
+    if (ahead) { st.s = st.s + best; st.lastHand = ahead.stroke; events.push({ type: 'relay:jump', from: s1, to: st.s }); }
+    else {
+      const holder = hs.find((h) => h.stroke === st.lastHand);
+      const v = holder ? 0 : hs.length ? 0.15 : 1.3;                  // held: it waits on the hand; nobody ahead: it almost stops
+      if (holder) st.s += wrapC(s0h(holder) - st.s) * Math.min(1, dt * 6); else st.s += v * dt;
+    }
+    for (let i = 0; i < NW; i++) if (wrapC(s1 - cum[i]) < 0 && wrapC(st.s - cum[i]) >= 0) events.push('corner');
+    st.travelled += Math.abs(wrapC(st.s - s1));
+    let hw = NW - 1; const sp = wrapP(st.s); for (let i = 0; i < NW; i++) if (sp < cum[i] + walls[i].width) { hw = i; break; }
+    return { s: st.s, lap: st.travelled / PER, holderWall: hw, assist: !!P.relayAssist };
+  }
+  const _relEv = [];
+  function stepRelay(dt, time, S, events, hs, leave) {
+    _relEv.length = 0;
+    let R = null;
+    if (S) { const r = S.relay; if (r && Number.isFinite(+r.s) && r.done !== true && S.block === 'brasa' && (S.brasaStage !== undefined ? S.brasaStage === 'relay' : r.holderWall >= 0)) R = r; }   // T-055: relay lives from 'relay:start' to the end of the Brasa (done in 'call')
+    else R = relayStandIn(dt, time, hs, _relEv);
+    let jumpEv = false, cornerEv = false, lapEv = false;
+    const scan = (list) => { if (list) for (const e of list) { const n = evName(e); if (n.startsWith('relay:jump')) jumpEv = true; else if (n === 'corner' || n.startsWith('corner:')) cornerEv = true; else if (n === 'relay:lap') lapEv = true; } };
+    scan(events); scan(_relEv);
+    const runner = devils[MAXD - 1], dR = Number(P.relayD ?? 2.6), want = !!R && leave < 0.3 && (P.relayOn ?? true) !== false;
+    if (want) {
+      const target = +R.s;
+      if (!RL.on) {                                 // it is born where the fire is
+        RL.on = true; RL.s = target; RL.prevS = target; RL.vel = 0; RL.hopK = 1; RL.full = false; lapCells.fill(0);
+        Object.assign(runner, { on: true, s: target, d: dR, dir: 1, spd: 0.5, stride: 0.3, age: 0, life: 1e9, k: 0, dis: 0, style: 0, phase: 0, wave: null, h: 1.12, acc: 0, born: 7.3, hop: 0, gain: 1.25 });
+      }
+      const diff = wrapC(target - RL.s);
+      if ((jumpEv || Math.abs(diff) > 1.0) && RL.hopK >= 1 && Math.abs(diff) > 0.15) {   // a leap to the next hand
+        RL.hopK = 0; RL.hopFrom = RL.s; RL.hopDur = Math.min(0.8, 0.38 + Math.abs(diff) * 0.12); RL.jumps++;
+        ringPoint(RL.s, dR, _v); emit(160, _v.x, 0.3, _v.z, 0.2, 0, 1, 0, 0.5, 1.5, 4, 0.5, 1.1, 2.0, 0.9, 0.5);   // take-off
+      }
+      const s1 = RL.s;
+      if (RL.hopK < 1) {
+        RL.hopK = Math.min(1, RL.hopK + dt / RL.hopDur);
+        const span = wrapC(target - RL.hopFrom), e = smoother(RL.hopK);
+        RL.s = RL.hopFrom + span * e;
+        runner.hop = (0.35 + Math.min(0.6, Math.abs(span) * 0.18)) * Math.sin(Math.PI * RL.hopK);
+        ringPoint(RL.s, dR, _v); emit(Math.max(2, Math.round(260 * dt)), _v.x, 0.9 + runner.hop, _v.z, 0.25, 0, 1, 0, 0.8, 0.2, 1.0, 0.5, 1.0, 1.9, 0.6, 1.0);   // the arc leaves sparks
+        if (RL.hopK >= 1) { runner.hop = 0; ringPoint(RL.s, dR, _v); emit(220, _v.x, 0.1, _v.z, 0.3, 0, 1, 0, 0.55, 2, 5, 0.5, 1.2, 2.1, 1, 0.5); addRipple(_v.x, _v.z, 0.012, time); }   // landing
+      } else RL.s += diff * (1 - Math.exp(-dt / 0.15));                // it runs with the fire (human pace: the score's s)
+      const ds = wrapC(RL.s - s1);
+      markLap(s1, RL.s);
+      for (let i = 0; i < NW; i++) if (wrapC(s1 - cum[i]) * wrapC(RL.s - cum[i]) < 0 && Math.abs(wrapC(RL.s - cum[i])) < 1.5) cornerFlare(i, time);   // crossing a corner
+      if (cornerEv) { let bi = 0, bd = 1e9; for (let i = 0; i < NW; i++) { const d = Math.abs(wrapC(RL.s - cum[i])); if (d < bd) { bd = d; bi = i; } } cornerFlare(bi, time); }
+      RL.vel += (ds / Math.max(dt, 1e-3) - RL.vel) * (1 - Math.exp(-dt / 0.25));
+      runner.s = RL.s; runner.d = dR;
+      if (Math.abs(RL.vel) > 0.1) runner.dir = RL.vel > 0 ? 1 : -1;
+      runner.spd = Math.min(3.4, Math.abs(RL.vel) * (1 + dR / 3.5));   // the gait: world speed
+      RL.trailK = Math.min(1, RL.trailK + dt / 0.8);
+      let cov = 0; for (let i = 0; i < NC; i++) cov += lapCells[i];
+      if (!RL.full && (cov >= NC * 0.97 || +R.lap >= 0.999 || lapEv)) {             // the full lap: the whole trail flares
+        RL.full = true; for (let i = 0; i < NC; i++) { lapCells[i] = 1; flare[i] = Math.max(flare[i], 1.0); }
+      }
+      // assisted: two or three devils run to fetch the fire and run with it
+      const ast = R.assist === true || +R.assist > 0.3 || R.stuck === true || R.fetch === true;
+      if (ast && !RL.assist) {
+        const n = crowdN > 4 ? 2 : 3;
+        for (let j = 0; j < 3; j++) {
+          const f = devils[MAXD - 2 - j]; if (j >= n) continue;
+          const side = j % 2 ? -1 : 1, off = side * (4 + j * 1.3);
+          Object.assign(f, { on: true, s: RL.s + off, d: dR + 0.5 + j * 0.6, dir: -side, spd: 3, stride: 0.4, age: 0, life: 1e9, k: 0, dis: 0, style: (j + 1) % 2, phase: j * 2.1, wave: null, h: 0.95 + 0.05 * j, acc: 0, born: 11 + j * 3.7, hop: 0, gain: 0.9, slot: side * (0.8 + 0.35 * j) });
+        }
+      }
+      if (!ast && RL.assist) for (let j = 0; j < 3; j++) { const f = devils[MAXD - 2 - j]; if (f.on && f.life > 1e8) f.life = f.age + 1.2; }
+      RL.assist = ast;
+      for (let j = 0; j < 3; j++) {
+        const f = devils[MAXD - 2 - j]; if (!f.on) continue;
+        const dd = wrapC(RL.s + (f.slot || 0) - f.s), sp = Math.min(2.6, Math.abs(dd) * 2 + Math.abs(RL.vel));   // run to it, then with it
+        const step = Math.sign(dd) * Math.min(Math.abs(dd), sp * dt);
+        f.s += step; if (Math.abs(step) > 1e-4) f.dir = Math.sign(step); f.spd = Math.max(0.6, sp * (1 + f.d / 3.5));
+      }
+    } else if (RL.on) {                              // the relay is over: the runner and its helpers dissolve, the trail cools
+      RL.on = false; RL.assist = false;
+      for (let j = 0; j < 4; j++) { const f = devils[MAXD - 1 - j]; if (f.on && f.life > 1e8) { f.life = f.age; f.hop = 0; } }
+    }
+    if (!RL.on) RL.trailK = Math.max(0, RL.trailK - dt / (S && S.relay && S.relay.done ? 10 : 4));   // after the lap the trail stays a while into the call
+    // the trail: the lap travelled glows in the bed and breathes a few embers
+    if (RL.trailK > 0.001) {
+      const tk = RL.trailK * (1 - leave) * Number(P.trail ?? 1);
+      for (let i = 0; i < NC; i++) if (lapCells[i] > 0) dyn[i] = Math.max(dyn[i], 1.05 * tk * (0.85 + 0.15 * Math.sin(time * 1.7 + i * 0.37)));
+      RL.emberAcc += dt * 55 * tk;
+      for (let tries = 0; RL.emberAcc >= 1 && tries < 6; tries++) {
+        const j = Math.floor(Math.random() * NC); if (lapCells[j] <= 0) continue;
+        RL.emberAcc -= 1; ringPoint(j * CELL, dR + 0.3 + Math.random() * 2.2, _v);
+        emit(5, _v.x, 0.06, _v.z, 0.25, 0, 1, 0, 0.35, 0.6, 1.9, 0.9, 2.0, 2.0, 0.6, 0.8);
+      }
+      if (RL.emberAcc > 3) RL.emberAcc = 3;
+    } else if (!RL.on) lapCells.fill(0);
+  }
   function update(dt, input) {
     dt = Math.min(Math.max(dt || 1 / 60, 0), 1 / 20);
     const time = input.time ?? 0, S = input.state;
@@ -1342,7 +1457,20 @@ export function create({ THREE, TSL, room, params }) {
       if (slot.jet > 0) {
         const wk = 1 - 0.75 * waitK, nn = h.normal;
         slot.jetAcc += (780 / 0.6) * gH * wk * Math.min(dt, slot.jet); slot.jet -= dt;
-        if (slot.jetAcc >= 4) { const k = Math.floor(slot.jetAcc); slot.jetAcc -= k; emit(k, h.pos.x - nn.x * 0.03, h.pos.y - lift, h.pos.z - nn.z * 0.03, 0.05, -nn.x * 0.75, 0.68, -nn.z * 0.75, 0.32, 3.2, 8.5, 1.3, 2.8, 1.75, 1, 0.3); }
+        // T-056: the hand's height decides the jet: low (children) a short low spray, high a tall one
+        const hk = clamp01((h.pos.y - 0.5) / 1.5);
+        if (slot.jetAcc >= 4) { const k = Math.floor(slot.jetAcc); slot.jetAcc -= k; emit(k, h.pos.x - nn.x * 0.03, h.pos.y - lift, h.pos.z - nn.z * 0.03, 0.05, -nn.x * (0.95 - 0.35 * hk), 0.3 + 0.65 * hk, -nn.z * (0.95 - 0.35 * hk), 0.3, 2.2 + 1.6 * hk, 4.5 + 5.5 * hk, 1.0 + 0.5 * hk, 2.0 + 1.2 * hk, 1.75, 1, 0.3); }
+      }
+      // T-056: a held hand keeps a column of sparks rising out of the bed under it; its top is seen at the hand's height on the wall
+      if ((P.column ?? 1) > 0 && waitK < 0.5) {
+        const dC = Number(P.relayD ?? 2.6), twC = ringPoint(s0h(h), dC, _v2), ey = eye.y || 1.6;
+        const apex = Math.max(0.2, Math.min(4.5, ey + (h.pos.y - ey) * (twC + dC) / twC));    // the world height seen at the hand's height
+        slot.colAcc = (slot.colAcc || 0) + dt * 80 * gH * Number(P.column ?? 1) * (1 - waitK);
+        if (slot.colAcc >= 3) {
+          const k = Math.floor(slot.colAcc); slot.colAcc -= k;
+          const v0 = Math.sqrt(2 * 9.8 * apex) * 1.06, tA = v0 / 9.8;
+          emit(k, _v2.x, 0.05, _v2.z, 0.06, 0, 1, 0, 0.035, v0 * 0.86, v0, tA * 1.05, tA * 1.5, 2.2, 1, 0.25);
+        }
       }
       // a dragged hand leaves a ribbon: slow embers that hang where the hand passed, then sink and go out
       // (by the distance the hand really travels — the sensor's velocity can be 0 — about 4 embers a centimetre; they hang almost still,
@@ -1470,6 +1598,9 @@ export function create({ THREE, TSL, room, params }) {
     }
     prevArrive = arrive;
 
+    // ---- T-056: the relay — one devil runs the room at the hand's pace, leaps to the next hand, flares at the corners, leaves a trail
+    stepRelay(dt, time, S, input.events, hs, leave);
+
     // ---- devils
     for (let i = 0; i < MAXD; i++) {
       const dv = devils[i], ds = DS[i];
@@ -1480,12 +1611,12 @@ export function create({ THREE, TSL, room, params }) {
       if (dv.age > dv.life || leave > 0.3) dv.dis = Math.min(1, dv.dis + dt / 1.8);
       if (dv.dis >= 1) { dv.on = false; ds.set(0, 0, 0, 0); continue; }
       const tw = ringPoint(dv.s, dv.d, _v2);
-      dv.s += dv.dir * dv.spd * dt * tw / (tw + dv.d);                   // spd is metres per second on the square's floor
+      if (!dv.res) dv.s += dv.dir * dv.spd * dt * tw / (tw + dv.d);      // spd is metres per second on the square's floor (the relay's devils are moved by stepRelay)
       dv.stride = Math.min(0.55, 0.16 + dv.spd * 0.12);
       dv.phase += dt * Math.PI * 2 * Math.min(3.0, Math.max(1.3, 0.9 + dv.spd * 0.6));
       pose(dv, time);
       for (let j = 0; j < NJ; j++) JV[i * NJ + j].set(J[j].x, J[j].y, J[j].z, 0);
-      ds.set(dv.k, dv.dis, (0.9 + 0.15 * Math.sin(time * 9 + i)) * Math.max(0.5, Number(P.devils ?? 1)), 0);
+      ds.set(dv.k, dv.dis, (0.9 + 0.15 * Math.sin(time * 9 + i)) * Math.max(0.5, Number(P.devils ?? 1)) * (dv.gain || 1), 0);
       addHeat(dyn, dv.s, dt * 0.5, 0.7);
       // the carretilles: two spinning sprays at the ends of the crossbar
       const live = dv.k * (1 - dv.dis);
@@ -1533,7 +1664,7 @@ export function create({ THREE, TSL, room, params }) {
     room.renderer.compute(sparkCompute);
   }
 
-  if (typeof window !== 'undefined') window.__brasa = { breath: () => U.breath.value, wait: () => waitK, puffs: () => puffCount, roots: () => devils.map((d, i) => (d.on && d.dis === 0 ? [i, JV[i * NJ].x, JV[i * NJ].z, d.wave ? 1 : 0] : null)).filter(Boolean), devils: () => devils.filter((d) => d.on).length, callT: () => U.callT.value, lift: () => lift, impacts: () => impacts, fx: () => fx.filter((f) => f.t >= 0), tiles: () => tiles.reduce((a, t) => { a[t.mode]++; return a; }, [0, 0, 0, 0, 0]), waves: () => waves.filter((w) => w.on).length, emitters: () => nE, white: () => whiteN };
+  if (typeof window !== 'undefined') window.__brasa = { breath: () => U.breath.value, wait: () => waitK, puffs: () => puffCount, roots: () => devils.map((d, i) => (d.on && d.dis === 0 ? [i, JV[i * NJ].x, JV[i * NJ].z, d.wave ? 1 : 0] : null)).filter(Boolean), devils: () => devils.filter((d) => d.on).length, callT: () => U.callT.value, lift: () => lift, impacts: () => impacts, fx: () => fx.filter((f) => f.t >= 0), tiles: () => tiles.reduce((a, t) => { a[t.mode]++; return a; }, [0, 0, 0, 0, 0]), waves: () => waves.filter((w) => w.on).length, emitters: () => nE, white: () => whiteN, relay: () => ({ on: RL.on, s: RL.s, hop: RL.hopK < 1, jumps: RL.jumps, corners: RL.corners, assist: RL.assist, lap: lapCells.reduce((a, b) => a + b, 0) / NC, full: RL.full, helpers: [1, 2, 3].filter((j) => devils[MAXD - 1 - j].on).length }) };
   return {
     object,
     update,

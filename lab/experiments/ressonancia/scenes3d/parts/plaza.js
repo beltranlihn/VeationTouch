@@ -10,6 +10,7 @@
 //   25–46  the square at rest: haze drifts, a window flickers, one lights late, one goes out.
 //   46–58  it breaks: a vibration, then the facades come apart into floating panes of stone and mirror that drift up and apart.
 //   58–70  the fragments thin out into the dark; a few keep glinting.
+//   T-056: a hand on a wall (score event 'lamp' {wall, s}) lights the nearest unlit fanal at once; without hands, the old pace.
 // Review overrides: params.reveal (0..1 = the 8–25 s lighting) and params.shatter (0..1 = 46–70 s) replace the clock when > 0.
 //
 // How it is built (draw calls and cost): four sides, each merged into 4 meshes (stone, iron/wood, glass, mirror shards) so every
@@ -1102,6 +1103,38 @@ export function create(ctx) {
   }
   const handNear = new Float32Array(NL);
   let grown = true;
+  // ---- T-056: a hand lights the nearest fanal (score event 'lamp' {wall, s}; study: a hand landing). Once lit, a lamp stays lit.
+  for (const L of lamps) L.t00 = L.t0;
+  const RW = room.walls || [], RCUM = []; let RPER = 0; for (const w of RW) { RCUM.push(RPER); RPER += w.width; }
+  const _lp = new THREE.Vector3();
+  let prevT = -1, lampsLitByHand = 0;
+  function evLamp(e) {                                                // 'lamp' | 'lamp:<wall>[:<s>]' | { type|name: 'lamp', wall, s }
+    if (typeof e === 'string') { if (e !== 'lamp' && !e.startsWith('lamp:')) return null; const a = e.split(':'); return { wall: a[1] !== undefined ? +a[1] : NaN, s: a[2] !== undefined ? +a[2] : NaN }; }
+    if (e && typeof e === 'object' && (e.type ?? e.name ?? e.e ?? e.event) === 'lamp') return { wall: +(e.wall ?? e.w ?? NaN), s: +(e.s ?? NaN) };
+    return null;
+  }
+  function wallPoint(wall, s, out) {                                  // a point at 1.2 m on the wall (perimeter s, or the wall's centre)
+    if (!RW.length || !(RPER > 0)) return false;
+    let w = Number.isFinite(wall) && RW[wall] ? wall : -1, u;
+    if (Number.isFinite(s)) {
+      const sp = ((s % RPER) + RPER) % RPER;
+      if (w < 0 || sp < RCUM[w] - 0.5 || sp > RCUM[w] + RW[w].width + 0.5) { w = RW.length - 1; for (let i = 0; i < RW.length; i++) if (sp < RCUM[i] + RW[i].width) { w = i; break; } }
+      u = Math.min(RW[w].width, Math.max(0, sp - RCUM[w]));
+    } else if (w >= 0) u = RW[w].width / 2; else return false;
+    const W = RW[w]; out.set(W.pa.x + W.right.x * u, 1.2, W.pa.z + W.right.z * u); return true;
+  }
+  function lightNear(wall, s, tR) {
+    if (!wallPoint(wall, s, _lp)) return -1;
+    const eye = room.eye || { x: 0, z: 0 }, a0 = Math.atan2(_lp.x - eye.x, _lp.z - eye.z);
+    let bi = -1, bd = 1.25;                                           // ≤ ~70° from the hand, seen from the eye
+    for (let i = 0; i < NL; i++) {
+      const L = lamps[i]; if (L.t0 <= tR) continue;                    // already lit (or lighting)
+      let d = Math.atan2(L.pos.x - eye.x, L.pos.z - eye.z) - a0; d = Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
+      if (d < bd) { bd = d; bi = i; }
+    }
+    if (bi >= 0) { lamps[bi].t0 = tR + 0.02; lampsLitByHand++; }
+    return bi;
+  }
   function update(dt, input) {
     const t = input.t ?? 0, time = input.time ?? 0;
     const pr = input.params || P;
@@ -1129,6 +1162,19 @@ export function create(ctx) {
     const moonK = (pr.moon ?? 1) * reveal * dark;
     moon.intensity = 0.32 * moonK * (pr.moonKey ?? 1); hemi.intensity = 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1));   // the moon's key also fills the shadows with a cool sky
     uPool.value = pr.pool ?? 1; uDetail.value = pr.detail ?? 1; uNight.value = pr.night ?? 0; uReach.value = pr.reach ?? 1;
+    // T-056: hands light lamps early; a new pass (the clock went back) restores the old schedule
+    if (tR < prevT - 1) for (const L of lamps) L.t0 = L.t00;
+    prevT = tR;
+    if ((pr.handLamp ?? true) !== false && tR < 46) {
+      // T-055 (SCO2): event 'lamp:<wall>' per landing hand; payload S.lamps[] (this step's) / S.lamp (the last) = { wall, s, dx, y, at, n }
+      let nEv = 0; const evs = [];
+      if (input.events) for (const e of input.events) { const ev = evLamp(e); if (ev) { nEv++; evs.push(ev); } }
+      if (nEv) {
+        const St = input.state, list = St && Array.isArray(St.lamps) && St.lamps.length ? St.lamps.slice(-nEv) : St && St.lamp && nEv === 1 ? [St.lamp] : null;
+        if (list) for (const o of list) lightNear(+o.wall, +o.s, tR); else for (const ev of evs) lightNear(ev.wall, ev.s, tR);
+      }
+      if (!input.state) for (const h of input.downs || []) lightNear(h.wall, RCUM[h.wall] !== undefined ? RCUM[h.wall] + (h.u ?? 0.5) * RW[h.wall].width : NaN, tR);   // the study's stand-in
+    }
     // hands warm the nearest lamp a little
     handNear.fill(0);
     if ((pr.handWarm ?? 0.5) > 0) for (const h of input.hands || []) {
@@ -1150,6 +1196,6 @@ export function create(ctx) {
   }
   function setParams() { /* parameters are read live in update() */ }
   function dispose() { for (const g of geos) g.dispose(); for (const m of [stoneMat, detailMat, glassMat, mirrorMat, floorMat, skyMat]) m.dispose(); }
-  if (typeof window !== 'undefined') window.__plaza = { lamps: NL, verts, meshes: object.children.length };   // lab checks only
+  if (typeof window !== 'undefined') window.__plaza = { lamps: NL, verts, meshes: object.children.length, lit: () => lamps.filter((L) => L.t0 <= prevT).length, byHand: () => lampsLitByHand };   // lab checks only
   return { object, update, setParams, dispose, captureEnv };
 }
