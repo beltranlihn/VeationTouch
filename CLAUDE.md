@@ -28,6 +28,9 @@ Producto reutilizable: **nada de una sala concreta va en el código** — todo v
   Las piezas de **sonido** (`kind: "sound"`, contrato `experiences/SOUND-API.md`; la primera es `ambient-notes`) suenan
   por los altavoces de la sala a la vez que la visual; dispositivos, mapa muro→canal, sub y limitador viven en
   `profile.audio` (ARCHITECTURE.md › Room audio). Sólo síntesis Web Audio propia, sin samples.
+  **Excepción aprobada por el director (2026-11-24): Ressonància** (`res-obra3d` + `ressonancia-sound`, de Vicente, con sus
+  módulos de apoyo `ressonancia` y `res-3d-study`) usa samples mp3 propios (voces y stems, ~22 MB) y texto/voz en español
+  (inglés en el selector de voz). No es precedente: cualquier otra pieza sigue la regla.
 - **`docs/plans/`** = planes de construcción por fases; `MEDIA-SERVER.md` es el del media server (diseño, decisiones del
   director, fases F0–F13 y sus pruebas).
 - **`engine/media/`** = el media server en el motor: biblioteca y copias, shows (rejilla, clips, presets), transporte
