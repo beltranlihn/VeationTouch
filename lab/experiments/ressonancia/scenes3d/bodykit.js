@@ -20,18 +20,26 @@
 // the material when VFX delivers it (one line, `opt.material`); until then MeshStandardNodeMaterial + the room's rim and the
 // hands' flash. Colours are the approved palette (05 §2.7); `opt.colors` overrides them (palette.js when it exists).
 import { bakeBodyGen, pose as skeleton, V } from './parts/pinya3d/body.js';
+import { lin as palLin } from './palette.js';
 
 // ---------------------------------------------------------------------------------------------------------------- palette (05 §2.7)
-const hex = (h) => { const c = parseInt(h.slice(1), 16); return [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255]; };
-const lin = (c) => c.map((v) => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
-export const BODY_COLORS = {   // sRGB hex → linear at use. Pinya world: terracotta and cal-foc bodies, ombra shadows, faixa accent
-  skin: '#B25A3C', shirt: '#E6D6BC', trousers: '#3A2018', faixa: '#A3302A', hair: '#3A2018', shadow: '#3A2018', crack: '#3A2018',
+// palette.js tokens (or [token, k] or linear [r, g, b]); skin = 'bisque' = terracota lifted half-way to cal-foc. Pinya by default;
+// a chapter calls kit.setColors({ shirt: 'porcellana', shadow: 'tinta-ombra', … }).
+export const BODY_COLORS = { skin: 'bisque', shirt: 'cal-foc', trousers: 'ombra', faixa: 'faixa', hair: 'ombra', shadow: 'ombra', crack: 'ombra', glow: 'or' };
+const tokLin = (t) => {
+  if (Array.isArray(t) && typeof t[0] === 'number') return t;
+  if (Array.isArray(t)) return palLin(t[0], t[1] ?? 1);
+  if (t === 'bisque') { const a = palLin('terracota'), b = palLin('cal-foc'); return a.map((v, i) => v * 0.5 + b[i] * 0.5); }
+  return palLin(t);
 };
 
 // ---------------------------------------------------------------------------------------------------------------- builds and poses
+// sturdy castellers, sculpted (not realistic): shorter legs, thick arms, round shoulders, mitten hands, a smooth head without features
+const SCULPT = { face: false, paddle: true, shY: 0.078, neck: 1.18, wrist: 1.3, foot: 1.15, curl: 0.6 };
 export const BUILDS = [
-  { s: 1.0, sh: 0.19, hip: 0.092, hipW: 0.15, chest: 0.178 },       // broad
-  { s: 0.95, sh: 0.172, hip: 0.1, hipW: 0.168, chest: 0.162 },      // slight (also the children, scaled 0.62–0.75)
+  { ...SCULPT, s: 1.0, sh: 0.2, hip: 0.096, hipW: 0.155, chest: 0.198, leg: 0.92, arm: 1.18, legT: 1.06, head: 1.04, mitt: 1.22 },     // broad
+  { ...SCULPT, s: 0.95, sh: 0.182, hip: 0.1, hipW: 0.168, chest: 0.178, leg: 0.93, arm: 1.12, legT: 1.04, head: 1.06, mitt: 1.18 },  // slight
+  { ...SCULPT, s: 1.0, sh: 0.17, hip: 0.09, hipW: 0.16, chest: 0.172, leg: 0.84, arm: 1.1, legT: 1.04, head: 1.34, mitt: 1.3 },      // a child (used at scale 0.55–0.8)
 ];
 const REST = { lean: 0, hunch: 0, head: 0, feet: [V(0.13, 0.07, 0), V(-0.13, 0.07, 0)], hands: [V(0.4, 0.9, 0.03), V(-0.4, 0.9, 0.03)], elbow: V(0, -1, -0.3) };
 // hands: [left (+x), right (-x)]; hf: hand frames { fd: fingers, pn: palm normal }
@@ -57,7 +65,7 @@ const POSE_I = Object.fromEntries(POSES.map((k, i) => [k, i]));
 const poseIndex = (p) => (typeof p === 'number' ? Math.max(0, Math.min(POSES.length - 1, p | 0)) : (POSE_I[p] ?? 0));
 for (const sp of Object.values(POSE_SPECS)) if (sp.hf) sp.hf = sp.hf.map((f) => f || undefined);
 
-const LODS = [{ grid: 0.018, detail: true, shards: 46 }, { grid: 0.032, detail: false, shards: 30 }];
+const LODS = [{ grid: 0.016, detail: false, shards: 46 }, { grid: 0.03, detail: false, shards: 30 }];   // mitten hands on both: the palm reads at 3 m
 const TW = 1024;          // pose texture width (texels)
 const Y0 = 0.9;           // positions are stored as y − Y0 (half-float precision ≈ 1 mm over the body)
 
@@ -79,19 +87,21 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1] } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2] } = {}) {
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;
   const C = { ...BODY_COLORS, ...colors };
-  const col = (k) => lin(Array.isArray(C[k]) ? C[k] : hex(C[k]));
+  const col = (k) => tokLin(C[k]);
   const object = new THREE.Group(); object.name = 'bodykit';
   const uTime = uniform(0);
   const uColor = {
-    skin: uniform(new THREE.Vector3(...col('skin'))), shirt: uniform(new THREE.Vector3(...col('shirt'))),
+    skin: uniform(new THREE.Vector3(...col('skin'))),
+    shirt: uniform(new THREE.Vector3(...col('shirt'))),
     trousers: uniform(new THREE.Vector3(...col('trousers'))), faixa: uniform(new THREE.Vector3(...col('faixa'))),
-    crack: uniform(new THREE.Vector3(...col('crack'))), hair: uniform(new THREE.Vector3(...col('hair'))), glow: uniform(new THREE.Vector3(...lin(hex('#E8B04A')))),
+    crack: uniform(new THREE.Vector3(...col('crack'))), hair: uniform(new THREE.Vector3(...col('hair'))), glow: uniform(new THREE.Vector3(...col('glow'))),
   };
-  const uCrack = uniform(0.55), uRim = uniform(0.55), uFlash = uniform(0.6);
+  const uCrack = uniform(0.35), uRim = uniform(0.8), uFlash = uniform(0.6), uSculpt = uniform(new THREE.Vector2(0.38, 1.2));
+  const uEye = uniform(new THREE.Vector3(room?.eye?.x ?? 0, room?.eye?.y ?? 1.6, room?.eye?.z ?? 0));
 
   // ---- CPU state per body: 16 floats (pos xyz, yaw | poseA, poseB, mix, scale | tint rgb, glow | build, lod, visible, seed)
   const S = new Float32Array(max * 16);
@@ -101,7 +111,10 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   const meshes = [];      // { build, lod, mesh, geo, iA, iB, iC, tex, n }
   const baseMat = material;
   function makeMaterial(tex, rows) {
-    const m = baseMat ? baseMat.clone() : new THREE.MeshStandardNodeMaterial({ roughness: 0.42, metalness: 0 });
+    // the one matter (room.matter.body: glaze, wear, env, the lluna rim and the hands' light in the chapter's accent); colour, regions,
+    // pose and the sculptor's key are the kit's. Fallback: a plain standard material + the room's rim.
+    const matter = baseMat ? baseMat.clone() : room?.matter?.body ? room.matter.body({ color: 'cal-foc', faixa: 'faixa', faixaY: [-2, -1] }) : null;
+    const m = matter || new THREE.MeshStandardNodeMaterial({ roughness: 0.42, metalness: 0 });
     const iA = attribute('iA', 'vec4'), iB = attribute('iB', 'vec4'), iC = attribute('iC', 'vec4');
     const aux = attribute('aAux', 'vec4');           // (crack border 0/1, breath, region, ao)
     const aux2 = attribute('aAux2', 'vec4');         // (thickness, mottle, -, -)
@@ -125,21 +138,27 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const w0 = float(1).sub(smoothstep(0.35, 0.65, vReg)), w3 = smoothstep(2.35, 2.65, vReg);
     const w2 = smoothstep(1.35, 1.65, vReg).mul(float(1).sub(w3)), w1 = float(1).sub(w0).sub(w2).sub(w3).max(0);
     let base = uColor.skin.mul(w0).add(uColor.shirt.mul(w1)).add(uColor.trousers.mul(w2)).add(uColor.faixa.mul(w3));
-    const vHair = varying(aux2.z, 'vBodyHair');
+    const vHair = varying(aux2.z, 'vBodyHair'), vFeet = varying(aux2.w, 'vBodyFeet');
     base = mix(base, uColor.hair.mul(0.6), smoothstep(0.3, 0.7, vHair));   // ombra, deepened
+    base = mix(base, uColor.trousers.mul(0.55), smoothstep(0.3, 0.7, vFeet));
     base = base.mul(vMot.sub(0.5).mul(0.16).add(1));
     const crack = float(1).sub(smoothstep(0.45, 0.95, vCr)).mul(uCrack);
     base = mix(base, uColor.crack, crack.mul(0.55));
-    const ao = mix(float(0.3), float(1), vAO.mul(vAO));
-    // sculptural modelling, the same on every wall: light from above, the undersides into the warm shadow (a ceramic in a square)
-    const ny = normalize(vN).y, sky = mix(float(0.5), float(1.05), clamp(ny.mul(0.6).add(0.55), 0, 1));
-    m.colorNode = vec4(base.mul(vTint).mul(ao).mul(sky), 1);
+    const ao = mix(mix(float(0.3), float(0.72), w0), float(1), vAO.mul(vAO));    // the head keeps its light (no dark mask under the brow)
+    // the sculptor's key, the same for every body wherever it stands: from the upper LEFT as seen from the eye (side = the viewer's
+    // right; a function of world position only, so a body across a corner is lit the same on both walls), the far side into a warm
+    // shadow — the volume reads on light worlds; the cast shadow below goes the other way
+    const tE = normalize(vec3(uEye.x.sub(positionWorld.x), 0, uEye.z.sub(positionWorld.z))), side = vec3(tE.z, 0, tE.x.negate());
+    const Lk = normalize(side.mul(-0.75).add(vec3(0, 0.85, 0)).add(tE.mul(0.45)));
+    const sculpt = mix(uSculpt.x, uSculpt.y, clamp(dot(normalize(vN), Lk).mul(0.62).add(0.42), 0, 1));
+    m.colorNode = vec4(base.mul(vTint).mul(ao).mul(sculpt), 1);
     // the glaze: smoother on the shirt and faixa, bisque on skin, matte on the trousers; the crackle is rough
-    m.roughnessNode = float(0.62).mul(w0).add(float(0.34).mul(w1)).add(float(0.55).mul(w2)).add(float(0.3).mul(w3)).add(crack.mul(0.3));
+    const rough = float(0.62).mul(w0).add(float(0.34).mul(w1)).add(float(0.55).mul(w2)).add(float(0.3).mul(w3)).add(crack.mul(0.3));
+    m.roughnessNode = matter?.roughnessNode ? matter.roughnessNode.mul(0.5).add(rough.mul(0.5)) : rough;
     // rim (the room's cool rim node, all four walls at once) + the hands' flash on the edges + the achievement glow (or)
     const V3 = normalize(cameraPosition.sub(positionWorld)), fres = float(1).sub(abs(dot(normalize(vN), V3)));
-    let em = room?.rimNode ? room.rimNode([0.62, 0.74, 1.0], 1, 3).mul(uRim) : vec3(0);
-    if (room?.flash) em = em.add(uColor.shirt.mul(room.flash(positionWorld)).mul(pow(fres, 2)).mul(uFlash));
+    let em = matter?.emissiveNode ? matter.emissiveNode.mul(uRim.mul(1.4)) : room?.rimNode ? room.rimNode([0.62, 0.74, 1.0], 1, 3).mul(uRim) : vec3(0);
+    if (!matter && room?.flash) em = em.add(uColor.shirt.mul(room.flash(positionWorld)).mul(pow(fres, 2)).mul(uFlash));
     em = em.add(uColor.glow.mul(vGlow).mul(pow(fres, 1.5).mul(0.8).add(0.2)));
     m.emissiveNode = em.mul(ao);
     return m;
@@ -165,6 +184,9 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   }
   const shMesh = new THREE.Mesh(shGeo, shMat); shMesh.frustumCulled = false; shMesh.renderOrder = -5; shMesh.name = 'bodykit:shadows';
   object.add(shMesh);
+  const CS = room?.contactShadows ? room.contactShadows(max) : null;   // the room's contact discs (the chapter's shadow colour); the kit draws the cast
+  if (CS) object.add(CS.mesh);
+  let csUsed = 0;
 
   // ---- the bake, sliced in the background (≈ 4 ms per slice)
   const palms = {};       // `${build}` → [pose][x,y,z]
@@ -191,13 +213,14 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       const tex = new THREE.DataTexture(data, TW, rows * 2 * NP, THREE.RGBAFormat, THREE.HalfFloatType);
       tex.minFilter = tex.magFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.needsUpdate = true;
       // geometry: rest positions (bounds, and the attribute three expects), per-vertex aux
-      const aux = new Float32Array(n * 4), aux2 = new Float32Array(n * 4), R0 = r.P[0], hc = skeleton(REST, B).headC;
+      const aux = new Float32Array(n * 4), aux2 = new Float32Array(n * 4), R0 = r.P[0], hc = skeleton(REST, B).headC, hk = B.head ?? 1;
       for (let v = 0; v < n; v++) {
         const p = [R0[v * 3], R0[v * 3 + 1], R0[v * 3 + 2]];
         aux[v * 4] = r.aAux[v * 4]; aux[v * 4 + 1] = r.aAux[v * 4 + 1]; aux[v * 4 + 2] = regionOf(p, r.aAux2[v * 4 + 3], B); aux[v * 4 + 3] = r.aAux2[v * 4];
         aux2[v * 4] = r.aAux2[v * 4 + 1]; aux2[v * 4 + 1] = r.aAux2[v * 4 + 2];
-        // hair: the top and back of the head (a dark cap reads as a person at 4 m, a bald clay head as a mannequin)
-        if (r.aAux2[v * 4 + 3] > 0.45) { const rx = Math.abs(p[0] - hc[0]), ry = p[1] - hc[1], rz = p[2] - hc[2]; aux2[v * 4 + 2] = ry > 0.042 || (ry > 0.0 && rz < 0.045) || (rz < -0.005 && ry > -0.075) || (rx > 0.058 && ry > -0.03 && rz < 0.03) ? 1 : 0; }
+        // mocador: a dark cloth on the top and back of the head (never across the face)
+        if (r.aAux2[v * 4 + 3] > 0.45) { const rx = Math.abs(p[0] - hc[0]), ry = p[1] - hc[1], rz = p[2] - hc[2]; aux2[v * 4 + 2] = (ry > 0.06 * hk && rz < 0.02) || (rz < -0.03 * hk && ry > -0.03 * hk) ? 1 : 0; }
+        aux2[v * 4 + 3] = p[1] < 0.13 ? 1 : 0;   // the feet: espadrilles in ombra
       }
       yield;
       const geo = new THREE.InstancedBufferGeometry();
@@ -238,7 +261,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     stepBake(3);
     if (!ready) return;
     for (const M of meshes) M.count = 0;
-    let ns = 0;
+    let ns = 0, nc = 0;
     const kx = _e.x, kz = _e.z;     // the key light is above the room's centre: the cast shadow points away from it
     for (let i = 0; i < max; i++) {
       const o = i * 16; if (!S[o + 14]) continue;
@@ -250,14 +273,17 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       M.iA.array.set([x, y, z, S[o + 3]], k * 4); M.iB.array.set([S[o + 4], S[o + 5], S[o + 6], sc], k * 4); M.iC.array.set([S[o + 8], S[o + 9], S[o + 10], S[o + 11]], k * 4);
       if (y < 0.05 && ns < max * 2 - 1) {    // shadows only for bodies standing on the floor
         const lift = Math.max(0, y);
-        // contact: round, tight, dark (sB: length, width, offset, soft)
-        shA.array.set([x, z, 0, 1 - lift * 8], ns * 4); shB.array.set([0.7 * sc, 0.62 * sc, 0, 2.6], ns * 4); ns++;
+        // contact: round, tight, dark (sB: length, width, offset, soft) — the room's disc when it has them
+        if (CS) CS.set(nc++, x, z, 0.36 * sc, 0.75 * (1 - lift * 8));
+        else { shA.array.set([x, z, 0, 1 - lift * 8], ns * 4); shB.array.set([0.7 * sc, 0.62 * sc, 0, 2.6], ns * 4); ns++; }
         // cast: long, soft, away from the key (key at 7.5 m over the centre → length ≈ h · d / (7.5 − h))
-        const ang = Math.atan2(x - kx, z - kz), L = Math.min(3.2, 1.7 * sc * d / Math.max(1.5, 7.5 - 1.7 * sc)) + 0.4;
-        shA.array.set([x, z, ang, 0.7], ns * 4); shB.array.set([L * 1.05, 0.55 * sc, L * 0.5, 2.2], ns * 4); ns++;
+        const tx = (kx - x) / (d || 1), tz = (kz - z) / (d || 1), dx = tz * 0.75 - tx * 0.45, dz = -tx * 0.75 - tz * 0.45;   // away from the key: right of the body, away from the eye
+        const ang = Math.atan2(dx, dz), L = 1.45 * sc;
+        shA.array.set([x, z, ang, 0.72], ns * 4); shB.array.set([L, 0.46 * sc, L * 0.36, 1.7], ns * 4); ns++;
       }
     }
     for (const M of meshes) { M.geo.instanceCount = M.count; if (M.count) { M.iA.needsUpdate = M.iB.needsUpdate = M.iC.needsUpdate = true; } M.mesh.visible = M.count > 0; }
+    if (CS) { for (let i = nc; i < csUsed; i++) CS.clear(i); csUsed = nc; }
     shGeo.instanceCount = ns; if (ns) { shA.needsUpdate = shB.needsUpdate = true; }
     shMesh.visible = ns > 0;
   }
@@ -275,18 +301,19 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     if (o.tint) { S[b + 8] = o.tint[0]; S[b + 9] = o.tint[1]; S[b + 10] = o.tint[2]; }
     if (o.glow != null) S[b + 11] = o.glow;
     if (o.build != null) S[b + 12] = builds.includes(o.build) ? o.build : builds[0];
+    if (o.scale != null && o.scale < 0.82 && builds.includes(2)) S[b + 12] = 2;   // a small body is a child (child proportions)
     if (o.lod != null) S[b + 13] = o.lod === 'auto' ? -1 : (o.lod === 'far' || o.lod === 1 ? 1 : 0); else if (!S[b + 14]) S[b + 13] = -1;
     S[b + 14] = o.visible === false ? 0 : 1;
   }
   const hide = (i) => { if (i >= 0 && i < max) S[i * 16 + 14] = 0; };
   const palm = (p = 'palm', build = 0) => (palms[build] || palms[builds[0]] || [])[poseIndex(p)] || [-0.13, 1.4, 0.44];
   const yawTo = (from, to) => Math.atan2(to.x - from.x, to.z - from.z);
-  function setColors(c = {}) { for (const k of Object.keys(c)) if (uColor[k]) uColor[k].value.set(...lin(Array.isArray(c[k]) ? c[k] : hex(c[k]))); if (c.shadow) uShadow.value.set(...lin(Array.isArray(c.shadow) ? c.shadow : hex(c.shadow))); }
+  function setColors(c = {}) { for (const k of Object.keys(c)) if (uColor[k]) uColor[k].value.set(...tokLin(c[k])); if (c.shadow) uShadow.value.set(...tokLin(c.shadow)); }
   function dispose() { for (const M of meshes) { M.geo.dispose(); M.mesh.material.dispose(); M.tex.dispose(); } shGeo.dispose(); shMat.dispose(); }
   const api = {
     object, get mesh() { return object; }, count: max, set, hide, update, palm, yawTo, setColors, dispose, POSES,
     ready: readyP, get isReady() { return ready; },
-    uniforms: { time: uTime, crack: uCrack, rim: uRim, flash: uFlash, shadow: uShK, color: uColor },
+    uniforms: { time: uTime, crack: uCrack, rim: uRim, flash: uFlash, shadow: uShK, color: uColor, sculpt: uSculpt, eye: uEye },
   };
   return api;
 }

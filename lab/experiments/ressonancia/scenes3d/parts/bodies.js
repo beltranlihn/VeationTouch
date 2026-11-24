@@ -25,7 +25,7 @@ export function create({ THREE, TSL, room, params }) {
   room.walls.forEach((w, wi) => {
     [0.22, 0.5, 0.78].forEach((u, k) => {
       const i = wi * 3 + k;
-      slots.push({ i, wi, u, pose: POSES[i % POSES.length], build: (i + wi) % 2, scale: i === 7 ? 0.68 : (i % 2 ? 0.97 : 1.02) });
+      slots.push({ i, wi, u, pose: POSES[i % POSES.length], build: (i + wi) % 2, scale: i === 7 || i === 10 ? 0.66 : (i % 2 ? 0.97 : 1.02) });
     });
   });
   const tmp = new THREE.Vector3();
@@ -37,7 +37,7 @@ export function create({ THREE, TSL, room, params }) {
       s.x = tmp.x; s.z = tmp.z;
       const pose = poseSel === 'all' ? s.pose : poseSel;
       const yaw = Math.atan2(room.eye.x - s.x, room.eye.z - s.z);
-      kit.set(s.i, { pos: [s.x, 0, s.z], yaw, pose, pose2: pose, mix: 0, scale: s.scale, build: s.build });
+      kit.set(s.i, { pos: [s.x, 0, s.z], yaw, pose, pose2: pose, mix: 0, scale: s.scale, build: s.scale < 0.8 ? 2 : s.build });
     }
   }
   const touched = new Map();   // slot → 0..1
@@ -45,7 +45,7 @@ export function create({ THREE, TSL, room, params }) {
     object,
     update(dt, input) {
       place(dt);
-      kit.uniforms.crack.value = P.crack ?? 0.55; kit.uniforms.rim.value = P.rim ?? 0.55;
+      kit.uniforms.crack.value = P.crack ?? 0.35; kit.uniforms.rim.value = P.rim ?? 0.55;
       R.key.intensity = 2.6 * (P.light ?? 1);
       floor.visible = P.floor !== false;
       // a hand: the nearest body on that wall offers its palm (pose blend toward 'palm')

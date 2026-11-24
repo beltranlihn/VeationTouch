@@ -40,7 +40,7 @@ export function pose(sp, B) {
   const s = B.s, sd1 = pitch(sp.lean), sd2 = pitch(sp.lean + sp.hunch);
   let hd = pitch(sp.lean + sp.hunch + sp.head);
   const [fl, fr] = sp.feet, mid = mul(add(fl, fr), 0.5);
-  const lat = Math.max(0, Math.abs(fl[0] - fr[0]) / 2 - 0.09 * s), leg = 0.85 * s * 0.97;
+  const lat = Math.max(0, Math.abs(fl[0] - fr[0]) / 2 - 0.09 * s), leg = 0.85 * s * (B.leg ?? 1) * 0.97;
   const pelvis = add(mid, V(0, Math.sqrt(Math.max(0.04, leg * leg - lat * lat)) + 0.03 * s, -0.04 * Math.sin(sp.lean)));
   const waist = madd(pelvis, sd1, 0.22 * s), shC = madd(waist, sd2, 0.27 * s), neck = madd(waist, sd2, 0.31 * s);
   // the shoulder rises when the arm goes up
@@ -48,8 +48,8 @@ export function pose(sp, B) {
   const shL = madd(madd(shC, LEFT, B.sh * s), UP, up(sp.hands[0])), shR = madd(madd(shC, LEFT, -B.sh * s), UP, up(sp.hands[1]));
   const hL = madd(pelvis, LEFT, B.hip * s), hR = madd(pelvis, LEFT, -B.hip * s);
   const kp = add(FWD, mul(UP, 0.1));
-  const [kL, aL] = ik(hL, fl, 0.43 * s, 0.42 * s, add(kp, mul(LEFT, 0.2)));
-  const [kR, aR] = ik(hR, fr, 0.43 * s, 0.42 * s, add(kp, mul(LEFT, -0.2)));
+  const [kL, aL] = ik(hL, fl, 0.43 * s * (B.leg ?? 1), 0.42 * s * (B.leg ?? 1), add(kp, mul(LEFT, 0.2)));
+  const [kR, aR] = ik(hR, fr, 0.43 * s * (B.leg ?? 1), 0.42 * s * (B.leg ?? 1), add(kp, mul(LEFT, -0.2)));
   const ep = sp.elbow || V(0, -1, -0.3);
   const [eL, wL] = ik(shL, sp.hands[0], 0.29 * s, 0.26 * s, add(ep, mul(LEFT, 0.6)));
   const [eR, wR] = ik(shR, sp.hands[1], 0.29 * s, 0.26 * s, add(ep, mul(LEFT, -0.6)));
@@ -57,7 +57,7 @@ export function pose(sp, B) {
   if (sp.turn) { const c = Math.cos(sp.turn), sn = Math.sin(sp.turn); hd = norm([hd[0] * c + hd[2] * sn, hd[1], -hd[0] * sn + hd[2] * c]); }
   const hfw = norm(sp.turn ? [Math.sin(sp.turn), 0, Math.cos(sp.turn)] : FWD);
   return { s, sd1, sd2, hd, hfw, pelvis, waist, shC, neck, shL, shR, hL, hR, kL, kR, aL, aR, eL, eR, wL, wR,
-    headC: madd(neck, hd, 0.17 * s), hfL: hf(wL, eL, sp.hf?.[0]), hfR: hf(wR, eR, sp.hf?.[1]),
+    headC: madd(neck, hd, 0.17 * s * (B.head ?? 1)), hfL: hf(wL, eL, sp.hf?.[0]), hfR: hf(wR, eR, sp.hf?.[1]),
     tL: madd(madd(aL, FWD, 0.14 * s), UP, -0.04 * s), tR: madd(madd(aR, FWD, 0.14 * s), UP, -0.04 * s) };
 }
 
@@ -91,7 +91,7 @@ function coneD(p, c) {      // c: { a, b, r1, r2 }
 }
 // the body's primitives in a posed skeleton k; groups: 0 torso+head (soft), 1..4 limbs (each blended softly inside, tightly with torso)
 function bodyPrims(k, B, mitten) {
-  const s = k.s, P = [];
+  const s = k.s, P = [], hk = B.head ?? 1, at_ = B.arm ?? 1, lt = B.legT ?? 1, mk = B.mitt ?? 1;
   const fr = (ay, fwd = FWD) => { const az = norm(sub(fwd, mul(ay, dot(fwd, ay)))); return { ax: cross(ay, az), ay, az }; };
   const E = (c, f, r, bone, g) => P.push({ t: 'e', c, ...f, r, bone: BI[bone], g });
   const C = (a, b, r1, r2, bone, g) => P.push({ t: 'c', a, b, r1, r2, bone: BI[bone], g });
@@ -103,36 +103,39 @@ function bodyPrims(k, B, mitten) {
   }
   E(madd(k.waist, sdm, 0.05 * s), fr(sdm), [0.15 * s, 0.24 * s, 0.1 * s], 'spine', 0);
   E(madd(k.waist, k.sd2, 0.19 * s), fr(k.sd2), [B.chest * s, 0.13 * s, 0.115 * s], 'spine', 0);
-  E(madd(k.shC, k.sd2, 0.01 * s), fr(k.sd2), [(B.sh + 0.02) * s, 0.05 * s, 0.075 * s], 'spine', 0);
-  C(madd(k.neck, k.hd, -0.05 * s), madd(k.neck, k.hd, 0.08 * s), 0.052 * s, 0.045 * s, 'head', 0);
+  E(madd(k.shC, k.sd2, 0.01 * s), fr(k.sd2), [(B.sh + 0.02) * s, (B.shY ?? 0.05) * s, 0.075 * s], 'spine', 0);
+  C(madd(k.neck, k.hd, -0.05 * s), madd(k.neck, k.hd, 0.08 * s * hk), 0.052 * s * (B.neck ?? 1), 0.045 * s * (B.neck ?? 1), 'head', 0);
   const hf = fr(k.hd, k.hfw);
-  E(k.headC, hf, [0.078 * s, 0.108 * s, 0.093 * s], 'head', 0);
-  E(madd(madd(k.headC, hf.az, 0.05 * s), k.hd, -0.06 * s), hf, [0.05 * s, 0.045 * s, 0.05 * s], 'head', 0);       // jaw
-  E(madd(madd(k.headC, hf.az, 0.088 * s), k.hd, -0.01 * s), hf, [0.011 * s, 0.024 * s, 0.016 * s], 'head', 0);    // nose
-  E(madd(madd(k.headC, hf.az, 0.07 * s), k.hd, 0.025 * s), hf, [0.06 * s, 0.014 * s, 0.022 * s], 'head', 0);      // brow
+  E(k.headC, hf, [0.078 * s * hk, 0.108 * s * hk, 0.093 * s * hk], 'head', 0);
+  E(madd(madd(k.headC, hf.az, 0.05 * s * hk), k.hd, -0.06 * s * hk), hf, [0.05 * s * hk, 0.045 * s * hk, 0.05 * s * hk], 'head', 0);       // jaw
+  if (B.face !== false) {   // B.face = false: a smooth sculptural head (the body kit)
+    E(madd(madd(k.headC, hf.az, 0.088 * s), k.hd, -0.01 * s), hf, [0.011 * s, 0.024 * s, 0.016 * s], 'head', 0);    // nose
+    E(madd(madd(k.headC, hf.az, 0.07 * s), k.hd, 0.025 * s), hf, [0.06 * s, 0.014 * s, 0.022 * s], 'head', 0);      // brow
+  }
   const dirOf = (a, b) => norm(sub(b, a)), at = (a, b, t) => add(a, mul(sub(b, a), t));
   for (const [sd, g] of [['L', 1], ['R', 2]]) {
     const sh = k['sh' + sd], e = k['e' + sd], w = k['w' + sd];
     // two straight segments with a clear elbow: no muscle bulges along them (they read as an S), a deltoid cap at the shoulder,
     // an elbow knob, a forearm thinner than the arm
-    C(sh, e, 0.054 * s, 0.045 * s, 'ua' + sd, g);
-    E(at(sh, e, 0.1), fr(dirOf(sh, e), FWD), [0.062 * s, 0.085 * s, 0.058 * s], 'ua' + sd, g);          // deltoid
-    E(e, fr(dirOf(sh, e), FWD), [0.045 * s, 0.045 * s, 0.045 * s], 'fa' + sd, g);                          // elbow
-    C(e, w, 0.04 * s, 0.029 * s, 'fa' + sd, g);
+    C(sh, e, 0.054 * s * at_, 0.045 * s * at_, 'ua' + sd, g);
+    E(at(sh, e, 0.1), fr(dirOf(sh, e), FWD), [0.062 * s * at_, 0.085 * s * at_, 0.058 * s * at_], 'ua' + sd, g);          // deltoid
+    E(e, fr(dirOf(sh, e), FWD), [0.045 * s * at_, 0.045 * s * at_, 0.045 * s * at_], 'fa' + sd, g);                          // elbow
+    C(e, w, 0.04 * s * at_, 0.029 * s * at_ * (B.wrist ?? 1), 'fa' + sd, g);
     if (mitten) {
       const f = k['hf' + sd], hx = cross(f.fd, f.pn), fh = { ax: hx, ay: f.fd, az: f.pn };
-      E(madd(w, f.fd, 0.045 * s), fh, [0.045 * s, 0.05 * s, 0.025 * s], 'hd' + sd, g);                                   // palm
-      C(madd(madd(w, f.fd, 0.085 * s), f.pn, 0.004 * s), madd(madd(w, f.fd, 0.14 * s), f.pn, 0.016 * s), 0.03 * s, 0.022 * s, 'hd' + sd, g);   // the fingers together, a little curled
-      E(madd(madd(w, f.fd, 0.045 * s), hx, (sd === 'L' ? -1 : 1) * 0.04 * s), fh, [0.02 * s, 0.045 * s, 0.022 * s], 'hd' + sd, g);   // thumb
+      E(madd(w, f.fd, 0.045 * s * mk), fh, [0.045 * s * mk, 0.05 * s * mk, 0.025 * s * mk], 'hd' + sd, g);                                   // palm
+      if (B.paddle) E(madd(madd(w, f.fd, 0.112 * s * mk), f.pn, 0.006 * s * (B.curl ?? 1)), fh, [0.043 * s * mk, 0.058 * s * mk, 0.019 * s * mk], 'hd' + sd, g);   // the fingers as one flat paddle (sculpted mitten)
+      else C(madd(madd(w, f.fd, 0.085 * s * mk), f.pn, 0.004 * s), madd(madd(w, f.fd, 0.14 * s * mk), f.pn, 0.016 * s * (B.curl ?? 1)), 0.03 * s * mk, 0.022 * s * mk, 'hd' + sd, g);   // the fingers together, a little curled
+      E(madd(madd(w, f.fd, 0.045 * s * mk), hx, (sd === 'L' ? -1 : 1) * 0.04 * s * mk), fh, [0.02 * s * mk, 0.045 * s * mk, 0.022 * s * mk], 'hd' + sd, g);   // thumb
     }
   }
   for (const [sd, g] of [['L', 3], ['R', 4]]) {
     const h = k['h' + sd], kn = k['k' + sd], a = k['a' + sd], t = k['t' + sd];
-    C(h, kn, 0.085 * s, 0.054 * s, 'th' + sd, g);
-    E(madd(at(h, kn, 0.38), FWD, 0.012 * s), fr(dirOf(h, kn), FWD), [0.08 * s, 0.17 * s, 0.083 * s], 'th' + sd, g);   // thigh mass
-    C(kn, a, 0.05 * s, 0.03 * s, 'sn' + sd, g);
-    E(madd(at(kn, a, 0.3), FWD, -0.022 * s), fr(dirOf(kn, a), FWD), [0.05 * s, 0.11 * s, 0.054 * s], 'sn' + sd, g);   // calf
-    E(madd(at(a, t, 0.42), UP, -0.022 * s), fr(dirOf(a, t), UP), [0.043 * s, 0.1 * s, 0.032 * s], 'ft' + sd, g);      // foot
+    C(h, kn, 0.085 * s * lt, 0.054 * s * lt, 'th' + sd, g);
+    E(madd(at(h, kn, 0.38), FWD, 0.012 * s), fr(dirOf(h, kn), FWD), [0.08 * s * lt, 0.17 * s, 0.083 * s * lt], 'th' + sd, g);   // thigh mass
+    C(kn, a, 0.05 * s * lt, 0.03 * s * lt, 'sn' + sd, g);
+    E(madd(at(kn, a, 0.3), FWD, -0.022 * s), fr(dirOf(kn, a), FWD), [0.05 * s * lt, 0.11 * s, 0.054 * s * lt], 'sn' + sd, g);   // calf
+    E(madd(at(a, t, 0.42), UP, -0.022 * s), fr(dirOf(a, t), UP), [0.043 * s * (B.foot ?? 1), 0.1 * s * (B.foot ?? 1), 0.032 * s * (B.foot ?? 1)], 'ft' + sd, g);      // foot
   }
   return P;
 }
