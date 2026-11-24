@@ -412,6 +412,19 @@ function prewarmNext() {
 let prevBlock = '';
 let time = 0, frames = 0, f0 = performance.now(), fps = 0, lastBlock = '', actaAt = -1, acta = score.acta();
 const frameEvents = [];
+// Beltrán 25-11: «the architecture coming apart in 3D» is the work's signature crossing. When the square is on both sides of a change
+// that moves the world, it still BREAKS (leave 0 → 1, shatter 0 → 1, 1.6 s), holds a breath broken (0.5 s) and RE-FORMS in the new
+// light (arrive 0 → 1, shatter 1 → 0, 2 s). Changes where it leaves or arrives break / re-form by themselves (state out / in).
+const REFORM = new Set(['intro>brasa', 'brasa>pinya', 'tronc>pom', 'festa>baixada']);   // pinya>tronc: both lit, the world does not move
+const RF = { brk: 1.6, hold: 0.5, form: 2.0 };
+function stepReform(e, dt) {
+  const R = e.reform; if (!R) return;
+  R.t += dt;
+  if (R.t < RF.brk) { const k = smooth(R.t / RF.brk); R.sh = k; R.leave = k; R.arrive = 1; }
+  else if (R.t < RF.brk + RF.hold) { R.sh = 1; R.leave = 1; R.arrive = 1; }
+  else if (R.t < RF.brk + RF.hold + RF.form) { const k = smooth((R.t - RF.brk - RF.hold) / RF.form); R.sh = 1 - k; R.leave = 0; R.arrive = k; }
+  else e.reform = null;
+}
 const m6 = { y: 0, v: 0, maxV: 0 }, M6_KEEP = new Set(['pom', 'crown', 'festa']);   // M6: the near world's offset in the Tronc (below)
 const prof = { m: {}, max(k, v) { if (!(this.m[k] >= v)) this.m[k] = v; }, reset() { this.m = {}; } };   // lab: the slowest CPU time per step since reset
 const input = { time: 0, t: 0, dt: 0, progress: 0, hands: [], downs, ups, params: null, state: S, events: frameEvents, arrive: 1, leave: 0, acta };
@@ -450,6 +463,7 @@ function frame(dt) {
       }
     }
     if (CASTELL_MODE[VB] && typeof parts.tronc3d?.part.setMode === 'function') { try { parts.tronc3d.part.setMode(CASTELL_MODE[VB]); } catch (err) { console.info('res-obra3d: tronc3d.setMode skipped (' + err.message + ')'); } }
+    if (parts.plaza && parts.plaza.state !== 'off' && wanted(VB).includes('plaza') && REFORM.has(lastBlock + '>' + VB)) parts.plaza.reform = { t: 0, sh: 0, leave: 0, arrive: 1 };
     lastBlock = VB;
   }
 
@@ -478,6 +492,7 @@ function frame(dt) {
   prewarmNext();
 
   // drive the active parts
+  if (parts.plaza) stepReform(parts.plaza, dt);
   Object.assign(input, { time, dt, hands: hs, acta });
   for (const e of list) {
     if (e.state === 'off') continue;
@@ -503,6 +518,7 @@ function frame(dt) {
       else {
         t = 30; p.noBreak = false; p.skyTint = pal.sky; p.silhouette = e.home === 'baixada' || e.home === 'fall' ? 1 : 0; p.silDrop = 13.5;   // director 24-11: rooftops at ~30–40 % of the wall, the dawn sky dominates p.pool = 1; p.moonKey = 1; p.night = 0; p.reach = 1;
         let sh = e.state === 'in' ? 1 - smooth(e.arrive) : e.state === 'out' ? 1 - (1 - e.leave) * (1 - e.leave) : 0;   // leaving: it starts breaking at once
+        if (e.reform) sh = Math.max(sh, e.reform.sh);                  // a world-moving change with the square on both sides: it breaks and re-forms
         if (e.home === 'fall') { if (S.block === 'fall') e.fallK = clamp(S.t / 9, 0, 1); sh = Math.max(sh, e.fallK); }
         p.shatter = sh; p.reveal = 0;
         const dim = e.state === 'out' && S.block === 'acta' ? 1 - smooth(Math.min(1, e.leave * 2)) : 1;   // its light goes first: the next universe's words read at once
@@ -515,6 +531,7 @@ function frame(dt) {
     else if (e.name === 'introtext') t = S.block === 'intro' && serving ? S.t : 76 + 3 * Math.min(1, e.leave * 8);   // the title goes in ~1.5 s: it must not sit under Brasa's card
     else if (e.name === 'castell') { p.tint = pal.tint; if (e.home === 'intro') t = S.block === 'intro' ? S.t : 70; driveCastell(e, dt, time, frameEvents); }
     input.t = t; input.progress = e.progress; input.params = p; input.arrive = e.arrive; input.leave = e.leave;
+    if (e.reform) { input.leave = e.reform.leave; input.arrive = e.reform.arrive; }   // plaza in lit / festive mode reads only a leave as a break (VFX)
     const p0 = performance.now(); e.part.update(dt, input); prof.max(e.name, performance.now() - p0);
   }
   // 05-plan M6 (Modelado) «the room rises»: in the Tronc the near world (plaza, porxada) goes down with tronc3d's rise, so the tower
