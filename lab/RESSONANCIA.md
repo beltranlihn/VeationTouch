@@ -29,6 +29,7 @@ node lab/harness/serve.mjs
 
 | Qué | Dónde |
 |---|---|
+| **La obra para TOCARLA (sin público virtual)** | http://localhost:8780/experiences/res-obra3d/index.html?sound=ressonancia-sound&demo=0 — el lienzo es la tira real: ratón = mano donde se ve; Mayús + clic fija manos (simular un grupo); B escala corporal; L sensación LiDAR (10 Hz, 150 ms, lecturas perdidas); P panel con «Go to» (saltar a un capítulo) |
 | **La obra entera, con público virtual y sonido** | http://localhost:8780/experiences/res-obra3d/review.html — tarjeta de inicio: capítulo, voz (Español / English), 2 / 6 / 15 personas, calidad media (portátil) o alta (sala). Volumen: fader arriba a la derecha o teclas − / + |
 | **La obra dentro de un modelo 3D de la sala** | http://localhost:8780/experiences/res-obra3d/sala3d.html — «Dentro» (en el centro a 1,6 m, arrastrar para mirar 360°, rueda = campo de visión) o «Fuera» (orbitar la sala); tecla V cambia. Clic en un muro = una mano; Mayús + arrastrar o tecla M la mantiene |
 | Un capítulo suelto con su panel (tecla P) | http://localhost:8780/experiences/res-3d-study/index.html?part=umbral3d (también `brasa3d`, `pinya3d`, `tronc3d`, `pom3d`, `festa3d`, `baixada3d`, `fall3d`, `actatext`) |
