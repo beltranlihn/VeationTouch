@@ -126,7 +126,8 @@ export function create(ctx) {
   const toCity = (d) => { const c = uYawCS.x, s = uYawCS.y; return vec2(d.x.mul(c).sub(d.y.mul(s)), d.x.mul(s).add(d.y.mul(c))); };
   const skyCol = Fn(([dir]) => {
     const y = dir.y, L = toCity(dir.xz);
-    const g = mix(vec3(0.006, 0.008, 0.016), vec3(0.0004, 0.0006, 0.0014), pow(clamp(y, 0, 1), 0.4)).add(HAZE.mul(exp(max(y, 0).div(0.05).negate())));
+    // 25-11 (VFX): the sky is the room's (palette, grade, air in that direction); the old blue-black gradient only if the room has none
+    const g = room.sky ? room.sky(dir) : mix(vec3(0.006, 0.008, 0.016), vec3(0.0004, 0.0006, 0.0014), pow(clamp(y, 0, 1), 0.4)).add(HAZE.mul(exp(max(y, 0).div(0.05).negate())));
     const star = (scale, th, gain) => {
       const sp = dir.mul(scale), cell = floor(sp), h = hash13(cell), f = fract(sp).sub(0.5);
       const tw = sin(uTime.mul(h.mul(2.0).add(0.5).mul(uCalm.mul(-0.7).add(1))).add(h.mul(60))).mul(0.3).add(0.7);

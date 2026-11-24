@@ -282,7 +282,8 @@ export function create(ctx) {
     return m;
   })());
   sky.renderOrder = -10; sky.frustumCulled = false;
-  sky.position.copy(room.eye); object.add(sky);
+  sky.position.copy(room.eye);   // 25-11 (VFX): no own dome any more — the room's sky (setBackground / palette) shows through
+  if (!room.sky) object.add(sky);
   // the shared halo (SIS, T-048): one soft disc behind each tower's top (falls back to the sky's own halo)
   if (room.makeHalo && room.placeHalo) for (const t of towers) { t.halo = room.makeHalo({ color: [1, 0.86, 0.7], radius: 6.5, intensity: 0.12 }); object.add(t.halo.mesh); }
 
