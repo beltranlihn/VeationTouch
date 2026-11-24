@@ -19,6 +19,7 @@
 //   kind    'task' (a consigna: cuts the line before)  ·  'ach' (an achievement: waits ≤ 1.5 s for the voice, else text only)
 //           'card' (a chapter card or narration: cuts)  ·  'hint' (dropped if someone is speaking)
 //   once    true: once per pass (default) · repeat: true may say it again (floors, the colla) · cooldown: s between two repeats
+//           (the colla's cues: once per BLOCK — sound.js forgets them at each block)
 //   y, cap  height of the text's centre and capital height in metres when not the kind's default (task 1.62 / 0.18,
 //           ach 0.35 above the point / 0.14, card 1.95 / 0.18)
 //   delay   s before the voice starts (default 0.3)
@@ -43,7 +44,7 @@ export const CUES = {
   'title:brasa': { voice: 'v-brasa-1', where: 'room', energy: 'whisper', text: 'Tocad el muro', place: 'focus', kind: 'card', card: ['I', 'Brasa', 'El despertar'] },
   'ach:fire': { voice: 'v-brasa-fire', where: 'ach', energy: 'soft', text: 'Ha prendido', place: 'ach', kind: 'ach' },          // voice «El fuego prende» («Ha prendido» = «aprendido» by ear)
   'relay:start': { voice: 'v-brasa-pass', where: 'focus', energy: 'warm', text: 'Pasad el fuego', place: 'travel', kind: 'task' },
-  'relay:assist': { voice: 'v-colla-1', where: 'focus', energy: 'warm', text: 'La colla os ayuda', place: 'ach', kind: 'ach', repeat: true, cooldown: 30 },
+  'relay:assist': { voice: 'v-colla-1', where: 'focus', energy: 'warm', text: 'La colla os ayuda', place: 'ach', kind: 'ach', repeat: true, cooldown: 600 },
   'assist:on:brasa': { alias: 'relay:assist' },
   'ach:lap': { voice: 'v-brasa-lap', where: 'room', energy: 'lift', text: 'El fuego da la vuelta', place: 'all', kind: 'ach' },
   'tg:charge': { voice: 'v-hold', where: 'ach', energy: 'soft', text: null, kind: 'hint' },                                   // the first target charging, once a pass
@@ -69,7 +70,7 @@ export const CUES = {
   'wobble': { voice: 'v-tronc-wobble', where: 'focus', energy: 'urgent', text: 'Sujetad la base', place: 'focus', kind: 'task', y: 1.0 },
   'ach:steady': { voice: 'v-tronc-steady', where: 'ach', energy: 'warm', text: 'La pinya aguanta', place: 'ach', kind: 'ach' },
   'ach:slip': { voice: 'v-tronc-slip', where: 'ach', energy: 'urgent', text: null, kind: 'ach', breakFloor: true, repeat: true, cooldown: 12 },   // the floor's name breaks and falls
-  'assist:on:tronc': { voice: 'v-colla-1', where: 'room', energy: 'warm', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 30 },
+  'assist:on:tronc': { voice: 'v-colla-1', where: 'room', energy: 'warm', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 600 },
   'ach:tower': { voice: 'v-tronc-done', where: 'room', energy: 'warm', text: (n) => `${ord(n)} pisos`, place: 'structure', kind: 'ach' },   // voice «La torre está en pie» («tronc» came out «tronco»)
   // ---- 3.4 IV · Pom de dalt and l'aleta
   'title:pom': { voice: 'v-pom-1', where: 'room', energy: 'whisper', text: null, kind: 'card', card: ['IV', 'Pom de dalt', 'Valor'] },
@@ -92,9 +93,9 @@ export const CUES = {
   'ach:echo': { voice: null, text: 'Eco', place: 'ach', kind: 'ach', repeat: true },
   'stage:festa:call': { voice: 'v-festa-call', where: 'room', energy: 'joy', text: 'Todos a la vez', place: 'all', kind: 'task' },
   'ach:bloom': { voice: 'v-festa-bloom', where: 'room', energy: 'joy', text: 'Ressonància', place: 'all', kind: 'ach', cap: 0.22 },
-  'assist:on:pom': { voice: 'v-colla-1', where: 'room', energy: 'whisper', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 30 },
-  'assist:on:festa': { voice: 'v-colla-1', where: 'room', energy: 'warm', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 30 },
-  'assist:on:baixada': { voice: 'v-colla-1', where: 'room', energy: 'soft', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 30 },
+  'assist:on:pom': { voice: 'v-colla-1', where: 'room', energy: 'whisper', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 600 },
+  'assist:on:festa': { voice: 'v-colla-1', where: 'room', energy: 'warm', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 600 },
+  'assist:on:baixada': { voice: 'v-colla-1', where: 'room', energy: 'soft', text: 'La colla os ayuda', place: 'all', kind: 'ach', repeat: true, cooldown: 600 },
   // ---- 3.6 baixada, fall and acta
   'block:baixada': { voice: 'v-baixada-1', where: 'room', energy: 'soft', text: 'Bajadlo despacio', place: 'structure', kind: 'card' },
   'ach:clean': { voice: { 1: 'v-baixada-ok' }, where: 'focus', energy: 'soft', text: null, kind: 'ach', repeat: true },

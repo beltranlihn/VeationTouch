@@ -816,6 +816,7 @@ export default async function start(host) {
   function enterBlock(b) {
     const prev = block; block = b; const t = now();
     if (b === 'intro' || b === 'wait') { saidThisPass.clear(); cueAt.clear(); callAt = -1; nearSaid = false; }
+    for (const k of [...cueAt.keys()]) if (k.startsWith('assist:') || k === 'relay:assist') cueAt.delete(k);   // «La colla os ayuda»: once per block
     musicBus.gain.setTargetAtTime(P.music, t, 0.3);   // a tronc's wobble may have left the music down
     if (prev !== b) { for (const v of voices) v.g.gain.setTargetAtTime(0, t, 0.12); voices.length = 0; ringing.length = 0; }   // D6b: the old key's notes let go before the new key's
     if (prev !== b) tileSweep(b);

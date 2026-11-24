@@ -299,7 +299,11 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
   const line = typo.slot({ placements: typo.onWalls(room, TEXT.line), renderOrder: 23, outDur: 0.5, plate: 0, halo: 0.3, spread: 2.4, flash: room.flash });
   // move a slot's words along each wall (only while nothing is up: words never slide in view)
   const lineBase = typo.onWalls(room, TEXT.line), rightOf = room.walls.map((w) => w.right.clone());
-  const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], x); }); };
+  const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], typeof x === 'number' ? x : x[w]); }); };
+  // N7: the consigna TRAVELS with the Brasa's relay — on the devil's wall it follows the fire along the wall (eased, never past the
+  // corners); the other walls keep their place. lineS0: where each wall starts along the perimeter (the score's s).
+  const lineS0 = []; { let a = 0; for (const w of room.walls) { lineS0.push(a); a += w.width; } }
+  const lineX = new Float32Array(room.walls.length), lineXT = new Float32Array(room.walls.length); let travelOn = false;
   object.add(card.object, line.object);
 
   // ------------------------------------------------------------------ per frame
@@ -544,7 +548,14 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false }) {
     // the wait: the instruction is the lintel inscription of ENT-F's doorway (keystone ~1.95 m): one line centred at 2.12 m. It moves
     // only while no words are up (never slides in view)
     // 25-11: the consigna stands at 1.62 m everywhere (D7), beside the chapter's hero, and waits while the chapter card is up
-    if (!line.up) placeX(line, CONSIGNA_X[b] || 0);
+    const travel = b === 'brasa' && S.brasaStage === 'relay' && S.focus && S.focus.kind === 'relay' && S.focus.wall >= 0 && S.focus.wall < NW && typeof S.focus.s === 'number';
+    if (travel) {
+      for (let w = 0; w < NW; w++) lineXT[w] = CONSIGNA_X[b] || 0;
+      const fw2 = S.focus.wall, Wd = room.walls[fw2].width; lineXT[fw2] = clamp(S.focus.s - lineS0[fw2] - Wd / 2 + 0.9, -Wd / 2 + 1.1, Wd / 2 - 1.1);   // just ahead of the fire
+      if (!travelOn) { lineX.set(lineXT); travelOn = true; }
+      for (let w = 0; w < NW; w++) lineX[w] = ease(lineX[w], lineXT[w], dt, 2.2);
+      placeX(line, lineX);
+    } else { travelOn = false; if (!line.up) placeX(line, CONSIGNA_X[b] || 0); }
     if (!lineOut.up) placeX(lineOut, CONSIGNA_X[b] || 0);
     line.step(dtT, { gain: warn ? 1 : gain, hold: hold || (cardUp && !warn), mask, gate: waveGate, lead });
     stepAch(dtT, S, events, time);
