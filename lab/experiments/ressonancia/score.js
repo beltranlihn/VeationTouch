@@ -97,7 +97,7 @@ export function createScore(nWalls, opt = {}) {
     // echo print). assistOn = the block where the colla is helping NOW ('' = nobody helps). castell = the group's castell, persistent.
     // result = how each block ended (the acta reads it). ach = the last achievement ({ key, n, wall, s, y, by: group | colla, at }).
     // targets = the hold-targets now (targets.js › list; [] while a stage offers none), tgProgress = their goal 0..1.
-    n: 0, focus: null, assistOn: '',
+    n: 0, focus: null, assistOn: '', stage: '',
     castell: { state: 'none', walls: [], structure: 0, floors: 0, floorsOwn: 0, floorsColla: 0, climbers: 0, crown: '', slips: 0, cracks: 0, lost: 0 },
     result: { brasa: '', pinya: null, tronc: null, pom: '', festa: 0, baixada: '' },
     ach: null, targets: [], tgProgress: 0,
@@ -183,7 +183,21 @@ export function createScore(nWalls, opt = {}) {
   function bloomAch() { const k = S.bloomSize < 0.45 ? 1 : S.bloomSize < 0.75 ? 2 : 3; S.result.festa = k; achieve('bloom', k, -1, helped.festa ? 'colla' : 'group'); }
   function creak() { S.castell.cracks++; achieve('creak', S.castell.cracks, -1, 'group'); }
   // the calling wall and the colla's help, every step (no rule reads them: they say what the score already does)
+  // 'stage:<block>:<stage>' once when each stage opens (S.stage holds it): the voice and the text key their lines on it
+  function stageNow() {
+    const b = S.block, rw = S.phase === 'reward';
+    if (b === 'wait') return S.reveal >= 1 ? 'start' : 'reveal';
+    if (b === 'intro') return 'lamps';
+    if (b === 'brasa') return rw ? 'reward' : S.brasaStage;
+    if (b === 'pinya') return rw ? 'reward' : S.pinyaStage;
+    if (b === 'tronc') return rw ? 'reward' : 'lift';
+    if (b === 'pom') return S.phase === 'aleta' ? 'aleta' : rw ? 'reward' : S.pomStage;
+    if (b === 'festa') return S.festaStage;
+    if (b === 'baixada') return 'lower';
+    return b;
+  }
   function interfaces(now) {
+    const st = S.block + ':' + stageNow(); if (st !== S.stage) { S.stage = st; emit('stage:' + st); }
     const B = T[S.block];
     let busiest = -1, bc = 0; for (let w = 0; w < W; w++) if (S.count[w] > bc) { bc = S.count[w]; busiest = w; }
     let assist = false;
