@@ -29,6 +29,7 @@
 // where it would be, once the context runs or its file arrives.
 import { createScore, TIMES } from './score.js';
 import { applyTimes } from './tuning.js';   // T-052: the visual piece sends the room's thresholds (ctl.times)
+import { CUES, cueKey, resolve, cueWall, INTRO_AT, INTRO_AT_70, ACTA_AT as ACTA_CUES, CALL_LATE } from './cues.js';   // 25-11: THE script (voice + text)
 
 // ---------------------------------------------------------------------------------------------------------------- the voice
 // The intro's six lines, in seconds from the start of the 70 s intro, against the picture of ressonancia/scenes/intro.js
@@ -78,8 +79,14 @@ const SETS = {
 const CROWN_IMPACT = 4.0;                    // m-crown: the reverse swell ends and the release hits at 4.0 s (measured)
 const AMBIENCE = ['s-embers-loop', 's-fire-loop', 's-breath-loop', 's-wind-loop', 's-rain-loop', 's-crowd-loop'];
 const SHOTS = ['s-bells', 's-tabals', 's-ember-burst', 's-clay', 's-ceramic', 's-impact', 's-crack', 's-gralla', 's-timbal', 'sfx-crown', 'sfx-fall', 'sfx-tile'];
-const VOICES = [...(WAIT_VOICES ? ['v-wait-invite', 'v-wait-start'] : []), ...INTRO_VOICE.map((c) => c[1]), ...Object.values(TITLE_LINE), 'v-brasa-2', 'v-brasa-3', 'v-pinya-3', 'v-tronc-2',
-  'v-pom-2', 'v-pom-3', 'v-aleta-2', ...Object.values(OUTCOME_LINE), 'v-cierre-final', 'v-tronc-wobble', 'v-aleta-raise', 'v-aleta-yours', 'v-aleta-crowned', 'v-baixada-gently', 'v-pinya-closein'];
+// 25-11 (05-plan N4): every line the cue table can say, plus the old ones; the new lines exist only in Spanish (ES_ONLY: with the
+// English selector they are not requested, the cues still write their text)
+const CUE_VOICES = Object.values(CUES).flatMap((c) => [c.voice, c.colla].flatMap((v) => (v == null ? [] : typeof v === 'object' ? Object.values(v) : [v])));
+const EN_VOICES = new Set(['v-aleta-1', 'v-aleta-2', 'v-aleta-crowned', 'v-aleta-raise', 'v-aleta-yours', 'v-baixada-1', 'v-baixada-gently', 'v-brasa-1', 'v-brasa-2', 'v-brasa-3',
+  'v-cierre-carregat', 'v-cierre-descarregat', 'v-cierre-final', 'v-cierre-intent', 'v-intro-1', 'v-intro-2', 'v-intro-3', 'v-intro-4', 'v-intro-5', 'v-intro-6', 'v-pinya-1', 'v-pinya-2',
+  'v-pinya-3', 'v-pinya-closein', 'v-pinya-wait', 'v-pom-1', 'v-pom-2', 'v-pom-3', 'v-tronc-1', 'v-tronc-2', 'v-tronc-3', 'v-tronc-lift', 'v-tronc-wobble', 'v-wait', 'v-wait-invite', 'v-wait-start']);
+const VOICES = [...new Set([...(WAIT_VOICES ? ['v-wait-invite', 'v-wait-start'] : []), ...INTRO_VOICE.map((c) => c[1]), ...Object.values(TITLE_LINE), 'v-brasa-2', 'v-brasa-3', 'v-pinya-3', 'v-tronc-2',
+  'v-pom-2', 'v-pom-3', 'v-aleta-2', ...Object.values(OUTCOME_LINE), 'v-cierre-final', 'v-tronc-wobble', 'v-aleta-raise', 'v-aleta-yours', 'v-aleta-crowned', 'v-baixada-gently', 'v-pinya-closein', ...CUE_VOICES])];
 const FILES = [...new Set([...Object.values(SETS).flatMap((s) => Object.values(s.layers)), ...AMBIENCE, ...SHOTS, ...VOICES])];
 const VOICE_SET = new Set(VOICES);
 const GROUP = (name) => (name.startsWith('st-') ? name.split('-').slice(0, 2).join('-') : name);   // stems share one normalisation
@@ -91,14 +98,36 @@ const L = {
   music: 0.3,                                // every set's master, into the music bus
   embers: 0.07, fire: 0.12, breath: 0.1, wind: 0.13, rain: 0.08, crowd: 0.1,
   grains: 0.05, verb: 0.35,
-  touchMax: 12,                              // simultaneous hand voices; the oldest yields
+  touchMax: 8,                               // simultaneous hand voices; the oldest yields (S3, 25-11: 12 → 8)
+  genDuck: 0.55,                             // the generative layer under the voice (−5 dB), as the music is ducked (×0.42)
 };
 
 const midiHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const rand = (a, b) => a + Math.random() * (b - a);
 const MINOR_PENTA = [0, 3, 5, 7, 10];        // D F G A C: the stone
-const MAJOR_PENTA = [0, 2, 4, 7, 9];         // D E F# A B: the light (always consonant over the festa, D major)
+const MAJOR_PENTA = [0, 2, 4, 7, 9];         // D E F# A B: the light
+// ---------------------------------------------------------------------------------------------------------------- ONE SOUND (D6b)
+// S1 (25-11): the key of each chapter, from ANALYSING the files (ffmpeg + chroma of the whole take and of 9.6 s windows, onset
+// autocorrelation for the pulse; NOTES.md › Key and tempo) — where the analysis contradicts the prompt, the analysis wins:
+// festa B♭ major, crown C major, pom C# (open fifth), pinya A minor. root = the tonic's MIDI near D4 (62 ± 6); scale = the pitch
+// classes (from root) the generative layer may sound; bpm / grid0 = the take's pulse (null: no pulse, on purpose).
+// S2: the generative code stays WRITTEN in D; tune(m) SOUNDS it in the chapter's key — transposed by root − 62 and snapped to the
+// nearest pitch of the scale. modal / fmHit / voiceNote / the gralla's grains / the tuned samples all pass through it.
+const KEYS = {
+  wait:    { root: 62, scale: [0, 2, 4, 7, 9], bpm: null },
+  intro:   { root: 62, scale: [0, 2, 4, 7, 9], bpm: null },               // m-intro: D (D A E F#)
+  brasa:   { root: 62, scale: [0, 3, 5, 7], bpm: null },                  // m-brasa: a drone on D coloured by C# / G#: no C, no clash
+  pinya:   { root: 57, scale: [0, 3, 5, 7, 10], bpm: null },              // st-pinya: A minor (A E G C D) — the prompt said D minor
+  tronc:   { root: 62, scale: [0, 3, 5, 7, 10], bpm: 100, grid0: 0.045 }, // st-tronc: D (D + A; third neutral) — prompt D minor
+  pom:     { root: 61, scale: [0, 2, 4, 7, 9], bpm: null },               // m-pom: C# + G# — a semitone under D
+  crown:   { root: 60, scale: [0, 2, 4, 7, 9], bpm: null },               // m-crown: C major (C G B D A) — the prompt said D major
+  festa:   { root: 58, scale: [0, 2, 4, 7, 9], bpm: 100, grid0: 0.045 },  // st-festa: B♭ major (B♭ D F C G E♭) — the prompt said D major
+  baixada: { root: 62, scale: [0, 2, 4, 7, 9], bpm: null },               // m-baixada: D major (D A E)
+  fall:    { root: 62, scale: [0, 3, 5, 7], bpm: null },
+  acta:    { root: 62, scale: [0, 2, 4, 7, 9], bpm: null },               // m-acta: D major (A D G F#)
+};
+const TIMBAL_HZ = 67.3;                      // s-timbal's measured f0 (C2 + 49 cents): its rate = the wanted pitch / this
 const VOWELS = [[570, 840], [730, 1090], [440, 1020], [520, 920]];   // the pinya's murmur
 const HANN = Float32Array.from({ length: 64 }, (_, i) => Math.sin((Math.PI * i) / 63) ** 2);
 const XIN = Float32Array.from({ length: 64 }, (_, i) => Math.sin((Math.PI / 2) * (i / 63)));
@@ -118,20 +147,49 @@ export default async function start(host) {
   const ramp = (param, v, tc, t = now()) => { param.cancelScheduledValues(t); param.setTargetAtTime(v, t, tc); };
   const hold = (param, t = now()) => { param.cancelScheduledValues(t); param.setValueAtTime(param.value, t); };
   const setNow = (param, v, t = now()) => { param.cancelScheduledValues(t); param.setValueAtTime(v, t); };
+  // ---- D6b: the chapter's key (KEYS). keyBlock overrides the block for a moment (the crown sounds in the crown's key from the pom)
+  let keyBlock = null;
+  const keyNow = () => keyBlock || (block === 'crown' && festaIn ? 'festa' : block);
+  function tune(m, b) {   // a pitch written in D → the same degree in the chapter's key, snapped to its scale
+    const K = KEYS[b || keyNow()] || KEYS.wait, x = m + (K.root - 62), pc = (((x - K.root) % 12) + 12) % 12;
+    let best = 0, bd = 99; for (const d of K.scale) for (const o of [-12, 0, 12]) { const dd = Math.abs(d + o - pc); if (dd < bd) { bd = dd; best = d + o - pc; } }
+    return x + best;
+  }
+  const tuneHz = (hz, b) => midiHz(tune(69 + 12 * Math.log2(hz / 440), b));
+  const timbalRate = (m, b) => midiHz(tune(m, b)) / TIMBAL_HZ;
+  // the take's grid (tronc, festa): the next 16th (0.15 s at 100 BPM) after t; without a pulse, t itself
+  function nextTick(t) {
+    const K = KEYS[keyNow()] || {}, s = K.bpm ? sets[keyNow() === 'crown' ? 'festa' : keyNow()] : null;
+    if (!s || s.gridT0 == null) return t;
+    const step = BAR / 16; return s.gridT0 + Math.ceil((t - s.gridT0 - 0.004) / step) * step;
+  }
 
   // ---------------------------------------------------------------- outputs
   const HP = () => [F('highpass', 120, 0.54), F('highpass', 120, 1.31)];   // 4th-order Butterworth: the host sums the walls into the sub
   const outRoom = series(...HP(), audio.roomInput());
   const outSub = series(F('lowpass', 110), F('lowpass', 110), audio.subInput());
+  // S3 (25-11): the generative layer (hands, effects, pads, everything on the walls and the room but the music and the voice) is
+  // ducked under the voice: every one of its paths has a gain whose value is driven by ONE constant source (genDuck.offset)
+  const genDuck = ctx.createConstantSource(); genDuck.offset.value = 1; genDuck.start();
+  const ducked = () => { const g = ctx.createGain(); g.gain.value = 0; genDuck.connect(g.gain); return g; };
+  const genRoom = ducked(); series(genRoom, outRoom);
   const wallIn = walls.map((w) => audio.wallInput(w.id, 0.5));
-  const wallOut = wallIn.map((wi) => series(...HP(), wi.node));
-  const toWall = (w) => wallOut[((w % NW) + NW) % NW] || outRoom;
+  const wallOut = wallIn.map((wi) => series(ducked(), ...HP(), wi.node));
+  const toWall = (w) => wallOut[((w % NW) + NW) % NW] || genRoom;
+  // the music has its own wall paths (it is ducked by `duck`, never twice)
+  const musicWallIn = walls.map((w) => audio.wallInput(w.id, 0.5));
+  const musicWallOut = musicWallIn.map((wi) => series(...HP(), wi.node));
+  const toMusicWall = (w) => musicWallOut[((w % NW) + NW) % NW] || outRoom;
+  // N3 (25-11): the voice — the room's own path, and one path per wall for the lines that point at a place (100 % there + 25 % room)
+  const voiceRoom = series(...HP(), audio.roomInput());
+  const voiceWallIn = walls.map((w) => audio.wallInput(w.id, 0.5));
+  const voiceWall = voiceWallIn.map((wi) => series(G(P.voice), ...HP(), wi.node));
   // a stereo (or mono) signal spread over the room: L → even walls, R → odd walls, its low end to the sub
-  function spread(subAmt = 0) {
+  function spread(subAmt = 0, to = toWall) {
     const inp = G(1), up = G(1); up.channelCount = 2; up.channelCountMode = 'explicit'; up.channelInterpretation = 'speakers'; inp.connect(up);
     const sp = ctx.createChannelSplitter(2); up.connect(sp);
     const l = G(0.8), r = G(0.8); sp.connect(l, 0); sp.connect(r, 1);
-    if (!walls.length) { l.connect(outRoom); r.connect(outRoom); } else for (let w = 0; w < NW; w++) (NW === 1 || w % 2 === 0 ? l : r).connect(toWall(w));
+    if (!walls.length) { l.connect(to === toWall ? genRoom : outRoom); r.connect(to === toWall ? genRoom : outRoom); } else for (let w = 0; w < NW; w++) (NW === 1 || w % 2 === 0 ? l : r).connect(to(w));
     if (subAmt) inp.connect(G(subAmt, outSub));
     return inp;
   }
@@ -154,10 +212,12 @@ export default async function start(host) {
   const wet = G(L.verb, spread()); verb.connect(wet);
   const verbIn = G(1, verb);
   // buses (the manifest's volumes)
-  const voiceBus = G(P.voice, outRoom);
-  const musicBus = G(P.music), duck = G(1); musicBus.connect(duck); duck.connect(spread(0.22));   // the voice ducks all music
-  const drumBus = G(P.drums, outRoom); drumBus.connect(G(0.25, verbIn));
-  const fxBus = G(P.effects, spread(0.25));
+  const voiceBus = G(P.voice, voiceRoom);
+  const musicBus = G(P.music), duck = G(1); musicBus.connect(duck); duck.connect(spread(0.22, toMusicWall));   // the voice ducks all music
+  const drumBus = G(P.drums, genRoom); drumBus.connect(G(0.25, verbIn));
+  // S3: the effects without pitch (fire, shots, crowd) step out of the voice's band: −6 dB round 2.2 kHz (1–4 kHz)
+  const fxDip = F('peaking', 2200, 0.6); fxDip.gain.value = -6;
+  const fxBus = G(P.effects); series(fxBus, fxDip, spread(0.25));
   // per-wall echo for the festa's hits: a dotted eighth at 100 BPM (0.45 s), on the hand's own wall
   const echoIn = walls.map((_, w) => { const d = ctx.createDelay(1), fb = G(0.34), lp = F('lowpass', 2600), out = G(0.5, toWall(w)), inp = G(1); d.delayTime.value = 0.45; series(inp, d, lp, out); lp.connect(fb); fb.connect(d); return inp; });
   // the tronc's music gate: on the last floor THE MUSIC CUTS DRY
@@ -168,6 +228,7 @@ export default async function start(host) {
   const buffers = new Map(), peaks = new Map(), failed = new Set();
   const load = async (name) => {
     try {
+      if (P.lang !== 'es' && VOICE_SET.has(name) && !EN_VOICES.has(name)) { failed.add(name); return; }   // ES_ONLY: no English take (no 404)
       const file = P.lang === 'es' && VOICE_SET.has(name) ? `es/${name}` : name;          // the voice in the chosen language
       const r = await fetch(new URL(`./audio/${file}.mp3`, import.meta.url)); if (!r.ok) throw new Error(String(r.status));
       const buf = await ctx.decodeAudioData(await r.arrayBuffer());
@@ -199,21 +260,51 @@ export default async function start(host) {
     return h;
   }
 
-  // the voice: one line at a time; a block's line cuts the one before, a hint waits its turn (it is dropped if someone speaks)
+  // the voice: one line at a time. N3/N4 (25-11, cues.js): a TASK or a CARD cuts the line before; an ACHIEVEMENT waits its turn if
+  // the line speaking ends within 1.5 s (else it stays text only); a HINT is dropped if someone speaks. A line that points at a place
+  // sounds on that wall (100 %) and softly in the room (25 %). Music ×0.42 and the generative layer ×0.55 while the voice speaks.
   let vo = null;
-  const saidThisPass = new Set();   // a line never repeats in a pass (the wait's calls are between passes)
-  function say(name, { delay = 0.4, polite = false } = {}) {
+  const saidThisPass = new Set();   // a line never repeats in a pass (the wait's calls are between passes), unless its cue repeats
+  function say(name, { delay = 0.4, polite = false, wall = -1, kind = 'task', once = true } = {}) {
     if (!name) return false;
-    if (saidThisPass.has(name)) return false;
+    if (once && saidThisPass.has(name)) return false;
     const b = buffers.get(name); if (!b || !running()) return false;
-    const t = now();
-    if (vo && t < vo.end) { if (polite) return false; vo.h.stop(0.15); }
-    const at = t + delay, h = play(name, { gain: L.voice, dest: voiceBus, at }); if (!h) return false;
-    vo = { h, end: h.end, name }; if (!name.startsWith('v-wait')) saidThisPass.add(name);
-    duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(L.duck, Math.max(t, at - 0.35), 0.15); duck.gain.setTargetAtTime(1, h.end + 0.3, 0.7);
+    const t = now(); let at = t + delay;
+    if (vo && t < vo.end) {
+      if (polite || kind === 'hint') return false;
+      if (kind === 'ach') { if (vo.end - t > 1.5) return false; at = Math.max(at, vo.end + 0.15); }
+      else vo.h.stop(0.15);
+    }
+    let dest = voiceBus;
+    if (wall >= 0 && voiceWall[wall % NW]) { dest = G(1, voiceWall[wall % NW]); dest.connect(G(0.25, voiceBus)); }
+    const h = play(name, { gain: L.voice, dest, at }); if (!h) return false;
+    vo = { h, end: h.end, name, wall }; if (once && !name.startsWith('v-wait')) saidThisPass.add(name);
+    const from = Math.max(t, at - 0.35);
+    duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(L.duck, from, 0.15); duck.gain.setTargetAtTime(1, h.end + 0.3, 0.7);
+    genDuck.offset.cancelScheduledValues(t); genDuck.offset.setTargetAtTime(L.genDuck, from, 0.15); genDuck.offset.setTargetAtTime(1, h.end + 0.3, 0.7);
     return true;
   }
-  const hush = (fade = 0.5) => { if (vo) { vo.h.stop(fade); vo = null; } ramp(duck.gain, 1, 0.3); };
+  const hush = (fade = 0.5) => { if (vo) { vo.h.stop(fade); vo = null; } ramp(duck.gain, 1, 0.3); ramp(genDuck.offset, 1, 0.3); };
+  // a cue of the table: once a pass unless it repeats (then its cooldown); its follow-up (`then`) after the line ends
+  const cueAt = new Map(); let cueTimers = [];
+  // lab only (?cuelog in the page's URL): every cue the script reached, said or not, in window.__cueLog (QA's ×8 pass)
+  const CUELOG = typeof location !== 'undefined' && /[?&]cuelog/.test(location.search) ? (globalThis.__cueLog = []) : null;
+  function cue(key, evArg = '') {
+    const r = resolve(key, S); if (!r) return false;
+    const c = r.cue, t = performance.now() / 1000, last = cueAt.get(r.key);
+    if (last != null && (!c.repeat || (c.cooldown && t - last < c.cooldown / pace))) return false;
+    const wall = cueWall(c, S, evArg);
+    let ok = !r.voice;
+    if (r.key === 'ach:awake' && r.by === 'colla' && c.colla) say(c.colla, { delay: 0.2, kind: 'ach', once: false });   // «La colla os ayuda.» first
+    if (r.voice) ok = say(r.voice, { delay: c.delay ?? 0.3, wall, kind: c.kind || 'task', polite: c.kind === 'hint', once: !c.repeat });
+    if (CUELOG) CUELOG.push({ t: Math.round(S.clock * 10) / 10, block: S.block, key: r.key, voice: r.voice, said: ok, wall, text: r.text });
+    if (ok) cueAt.set(r.key, t);
+    if (ok && c.then) {
+      const d = ((buffers.get(r.voice)?.buf.duration ?? 1.5) + (c.delay ?? 0.3) + c.then.after) * 1000;
+      cueTimers.push(setTimeout(() => { if (c.then.key === 'aleta:yours' && (crownAt >= 0 || block !== 'pom')) return; cue(c.then.key); }, d));
+    }
+    return ok;
+  }
 
   // ---------------------------------------------------------------- the music sets (layers, loops, the bar grid)
   const sets = {};
@@ -316,6 +407,7 @@ export default async function start(host) {
     }
   }
   function modal(at, hz, gain, dest, parts, verbAmt = 0) {   // struck matter: a few partials [ratio, amp, decay]
+    hz = tuneHz(hz);                                            // D6b: in the chapter's key
     const out = G(gain, dest); if (verbAmt) out.connect(G(verbAmt, verbIn));
     for (const [r, a, d] of parts) {
       const f = hz * r; if (f > 16000) continue;
@@ -453,6 +545,7 @@ export default async function start(host) {
     }
   }
   function fmHit(at, hz, gain, dest) {   // the festa's resonant hit: FM bell (bright attack, inharmonic shimmer) on a round body
+    hz = tuneHz(hz);
     const c = osc('sine', hz), m = osc('sine', hz * 1.41), mg = G(hz * 2.2), g = G(0, dest);
     m.connect(mg); mg.connect(c.frequency); c.connect(g);
     mg.gain.setValueAtTime(hz * 2.2, at); mg.gain.exponentialRampToValueAtTime(hz * 0.05, at + 0.6);
@@ -462,7 +555,7 @@ export default async function start(host) {
     for (const o of [c, m]) { o.start(at); o.stop(at + 2.5); } b.start(at); b.stop(at + 1.3);
   }
   function voiceNote(at, midi, dur, gain, dest) {   // a low wordless voice: two saws through two formants
-    const hz = midiHz(midi), env = G(0, dest), [v1, v2] = VOWELS[Math.floor(Math.random() * VOWELS.length)];
+    const hz = midiHz(tune(midi)), env = G(0, dest), [v1, v2] = VOWELS[Math.floor(Math.random() * VOWELS.length)];
     const fa = F('bandpass', v1, 5), fb = F('bandpass', v2, 6), mix = G(1); mix.connect(fa); mix.connect(fb); fa.connect(env); fb.connect(G(0.6, env));
     const os = [-6, 6].map((c) => { const o = osc('sawtooth', hz); o.detune.value = c; o.connect(mix); return o; });
     env.gain.setValueAtTime(0, at); env.gain.linearRampToValueAtTime(gain, at + dur * 0.35); env.gain.setTargetAtTime(0, at + dur * 0.5, dur * 0.18);
@@ -518,12 +611,12 @@ export default async function start(host) {
     lp.frequency.setValueAtTime(250, at); lp.frequency.exponentialRampToValueAtTime(7000, at + dur);
     g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(gain, at + dur * 0.95); g.gain.linearRampToValueAtTime(0, at + dur + 0.03);
     n.start(at); n.stop(at + dur + 0.1);
-    const o = osc('sine', midiHz(62)), og = G(0, dest); o.connect(og); o.frequency.setValueAtTime(midiHz(62), at); o.frequency.exponentialRampToValueAtTime(midiHz(86), at + dur);
+    const o = osc('sine', midiHz(tune(62))), og = G(0, dest); o.connect(og); o.frequency.setValueAtTime(midiHz(tune(62)), at); o.frequency.exponentialRampToValueAtTime(midiHz(tune(86)), at + dur);
     og.gain.setValueAtTime(0, at); og.gain.linearRampToValueAtTime(gain * 0.35, at + dur * 0.9); og.gain.linearRampToValueAtTime(0, at + dur + 0.02); o.start(at); o.stop(at + dur + 0.1);
   }
   function bloom(at) {   // the crown: a vast D major chord that opens (detuned saws through a rising low-pass), spread round the room
     const out = spread(0.15), g = G(0, out); g.connect(G(0.8, verbIn)); const lp = F('lowpass', 300, 0.8); lp.connect(g);
-    for (const m of [38, 50, 57, 62, 66, 69, 74, 78, 81]) for (const c of [-9, 7]) { const o = osc('sawtooth', midiHz(m)); o.detune.value = c + rand(-3, 3); o.connect(G(m < 50 ? 0.5 : 0.22, lp)); o.start(at); o.stop(at + 14); }
+    for (const m0 of [38, 50, 57, 62, 66, 69, 74, 78, 81]) for (const c of [-9, 7]) { const m = tune(m0, 'crown'), o = osc('sawtooth', midiHz(m)); o.detune.value = c + rand(-3, 3); o.connect(G(m < 50 ? 0.5 : 0.22, lp)); o.start(at); o.stop(at + 14); }   // in C (m-crown, analysed)
     lp.frequency.setValueAtTime(300, at); lp.frequency.exponentialRampToValueAtTime(6500, at + 2.5); lp.frequency.exponentialRampToValueAtTime(1800, at + 12);
     g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.05, at + 0.4); g.gain.setTargetAtTime(0.035, at + 3, 2); g.gain.setTargetAtTime(0, at + 9, 1.4);
   }
@@ -547,7 +640,7 @@ export default async function start(host) {
       if (c.next < t) c.next = t + 0.02;
       let n = 0;
       while (c.next < t + 0.15 && n++ < 8) {
-        const m = c.notes[Math.floor(Math.random() * c.notes.length)], rate = (midiHz(m) / GRALLA_HZ) * Math.pow(2, (c.cents + rand(-6, 6)) / 1200);
+        const m = tune(c.notes[Math.floor(Math.random() * c.notes.length)]), rate = (midiHz(m) / GRALLA_HZ) * Math.pow(2, (c.cents + rand(-6, 6)) / 1200);
         grain(c.next, rate, rand(c.dur[0], c.dur[1]), c.g);
         c.next += (1 / c.density) * rand(0.5, 1.5);
       }
@@ -566,20 +659,20 @@ export default async function start(host) {
   for (const c of Object.values(clouds)) if (c.dest === reedRoom) c.g.connect(reedVerb);
 
   // the drone: a low D and its fifth (wait, brasa, the tronc's title, baixada); the sub part apart
-  const droneG = G(0, outRoom), droneSubG = G(0, outSub), dlp = F('lowpass', 480); dlp.connect(droneG);
+  const droneG = G(0, genRoom), droneSubG = G(0, outSub), dlp = F('lowpass', 480); dlp.connect(droneG);
   const persistent = [];
   for (const [m, type, a] of [[50, 'triangle', 0.5], [57, 'sine', 0.3], [62, 'sine', 0.12]]) { const o = osc(type, midiHz(m)); o.detune.value = (Math.random() - 0.5) * 6; o.connect(G(a, dlp)); o.start(); persistent.push(o); }
   { const o = osc('sine', midiHz(38)); o.connect(droneSubG); o.start(); persistent.push(o); }
   // the pom: a thin thread that rises with the light and flickers when hands move
-  const thread = osc('sine', midiHz(74)), threadG = G(0), threadAm = G(1, outRoom); series(thread, threadG, threadAm); threadAm.connect(G(0.8, verbIn)); thread.start(); persistent.push(thread);
+  const thread = osc('sine', midiHz(tune(74, 'pom'))), threadG = G(0), threadAm = G(1, genRoom); series(thread, threadG, threadAm); threadAm.connect(G(0.8, verbIn)); thread.start(); persistent.push(thread);
   const flick = osc('square', 9), flickG = G(0); series(flick, flickG, threadAm.gain); const flickD = G(0); flick.connect(flickD); flickD.connect(thread.detune); flick.start(); persistent.push(flick);
   // the threshold's start ring: a glass tone that rises D4 → D5 (and a fifth above, faint) as the start ring fills
-  const startTone = osc('sine', midiHz(62)), startFifth = osc('sine', midiHz(69)), startG = G(0, outRoom), startF = G(0.35, startG);
+  const startTone = osc('sine', midiHz(62)), startFifth = osc('sine', midiHz(69)), startG = G(0, genRoom), startF = G(0.35, startG);
   startTone.connect(startG); startFifth.connect(startF); startG.connect(G(0.7, verbIn)); startTone.start(); startFifth.start(); persistent.push(startTone, startFifth);
   // ---- the ROOM MOVEMENTS (the parts move their worlds; the sound follows the score's state that drives them)
   const noiseSrc = () => { const n = ctx.createBufferSource(); n.buffer = NOISE; n.loop = true; n.start(0, Math.random() * 1.5); persistent.push(n); return n; };
   // brasa: the room sinks into the liquid chrome as the ring wakes — a viscous churn (band-passed, breathing) and its body in the sub
-  const liqN = noiseSrc(), liqBp = F('bandpass', 420, 2.2), liqG = G(0, outRoom), liqLp = F('lowpass', 120, 3), liqSubG = G(0, outSub);
+  const liqN = noiseSrc(), liqBp = F('bandpass', 420, 2.2), liqG = G(0, genRoom), liqLp = F('lowpass', 120, 3), liqSubG = G(0, outSub);
   series(liqN, liqBp, liqG); liqN.connect(liqLp); liqLp.connect(liqSubG);
   // T-055 brasa, the relay: the running fire — a crackling band of noise on the walls round the devil, louder and brighter the faster it runs
   const runN = noiseSrc(), runBp = F('bandpass', 900, 1.1), runMix = G(1); series(runN, runBp, runMix);
@@ -588,11 +681,11 @@ export default async function start(host) {
   // pinya: the whole pinya turns with the rotllana — a soft rush of bodies that goes round the walls
   const rotTurn = rotor(0, 0.2), turnN = noiseSrc(), turnBp = F('bandpass', 700, 0.8), turnG = G(0, rotTurn.inp); series(turnN, turnBp, turnG);
   // tronc: the elevator beside the tower — a deep stone grind and a low fifth while the room climbs
-  const liftN = noiseSrc(), liftBp = F('bandpass', 190, 3), liftG = G(0, outRoom); series(liftN, liftBp, liftG); liftG.connect(G(0.6, outSub));
-  const liftO = [osc('sawtooth', midiHz(38)), osc('sawtooth', midiHz(45))], liftLp = F('lowpass', 260, 1.2), liftOG = G(0, outRoom); for (const o of liftO) { o.connect(liftLp); o.start(); persistent.push(o); } series(liftLp, liftOG); liftOG.connect(G(0.8, outSub));
+  const liftN = noiseSrc(), liftBp = F('bandpass', 190, 3), liftG = G(0, genRoom); series(liftN, liftBp, liftG); liftG.connect(G(0.6, outSub));
+  const liftO = [osc('sawtooth', midiHz(38)), osc('sawtooth', midiHz(45))], liftLp = F('lowpass', 260, 1.2), liftOG = G(0, genRoom); for (const o of liftO) { o.connect(liftLp); o.start(); persistent.push(o); } series(liftLp, liftOG); liftOG.connect(G(0.8, outSub));
   // pom: 1.6 → 90 m — the city's hum falls away below, the thin air of altitude opens above
-  const cityN = noiseSrc(), cityLp = F('lowpass', 260, 0.7), cityG = G(0, outSub), cityBp = F('bandpass', 180, 1.2), cityRoomG = G(0, outRoom); series(cityN, cityLp, cityG); cityN.connect(cityBp); cityBp.connect(cityRoomG);
-  const cityO = [osc('sine', midiHz(38)), osc('sine', midiHz(50)), osc('triangle', midiHz(57))], cityOG = G(0, outRoom); cityO.forEach((o, i) => { o.detune.value = (i - 1) * 7; o.connect(G([0.5, 0.35, 0.15][i], cityOG)); o.start(); persistent.push(o); });
+  const cityN = noiseSrc(), cityLp = F('lowpass', 260, 0.7), cityG = G(0, outSub), cityBp = F('bandpass', 180, 1.2), cityRoomG = G(0, genRoom); series(cityN, cityLp, cityG); cityN.connect(cityBp); cityBp.connect(cityRoomG);
+  const cityO = [osc('sine', midiHz(tune(38, 'pom'))), osc('sine', midiHz(tune(50, 'pom'))), osc('triangle', midiHz(tune(57, 'pom')))], cityOG = G(0, genRoom); cityO.forEach((o, i) => { o.detune.value = (i - 1) * 7; o.connect(G([0.5, 0.35, 0.15][i], cityOG)); o.start(); persistent.push(o); });
   const airN = noiseSrc(), airBp = F('bandpass', 2500, 1.4), airG = G(0, ambDest['s-wind-loop'].inp); series(airN, airBp, airG);
   let mvLiftH = 0, mvLiftV = 0, mvPomP = 0, lastPhrase = '', lastStage = '';
   const structWalls = () => { const a = []; for (let w = 0; w < NW; w++) if (S.walls && S.walls[w]) a.push(w); return a.length ? a : [0, 1]; };
@@ -600,20 +693,20 @@ export default async function start(host) {
   // (one wave round the room, half of it in ~0.42 of the time). A rip of band-passed noise that wanders, slab clacks and glass
   // glints running round the walls from P4 both ways, a crack and a sub drop at the start; it thins under the motto (53.3 s).
   const TEAR = [46.3, 57.8];
-  const tearN = noiseSrc(), tearBp = F('bandpass', 1400, 1.6), tearG = G(0, outRoom); series(tearN, tearBp, tearG); tearG.connect(G(0.5, verbIn));
+  const tearN = noiseSrc(), tearBp = F('bandpass', 1400, 1.6), tearG = G(0, genRoom); series(tearN, tearBp, tearG); tearG.connect(G(0.5, verbIn));
   let tearCue = 0;
   // ---- colours of the re-made chapters (wave 2): pads that the state opens; silent until their block
   const padOf = (notes, type, lpHz, dest) => { const lp = F('lowpass', lpHz, 0.6), g = G(0, dest); lp.connect(g); notes.forEach((m, i) => { const o = osc(type, midiHz(m)); o.detune.value = (i % 2 ? 1 : -1) * rand(3, 7); o.connect(G(1 / notes.length, lp)); o.start(); persistent.push(o); }); return { g, lp }; };
   // festa (a plate of chrome and glass): a glass-harmonica shimmer in D major that grows with the resonance
-  const glassPad = padOf([74, 78, 81, 86], 'sine', 9000, rotSoar.inp);
+  const glassPad = padOf([74, 78, 81, 86].map((m) => tune(m, 'festa')), 'sine', 9000, rotSoar.inp);   // B♭ (st-festa, analysed)
   // the baixada at dawn: lighter, major, airy — an open D (add9) and the air of the morning
-  const dawnPad = padOf([62, 69, 76, 78, 81], 'triangle', 1800, outRoom); dawnPad.g.connect(G(0.6, verbIn));
+  const dawnPad = padOf([62, 69, 76, 78, 81], 'triangle', 1800, genRoom); dawnPad.g.connect(G(0.6, verbIn));
   const dawnN = noiseSrc(), dawnBp = F('bandpass', 5200, 0.9), dawnAir = G(0, ambDest['s-rain-loop'].inp); series(dawnN, dawnBp, dawnAir);
   // the pom's golden haze (p ≈ 0.55–0.65): a high golden chord and a bright breath as the room passes through it
-  const hazePad = padOf([86, 90, 93, 98], 'sine', 12000, ambDest['s-wind-loop'].inp); hazePad.g.connect(G(0.8, verbIn));
+  const hazePad = padOf([86, 90, 93, 98].map((m) => tune(m, 'pom')), 'sine', 12000, ambDest['s-wind-loop'].inp);   // C# (m-pom) hazePad.g.connect(G(0.8, verbIn));
   const hazeN = noiseSrc(), hazeBp = F('bandpass', 4200, 1.1), hazeG = G(0, ambDest['s-wind-loop'].inp); series(hazeN, hazeBp, hazeG);
   // the fall (the assemblage tower collapses): a rumble that dies in ~6 s; the debris itself comes from the part's impacts
-  const fallN = noiseSrc(), fallLp = F('lowpass', 90, 0.8), fallSubG = G(0, outSub), fallBp = F('bandpass', 260, 1.4), fallRoomG = G(0, outRoom);
+  const fallN = noiseSrc(), fallLp = F('lowpass', 90, 0.8), fallSubG = G(0, outSub), fallBp = F('bandpass', 260, 1.4), fallRoomG = G(0, genRoom);
   series(fallN, fallLp, fallSubG); fallN.connect(fallBp); fallBp.connect(fallRoomG);
   // the tronc's creak: a slow click-train through a resonance, one level per wall (its lean), and a low wobble in the sub
   const creakSrc = osc('sawtooth', 26), creakBp = F('bandpass', 420, 5), creakMix = G(1); series(creakSrc, creakBp, creakMix); creakSrc.start(); persistent.push(creakSrc);
@@ -624,7 +717,7 @@ export default async function start(host) {
   function pulse(t0) {
     const at = onGrid('tronc', t0) ?? t0 + 0.03;
     drum(at, tocDrum, { f0: 92, f1: 44, dur: 0.9, gain: 0.18, noise: 0.06, sub: 0.6, subDest: tocSub });
-    play('s-timbal', { gain: 0.16, dest: tocDrum, at, rate: 1.06 });   // the timbal's skin, tuned to D
+    play('s-timbal', { gain: 0.16, dest: tocDrum, at, rate: timbalRate(38) });   // the timbal's skin, tuned to the tonic (D2; was 50 cents flat)
     return at;
   }
   let arpAt = 0, arpN = 0;
@@ -637,10 +730,20 @@ export default async function start(host) {
     while (voices.length && voices[0].end < t) voices.shift();
     while (voices.length >= L.touchMax) { const v = voices.shift(); v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(0, t, 0.02); }   // the oldest yields
     const wi = audio.wallInput(wallId, u), g = G(P.touch);
-    series(g, ...HP(), wi.node); if (verbAmt) g.connect(G(verbAmt, verbIn));
+    series(g, ducked(), ...HP(), wi.node); if (verbAmt) g.connect(G(verbAmt, verbIn));   // S3: under the voice like the rest
     voices.push({ g, end: t + ttl });
     setTimeout(() => { try { g.disconnect(); wi.disconnect(); } catch { /* gone */ } }, ttl * 1000 + 300);
     return g;
+  }
+  // S3: 15 hands = one chord. A new hand takes the degree its place asks for (u → degree, height → octave) unless that degree is
+  // already ringing (last 1.2 s): then the free degree farthest from the ringing ones, in the same two octaves.
+  const ringing = [];
+  function freeDeg(deg, oct) {
+    const t = now(); while (ringing.length && t - ringing[0][1] > 1.2) ringing.shift();
+    let k = deg + 5 * oct; const used = new Set(ringing.map((r) => r[0]));
+    if (used.has(k)) { let best = k, bs = -1e9; for (let c = 0; c < 15; c++) { if (used.has(c)) continue; let md = 99; for (const x of used) md = Math.min(md, Math.abs(x - c)); const sc = md * 10 - Math.abs(c - k); if (sc > bs) { bs = sc; best = c; } } k = best; }
+    ringing.push([k, t]); if (ringing.length > 16) ringing.shift();
+    return [k % 5, Math.floor(k / 5)];
   }
   const off = vt.on('touch', (e) => {
     if (e.type !== 'down' || !running()) return;
@@ -654,22 +757,22 @@ export default async function start(host) {
     const wl = wallLoad[w]; wl.v *= Math.exp(-(wt - wl.t) / 0.35); wl.t = wt;
     const dense = (1 / Math.sqrt(downsAt.length)) / (1 + 0.05 * Math.max(0, (S.hands || 0) - 3)) / (1 + wl.v); wl.v += 1;
     const b = S.block, ph = S.phase, t = now() + 0.005, metres = e.v * (walls[w].height || 3), u = e.u ?? 0.5;
-    const oct = metres < 0.9 ? 0 : metres < 1.5 ? 1 : 2, deg = clamp(Math.floor(u * 5), 0, 4);
-    const far = (k) => { const g = handVoice(e.wallId, u, 2.6, 0.9); play('s-timbal', { gain: 0.12 * k * dense, dest: g, at: t, rate: rand(0.78, 0.86) }); drum(t, G(0, g), { sub: 0.35 * k * dense, gain: 0.1, subDest: touchSub }); };
+    const [deg, oct] = freeDeg(clamp(Math.floor(u * 5), 0, 4), metres < 0.9 ? 0 : metres < 1.5 ? 1 : 2);
+    const far = (k) => { const g = handVoice(e.wallId, u, 2.6, 0.9); play('s-timbal', { gain: 0.12 * k * dense, dest: g, at: t, rate: timbalRate(33) * rand(0.995, 1.005) }); drum(t, G(0, g), { sub: 0.35 * k * dense, gain: 0.1, subDest: touchSub }); };
     if (b === 'wait') far(0.4);                           // softer now: the threshold's tiles answer the hand too (impacts)
     else if (b === 'intro' || b === 'acta') { const g = handVoice(e.wallId, u, 4, 1.2); modal(t, midiHz(74 + MAJOR_PENTA[deg] + 12 * (oct > 1 ? 1 : 0)), 0.012 * dense, g, GLASS); }   // dust: a faint glint
     else if (b === 'brasa') {   // an ember burst; a low thump in the sub — T-055: its pitch by the hand's height (low hands = low notes: the children's)
       const g = handVoice(e.wallId, u, 2.2, 0.5), hk = clamp((metres - 0.5) / 1.4, 0, 1), step = Math.round(hk * 9), m = 38 + 12 * Math.floor(step / 5) + MINOR_PENTA[step % 5];
       play('s-ember-burst', { gain: 0.17 * dense, dest: g, at: t, rate: (0.7 + 0.65 * hk) * rand(0.95, 1.05) });
-      drum(t, g, { f0: midiHz(m + 12), f1: midiHz(m), dur: 0.7, gain: 0.06 * dense, noise: 0, sub: 0.9 * (1 - 0.5 * hk), subDest: touchSub });
+      drum(t, g, { f0: midiHz(tune(m + 12)), f1: midiHz(tune(m)), dur: 0.7, gain: 0.06 * dense, noise: 0, sub: 0.9 * (1 - 0.5 * hk), subDest: touchSub });
       modal(t + 0.01, midiHz(m + 24), 0.022 * dense, g, STONE, 0.3);   // the tone: D minor pentatonic, two octaves from 0.5 to 1.9 m
     } else if (b === 'pinya') {   // clay and body
       const g = handVoice(e.wallId, u, 1.6, 0.35);
       play('s-clay', { gain: 0.2 * dense, dest: g, at: t, rate: rand(0.85, 1.1) });
-      drum(t, g, { f0: 85, f1: 52, dur: 0.6, gain: 0.07 * dense, noise: 0.02, sub: 0.8, subDest: touchSub });
+      drum(t, g, { f0: 85, f1: midiHz(KEYS.pinya.root - 24), dur: 0.6, gain: 0.07 * dense, noise: 0.02, sub: 0.8, subDest: touchSub });   // lands on A1 (A minor)
     } else if (b === 'tronc' && ph !== 'reward') {   // ceramic and stone, tuned to the stone's mode (D minor pentatonic)
       const g = handVoice(e.wallId, u, 1.6, 0.3), m = 62 + 12 * oct + MINOR_PENTA[deg];
-      play('s-ceramic', { gain: 0.1 * dense, dest: g, at: t, rate: midiHz(m + 12) / 1605 });
+      play('s-ceramic', { gain: 0.1 * dense, dest: g, at: t, rate: midiHz(tune(m + 12)) / 1605 });
       modal(t, midiHz(m), 0.06 * dense, g, CERAMIC);
       if (oct === 0) modal(t, midiHz(m - 12), 0.05 * dense, g, STONE);
     } else if (b === 'pom') {   // glass: very soft, high, long
@@ -678,9 +781,9 @@ export default async function start(host) {
     } else if (b === 'festa' || b === 'crown') {   // a tuned resonant hit, and its echo on the beat's dotted eighth
       const g = handVoice(e.wallId, u, 3, 0.45), m = 62 + 12 * oct + MAJOR_PENTA[deg];
       fmHit(t, midiHz(m), 0.05 * dense * (oct === 2 ? 0.7 : 1), g);
-      play('s-ceramic', { gain: 0.05 * dense, dest: g, at: t, rate: midiHz(m + 24) / 1605 });
+      play('s-ceramic', { gain: 0.05 * dense, dest: g, at: t, rate: midiHz(tune(m + 24)) / 1605 });
       g.connect(G(0.6, echoIn[w] || outRoom));
-      if (oct === 0) drum(t, G(0, g), { sub: 0.3 * dense, gain: 0.12, f0: midiHz(m - 12), f1: midiHz(m - 12) * 0.9, dur: 0.8, subDest: touchSub });
+      if (oct === 0) drum(t, G(0, g), { sub: 0.3 * dense, gain: 0.12, f0: midiHz(tune(m - 12)), f1: midiHz(tune(m - 12)) * 0.9, dur: 0.8, subDest: touchSub });
     } else if (b === 'baixada') {   // a shard falls into the hand
       const g = handVoice(e.wallId, u, 2.5, 0.6);
       play('s-ceramic', { gain: 0.08 * dense, dest: g, at: t, rate: rand(0.6, 1.3) });
@@ -712,8 +815,9 @@ export default async function start(host) {
   }
   function enterBlock(b) {
     const prev = block; block = b; const t = now();
-    if (b === 'intro' || b === 'wait') saidThisPass.clear();
+    if (b === 'intro' || b === 'wait') { saidThisPass.clear(); cueAt.clear(); callAt = -1; nearSaid = false; }
     musicBus.gain.setTargetAtTime(P.music, t, 0.3);   // a tronc's wobble may have left the music down
+    if (prev !== b) { for (const v of voices) v.g.gain.setTargetAtTime(0, t, 0.12); voices.length = 0; ringing.length = 0; }   // D6b: the old key's notes let go before the new key's
     if (prev !== b) tileSweep(b);
     // what leaves: each set as its world closes (the festa lets its drums go first, the rest under the baixada)
     for (const name of Object.keys(sets)) {
@@ -729,9 +833,8 @@ export default async function start(host) {
     else if (b === 'tronc') { arpN = 0; }
     else if (b === 'pom') { musicOn('pom', { fade: 10 }); }
     else if (b === 'crown') crown();
-    else if (b === 'festa') { say('v-aleta-2', { delay: 0.3 }); if (!sets.festa.want) festaStart(); }
-    else if (b === 'baixada') {
-      say('v-baixada-gently', { delay: 1.2 });
+    else if (b === 'festa') { if (!sets.festa.want) festaStart(); }   // the voice: cue block:festa
+    else if (b === 'baixada') {                                        // the voice: cue block:baixada (v-baixada-1, back since 25-11)
       layer('festa', 'drums', 0, 0.8); layer('festa', 'bass', 0.3, 2); sets.festa.lp.frequency.setTargetAtTime(900, t, 2.5);
       setTimeout(() => { if (block === 'baixada') musicOff('festa', 8); }, 2500);
       musicOn('baixada', { fade: 5 });
@@ -761,7 +864,7 @@ export default async function start(host) {
     swell = { stop }; setTimeout(() => stop(now()), (dur + 2) * 1000);   // never longer than the window (+2 s)
   }
   function crown() {   // l'aleta: the release, the bloom, the square roars, the voice; the festa's music comes in from below
-    if (crownAt >= 0 || !running()) return; const t = now(); crownAt = t;
+    if (crownAt >= 0 || !running()) return; const t = now(); crownAt = t; keyBlock = 'crown';   // the crown sounds in C (m-crown)
     swell?.stop(t); swell = null;
     crownMusicStart(CROWN_IMPACT - 0.05);      // the release of m-crown lands on the trigger (the group's, or the window's end)
     bloom(t + 0.02);
@@ -770,7 +873,7 @@ export default async function start(host) {
     if (wide > 0.5) for (let w = 0; w < NW; w++) modal(t + 0.12 + w * 0.07, midiHz(93 + MAJOR_PENTA[(w + 2) % 5]), 0.02 * wide, toWall(w + 2), GLASS, 0.9);
     if (play('sfx-crown', { gain: 0.24, dest: fxIn['s-crowd-loop'] || fxBus, at: t + 0.4 })) rotCrowd.speed = 0.12;
     if (aletaYoursT) { clearTimeout(aletaYoursT); aletaYoursT = 0; }   // crowned before the second line: it is not needed
-    say('v-aleta-crowned', { delay: 1.6 });   // v-aleta-1 without its first sentence (trimmed 24-11): «El castell está coronado.»
+    keyBlock = null;   // the voice: cue ach:crown («¡Coronado!») and its follow-up «El castell está coronado.»
   }
   const rotCrowd = ambDest['s-crowd-loop'];
   function cutDry() {   // the tronc's last floor: everything that is music stops at once (a 12 ms ramp: dry, without a click)
@@ -782,27 +885,27 @@ export default async function start(host) {
   function uncut() { const t = now(); for (const p of [tocDrum.gain, tocSub.gain]) { p.cancelScheduledValues(t); p.setTargetAtTime(1, t, 0.02); } ramp(wet.gain, L.verb, 0.4); }
   function enterPhase(p) {
     const t = now();
-    if (p === 'title') say(TITLE_LINE[block]);
+    // the title's line: cue title:<block>
     if (block === 'tronc' && p === 'play') {   // the take starts on the play's first instant: its next downbeat is the score's first pulse
       musicOn('tronc', { at: t + 0.03, offset: GRID_A, fade: 0.05 });
       layer('tronc', 'bass', 0.65, 0.05); layer('tronc', 'drums', 0, 0.05); layer('tronc', 'other', 0, 0.05); setNow(sets.tronc.lp.frequency, 1800);
     } else if (block === 'tronc' && p === 'reward') cutDry();
-    else if (block === 'pom' && p === 'play') say('v-pom-2', { delay: 0.3 });
-    else if (block === 'pom' && p === 'aleta') {
-      aletaSwell((T.aleta?.window || 8) / pace);
-      if (say('v-aleta-raise', { delay: 0.1 })) { const d = (buffers.get('v-aleta-raise')?.buf.duration || 1.5) + 1.5; aletaYoursT = setTimeout(() => { aletaYoursT = 0; if (block === 'pom') say('v-aleta-yours', { delay: 0 }); }, d * 1000); }   // «She raises her hand.» … 1.5 s … «Raise yours.»
-    }   // l'aleta (24-11): the group decides when; a swell rises under the window, the crown lands on the trigger
+    else if (block === 'pom' && p === 'aleta') aletaSwell((T.aleta?.window || 8) / pace);   // the voice: cue aleta (+0.6 s «Levantad la vuestra»)   // l'aleta (24-11): the group decides when; a swell rises under the window, the crown lands on the trigger
     else if (block === 'pinya' && p === 'reward') { play('s-crack', { gain: 0.26, at: t + 4.5 }); riser(t + 2.5, 2, 0.03); }
   }
+  let callAt = -1, nearSaid = false;
   function onEvent(ev) {
     const i = ev.indexOf(':'), k = i < 0 ? ev : ev.slice(0, i), arg = i < 0 ? '' : ev.slice(i + 1), t = now();
-    if (k === 'block') return enterBlock(arg);
-    if (k === 'phase') return enterPhase(arg);
-    if (k === 'hint') return say(HINT_LINE[arg], { polite: true, delay: 0.2 });
+    if (k === 'block') enterBlock(arg);
+    if (k === 'phase') enterPhase(arg);
+    // N4: the script (cues.js) — after the block / phase has been entered, so a line sees its world
+    const ck = cueKey(ev, S); if (ck) { try { cue(ck, arg); } catch (e) { console.error('ressonancia-sound: cue', ev, e); } }
+    if (ev === 'stage:brasa:call') callAt = S.clock; else if (k === 'ach' && arg === 'wave') callAt = -1;
+    if (k === 'block' || k === 'phase' || k === 'hint' || k === 'stage' || k === 'assist' || k === 'focus') return;
+    if (k === 'tg') return targetSound(arg, t);
     if (k === 'abandon') { hush(1); for (const name of Object.keys(sets)) musicOff(name, 3); for (const c of Object.values(clouds)) c.on = false; for (const h of [...live]) if (!h.name.endsWith('-loop')) h.stop(2); return; }
     if (!running()) return;
-    if (k === 'reveal') {   // the start button is whole: a glass chord goes round the walls over a soft low breath
-      if (WAIT_VOICES) say('v-wait-start', { delay: 1.4 });
+    if (k === 'reveal') {   // the start button is whole: a glass chord goes round the walls over a soft low breath (the voice: cue reveal)
       for (let w = 0; w < NW; w++) for (const [j, d] of [[0, 0], [1, 7], [2, 16]]) modal(t + 0.05 + w * 0.18 + j * 0.06, midiHz(74 + d), 0.03, toWall(w), GLASS, 0.9);
       drum(t + 0.05, drumBus, { f0: 62, f1: 36, dur: 2.2, gain: 0.05, noise: 0, sub: 0.35 });
       return;
@@ -818,7 +921,6 @@ export default async function start(host) {
     if (k === 'lift') { for (const w of structWalls()) modal(t + 0.02, midiHz(62 + MINOR_PENTA[(S.floors + 2) % 5]), 0.02, toWall(w), CERAMIC, 0.5); return; }
     if (k === 'level') { for (const w of structWalls()) modal(t + 0.15, midiHz(81), 0.012, toWall(w), GLASS, 0.8); return; }
     if (k === 'wobble') {   // it trembles: the music goes, the trencadís cracks, a low rumble (the creak follows the lean)
-      say('v-tronc-wobble', { delay: 0.5 });
       musicBus.gain.setTargetAtTime(0.12 * P.music, t, 0.12); play('s-crack', { gain: 0.14, dest: toWall(S.wobbleWall >= 0 ? S.wobbleWall : 0), at: t + 0.02, rate: 0.7 });
       drum(t + 0.03, drumBus, { f0: 48, f1: 30, dur: 3, gain: 0.06, noise: 0.03, sub: 0.45 }); return;
     }
@@ -868,9 +970,9 @@ export default async function start(host) {
     if (k === 'corner') { const C = (S.relay && S.relay.corner) || {}; flare(t + 0.01, C.wall ?? 0, (S.relay && S.relay.corners) || 0); return; }
     if (k === 'call') {   // the brasa's call (24-11): timbal tok… tok… TOK, gap s apart; the TOK on the answering wall (or all four)
       const C = S.call || {}, g = (C.gap || 0.8) / pace, from = C.from || 0, to = C.to ?? from;
-      for (let j = 0; j < 2; j++) { play('s-timbal', { gain: 0.09, dest: toWall(from), at: t + 0.01 + j * g, rate: 0.92 }); drum(t + 0.01 + j * g, toWall(from), { f0: 110, f1: 70, dur: 0.25, gain: 0.03, noise: 0.05 }); }
+      for (let j = 0; j < 2; j++) { play('s-timbal', { gain: 0.09, dest: toWall(from), at: t + 0.01 + j * g, rate: timbalRate(38) }); drum(t + 0.01 + j * g, toWall(from), { f0: 110, f1: 70, dur: 0.25, gain: 0.03, noise: 0.05 }); }
       const tokAt = t + 0.01 + 2 * g, tw = to < 0 ? [...Array(NW).keys()] : [to];
-      for (const w of tw) play('s-timbal', { gain: 0.16 / Math.sqrt(tw.length), dest: toWall(w), at: tokAt, rate: 0.84 });
+      for (const w of tw) play('s-timbal', { gain: 0.16 / Math.sqrt(tw.length), dest: toWall(w), at: tokAt, rate: timbalRate(33) });
       drum(tokAt, drumBus, { f0: 82, f1: 44, dur: 0.6, gain: 0.08, noise: 0.06, sub: 0.3 });
       return;
     }
@@ -893,7 +995,8 @@ export default async function start(host) {
     }
     if (k === 'wave') {   // the correfoc's tabals run round the room from the busiest wall, and land deep
       let from = 0, best = -1; S.count.forEach((c, w) => { if (c > best) { best = c; from = w; } });
-      for (let j = 0; j < NW; j++) play('s-tabals', { gain: 0.13 * (0.55 + 0.45 * (j / Math.max(1, NW - 1))), dest: toWall(from + j), at: t + 0.03 + j * 0.16, rate: 1 - j * 0.03 });
+      const t0 = nextTick(t + 0.03);   // D6b: in the festa the wave leaves on the take's next 16th (the music is quantised, never the people)
+      for (let j = 0; j < NW; j++) play('s-tabals', { gain: 0.13 * (0.55 + 0.45 * (j / Math.max(1, NW - 1))), dest: toWall(from + j), at: t0 + j * 0.16, rate: 1 - j * 0.03 });
       drum(t + 0.03 + NW * 0.16 + 0.35, drumBus, { f0: 80, f1: 36, dur: 1.4, gain: 0.12, noise: 0.05, sub: 0.45 });
     } else if (k === 'awake') {   // the ring wakes: a reverse swell into a deep hit; the fire then sinks into earth
       const r = play('s-impact', { gain: 0.14, reverse: true, at: t + 0.05 });
@@ -901,7 +1004,7 @@ export default async function start(host) {
       drum(land, drumBus, { f0: 78, f1: 34, dur: 1.8, gain: 0.18, noise: 0.04, sub: 0.6 });
       for (let w = 0; w < NW; w++) modal(land + w * 0.04, midiHz([50, 57, 62, 45][w % 4]), 0.05, toWall(w), STONE, 0.6);
     } else if (k === 'wall') { const w = +arg; voiceNote(t + 0.02, [50, 57, 53, 45][w % 4], 3.4, 0.045, toWall(w)); play('s-clay', { gain: 0.12, dest: toWall(w), at: t, rate: 0.7 }); }
-    else if (k === 'close') { say('v-pinya-3', { delay: 0.2 }); clouds.circle.on = true; rotCircle.speed = 0.35; }
+    else if (k === 'close') { clouds.circle.on = true; rotCircle.speed = 0.35; }   // the voice: cue ach:close (+ the structure's name)
     else if (k === 'pulse') pulse(t);
     else if (k === 'floor') {
       play('sfx-tile', { gain: 0.16, dest: toWall(S.floors), at: t + 0.02 });
@@ -928,18 +1031,42 @@ export default async function start(host) {
     }
   }
 
+  // ---- the targets (05-plan §2.6, D3b): the charge's first hand → a click without pitch AT ONCE on its wall; active → a note of the
+  // chapter's scale on the take's next 16th (tronc, festa) or at once; done → a soft low settle. Pitch by the target's link in its chain.
+  const tgClickAt = new Map();
+  function targetSound(arg, t) {
+    const j = arg.indexOf(':'), what = j < 0 ? arg : arg.slice(0, j), id = j < 0 ? '' : arg.slice(j + 1);
+    if (what !== 'charge' && what !== 'active' && what !== 'done') return;
+    const T0 = (S.targets || []).find((x) => String(x.id) === id); if (!T0 || !(T0.wall >= 0 && T0.wall < NW)) return;
+    const W = walls[T0.wall], u = clamp(typeof T0.dx === 'number' ? 0.5 + T0.dx / (W.width || 4) : (T0.s - (wallS0[T0.wall] || 0)) / (W.width || 4), 0, 1), wid = W.id;
+    const n = (T0.link || 0) + (T0.chain || 0) * 2, hi = (T0.y || 1.2) > 1.4 ? 12 : 0;
+    if (what === 'charge') {
+      const wt = performance.now() / 1000; if (wt - (tgClickAt.get(id) ?? -9) < 0.6) return; tgClickAt.set(id, wt);
+      if (tgClickAt.size > 64) tgClickAt.clear();
+      const g = handVoice(wid, u, 0.6, 0.2), src = ctx.createBufferSource(), f = F('bandpass', 4200, 2.2), e = G(0, g); src.buffer = NOISE; series(src, f, e);
+      e.gain.setValueAtTime(0, t + 0.002); e.gain.linearRampToValueAtTime(0.05 * P.effects, t + 0.004); e.gain.exponentialRampToValueAtTime(0.0004, t + 0.05);
+      src.start(t + 0.002, Math.random() * 1.5, 0.06);
+      return;
+    }
+    const stone = STONE_BLOCKS.has(S.block), sc = stone ? MINOR_PENTA : MAJOR_PENTA;
+    if (what === 'active') {
+      const at = nextTick(t + 0.01), m = 74 + hi + sc[n % 5] + 12 * (Math.floor(n / 5) % 2);
+      const g = handVoice(wid, u, 3.5, 0.9);
+      modal(at, midiHz(m), 0.03, g, stone ? CERAMIC : GLASS, 0.6);
+      modal(at + 0.004, midiHz(m - 12), 0.012, g, WARM);
+    } else modal(t + 0.02, midiHz(62 + sc[(n + 2) % 5]), 0.012, handVoice(wid, u, 2, 0.6), WARM, 0.4);
+  }
   // ---------------------------------------------------------------- what follows the state, every step
   function follow(dt) {
     const t = now(), b = block, ph = S.phase, prog = S.progress || 0, on = running();
     if (S.hands > 0) lastHandClock = S.clock;
     // the voice by the clock: the intro's lines, the waiting call, the acta's lines
-    const IV = P.lang === 'es' ? INTRO_VOICE_ES : INTRO_VOICE;
-    if (b === 'intro') while (introCue < IV.length && S.t >= IV[introCue][0]) say(IV[introCue++][1], { delay: 0.05 });
+    const IV = (T.intro || TIMES.intro || 70) <= 50 ? INTRO_AT : INTRO_AT_70;   // N9: the 45 s intro's clock once the score's intro is 45 s
+    if (b === 'intro') while (introCue < IV.length && S.t >= IV[introCue][0]) cue(IV[introCue++][1]);
     if (b === 'wait' && S.hands === 0) { const gone = S.clock - lastHandClock; if (gone >= WAIT_AFTER && gone <= WAIT_RECENT && S.clock - waitSaid >= WAIT_EVERY) { waitSaid = S.clock; if (WAIT_VOICES && (S.reveal || 0) < 1) say('v-wait-invite', { polite: true, delay: 0.2 }); } }
-    if (b === 'acta') {
-      if (actaCue === 0 && S.t >= ACTA_AT.outcome) { actaCue = 1; say(OUTCOME_LINE[S.outcome] || OUTCOME_LINE.descarregat, { delay: 0.05 }); }
-      if (actaCue === 1 && S.t >= ACTA_AT.final) { actaCue = 2; say('v-cierre-final', { delay: 0.05 }); }
-    }
+    if (b === 'acta') while (actaCue < ACTA_CUES.length && S.t >= ACTA_CUES[actaCue][0]) cue(ACTA_CUES[actaCue++][1]);   // print · outcome · final
+    if (b === 'brasa' && callAt >= 0 && S.stage === 'brasa:call' && S.clock - callAt > CALL_LATE) { callAt = -1; cue('call:late'); }
+    if (b === 'pom' && !nearSaid && S.pomStage === 'silence' && (S.climb || 0) > 0.7) { nearSaid = true; cue('pom:near'); }
     if (!on) return;
     musicKeep(); ambKeep();
     // the threshold: as play reveals the button, glass motes gather (more and brighter); the start ring raises a glass tone
@@ -1034,7 +1161,6 @@ export default async function start(host) {
     }
     lastPhrase = S.phrase;
     // the pinya's call: when the figures start to lead the hands to the centre (and the group has not packed yet)
-    if (b === 'pinya' && ph === 'play' && S.pinyaStage === 'pack' && lastStage === 'palm' && !(S.learned && S.learned.pinya)) say('v-pinya-closein', { polite: true, delay: 0.2 });
     lastStage = S.pinyaStage;
     // ---- the room movements
     {
@@ -1082,7 +1208,7 @@ export default async function start(host) {
     const drone = b === 'wait' ? 0.03 : b === 'brasa' ? 0.015 : b === 'tronc' && ph === 'title' ? 0.035 : b === 'baixada' ? 0.012 : b === 'fall' ? 0.02 : 0;
     if (!(b === 'tronc' && ph === 'reward')) { droneG.gain.setTargetAtTime(drone * 0.9, t, 1.2); droneSubG.gain.setTargetAtTime(drone * 1.3, t, 1.2); }
     // ---- the pom: the thread rises D5 → D6 with the three climbers and flickers when hands move
-    thread.frequency.setTargetAtTime(midiHz(74) * Math.pow(2, prog), t, 0.4);
+    thread.frequency.setTargetAtTime(midiHz(tune(74, 'pom')) * Math.pow(2, prog), t, 0.4);
     threadG.gain.setTargetAtTime(sil === 2 ? 0 : sil ? 0.012 : pom && ph === 'play' ? 0.01 + 0.025 * prog : 0, t, sil === 2 ? 0.08 : 0.3);   // T-050: in the silence the thread is a held tone
     const flk = pom && S.restless && !sil && (S.pomStage !== 'relay' || (S.pomFalter || 0) > 0);
     flickG.gain.setTargetAtTime(flk ? 0.7 : 0, t, 0.08); flickD.gain.setTargetAtTime(flk ? 25 : 0, t, 0.08);
@@ -1107,7 +1233,9 @@ export default async function start(host) {
   // LOCAL WORKAROUND (see the top of the file): the BroadcastChannel to the visual piece.
   let bc = null;
   try { bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { bc = null; }
-  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
+  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace);
+    // rehearsal / QA (25-11): { say: '<cue key>', wall } speaks a cue's line now on that wall (-1 = room), outside the once-a-pass rule
+    if (m.say) { const r = resolve(m.say, S); if (r && r.voice) say(r.voice, { delay: 0.05, wall: m.wall ?? cueWall(r.cue, S, ''), kind: 'task', once: false }); } if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
   const lastPos = new Map(), hands = [], handPool = [];
   const wallS0 = walls.reduce((a, w, i) => { a.push(i ? a[i - 1] + (walls[i - 1].width || 4) : 0); return a; }, []);   // where each wall starts along the perimeter (m)
   let last = performance.now();
@@ -1142,16 +1270,19 @@ export default async function start(host) {
       const lang = P.lang; Object.assign(P, p); const t = now();
       if (P.lang !== lang) { for (const n of VOICE_SET) { buffers.delete(n); peaks.delete(n); failed.delete(n); } Promise.all([...VOICE_SET].map(load)); }   // the other language's voice
       musicBus.gain.setTargetAtTime(P.music, t, 0.1); drumBus.gain.setTargetAtTime(P.drums, t, 0.1); fxBus.gain.setTargetAtTime(P.effects, t, 0.1); for (const g of fxGains) g.gain.setTargetAtTime(P.effects, t, 0.1); voiceBus.gain.setTargetAtTime(P.voice, t, 0.1);
+      for (const v of voiceWall) v.gain.setTargetAtTime(P.voice, t, 0.1);
     },
     async stop() {
       clearInterval(timer); off?.(); try { bc?.close(); } catch { /* closed */ }
+      for (const x of cueTimers) clearTimeout(x); cueTimers = [];
       const t = now();
       for (const h of [...live]) h.stop(0.3);
       for (const name of Object.keys(sets)) musicOff(name, 0.3);
       for (const c of Object.values(clouds)) c.on = false;
       for (const g of [glassPad.g, dawnPad.g, dawnAir, hazePad.g, hazeG, fallSubG, fallRoomG, droneG, droneSubG, threadG, wobG, startG, liqG, liqSubG, turnG, liftG, liftOG, cityG, cityRoomG, cityOG, airG, ...creakG]) ramp(g.gain, 0, 0.1, t);
       for (const o of persistent) { try { o.stop(t + 1); } catch { /* done */ } }
-      setTimeout(() => { for (const wi of wallIn) wi.disconnect(); }, 1500);
+      try { genDuck.stop(t + 1.2); } catch { /* stopped */ }
+      setTimeout(() => { for (const wi of [...wallIn, ...musicWallIn, ...voiceWallIn]) wi.disconnect(); }, 1500);
     },
   };
 }

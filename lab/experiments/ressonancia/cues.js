@@ -35,6 +35,7 @@ export const CUES = {
   'wait:invite': { voice: 'v-wait-invite', where: 'room', energy: 'soft', text: 'Tocad el muro', place: 'all', kind: 'hint', repeat: true, cooldown: 40 },
   'reveal': { voice: 'v-wait-start', where: 'busy', energy: 'soft', text: 'Sostened el anillo', place: 'focus', kind: 'task', repeat: true, delay: 1.4 },
   'intro:1': { voice: 'v-intro-1', where: 'room', energy: 'whisper', text: null, kind: 'card' },
+  'intro:2': { voice: 'v-intro-2', where: 'room', energy: 'whisper', text: null, kind: 'card' },   // only in the 70 s intro (retired at 45 s)
   'intro:3': { voice: 'v-intro-3', where: 'room', energy: 'whisper', text: null, kind: 'card' },
   'intro:4': { voice: 'v-intro-4', where: 'room', energy: 'whisper', text: null, kind: 'card' },
   'intro:5': { voice: 'v-intro-5', where: 'room', energy: 'whisper', text: null, kind: 'card' },   // the motto: introtext.js writes it wall by wall
@@ -113,7 +114,9 @@ export const NO_CUE = [];
 // the intro's voice clock (s from the start of the 45 s intro; 05-plan §3.0). v-intro-2 is retired (kept on disk).
 export const INTRO_AT = [[2, 'intro:1'], [10, 'intro:3'], [21, 'intro:4'], [27.5, 'intro:5']];
 // the acta's clock (s from its start)
-export const ACTA_AT = [[3, 'acta:print'], [4.5, 'acta:outcome'], [24.5, 'acta:final']];
+export const ACTA_AT = [[3, 'acta:print'], [5.4, 'acta:outcome'], [24.5, 'acta:final']];   // the outcome after the print line (it would cut it)
+// the 70 s intro's clock (until TIMES.intro is 45 s; 05-plan §3.0 first cut)
+export const INTRO_AT_70 = [[8.5, 'intro:1'], [17, 'intro:2'], [29, 'intro:3'], [41, 'intro:4'], [53.3, 'intro:5']];
 export const CALL_LATE = 8;   // s a call stays open before «Posad la mano en la luz»
 
 // Which cue an event of the score is (or null). `S` is the score's state at the event (S.block, S.ach, S.focus, S.phase).
