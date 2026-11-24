@@ -519,7 +519,7 @@ export function createGuide({ THREE, TSL, room }) {
     const L = g.line && (g.line[0] || g.line[1]) ? g.line : null;   // (an empty invitation with a label: the floor's / climber's name alone)
     line.want(L ? 'l|' + L.join('|') : '', L ? lineItems(L) : null);
     // readability (audit 24-11): the dark plates under the words are stronger where the world behind is busy (Tronc, Pom: 60 %)
-    const plateK = b === 'tronc' || b === 'pom' || b === 'baixada' ? 0.6 : null;   // art round 5: baixada too (white porcelain behind)
+    const plateK = b === 'baixada' ? 0.75 : b === 'tronc' || b === 'pom' ? 0.6 : null;   // art round 5b: 75 % in the baixada only   // art round 5: baixada too (white porcelain behind)
     for (const t of card.texts) t.U.plate.value = plateK ?? 0.5;
     for (const t of line.texts) t.U.plate.value = plateK ?? 0.45;
     card.step(dtT, { hold, gate: waveGate });
