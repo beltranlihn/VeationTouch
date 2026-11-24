@@ -100,7 +100,9 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     trousers: uniform(new THREE.Vector3(...col('trousers'))), faixa: uniform(new THREE.Vector3(...col('faixa'))),
     crack: uniform(new THREE.Vector3(...col('crack'))), hair: uniform(new THREE.Vector3(...col('hair'))), glow: uniform(new THREE.Vector3(...col('glow'))),
   };
-  const uCrack = uniform(0.35), uRim = uniform(0.8), uFlash = uniform(0.6), uSculpt = uniform(new THREE.Vector2(0.38, 1.2));
+  const uCrack = uniform(0.35), uRim = uniform(0.8), uFlash = uniform(0.6), uSculpt = uniform(new THREE.Vector2(0.38, 1.2));   // sculpt: unused since self-lit (kept for API)
+  const uSelf = uniform(1), uAlb = uniform(0.35), uSpec = uniform(0.22);
+  const uKey = uniform(new THREE.Vector3(...palLin('os', 0.95))), uAmb = uniform(new THREE.Vector3(...palLin('os', 0.3)));
   const uEye = uniform(new THREE.Vector3(room?.eye?.x ?? 0, room?.eye?.y ?? 1.6, room?.eye?.z ?? 0));
 
   // ---- CPU state per body: 16 floats (pos xyz, yaw | poseA, poseB, mix, scale | tint rgb, glow | build, lod, visible, seed)
@@ -150,8 +152,14 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // shadow — the volume reads on light worlds; the cast shadow below goes the other way
     const tE = normalize(vec3(uEye.x.sub(positionWorld.x), 0, uEye.z.sub(positionWorld.z))), side = vec3(tE.z, 0, tE.x.negate());
     const Lk = normalize(side.mul(-0.75).add(vec3(0, 0.85, 0)).add(tE.mul(0.45)));
-    const sculpt = mix(uSculpt.x, uSculpt.y, clamp(dot(normalize(vN), Lk).mul(0.62).add(0.42), 0, 1));
-    m.colorNode = vec4(base.mul(vTint).mul(ao).mul(sculpt), 1);
+    // SELF-LIT (no light of its own in the scene: adding lights recompiles every lit material of the work): the sculptor's key and a
+    // sky-coloured ambient go to the emissive; the albedo stays low so the room's env / a chapter's real lights only add a little
+    const Nn = normalize(vN), alb = base.mul(vTint).mul(ao);
+    const wrapK = clamp(dot(Nn, Lk).mul(0.62).add(0.38), 0, 1);
+    const V0 = normalize(cameraPosition.sub(positionWorld)), Hh = normalize(Lk.add(V0));
+    const glazeW = w1.add(w3).add(w0.mul(0.3)), spec = pow(clamp(dot(Nn, Hh), 0, 1), 28).mul(glazeW).mul(uSpec);
+    const self = alb.mul(uAmb.add(uKey.mul(wrapK.mul(wrapK)))).add(uKey.mul(spec).mul(ao));
+    m.colorNode = vec4(alb.mul(uAlb), 1);
     // the glaze: smoother on the shirt and faixa, bisque on skin, matte on the trousers; the crackle is rough
     const rough = float(0.62).mul(w0).add(float(0.34).mul(w1)).add(float(0.55).mul(w2)).add(float(0.3).mul(w3)).add(crack.mul(0.3));
     m.roughnessNode = matter?.roughnessNode ? matter.roughnessNode.mul(0.5).add(rough.mul(0.5)) : rough;
@@ -160,7 +168,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     let em = matter?.emissiveNode ? matter.emissiveNode.mul(uRim.mul(1.4)) : room?.rimNode ? room.rimNode([0.62, 0.74, 1.0], 1, 3).mul(uRim) : vec3(0);
     if (!matter && room?.flash) em = em.add(uColor.shirt.mul(room.flash(positionWorld)).mul(pow(fres, 2)).mul(uFlash));
     em = em.add(uColor.glow.mul(vGlow).mul(pow(fres, 1.5).mul(0.8).add(0.2)));
-    m.emissiveNode = em.mul(ao);
+    m.emissiveNode = em.mul(ao).add(self.mul(uSelf));
     return m;
   }
 
@@ -186,7 +194,12 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   object.add(shMesh);
   const CS = room?.contactShadows ? room.contactShadows(max) : null;   // the room's contact discs (the chapter's shadow colour); the kit draws the cast
   if (CS) object.add(CS.mesh);
-  let csUsed = 0;
+  let csUsed = 0, fakeCast = true;
+  // 'self': lit by the kit alone (no scene light) + its own soft cast shadow · 'scene': a chapter with a real key and shadow map (the
+  // lit square: room.keyShadow) — the albedo takes the real light, the self light becomes a fill, the fake cast shadow goes
+  function setLighting(mode = 'self') {
+    if (mode === 'scene') { uSelf.value = 0.35; uAlb.value = 0.95; fakeCast = false; } else { uSelf.value = 1; uAlb.value = 0.35; fakeCast = true; }
+  }
 
   // ---- the bake, sliced in the background (≈ 4 ms per slice)
   const palms = {};       // `${build}` → [pose][x,y,z]
@@ -277,6 +290,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
         if (CS) CS.set(nc++, x, z, 0.36 * sc, 0.75 * (1 - lift * 8));
         else { shA.array.set([x, z, 0, 1 - lift * 8], ns * 4); shB.array.set([0.7 * sc, 0.62 * sc, 0, 2.6], ns * 4); ns++; }
         // cast: long, soft, away from the key (key at 7.5 m over the centre → length ≈ h · d / (7.5 − h))
+        if (!fakeCast) continue;
         const tx = (kx - x) / (d || 1), tz = (kz - z) / (d || 1), dx = tz * 0.75 - tx * 0.45, dz = -tx * 0.75 - tz * 0.45;   // away from the key: right of the body, away from the eye
         const ang = Math.atan2(dx, dz), L = 1.45 * sc;
         shA.array.set([x, z, ang, 0.72], ns * 4); shB.array.set([L, 0.46 * sc, L * 0.36, 1.7], ns * 4); ns++;
@@ -311,9 +325,9 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   function setColors(c = {}) { for (const k of Object.keys(c)) if (uColor[k]) uColor[k].value.set(...tokLin(c[k])); if (c.shadow) uShadow.value.set(...tokLin(c.shadow)); }
   function dispose() { for (const M of meshes) { M.geo.dispose(); M.mesh.material.dispose(); M.tex.dispose(); } shGeo.dispose(); shMat.dispose(); }
   const api = {
-    object, get mesh() { return object; }, count: max, set, hide, update, palm, yawTo, setColors, dispose, POSES,
+    object, get mesh() { return object; }, count: max, set, hide, update, palm, yawTo, setColors, setLighting, dispose, POSES, tok: tokLin,
     ready: readyP, get isReady() { return ready; },
-    uniforms: { time: uTime, crack: uCrack, rim: uRim, flash: uFlash, shadow: uShK, color: uColor, sculpt: uSculpt, eye: uEye },
+    uniforms: { time: uTime, crack: uCrack, rim: uRim, flash: uFlash, shadow: uShK, color: uColor, sculpt: uSculpt, eye: uEye, self: uSelf, albedo: uAlb, spec: uSpec, key: uKey, amb: uAmb },
   };
   return api;
 }

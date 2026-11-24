@@ -21,6 +21,7 @@
 
 import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 import { sculpture, NAMES, NL } from './tronc3d/sculpt.js';
+import { createBodies } from '../bodykit.js';
 
 const TAU = Math.PI * 2;
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -446,6 +447,81 @@ export function create(ctx) {
   // -------------------------------------------------------------------------------------------- per-frame state
   const _v = new THREE.Vector3(), _e = new THREE.Euler();
   let time = 0, rise = 0, riseV = 0, floorsPrev = -1, reward = 0, pull = 0, decor = 1, wasIn = true, snapNext = false;
+
+  // -------------------------------------------------------------------------------------------- THE BODIES (STUDIO NIGHT 25-11, plan 05 M3/M4)
+  // The castell is made of the body kit (../bodykit.js): the same solid ceramic castellers as the Pinya, in porcelain, standing on the
+  // floor of the square with their shadows. The sculpture (sculpt.js) still runs underneath for everything else — its grains (the
+  // forming floor, the hands' dissolve, the shed of a lean), its levels (rise, rulers, levels() for fall3d / baixada3d) and its collapse
+  // (fall3d: while the castell falls the porcelain sculpture is shown, it is what breaks) — but its solid meshes are not drawn.
+  // Layout in castell metres (× SC in the tower's frame, like the sculpture): a pinya of three rings + a folre, a tronc of three per tier,
+  // the dosos, the acotxador, the enxaneta. Mode (setMode): build (Tronc) · top (Pom: the same castell) · crowned (the enxaneta's arm up) · down.
+  const CAST = [];
+  {
+    const r3 = rng(4401);
+    const tier = [1.05, 1.02, 1.02, 1.02, 1.02, 1.02];
+    let feet = 0;
+    for (let L = 0; L < 6; L++) {
+      const s = tier[L], R0 = 0.33;
+      for (let j = 0; j < 3; j++) { const a = Math.PI / 2 + (j * TAU) / 3; CAST.push({ lv: L + 1, x: Math.cos(a) * R0, z: Math.sin(a) * R0, y: feet, yaw: Math.atan2(Math.cos(a), Math.sin(a)), pose: 'lock', s, build: 0 }); }
+      feet += 1.342 * s + 0.03;
+    }
+    for (const sg of [-1, 1]) CAST.push({ lv: 7, x: sg * 0.17, z: 0, y: feet, yaw: Math.atan2(-sg, 0), pose: 'lock', s: 0.8, build: 1 });
+    const dsY = feet + 1.286 * 0.8 + 0.03;
+    CAST.push({ lv: 8, x: 0, z: -0.06, y: dsY, yaw: 0, pose: 'carry', s: 0.66, build: 2 });
+    CAST.push({ lv: 9, x: 0, z: -0.02, y: Math.max(dsY + 0.42, 9.8), yaw: 0, pose: 'stand', pose2: 'raise', s: 0.62, build: 2, enx: true });
+    const ringN = [10, 16, 22];
+    for (let i = 0; i < 3; i++) {
+      const rad = 0.73 + i * 0.44 + 0.1, off = 0.31 + i * 0.17;
+      for (let j = 0; j < ringN[i]; j++) {
+        const a = off + ((j + (r3() - 0.5) * 0.2) * TAU) / ringN[i], s = 0.94 + r3() * 0.1, rr = rad + (r3() - 0.5) * 0.05;
+        CAST.push({ lv: 0, x: Math.cos(a) * rr, z: Math.sin(a) * rr, y: 0, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), pose: 'carry', s, build: r3() < 0.5 ? 0 : 1, ring: i });
+        if (i === 0) { const rf = rr - 0.04; CAST.push({ lv: 0, x: Math.cos(a) * rf, z: Math.sin(a) * rf, y: 1.313 * s + 0.03, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), pose: 'carry', s: 0.95, build: 0, folre: true }); }
+      }
+    }
+  }
+  const bodies = P.bodies !== false && !lone();   // fall3d's private tower (parts: {}) falls as the sculpture: no bodies there
+  const kit = bodies ? createBodies({ THREE, TSL, room, max: Math.min(400, CAST.length * Math.min(NW, 4)) }) : null;
+  if (kit) {
+    world.add(kit.object);
+    const fx = kit.tok('faixa'), pl = kit.tok('pedra-llum'), soft = fx.map((v, i) => v * 0.68 + pl[i] * 0.32);   // the faixa a little chalked by the light
+    kit.setColors({ shirt: 'porcellana', skin: ['pedra-llum', 1.02], trousers: ['pedra-llum', 0.82], faixa: soft, hair: ['tinta-ombra', 1.6], crack: 'pedra-llum', shadow: 'tinta-ombra' });
+    kit.uniforms.crack.value = 0.55;
+  }
+  let lightMode = '';
+  let castMode = 'build';
+  function setMode(m) { castMode = m || 'build'; }
+  const _bp = new THREE.Vector3();
+  function placeBodies(dt, inTronc, floorsNow, withScore) {
+    if (!kit) return;
+    const lm = withScore ? 'scene' : 'self'; if (lm !== lightMode) { lightMode = lm; kit.setLighting(lm); }
+    let n = 0;
+    const crowned = castMode === 'crowned';
+    for (const t of towers) {
+      const visT = t.on && t.g.visible;
+      const phi = t.g.rotation.y, cp = Math.cos(phi), sp = Math.sin(phi), th = t.theta, ct = Math.cos(th), st = Math.sin(th);
+      for (const c of CAST) {
+        const i = n++; if (i >= kit.count) break;
+        if (!visT || col.on) { kit.hide(i); continue; }
+        const S = t.st[c.lv];
+        const shown = c.lv === 0 || (S.shown && !S.taken && (S.solid > 0.001 || S.forming || S.goneT >= 0));
+        if (!shown || (S.goneT >= 1.6)) { kit.hide(i); continue; }
+        // a floor that forms climbs into place with the lift; one that slips drops and goes
+        let dy = 0;
+        if (c.lv > 0 && S.forming && S.solid < 1) dy = -(1 - (S.lift * 0.7 + S.solid * 0.3)) * 1.1;
+        if (S.goneT >= 0) dy = -4.9 * S.goneT * S.goneT;
+        const lx = c.x * SC, ly = (c.y + dy) * SC, lz = c.z * SC;
+        const tx = lx * ct - ly * st, ty = lx * st + ly * ct;                       // the lean (tower frame, about its z)
+        _bp.set(t.g.position.x + cp * tx + sp * lz, ty, t.g.position.z - sp * tx + cp * lz);
+        const away = uAway.value;
+        if (away > 0.001) _bp.y -= away * away * 6 * (c.lv + 1) * 0.4;                   // arrive / leave: the tiers sink in order
+        const pose2 = c.enx ? (crowned ? 'raise' : 'stand') : c.pose;
+        kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw, pose: c.pose === 'lock' && c.lv > 0 && S.forming && S.solid < 0.5 ? 'carry' : c.pose, pose2, mix: c.enx ? (crowned ? 1 : 0) : 1,
+          scale: c.s * SC, build: c.build, glow: S.flash * 0.6 + (c.enx && crowned ? 0.5 : 0), tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
+      }
+    }
+    for (let i = n; i < kit.count; i++) kit.hide(i);
+    kit.update(dt);
+  }
   let beat = 0, liftHold = 0, liftOn = false, liftP = 0, standDrop = 0, wobPrev = false, wobWall = -1;
   const wob = { on: false, t: 0, side: 1, lv: -1, close: 0 }, slip = { lv: -1, t: 0 };
   const plazaPrev = new Float32Array(NW), plazaCool = new Float32Array(NW);
@@ -528,10 +604,13 @@ export function create(ctx) {
     let target = (LV[fl].yc * SC - (liftOn ? FORM_Y : FORM_Y0)) * riseOn;
     pull += ((rewarding || (leave > 0 && pull > 0.01) ? 1 : 0) - pull) * ease(0.6, dt);
     if (pull > 0.001) target += (TOWER_H * SC * 0.5 - 1.2 - target) * smooth(0, 1, pull);
+    target = Math.max(0, target);                     // 25-11 (director): the world only goes DOWN (the room rises); never up, never floating
     if (!inTronc || col.on) target = rise;
-    if (reset || floorsPrev < 0 || (inTronc && !wasIn) || snapNext) { rise = target; riseV = 0; snapNext = false; }
+    // entering / reset: the room starts on the ground and eases (≤ 0.30 m/s) to its height — a snap only when asked (fall3d) or at 0
+    if (snapNext || ((reset || floorsPrev < 0 || (inTronc && !wasIn)) && target < 0.01)) { rise = target; riseV = 0; snapNext = false; }
+    else if (floorsPrev < 0 || (inTronc && !wasIn)) { rise = Math.max(0, Math.min(rise, target)); riseV = 0; }
     wasIn = inTronc;
-    { const vmax = 0.35, acc = 0.3, want = Math.max(-vmax, Math.min(vmax, (target - rise) * 0.7)); riseV += Math.max(-acc * dt, Math.min(acc * dt, want - riseV)); rise += riseV * dt; }
+    { const vmax = 0.30, acc = 0.3, want = Math.max(-vmax, Math.min(vmax, (target - rise) * 0.7)); riseV += Math.max(-acc * dt, Math.min(acc * dt, want - riseV)); rise += riseV * dt; }
     world.position.y = -rise;
 
     // ---- hands per wall
@@ -575,7 +654,7 @@ export function create(ctx) {
         if (s.goneT >= 4.2 && col.on) s.shown = false;
         U.floor.array[lv].set(s.solid, s.forming, s.goneT, s.flash);
         const vis = s.shown && !s.taken && built && !!t.solid[lv];
-        if (t.solid[lv]) { t.solid[lv].visible = vis && s.solid > 0.001 && s.goneT < 0; t.grain[lv].visible = vis; }
+        if (t.solid[lv]) { t.solid[lv].visible = vis && s.solid > 0.001 && s.goneT < 0 && (!kit || col.on); t.grain[lv].visible = vis && (!kit || col.on || (s.forming && s.solid < 1) || s.goneT >= 0 || t.U.lean.value.y > 0.05); }
       }
       // the lean: a damped spring towards lean·7°, weak trembles it
       let lean = S ? (S.lean?.[t.tw] || 0) : (pr.lean ?? 0) * (t.tw % 2 ? -1 : 1);
@@ -673,7 +752,7 @@ export function create(ctx) {
         plazaPrev[wi] = rv;
       }
       const kk = b.U.k.value + (kWant - b.U.k.value) * ease(3, dt);
-      b.U.k.value = kk * decor; b.g.visible = kk * decor > 0.01;
+      b.U.k.value = kk * decor; b.g.visible = kk * decor > 0.01 && P.band === true;   // 25-11: the band of light read as a UI line
       b.U.flash.value *= Math.exp(-dt * 3); b.U.hk.value *= Math.exp(-dt * 2.5);
       b.g.position.copy(w.centre).addScaledVector(w.normal, -0.03).addScaledVector(b.ax, b.ox).setY(b.y);
       _e.set(0, Math.atan2(w.normal.x, w.normal.z), -b.tilt, 'YXZ'); b.g.quaternion.setFromEuler(_e);
@@ -689,7 +768,7 @@ export function create(ctx) {
       labK[lv].value = Math.max(0, labE[lv]) * decor * (1 - uAway.value) * (inTronc ? 1 : 0);
     }
     for (let wi = 0; wi < NW; wi++) {
-      const r = rulers[wi], t = towers[wi], k = decor * (1 - uAway.value), on = t.on && k > 0.02 && built;
+      const r = rulers[wi], t = towers[wi], k = decor * (1 - uAway.value), on = t.on && k > 0.02 && built && P.ruler === true;   // 25-11: no ruler (read as UI)
       r.g.visible = on; if (!on) continue;
       const dW = Math.max(0.5, -_v.copy(t.w.centre).sub(room.eye).dot(t.w.normal)), dT = dW + t.dist, sc = dT / dW;
       r.g.scale.setScalar(sc); r.g.position.set(RULER_X * sc, 0, 0.6);
@@ -721,6 +800,7 @@ export function create(ctx) {
     }
     dAttr.needsUpdate = true;
     floorsPrev = floors;
+    placeBodies(dt, inTronc, floors, !!S);
   }
   function nearestTower(wi, showT) {
     let best = -1, bd = 1e9; for (let j = 0; j < NW; j++) { if (!showT(j)) continue; let d = Math.abs((PER[j] + walls[j].width / 2) - (PER[wi] + walls[wi].width / 2)); d = Math.min(d, perim - d); if (d < bd) { bd = d; best = j; } }
@@ -773,7 +853,7 @@ export function create(ctx) {
     labGeo.dispose(); tickGeo.dispose(); lineGeo.dispose();
   }
   const api = {
-    object, update, setParams, dispose, impacts,
+    object, update, setParams, dispose, impacts, setMode, kit,
     get rise() { return rise; },
     collapse, restore, takeFloor, giveFloor, levels,
     get collapsing() { return { on: col.on, t: col.t, mode: col.mode, duration: col.dur }; },
