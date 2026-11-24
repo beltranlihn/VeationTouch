@@ -703,6 +703,10 @@ export function create(ctx) {
   const NSP = 4, spotP = Array.from({ length: NSP }, () => new THREE.Vector4(0, -50, 0, 0)), spotD = Array.from({ length: NSP }, () => new THREE.Vector4(0, -1, 0, 0.95));
   const uSpotP = uniformArray(spotP, 'vec4'), uSpotD = uniformArray(spotD, 'vec4'), uFest = uniform(0);
   const SPC = vec3(...palLin('cal-fanal'));                           // the stage light: warm lime
+  // VFX 25-11 (free touch, D3): every hand on a wall opens a warm pool of lamp light 0.8 m behind it — on the paving (≥ 1 m), the near
+  // stone and in the air — growing in ~0.4 s, staying a few seconds after the hand goes. Not in the Brasa (there the hand lights fire).
+  const NHL = 6, hlVec = Array.from({ length: NHL }, () => new THREE.Vector4(0, -50, 0, 0)), uHL = uniformArray(hlVec, 'vec4');
+  const HLC = vec3(...palLin('cal-fanal')).mul(0.7).add(vec3(...palLin('fanal')).mul(0.3));
   const NFI = 8, fireVec = Array.from({ length: NFI }, () => new THREE.Vector4(0, -50, 0, 0)), uFires = uniformArray(fireVec, 'vec4');
   const FC = vec3(...palLin('flama')).mul(1.0).add(vec3(...palLin('brasa')).mul(0.4));   // the colour of the fire's light (palette tokens)
   const uNightK = uniform(0);                                         // brasa: 1 = the room's dark sky instead of the moonlit one
@@ -798,6 +802,15 @@ export function create(ctx) {
         });
       });
     });
+    Loop(NHL, ({ i }) => {                                            // the hands' light in the haze
+      const L = uHL.element(i);
+      const rel = L.xyz.sub(E), s0 = dot(rel, dir), h2 = dot(rel, rel).sub(s0.mul(s0));
+      If(L.w.greaterThan(0.002).and(h2.lessThan(16.0)), () => {
+        const h = sqrt(max(h2, 0.02));
+        const integ = atan(Ls.sub(s0).div(h)).sub(atan(s0.negate().div(h))).div(h);
+        ins.addAssign(HLC.mul(L.w.mul(integ).mul(0.0022)));
+      });
+    });
     Loop(NFI, ({ i }) => {                                            // the fires' glow in the smoke
       const L = uFires.element(i);
       const rel = L.xyz.sub(E), s0 = dot(rel, dir), h2 = dot(rel, rel).sub(s0.mul(s0));
@@ -843,6 +856,15 @@ export function create(ctx) {
         const ndl = max(dot(Nw, Ld), 0);
         const H = normalize(Ld.add(Vw)), spec = f0.mul(pow(max(dot(Nw, H), 0), shin).mul(shin.add(8).mul(1 / (8 * Math.PI))));
         acc.addAssign(SPC.mul(L.w.mul(uFest).mul(cone).div(d2.add(1.0))).mul(ndl).mul(kd.add(spec)));
+      });
+    });
+    Loop(NHL, ({ i }) => {                                            // VFX 25-11: the hands' own light
+      const L = uHL.element(i);
+      const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv);
+      If(L.w.greaterThan(0.002).and(d2.lessThan(400.0)), () => {
+        const Ld = Lv.mul(d2.inverseSqrt()), ndl = max(dot(Nw, Ld), 0);
+        const H = normalize(Ld.add(Vw)), spec = f0.mul(pow(max(dot(Nw, H), 0), shin).mul(shin.add(8).mul(1 / (8 * Math.PI))));
+        acc.addAssign(HLC.mul(L.w.mul(14).div(d2.add(0.4))).mul(ndl).mul(kd.add(spec)).mul(smoothstep(400.0, 30.0, d2)));
       });
     });
     Loop(NFI, ({ i }) => {                                            // VFX 25-11: the hand-lit fires of the Brasa, flickering
@@ -1167,6 +1189,25 @@ export function create(ctx) {
                 tronc: { dir: [0.45, 0.85, -0.35], tone: 'porcellana', floor: 'pedra-llum', key: 'porcellana', k: 5.0, fill: 0.5, air: 0.008, lamps: 0.12 } };
   for (const c of Object.values(LIT)) { c.toneL = palLin(c.tone); c.floorL = palLin(c.floor); c.keyL = palLin(c.key); }
   let dayK = 0, litCfg = LIT.tronc, nightK = 0, festK = 0;
+  const hl = Array.from({ length: NHL }, () => ({ stroke: null, k: 0, seen: false, last: -99, pos: new THREE.Vector3(0, -50, 0) }));
+  function stepHandLights(dt, time, hands, on) {
+    for (const H of hl) H.seen = false;
+    if (on) for (const h of hands || []) {
+      if (h.ended) continue;
+      let H = hl.find((x) => x.stroke === h.stroke && x.stroke !== null);
+      if (!H) { H = hl.find((x) => x.stroke === null) || hl.reduce((a, b) => (a.k < b.k ? a : b)); H.stroke = h.stroke; H.k = Math.min(H.k, 0.05); }
+      H.seen = true; H.last = time;
+      const n = h.normal || room.walls[h.wall]?.normal; _hp.copy(h.pos); if (n) _hp.addScaledVector(n, -0.8); _hp.y = Math.max(0.5, h.pos.y - 0.2);
+      if (H.pos.y < -10) H.pos.copy(_hp); else H.pos.lerp(_hp, 1 - Math.exp(-dt / 0.25));
+    }
+    for (let i = 0; i < NHL; i++) {
+      const H = hl[i], tgt = H.seen ? 1 : 0;
+      H.k += (tgt - H.k) * (1 - Math.exp(-dt / (H.seen ? 0.18 : 1.6)));   // in ~0.4 s, out over ~4 s
+      if (!H.seen && H.k < 0.01) { H.stroke = null; H.k = 0; }
+      hlVec[i].set(H.pos.x, H.pos.y, H.pos.z, H.k);
+    }
+  }
+  const _hp = new THREE.Vector3();
   // the festival spots: per castell wall, from 13 m up and 5 m to one side (alternating), 3 m beyond the tower, aimed at its foot
   const SPOT_K = 1300, SPOT_A = 13 * Math.PI / 180;
   const shafts = new THREE.Group(); shafts.name = 'plaza:shafts'; object.add(shafts);
@@ -1284,6 +1325,7 @@ export function create(ctx) {
     const moonK = (pr.moon ?? 1) * reveal * dark;
     moon.intensity = 0.32 * moonK * (pr.moonKey ?? 1); hemi.intensity = 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1));   // the moon's key also fills the shadows with a cool sky
     uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002;
+    stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
     if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3);
     if (festK > 0) {                                                  // the festival night: the square's own night, richer and deeper
       uWin.value = Math.max(uWin.value, festK * 0.9); uFog.value = Math.max(uFog.value, 0.016); uWet.value = Math.max(uWet.value, 0.8);
