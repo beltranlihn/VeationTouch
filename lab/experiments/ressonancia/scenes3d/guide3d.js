@@ -320,11 +320,31 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
   // move a slot's words along each wall (only while nothing is up: words never slide in view)
   const lineBase = typo.onWalls(room, TEXT.line), rightOf = room.walls.map((w) => w.right.clone());
   let lineY = TEXT.line; const cardBase = typo.onWalls(room, TEXT.card);
-  const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], typeof x === 'number' ? x : x[w]).setY(lineY); }); };
+  const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { const xx = typeof x === 'number' ? x : x[w]; if (sl === line) lineCurX[w] = xx; P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], xx).setY(lineY); }); };
   // N7: the consigna TRAVELS with the Brasa's relay — on the devil's wall it follows the fire along the wall (eased, never past the
   // corners); the other walls keep their place. lineS0: where each wall starts along the perimeter (the score's s).
   const lineS0 = []; { let a = 0; for (const w of room.walls) { lineS0.push(a); a += w.width; } }
   const lineX = new Float32Array(room.walls.length), lineXT = new Float32Array(room.walls.length), spotXs = new Float32Array(room.walls.length);
+  // how far (m) the words at x on wall w stay from everything in their band: the calling point, the parts' obstacles, the targets
+  function gapAt(S, b, w, x, half, T) {
+    const Wd = room.walls[w].width; let gap = 9;
+    if (S.focus && S.focus.wall === w && typeof S.focus.s === 'number') gap = Math.abs(S.focus.s - lineS0[w] - Wd / 2 - x) - half - (b === 'pom' ? 1.6 : 0.9);   // the calling point (the pom's light bursts wide, the devil)
+    for (const o of OBST) { if (o.wall !== w || (o.y1 ?? 3) < lineY - CAP * 1.3 - 0.05 || (o.y0 ?? 0) > lineY + CAP * 1.3) continue; gap = Math.min(gap, Math.abs((o.x || 0) - x) - half - (o.half || 0.5)); }
+    for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < lineY - CAP * 1.3 - 0.05) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
+    return gap;
+  }
+  // the words stand still; when something comes into them on the calling wall (sparks, a figure) and a clear spot exists, they leave
+  // and come back there (≥ 4 s apart) — never sliding through the scene
+  const lineCurX = new Float32Array(room.walls.length); let lineNonce = 0, replaceAt = -9;
+  function blocked(S, b, text, time) {
+    if (!line.up || time - replaceAt < 4) return false;
+    const T = Array.isArray(S.targets) ? S.targets : [], half = 0.4 + longest(text) * 0.2 * CAP;
+    for (let w = 0; w < NW; w++) {
+      if (S.focus && S.focus.wall >= 0 && w !== S.focus.wall) continue;
+      if (gapAt(S, b, w, lineCurX[w], half, T) < -0.1) { const nx = spotX(S, b, text)[w]; if (Math.abs(nx - lineCurX[w]) > 0.5 && gapAt(S, b, w, nx, half, T) > 0.2) { replaceAt = time; return true; } }
+    }
+    return false;
+  }
   function spotX(S, b, text) {
     const cand = SPOTS[b] || SPOTS.other, half = 0.4 + longest(text) * 0.2 * CAP   /* serif: ≈ 0.4 × caps a character (half of it), + the hairlines */, T = Array.isArray(S.targets) ? S.targets : [];
     for (let w = 0; w < NW; w++) {
@@ -337,10 +357,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
         let x = clamp(all[k], -Wd / 2 + half + 0.45, Wd / 2 - half - 0.45);
         const hh = HERO_HALF[b] ? HERO_HALF[b] + half : 0;   // the castell stands at the room's centre: seen at the centre of EVERY wall
         if (hh && Math.abs(x) < hh) x = clamp((x < 0 || (x === 0 && k % 2 === 0) ? -1 : 1) * hh, -Wd / 2 + half + 0.45, Wd / 2 - half - 0.45);
-        let gap = 9;
-        if (S.focus && S.focus.wall === w && typeof S.focus.s === 'number') gap = Math.abs(S.focus.s - lineS0[w] - Wd / 2 - x) - half - (b === 'pom' ? 1.6 : 0.9);   // the pom's light bursts wide   // the calling point (the pom's light, the devil): beside it, never on it
-        for (const o of OBST) { if (o.wall !== w || (o.y1 ?? 3) < lineY - CAP * 1.3 - 0.05 || (o.y0 ?? 0) > lineY + CAP * 1.3) continue; gap = Math.min(gap, Math.abs((o.x || 0) - x) - half - (o.half || 0.5)); }
-        for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < lineY - CAP * 1.3 - 0.05) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
+        const gap = gapAt(S, b, w, x, half, T);
         const sc = Math.min(gap, 0.4) - k * 0.05 + (near.length && k === 0 ? 0.3 : 0);   // clear of every target that reaches the text's band; above its own targets first
         if (sc > bs) { bs = sc; best = x; }
       }
@@ -572,10 +589,11 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     for (let w = 0; w < NW; w++) inS[w] = !!walls[w];
     card.want(g.card ? 'c|' + g.card.join('|') : '', g.card ? cardItems(g.card) : null);
     const L = g.line && (g.line[0] || g.line[1]) ? g.line : null;   // (an empty invitation with a label: the floor's / climber's name alone)
-    line.want(L ? 'l|' + L.join('|') : '', L ? lineItems(L) : null);
+    if (L && !(b === 'brasa' && S.brasaStage === 'relay') && blocked(S, b, L[0], time)) lineNonce++;
+    line.want(L ? 'l|' + lineNonce + '|' + L.join('|') : '', L ? lineItems(L) : null);
     // 25-11: no plates; a tight soft halo (lighter on the light chapters, where the ink is dark)
     for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : 0.3; }
-    if (!card.up) { const side = b === 'crown' ? 2.1 : 0; for (const t of card.texts) t.P.forEach((P, w) => { P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], side); }); }   // beside the crowned castell (it stands at the centre of every wall)
+    if (!card.up) { for (const t of card.texts) t.P.forEach((P, w) => { const side = b === 'crown' ? Math.min(2.1, room.walls[w].width / 2 - 1.7) : 0; P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], side); }); }   // beside the crowned castell (seen at the centre of every wall), never across a corner (the P3→P4 seam)
     { let fwc = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // no calling wall yet: the wall with the most hands
       if (fwc < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fwc = w; } }); }   // the card too: 100 % on the wall that calls, 30 % elsewhere
       card.step(dtT, { hold, gate: waveGate, mask: fwc >= 0 ? (w) => (w === fwc ? 1 : 0.3) : null, lead: fwc >= 0 ? (w) => (w === fwc ? 0 : 0.6) : null }); }
