@@ -231,7 +231,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
-  const uContact = uniform(0), uBackAO = uniform(0);
+  const uContact = uniform(0), uBackAO = uniform(0), uDarkRim = uniform(0), uGoldDark = uniform(new THREE.Vector3(...palLin('bronze', 0.6)));
   const SPN = spots?.pos?.length ? Math.min(8, spots.pos.length) : 0;
   const SPP = SPN ? TSL.uniformArray(spots.pos, 'vec4') : null, SPD = SPN ? TSL.uniformArray(spots.dir, 'vec4') : null, uSpotK = uniform(0.00025);   // plaza SPOT_K ≈ 2600 → ≈ 0.65 at the beam's heart
   // the human base: per bone class [density, max depth inside (m), aura share] — wide thorax and pelvis (core 28–32 cm), thick thighs,
@@ -383,7 +383,9 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       colr = colr.add(uLit.mul(sp.mul(uSpotK)).mul(mix(float(0.6), float(1), AX.y)));
     }
     // gold (achievement, the crown) REPLACES the ramp, keeping the light: never brighter, never white
-    colr = mix(colr, uColor.glow.mul(mix(float(0.12), float(0.85), lk.pow(1.2))), B2.w.clamp(0, 1)).add(uColor.glow.mul(uSGlow));
+    const goldRamp = mix(uGoldDark, uColor.glow, smoothstep(0.1, 0.8, lk)).mul(mix(float(0.15), float(0.9), lk.pow(1.2)));   // deep bronze → or
+    colr = mix(colr, goldRamp, B2.w.clamp(0, 1)).add(uColor.glow.mul(uSGlow));
+    colr = colr.mul(mix(float(1), float(0.3), pow(float(1).sub(abs(facing)), 2).mul(uDarkRim)));   // a dark rim: the sculpture against a bright air
     // contact shade: the feet sink into the shoulders below / the floor — a dark gap between stacked bodies
     colr = colr.mul(mix(float(1), smoothstep(0.0, 0.45, pl.y).mul(0.65).add(0.35), uContact));
     // back occlusion (a tower: each body's back faces the others): the back half sinks, so overlapping bodies part by shadow
@@ -403,6 +405,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     if (o.spot != null) uSpotK.value = o.spot;
     if (o.contact != null) uContact.value = o.contact;
     if (o.backAO != null) uBackAO.value = o.backAO;
+    if (o.darkRim != null) uDarkRim.value = o.darkRim;
     if (o.opacity != null) uOpacity.value = o.opacity;
     if (o.drift != null) uDrift.value = o.drift;
     if (o.flow != null) uFlow.value = o.flow;

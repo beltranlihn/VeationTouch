@@ -504,7 +504,7 @@ export function create(ctx) {
     kit.uniforms.crack.value = 0.55;
     kit.setSplat({ lit: 'cal-foc', half: 'terracota', amb: 'tinta-ombra', contact: 1, backAO: 1 });   // the one warm ramp (AD); dark gaps where the floors meet
   }
-  let lightMode = '', breathK = 0, crownT = 0;
+  let lightMode = '', breathK = 0, crownT = 0, crownK = 0;
   let castMode = 'build', focusY = null;
   function setMode(m) { castMode = m || 'build'; if (castMode !== 'top') focusY = null; }
   // setFocusY(y): y in metres above the plaza floor (the tower unrisen, e.g. trunk(f).yRest): the world lowers (≤ 0.30 m/s) so that
@@ -515,6 +515,8 @@ export function create(ctx) {
     if (!kit) return;
     for (const t of towers) for (const s of t.st) s.takenT = s.taken ? (s.takenT || 0) + dt : 0;
     crownT = castMode === 'crowned' ? crownT + dt : 0;   // the crown: gold runs DOWN from the enxaneta, floor by floor (0.5 s each)
+    // against the luminous gold air the tower must be a dark-and-gold sculpture: denser, a dark rim, the shadow side to bronze
+    { const cw = castMode === 'crowned' ? 1 : 0; crownK += (cw - crownK) * Math.min(1, dt * 1.5); kit.setSplat({ darkRim: 0.9 * crownK, opacity: 1 + 0.5 * crownK }); }
     const lm = withScore ? 'scene' : 'self'; if (lm !== lightMode) { lightMode = lm; kit.setLighting(lm); }
     let n = 0;
     const crowned = castMode === 'crowned';
