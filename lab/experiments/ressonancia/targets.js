@@ -237,11 +237,13 @@ export function createTargets(opt = {}) {
       const t = make(sp.w, sp.dx, yy, { chain: ++chainSeq, link: 0, rung: 0 }); ladderSeq++; inner.get(t.id).kid = R0 !== (spec.rungs || TG.rungs);
       return;
     }
-    let sp = spotNear(p.s, clamp(p.y, ...band()), 0.6, 1.1, 0, false) || spotNear(p.s, clamp(p.y, ...band()), 0.3, 1.15, 0, false);
+    const yP = spec.cluster ? band()[0] + (band()[1] - band()[0]) * rnd() : clamp(p.y, ...band());   // clusters: heights varied
+    let sp = spotNear(p.s, yP, 0.6, 1.1, 0, false) || spotNear(p.s, clamp(p.y, ...band()), 0.3, 1.15, 0, false);
     if (!sp) { const a = spec.apart; spec.apart = 0.62; sp = spotNear(p.s, clamp(p.y, ...band()), 0.3, 1.15, 0, false); spec.apart = a; }   // a crowded spot: a little closer
     if (!sp) return;
     const t = make(sp.w, sp.dx, sp.y, m === 'chain' ? { chain: ++chainSeq, link: 0 } : {});
     if (m === 'chain') inner.get(t.id).dir = rnd() < 0.5 ? -1 : 1;
+    if (spec.cluster && m === 'field') { addCluster(t); return; }   // near a person too: a small cluster, not a lone one
     if (spec.pairs && (m === 'field' || m === 'together') && api.n <= 6 && aliveN() < TG.max - 2 && list.length < TG.drawn - 2) {   // two hands: a second one beside it, an offer (small groups: with many people the room needs the targets spread)
       const side = cd(t.s, p.s) >= 0 ? 1 : -1;
       const q = spotNear(t.s, t.y, TG.pair[0], TG.pair[1], -side, false, t.id) || spotNear(t.s, t.y, TG.pair[0], TG.pair[1], side, false, t.id);
