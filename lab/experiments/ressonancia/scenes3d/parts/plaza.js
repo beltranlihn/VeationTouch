@@ -1496,7 +1496,7 @@ export function create(ctx) {
       const on = ignite(tR - L.t0, i, time);
       const br = 1 - sm((S - lampD[i] + 0.06) / 0.22);                // it dies when its stone breaks, with a last flicker
       const fl = S > lampD[i] - 0.1 && br > 0.02 ? 0.6 + 0.4 * Math.sin(time * 41 + i) : 1;
-      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK) * (1 - blueK * smooth01((blueProg * 1.2 - ((i * 0.618) % 1) * 0.95) / 0.08)) * (1 - 0.35 * blueK) * (1 - 0.88 * pomK) * (1 - 0.55 * pinK) * (1 - 0.75 * crK) * (blk === 'festa' ? 0.7 : 1);
+      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.55 * nightK) * (1 - blueK * smooth01((blueProg * 1.2 - ((i * 0.618) % 1) * 0.95) / 0.08)) * (1 - 0.35 * blueK) * (1 - 0.88 * pomK) * (1 - 0.55 * pinK) * (1 - 0.75 * crK) * (blk === 'festa' ? 0.7 : 1);
       L.light.intensity = v * 26;
       lampVec[i].set(L.pos.x, L.pos.y, L.pos.z, v);
     }
