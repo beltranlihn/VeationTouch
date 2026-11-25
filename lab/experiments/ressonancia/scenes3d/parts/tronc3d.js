@@ -512,9 +512,10 @@ export function create(ctx) {
   let castMode = 'build', focusY = null;
   // the look per mode (AD #10): the Tronc / crown / bajada warm (cal-foc ramp); the Pom an almost cold silhouette in lluna — only the
   // Pom's gold light (Interacción) is warm there
-  const WARM = kit ? { lit: kit.tok('cal-fanal').map((v, i) => v * 0.72 + kit.tok('fanal')[i] * 0.28), half: kit.tok('terracota').map((v, i) => v * 0.45 + kit.tok('cal-foc')[i] * 0.25), amb: ['ombra', 0.8] } : null;   // warm enough to survive the plaza's grade (no ash grey)   // warm, one tone (no red, no grey)
-  const COLD = { lit: ['lluna', 0.5], half: ['lluna', 0.34], amb: ['tinta', 0.9] };   // an almost-silhouette: lluna grey-blue, low contrast
-  function setLook(look) { if (kit) kit.setSplat(look === 'pom' ? COLD : WARM); }
+  const WARM = kit ? { lit: kit.tok('cal-fanal').map((v, i) => v * 0.72 + kit.tok('fanal')[i] * 0.28), half: kit.tok('terracota').map((v, i) => v * 0.45 + kit.tok('cal-foc')[i] * 0.25), amb: ['ombra', 0.8], key: 1.25, spot: 0.0006 } : null;   // warm enough to survive the plaza's grade (no ash grey)   // warm, one tone (no red, no grey)
+  const COLD = { lit: ['lluna', 0.5], half: ['lluna', 0.34], amb: ['tinta', 0.9], key: 1, spot: 0.0003 };   // an almost-silhouette: lluna grey-blue, low contrast
+  let lookKey = 1.25;
+  function setLook(look) { const L = look === 'pom' ? COLD : WARM; if (kit && L) { kit.setSplat(L); lookKey = L.key; } }
   if (kit) kit.setSplat(WARM);
   function setMode(m) {
     castMode = m || 'build'; if (castMode !== 'top') focusY = null; setLook(castMode === 'top' ? 'pom' : 'warm');
@@ -862,7 +863,7 @@ export function create(ctx) {
     floorsPrev = floors;
     if (kit) {   // the Pom's silence: the particles breathe (≈ 0.15 Hz, size and light)
       const sil = S && S.pomStage === 'silence' ? 1 : 0; breathK += (sil - breathK) * Math.min(1, dt * 0.8);
-      const b = Math.sin(time * 0.94) * breathK; kit.setSplat({ size: 1 + 0.07 * b, key: 1 + 0.12 * b });
+      const b = Math.sin(time * 0.94) * breathK; kit.setSplat({ size: 1 + 0.07 * b, key: lookKey * (1 + 0.12 * b) });
     }
     placeBodies(dt, inTronc, floors, !!S);
   }
