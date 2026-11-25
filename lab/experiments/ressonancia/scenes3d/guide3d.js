@@ -504,7 +504,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     if (structAt >= 0 && time >= structAt) { structAt = -1; achieve(S, 'struct', time); }
     if (achPend && achShow && achKey) { achKey = ''; }                // a new word: the old one breaks first
     if (achShow && time >= achUntil && achKey) achKey = '';           // 2.5 s, then it breaks into tiles
-    if (achPend && !achSlot.up) {                                      // never slides in view: placed while nothing is up
+    if (achPend && !achSlot.up && !card.up) {   // and only once the chapter card has gone (it yields when a word comes): never two layers at once                                      // never slides in view: placed while nothing is up
       achShow = achPend; achPend = null; achKey = achShow.key; achUntil = time + 2.5;
       for (const t of achSlot.texts) t.P.forEach((P, w) => { P.mesh.position.copy(achBase[w].position).addScaledVector(achRight[w], achShow.x[w]).setY(achShow.y[w]); });
     }
@@ -594,7 +594,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     const g = on ? lines(S, acta, learnedNow, warn) : {};
     structureOnly = (b === 'tronc' || b === 'pom' || b === 'baixada') && S.structure > 0 && S.structure < NW;
     for (let w = 0; w < NW; w++) inS[w] = !!walls[w];
-    const cardNow = g.card && !(performance.now() / 1000 < cardYield && achShow);   // the card never shares the wall with an achievement word
+    const cardNow = g.card && !(performance.now() / 1000 < cardYield);   // the card never shares the wall with an achievement word
     card.want(cardNow ? 'c|' + g.card.join('|') : '', cardNow ? cardItems(g.card) : null);
     const L = g.line && (g.line[0] || g.line[1]) ? g.line : null;   // (an empty invitation with a label: the floor's / climber's name alone)
     if (L && !(b === 'brasa' && S.brasaStage === 'relay') && blocked(S, b, L[0], time)) lineNonce++;
