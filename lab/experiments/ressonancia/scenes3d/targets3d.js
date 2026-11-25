@@ -77,17 +77,18 @@ export function createTargets3D({ THREE, TSL, room }) {
     prof.push(new THREE.Vector2(0.5, 0.5)); prof.push(new THREE.Vector2(0.44, 0.46)); prof.push(new THREE.Vector2(0.3, 0.2));
     const g = new THREE.LatheGeometry(prof, 32); g.computeVertexNormals(); return g;
   })();
-  const bowlMat = ceramic({ color: 'carbó', glaze: 0.5, wear: 0.5, rim: 0.3, hands: 0.3, side: THREE.DoubleSide });
+  const bowlMat = ceramic({ color: 'carbó', glaze: 0.7, wear: 0.4, rim: 0.08, hands: 0.15, side: THREE.DoubleSide });
+  bowlMat.metalness = 0.65;   // dark iron, not clay: the ember is the only warm thing on it
   {
-    const S = S_(), inner = smoothstep(0.1, 0.4, positionLocal.y).mul(step(length(positionLocal.xz), 0.455));
+    const S = S_(), inner = smoothstep(0.36, 0.46, positionLocal.y).mul(step(length(positionLocal.xz), 0.44));   // the coals: only the inner lip / the top of the bowl
     const flick = mx_noise_float(positionLocal.mul(14.0).add(vec3(0, uTime.mul(1.3), 0))).mul(0.35).add(0.75);
     const rim = smoothstep(0.42, 0.5, positionLocal.y);                                  // the bowl's lip: metal catching its own ember
-    addEmissive(bowlMat, mix(vec3(...lin('brasa')), GOLD, S.z).mul(inner.mul(flick).mul(S.x.mul(1.2).add(S.y.mul(2.0)).add(0.35)))
-      .add(vec3(...lin('flama')).mul(rim.mul(float(0.25).add(S.x.mul(0.6)).add(S.y.mul(0.8))))));
+    addEmissive(bowlMat, mix(vec3(...lin('brasa')), GOLD, S.z).mul(inner.mul(flick).mul(S.x.mul(1.4).add(S.y.mul(2.2)).add(0.45)))
+      .add(vec3(...lin('flama')).mul(rim.mul(float(0.03).add(S.x.mul(0.35)).add(S.y.mul(0.5))))));   // the iron lip catches the ember only as it charges
   }
   const bowl = skin(bowlGeo, bowlMat, 'brazier');
-  const standMat = ceramic({ color: 'carbó', glaze: 0.45, wear: 0.6, rim: 0.2, hands: 0.1 });
-  { const S = S_(); addEmissive(standMat, vec3(...lin('flama')).mul(smoothstep(0.1, 0.5, positionLocal.y).mul(float(0.06).add(S.x.mul(0.25)).add(S.y.mul(0.35))))); }   // the ember lights the top of its post
+  const standMat = ceramic({ color: 'carbó', glaze: 0.6, wear: 0.5, rim: 0.06, hands: 0.05 }); standMat.metalness = 0.6;
+  { const S = S_(); addEmissive(standMat, vec3(...lin('flama')).mul(smoothstep(0.38, 0.5, positionLocal.y).mul(float(0.01).add(S.x.mul(0.12)).add(S.y.mul(0.2))))); }   // the ember lights the top of its post
   const stand = skin(new THREE.CylinderGeometry(0.5, 0.7, 1, 10), standMat, 'stand');
   // the flame: a light shape (additive) over the bowl; its height grows with the charge (set per instance)
   const flameMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
