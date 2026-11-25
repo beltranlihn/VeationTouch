@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLabServer } from '../harness/serve.mjs';
-import { takeGpuLock, findElectron } from './gpu-lock.mjs';
+import { takeGpuLock, findElectron, waitForRam } from './gpu-lock.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -43,6 +43,7 @@ for (const quality of qualities) for (const spec of blocks) {
   const [block, n] = spec.split('@'), hands = Number(n) || group;
   const max = (secs + 70) * 1000;
   const release = await takeGpuLock('qa', `measure-${block}@${hands}-${quality}-s${scale}`, max / 1000, { log: (m) => console.log('measure: ' + m) });
+  await waitForRam(Number(process.env.LAB_MIN_RAM_GB || 3), { log: (m) => console.log('measure: ' + m) });
   const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
   env.LAB_MEASURE = JSON.stringify({ room: urlOf(quality, hands, false), viewer: has('--viewer') ? urlOf(quality, hands, true) : null, block, secs, settle: 3000, uncapped: has('--uncapped'), max });
   const child = spawn(electron, [path.join(HERE, 'measure.cjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });

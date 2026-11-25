@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLabServer } from '../harness/serve.mjs';
-import { takeGpuLock, findElectron } from './gpu-lock.mjs';
+import { takeGpuLock, findElectron, waitForRam } from './gpu-lock.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -75,6 +75,7 @@ env.LAB_SMOKE = JSON.stringify({
 // one window; a run that ends with no result line (the window crashed or never started: a GPU-process restart, another Electron
 // starting at the same moment) is tried ONCE more, still under the lock
 async function runOnce() {
+  await waitForRam(Number(process.env.LAB_MIN_RAM_GB || 3), { log: (m) => console.log('shot: ' + m) });
   const child = spawn(electron, [path.join(HERE, 'smoke.cjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '', err = '';
   child.stdout.on('data', (d) => { out += d; });

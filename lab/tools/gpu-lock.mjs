@@ -3,6 +3,7 @@
 // (O_EXCL), in turn: waiters leave a ticket in `.gpu-queue/` and the oldest goes next. A lock older than 4 min is an orphan and is
 // taken over (said aloud: tell the director). Released only by its owner.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,4 +51,13 @@ export async function findElectron() {
   for (const r of [ROOT, path.resolve(ROOT, '..', '..', '..')]) { try { return require(path.join(r, 'node_modules', 'electron')); } catch { /* next */ } }
   if (process.env.ELECTRON_PATH && fs.existsSync(process.env.ELECTRON_PATH)) return process.env.ELECTRON_PATH;
   return null;
+}
+
+/** The PC is shared (another team's Unreal on the same machine): before opening a window, wait while free RAM is under minGB (30 s steps). */
+export async function waitForRam(minGB = 3, { maxMin = 10, log = console.log } = {}) {
+  const t0 = Date.now();
+  while (os.freemem() < minGB * 2 ** 30 && Date.now() - t0 < maxMin * 60000) {
+    log(`free RAM ${(os.freemem() / 2 ** 30).toFixed(1)} GB < ${minGB} GB: waiting 30 s`);
+    await sleep(30000);
+  }
 }
