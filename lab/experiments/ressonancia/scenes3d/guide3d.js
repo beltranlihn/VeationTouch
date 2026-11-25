@@ -82,7 +82,7 @@ function linesPlay(S, acta, learned, warn) {
     return { line: [learned ? '' : CT('pom:play'), ''] };
   }
   // the acta's wall line («Dejad vuestra mano», 3–15 s) is drawn by parts/actatext (it sits under the castell, the ring of prints round it)
-  if (b === 'crown') return S.t > 3 && S.t < 14 ? { card: ['V', 'Coronado', acta?.castell || "L'aleta"] } : {};
+  if (b === 'crown') return S.t > 3 && S.t < 14 ? { card: ['V', 'Coronado', acta?.castell ? inWords(acta.castell) : "L'aleta"] } : {};   // «Tres de siete»
   if (b === 'festa') return S.t < 7 ? { card: ['', CT('block:festa'), ''] } : S.festaStage === 'echo' ? { line: [S.focus && S.focus.kind === 'echo' ? CT('focus:echo') : CT('stage:festa:echo'), ''] } : S.festaStage === 'call' ? { line: [CT('stage:festa:call'), ''] } : {};
   if (b === 'baixada') return S.baixadaStage === 'free' ? { line: [CT('stage:baixada:free'), ''] } : { line: [learned ? '' : CT('block:baixada'), ''] };   // the free coda asks nothing   // the floors' names go down in the achievement layer
   if (b === 'fall') return S.t > 2 ? { card: ['', 'Ha caído', 'Quedan las brasas'] } : {};
@@ -109,6 +109,8 @@ function cardItems(C) {
 }
 // the instruction: ONE centred line (caps 0.18 m, <= 22 characters) at 1.62 m; the label (a name) ABOVE it at ~1.95 m (the targets live at 0.9–1.4 m), caps 0.14 m, Geist too
 let WRAP = false, CAP = TEXT.lineCap;
+const NUM_ES = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'];
+const inWords = (c) => { const t = String(c).replace(/\d+/g, (d) => NUM_ES[+d] ?? d); return t.charAt(0).toUpperCase() + t.slice(1); };   // «3 de 7» → «Tres de siete»
 // Art Director 25-11: per chapter — the brasa above the fire figure and its sparks (1.8 m); the tower's chapters lower and larger,
 // beside the castell; the Pom low and quiet beside the tower in the dark
 const LINE_Y = { brasa: 1.8, tronc: 1.58, baixada: 1.58, pom: 1.45 };
@@ -317,7 +319,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
   const line = typo.slot({ placements: typo.onWalls(room, TEXT.line), renderOrder: 23, outDur: 0.5, plate: 0, halo: 0.3, spread: 2.4, flash: room.flash });
   // move a slot's words along each wall (only while nothing is up: words never slide in view)
   const lineBase = typo.onWalls(room, TEXT.line), rightOf = room.walls.map((w) => w.right.clone());
-  let lineY = TEXT.line;
+  let lineY = TEXT.line; const cardBase = typo.onWalls(room, TEXT.card);
   const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], typeof x === 'number' ? x : x[w]).setY(lineY); }); };
   // N7: the consigna TRAVELS with the Brasa's relay — on the devil's wall it follows the fire along the wall (eased, never past the
   // corners); the other walls keep their place. lineS0: where each wall starts along the perimeter (the score's s).
@@ -566,6 +568,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     line.want(L ? 'l|' + L.join('|') : '', L ? lineItems(L) : null);
     // 25-11: no plates; a tight soft halo (lighter on the light chapters, where the ink is dark)
     for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : 0.3; }
+    if (!card.up) { const cw = b === 'crown' || b === 'festa' ? (S.castell && S.castell.walls) || [] : []; for (const t of card.texts) t.P.forEach((P, w) => { P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], cw.includes(w) ? 2.3 : 0); }); }   // beside the crowned castell
     { const fwc = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // the card too: 100 % on the wall that calls, 30 % elsewhere
       card.step(dtT, { hold, gate: waveGate, mask: fwc >= 0 ? (w) => (w === fwc ? 1 : 0.3) : null, lead: fwc >= 0 ? (w) => (w === fwc ? 0 : 0.6) : null }); }
     // the wait's words come with the button (reveal) and thin out as the hands start the pass
