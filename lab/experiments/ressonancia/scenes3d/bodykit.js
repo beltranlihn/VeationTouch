@@ -356,7 +356,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const offG = vec3(TSL.sin(ang).mul(spread), pl.y.mul(fract(rr.mul(3.9)).mul(0.25).add(0.7)).min(0.85).negate(), cos(ang).mul(spread));   // from below (≤ 0.85 m: the ground, the floor underneath)
     const fallT = away.mul(away);
     const offD = vec3(TSL.sin(ang).mul(0.18).mul(away), pl.y.negate().add(0.015).mul(fallT), cos(ang).mul(0.18).mul(away));
-    const offR = vec3(TSL.sin(ang).mul(0.3), fract(rr.mul(3.9)).mul(1.2).add(0.6), cos(ang).mul(0.3)).mul(away.mul(away));   // up into the light
+    const offR = vec3(TSL.sin(ang).mul(0.12), fract(rr.mul(3.9)).mul(0.3).add(0.15), cos(ang).mul(0.12)).mul(away.mul(away));   // up into the light: a short veil, the figure stays
     const off = mix(mix(offG.mul(away), offD, dust), offR, riseM).mul(uFlow);
     const C = rotY(pl.add(off).mul(sc)).add(B0.xyz);
     const nW = rotY(nl);

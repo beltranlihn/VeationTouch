@@ -558,7 +558,7 @@ export function create(ctx) {
         let dy = 0, form = 1, fmode = 'gather';
         if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, S.lift * 0.8 + S.solid * 0.6); dy = -(1 - form) * 0.15; }   // the next floor gathers only as the hands lift it   // the next floor hovers half-formed until the hands lift it
         if (S.goneT >= 0) { form = Math.max(0, 1 - S.goneT / 1.4); fmode = 'dust'; }
-        if (down) { if (S.taken) { form = upNow ? Math.max(0.55, 1 - tk / 2.5) : Math.max(0, 0.55 - (S.downT || 0) / 1.5 * 0.55); fmode = 'light'; } else if (!upNow) { form = Math.max(0, 1 - (S.downT || 0) / 1.5); fmode = 'light'; } }
+        if (down) { if (S.taken) { form = upNow ? Math.max(0.8, 1 - tk / 2.5) : Math.max(0, 0.8 - (S.downT || 0) / 1.5 * 0.8); fmode = 'light'; } else if (!upNow) { form = Math.max(0, 1 - (S.downT || 0) / 1.5); fmode = 'light'; } }
         else if (S.taken) { form = tk < 3.5 ? Math.max(0.5, 1 - tk / 2.5) : Math.max(0, 0.5 - (tk - 3.5) * 0.5); fmode = 'light'; }   // half dissolved, the figure still there, then gone
         // (the pinya stays whole: a form < 1 left particles hanging below the bodies — the «stalactites»)
         const sw = c.lv > 0 && !OLD ? Math.sin(time * 0.45 + t.tw * 1.7) * 0.012 * Math.min(1, c.y / 3) : 0;   // the trunk sways, 1–2 cm, slowly
