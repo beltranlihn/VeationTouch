@@ -680,7 +680,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     // the walls outside the structure: «Ayudad desde aquí» (they count at 50 %), while the structure's walls carry the invitation
     // the walls outside the structure carry their line ONLY in the stages that ask for every wall's hands (a consigna lives within its stage)
     const outOn = on && structureOnly && !warn && S.phase === 'play' && (S.stage === 'tronc:lift' || S.stage === 'pom:relay' || S.stage === 'baixada:lower');
-    const outWord = b === 'tronc' ? CUES['title:tronc'].others : 'Sostened la luz';   // the Tronc's targets are blocks; elsewhere the target is «la luz»
+    const outWord = b === 'tronc' ? CUES['title:tronc'].others : b === 'baixada' ? 'Bajad los bloques' : 'Sostened la luz';   // the blocks go up in the Tronc and down in the baixada; elsewhere the target is «la luz»
     lineOut.want(outOn ? 'o|' + (S.stage || '') + '|' + outWord : '', outOn ? lineItems([outWord, '']) : null);
     lineOut.step(dtT, { gain, hold: hold || cardUp, mask: (w) => !inS[w], gate: waveGate });
   }
