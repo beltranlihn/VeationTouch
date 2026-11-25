@@ -343,7 +343,6 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     if (!line.up || time - replaceAt < 4) return false;
     const T = Array.isArray(S.targets) ? S.targets : [], half = 0.4 + longest(text) * 0.2 * CAP;
     for (let w = 0; w < NW; w++) {
-      if (S.focus && S.focus.wall >= 0 && w !== S.focus.wall) continue;
       if (gapAt(S, b, w, lineCurX[w], half, T) < -0.1) { const nx = spotX(S, b, text)[w]; if (Math.abs(nx - lineCurX[w]) > 0.5 && gapAt(S, b, w, nx, half, T) > 0.2) { replaceAt = time; return true; } }
     }
     return false;
@@ -355,13 +354,15 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
       // Art Director 25-11: the consigna stands ABOVE the targets it refers to (their centre on this wall), when they live under its band
       let sx = 0, sn = 0; for (const g of T) { if (g.wall !== w || (g.y || 1.2) + (g.r || 0.22) >= lineY - CAP * 1.3 - 0.05) continue; sx += typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; sn++; }
       const near = sn ? [clamp(sx / sn, -Wd / 2 + half + 0.45, Wd / 2 - half - 0.45)] : [];
-      const all = near.length ? near.concat(cand) : cand;
+      // + a sweep of the whole wall (0.3 m steps), after the preferred spots: with many pillars the clear gap may be anywhere
+      const sweep = []; for (let x = -Wd / 2 + half + 0.45; x <= Wd / 2 - half - 0.45; x += 0.3) sweep.push(x);
+      const all = (near.length ? near.concat(cand) : cand).concat(sweep), npref = all.length - sweep.length;
       for (let k = 0; k < all.length; k++) {
         let x = clamp(all[k], -Wd / 2 + half + 0.45, Wd / 2 - half - 0.45);
         const hh = HERO_HALF[b] ? HERO_HALF[b] + half : 0;   // the castell stands at the room's centre: seen at the centre of EVERY wall
         if (hh && Math.abs(x) < hh) x = clamp((x < 0 || (x === 0 && k % 2 === 0) ? -1 : 1) * hh, -Wd / 2 + half + 0.45, Wd / 2 - half - 0.45);
         const gap = gapAt(S, b, w, x, half, T);
-        const sc = Math.min(gap, 0.4) - k * 0.05 + (near.length && k === 0 ? 0.3 : 0);   // clear of every target that reaches the text's band; above its own targets first
+        const sc = Math.min(gap, 0.4) - (k < npref ? k * 0.05 : 0.3) + (near.length && k === 0 ? 0.3 : 0);   // clear of every target that reaches the text's band; above its own targets first
         if (sc > bs) { bs = sc; best = x; }
       }
       spotXs[w] = best;
