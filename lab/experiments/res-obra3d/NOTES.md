@@ -14,7 +14,7 @@ and leave by breaking into fragments (the work's transition language): the host 
 
 | Block | Parts | Stand-in while a chapter part is missing |
 |---|---|---|
-| wait | umbral3d alone (the threshold, ENT: its own floor, horizon and lights) | brasa3d embers + atmos, else atmos |
+| wait | umbral3d alone (the threshold, ENT: its own floor, horizon and lights; since T-058 a pastel sand noon; T-058c: an ~11.3k-piece trencadís shell 0.6 m behind the walls, floor to vault, near-parabolic doors 1.6 × 1.95 m with ARC's frontal arches from `umbral3d/arches.js`) | brasa3d embers + atmos, else atmos |
 | intro | plaza + atmos + castell + introtext, on the intro's clock | — |
 | brasa | brasa3d + atmos | atmos |
 | pinya | pinya3d + atmos | castell: each wall's pinya condenses with its fill |

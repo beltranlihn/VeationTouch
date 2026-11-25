@@ -83,7 +83,7 @@ Una serpentina de trencadís real (≈ 3.300 esquirlas con rosetones) rodea la s
 parabólico** que da a la noche. En reposo es hueso, grafito y espejo; **al tocar, el color se extiende por el rosetón** (una familia
 de color por capítulo) y **caen piezas** en espiral que rebotan, se rompen y vuelven coloreadas; sostener la mano tira una columna en
 cadena. Jugar revela el botón de inicio dentro de cada puerta (2 personas: 30–50 s; sin nadie no se revela nunca). Muro: «Tocad.
-Jugad con la sala.» → «Sostened el anillo para empezar». Al empezar, **la sala atraviesa las cuatro puertas a la vez**.
+Jugad con la sala.» → «Mantened la mano en el círculo». Al empezar, **la sala atraviesa las cuatro puertas a la vez**.
 
 ### Intro — La plaça (70 s)
 La plaza del casco antiguo de noche (piedra real CC0, faroles cálidos contra azul noche, reflejos en el adoquín mojado). A los 46 s

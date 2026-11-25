@@ -1,5 +1,55 @@
 # ENT — notas (T-026, la entrada «umbral»)
 
+## T-058c (25-11, 16:20) — ronda 3 (Vicente en vivo)
+- Respaldo `umbral3d.T058c.js.bak`. La serpentina pasa a ser una **cáscara** que sigue la sala: rectángulo redondeado a 0,6 m tras cada
+  muro (OFF), recta hasta 2,3 m y luego bóveda (RV 3 m); ya no gira. El mosaico empieza a ~0,2 m del borde inferior del muro (franja de
+  arena ≤ 0,25 m) y cubre el muro hasta arriba; el cielo sólo se ve por los portales. 11.264 piezas (~0,81 M vértices): ~6 cm en el muro
+  en la franja de manos (3–6 cm exigiría ~25–30 k piezas a esta distancia), ~10 cm sobre 2,2 m, ~15 cm en la bóveda. Piezas dentro de
+  las puertas: no se construyen.
+- **Puerta:** DOOR_A 0,8 (luz 1,6 m), H 1,95, P 2,2. **Arco de ARC:** `frontal: true`, `depth` 0,12, `thickness` 0,40 (0,12–0,52 m tras el
+  muro, delante de la cáscara a 0,6 m). El anillo r 0,31–0,39 deja ≥ 7 cm hasta las jambas.
+- **QA:** re-aterrizajes con L ignorados (≤ 0,15 m en el muro y < 0,5 s de una mano que se fue: hereda su hold); jitter por pieza ±0,12 m en
+  doorK al ensancharse la puerta en 'start' (PUSH ahora 1,4 m); arreglado: una revelación alcanzada antes de que la parte llegue no
+  arrancaba la figura. Foco principal a 7,5 m sobre el centro (rasante ~30–35° sobre la cáscara cercana).
+- **Medido:** luminancia 0,74 reposo / 0,71 revelado / 0,72 cerca; update con la figura activa ≈ 2,2 ms (en reposo menos: piezas dormidas).
+  `e2` desde la obra (reveal forzado), `e3` desde `res-3d-study` a escala 1. La obra da a veces 2 errores
+  «writeBuffer… GPUBuffer / used in submit while destroyed»: salen igual con el umbral3d de la ronda 2 → vienen del host en obras (LOAD).
+
+## T-058b (25-11, 15:50) — ronda 2 de ART («CASI»)
+- Respaldo `umbral3d.T058b.js.bak` / `room3d.T058b.js.bak` (room3d sin cambios en esta ronda).
+- **Materia:** la luz principal es ahora `beam2` (foco ya existente, mismo juego de luces) a 14 m sobre el centro, ~33° rasante en todos
+  los muros; direccional al 0,3; lechada subida a ~6 mm bajo las caras y oscurecida (#D9CFBE en pantalla, sin luz); ±8 % de valor por pieza.
+- **Contención:** un toque colorea ~1,1–1,4 m alrededor de la mano dentro de su roseta, 30 % de piezas se quedan pastel, el color dura
+  6–8 s; la resonancia colorea un tercio de sus anillos (~23 % del muro); cobalto #2748B8; familias ~67 % frío, ~13 % ámbar, ~20 % naranja+coral.
+- **Reposo:** sin veta de oro, nada fuera del muro, el juego fantasma es sólo una onda suave (sin color, sin caídas).
+- **Fondo:** suelo sin luz con los valores de ART invertidos por ACES (#D9BC98, tres terrazas suaves #CFAE88); cielo #F3E6D3→#E9D2B4 (medido).
+- **Puerta:** DOOR_A 0,725 (luz 1,45 m), DOOR_H 1,95, DOOR_P 2,2 (casi parábola; ápice lo más estrecho). arches.js la sigue sola.
+- **Anillo:** 2 filas de teselas contiguas (~3 × 3,7 cm, juntas 3 mm, relieve 5 mm) r 0,31–0,39 sobre lecho de lechada claro (sin media luna oscura).
+- **Medido:** luminancia media 0,75–0,76 (sube por el cielo/suelo que pidió ART; el mosaico no se ha oscurecido). CPU del update: en el
+  estudio ≈ 1,1× el original; en la obra ≈ 1,8–2,2 ms antes de esta ronda. `e2` sale de `res-3d-study` (reveal=1): a las 15:35 el host
+  `res-obra3d` tarda > 15 s en publicar `window.__obra` (cambio ajeno en experience.js), y check.mjs corta a 15 s.
+
+## T-058 «arena y vidrio» (25-11, 16:00) — dónde lo dejo
+- **Hecho** (`scenes3d/parts/umbral3d.js`, respaldo `umbral3d.T058.js.bak`; `room3d.js` sólo `PALETTE.wait` y `ENV_PRESETS.wait`,
+  respaldo `room3d.T058.js.bak`): mediodía de arena pastel. Cielo propio (#F3E6D3 → #E9D2B4 → #D9BC98), bruma cálida, tres anillos
+  de dunas/terrazas y seis bóvedas lejanas en la bruma; suelo de arena con terrazas y sombra de contacto bajo la serpentina; sin
+  estrellas, brasas, faro ni hilos. Trencadís fino: **11.773 piezas** (~0,85 M vértices; antes 3.149 piezas + su reflejo), tamaño por
+  altura (≈3–5 cm en el muro en la franja de manos, 8–12 cm arriba), 96 madres (40 % medallones redondos con las piezas ajustadas
+  alrededor), lechada continua hueso, bisel claro. Reposo por manchas de 0,4–1,2 m con los porcentajes de ART (por rango, exactos);
+  esmaltes de juego de ART; nada metálico en el mosaico. Anillo del botón: marco-medallón de 5 filas de teselas de ~3 cm, r 0,36–0,55,
+  a ras (1,2 cm tras el plano) sobre un lecho de lechada; `RING_Y` 1,25 sin cambios. Móviles y arcos de esquirlas medios **apagados**
+  (`MOBILES = false`). Arcos 3D: módulo de ARC `umbral3d/arches.js`, cargado si existe (HEAD + import dinámico); jambas doradas viejas
+  tras `useOldJambs = false`. Estado por pieza en dos texturas float (estática + viva); el pose sigue en el vértice; sin reflejo.
+- **Medido** (check.mjs, 3600×460, scale 1): luminancia media 0,687 en reposo, 0,635 revelado; 0/1/4 manos y L sin errores; salto
+  wait→intro sin errores. CPU de `update()` ≈ 1,8–2,2 ms (antes ≈ 0,8): piezas dormidas, pulsos con rechazo barato, anillo a 15 Hz
+  cuando está quieto.
+- **Riesgos:** (1) CPU ×2–2,5 del update del wait (GPU: más vértices pero sin la pasada de reflejo ni el suelo transparente; QA mide).
+  Palanca: el tope `sites.length < 12600` (8.000 = −35 %). (2) Bloom: ART pide fuerza ≤ 0,08 y umbral ≥ 0,95 en el wait; eso vive en el
+  host / `room3d` fuera de mis entradas → decisión del director (con el bloom actual la imagen ya da 0,69). (3) WebGL2 no probado
+  (el arnés no tiene un parámetro de URL para forzarlo); usa `textureLoad` de texturas float, igual que antes con half-float.
+  (4) El paso wait→intro es de pleno día a noche oscura: el contraste de la transición lo decide el director. (5) Las piezas que caen
+  quedan en la arena (hasta 220) hasta volver: es juego, no reposo.
+
 ## Estado (24-11, 13:05)
 Primera versión visible y lista para que INT la ponga en el bloque `wait`. Sin errores de consola en WebGPU ni en WebGL2.
 No se ha medido fps (sólo QA).

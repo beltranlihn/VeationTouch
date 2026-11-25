@@ -202,3 +202,29 @@ Textos nuevos (para voces): «Juntaos» · «Con el tambor» · «Ayudad desde a
   debajo desde el primer segundo (ya no esperan a que se vaya). **Avisos**: Pom forzado sin manos con `state.warn = 'fall'` →
   «Manos al muro» en los cuatro muros con el pulso, WebGPU y WebGL2 sin errores. Respaldo `guide3d.T046.js.bak`. Evidencia:
   `caps-gui/c9-card-layer.png`, `c9-warn-pom.png`.
+
+## 25-11 · T-059 · el botón de vidrio líquido (bloque `wait`) — ~15:30
+Respaldos: `guide3d.T059.js.bak`, `typo3d.T059.js.bak`. Spec: `ARTE-ENTRADA.md` §a/§c (ART).
+- **Fuera** el toro iridiscente, las teselas de progreso y la mano de trencadís en luz. **Dentro** una lente de vidrio líquido r 0,28 m
+  (todo dentro de r ≤ 0,30; el anillo de ENT queda en 0,36–0,55): un quad por diana con normales analíticas (bisel redondo 4,5 cm),
+  refracción del entorno por el bisel (separación cromática casi nula: ART prohíbe la aberración), Fresnel, media luna de luz arriba y
+  sombra interior abajo, filo blanco que coge la luz de la mano (`room.flash`) y sombra de contacto `#8A6F58` ≤ 25 %.
+- Mano: trazo fino de 2–3 px (ancho en metros), tinta `#2E2A26` sobre claro, hueso sobre los universos oscuros. Sin relleno.
+- Progreso: arco cobalto `#1F3FA8` de 3 px en el borde con una perla en la cabeza, marcas cada 10° en el bisel (40 % → 100 % al pasar),
+  etiqueta Geist Mono «MANTENED» → «NN %» (sólo en wait), glaseado líquido discreto desde el borde. Al tocar: onda desde el punto de la
+  mano en < 100 ms y la lente se inclina hacia ella. Al completar: onda sísmica con curvas de nivel y la lente se deshace en granos del
+  centro hacia fuera (misma función de erosión para vidrio y granos); se condensa de granos con `state.reveal`.
+- Tono claro/oscuro automático: `uLite = 1` en wait cuando `room.PALETTE.wait` es claro (ENT); el texto del wait pasa a tinta `#2E2A26`
+  sobre un velo pálido (nuevo `U.plateCol` en typo3d), sin halo ni barrido de color. Contraste tinta/arena ≈ 9:1.
+- Pinya / Tronc / Pom / bajada siguen con la misma familia (glaseado = paleta del capítulo, disco oscuro debajo); lógica de put() igual.
+- Pruebas: obra entera WebGPU y WebGL2, wait en reposo / revelado / 1 mano / 2 manos a mitad / 4 manos + L / inicio (estallido), Pinya,
+  Tronc, Pom con 4 manos + L: `"errors":[]` salvo un `writeBuffer` en Pom que ya salía con la guía anterior (A/B hecho; no es de la guía).
+  Capturas: `album3/b1-button-rest.png`, `b2-button-hold.png`, `b3-button-close.png`.
+- **Texto (propuesta al director, sin grabar voces):** el objeto ya no es un anillo → «Sostened el vidrio para empezar» o «Mantened la
+  mano en el círculo». La partitura mide una mano a |dx| ≤ 0,55 m del centro del muro (cualquier altura): ambas siguen siendo verdad.
+- **Ronda 2 (ART: CASI)** — respaldo `guide3d.T059b.js.bak` / `typo3d.T059b.js.bak`; texto del director intacto («Mantened la mano en
+  el círculo»). Vidrio: en suelo claro el bisel ya no muestra el env gris-lila sino los tonos de la escena (degradado de fondo de la sala,
+  invertido por la lente), tinte #EAF2F4 al 14 %, borde aparente 2,5 cm, arco especular blanco de 60° arriba a la izquierda; relleno
+  líquido al 10 %. Mano: un trazo de ~2,5 px, dedos de ancho constante, 45 % del diámetro. Etiqueta mono #6B5F52 con mayúsculas ≈ 3 cm.
+  Marcas cada 10° más anchas (cobalto 40 % → 100 %). Sombra #8A6F58 ≤ 25 %, desplazada 1 cm, sin AO apilado. Texto del wait en medium.
+  WebGPU y WebGL2 (4 manos + L) sin errores; `npm run check` 90/90. La media luna oscura bajo el anillo de teselas es de ENT, no del vidrio.

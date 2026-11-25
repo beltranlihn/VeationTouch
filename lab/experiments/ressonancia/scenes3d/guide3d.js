@@ -3,12 +3,18 @@
 //   const guide = createGuide({ THREE, TSL, room });   room.scene.add(guide.object);
 //   guide.update(dt, { state, hands, time, on, acta, hold, pace });   // every frame; state = the score's state; on = the "guide" parameter
 //
-// Targets are OBJECTS: a floating ring of iridescent glass on the wall plane (centred at 1.25 m), the hand drawn in light inside it,
-// a soft dark disc under it so it reads over any universe. A hand approaching lights it and turns it (answer < 100 ms); holding fills
-// its progress with ceramic tiles that fly in and lock one by one (trencadís); when the progress is complete the tiles and the glass
-// burst into fragments. Tronc: the pulse is a ring of light closing on the glass (it flashes when it lands). Pom: the ring stays still
-// and breathes. The ring assembles from its own segments when it comes (and breaks when it goes); in the wait it assembles as the
-// public's play reveals it (state.reveal, 0..1 — missing = 1) and fills with state.start.
+// Targets are OBJECTS. T-059 (ARTE-ENTRADA, Saltmere skills): a LIQUID-GLASS LENS on the wall plane (r 0.28 m, centred at 1.25 m; all of
+// it inside r ≤ 0.30 m, ENT's tile ring lives at 0.36–0.55 m): one quad per target with analytic normals (flat top, slight dome, a
+// 2.5 cm round bevel) → the scene's tones bent through the bevel (on sand; the env on a deep ground), Fresnel reflection, the key light's
+// crescent on the upper bevel and an inner shade below, a thin white rim that catches the nearest hand's light (room.flash, the
+// gradient-border-flashlight), and a contact shadow #8A6F58 on the wall. The hand is a 2–3 px fine line (ink #2E2A26 on a light ground,
+// bone on a deep one). Progress = the instrument: a 3 px cobalt #1F3FA8 arc on the rim with a bead at its head, ticks every 10° on the
+// bezel taking the glaze as it passes (no label: QA, it did not read at room distance), a quiet liquid glaze filling
+// from the rim. A hand landing sends a ring through the glass from its point at once (< 100 ms) and the lens leans towards it (±0.25 rad,
+// 3d-feature-objects). Complete → a seismic ripple with contour lines (interactive-topography), then the glass goes to grains from the
+// centre outwards (hover-particle-dissolve: glass and grains share ONE erosion function at the rest position). It condenses from grains
+// as the public's play reveals it (state.reveal) and fills with state.start. Pom: still, breathing. Light/deep look follows the ground:
+// uLite = 1 in the wait when room.PALETTE.wait is light (ENT T-058); then the wait's words are ink #2E2A26 on a pale veil, no sweep.
 // Positions and rules as before: wait one per wall; Pinya 1–3 per wall (state.buttons); Tronc one per castell wall, two (both sides)
 // once state.balance; Pom the light's wall bright, the next one half; Baixada one per castell wall.
 // Words (typo3d.js): the chapter card like a film title (small roman numeral, big serif name, the value in italic on a hairline) at
@@ -22,7 +28,10 @@ import { typo, OVER } from './typo3d.js';
 
 // [numeral, name, value]
 export const CARDS = { brasa: ['I', 'Brasa', 'El despertar'], pinya: ['II', 'Pinya', 'Fuerza'], tronc: ['III', 'Tronc', 'Equilibrio'], pom: ['IV', 'Pom de dalt', 'Valor'] };
-const HAND_Y = 1.25, R = 0.23, MAXT = 16, HALF = R * 3.4, NSEG = 24, NTILE = 20, TUBE = 0.015;   // ARTE §7: torus r 0.23 m; section 3 cm (ARTE round 3)
+const HAND_Y = 1.25, MAXT = 16;
+// T-059 (ARTE-ENTRADA §c): the liquid-glass lens r 0.28 m (Ø 0.56) with a 2.5 cm round bevel; the 3 px cobalt arc on its rim (r 0.2875),
+// the ticks every 10° on the bezel inside the edge; everything inside r ≤ 0.30 m (ENT's tile ring is at 0.36–0.55 m)
+const RL = 0.28, BEV = 0.025, RA = 0.2875, ARC_HW = 0.0057, RT0 = 0.238, RT1 = 0.25, TICK_HW = 0.0024, LQ = 0.30, GLYPH = 0.39, LINE_HW = 0.0048, NGRAIN = 720;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate));
 
@@ -48,7 +57,7 @@ function linesPlay(S, acta, learned, warn) {
   const b = S.block;
   if (warn === 'fall') return { line: ['Manos al muro', ''] };      // the score warns before a fall / before giving up (analysis #19)
   if (warn === 'abandon') return { line: ['Volved al muro', ''] };
-  if (b === 'wait') return { line: (S.reveal ?? 1) >= 1 ? ['Sostened el anillo para empezar', ''] : ['Tocad. Jugad con la sala.', ''] };   // strings agreed with ENT (voice)
+  if (b === 'wait') return { line: (S.reveal ?? 1) >= 1 ? ['Mantened la mano en el círculo', ''] : ['Tocad. Jugad con la sala.', ''] };   // strings agreed with ENT (voice)
   if (b === 'brasa') return S.phase === 'reward' ? {} : S.brasaStage === 'call' ? (learned ? {} : { line: ['Con el tambor', ''] }) : S.brasaStage === 'relay' ? { line: ['Pasad el fuego', ''] } : { line: ['Tocad el muro', ''] };   // by the score's stage (#18)
   if (b === 'pinya') return S.phase === 'reward' || learned ? {} : { line: ['Juntaos', ''] };   // follow the palm to the centre, pack together (#17)
   if (b === 'tronc') {
@@ -83,11 +92,13 @@ function cardItems(C) {
   return it;
 }
 // the instruction: ONE centred piece (caps ≈ 0.10 m, ≤ 28 characters), the second idea under it as a label in small caps
-const lineItems = (L) => {
-  const it = [];
+// T-059: on a light ground (the sand entrance) the words are ink #2E2A26 and the mono label #6B5F52 (ARTE-ENTRADA: contrast ≥ 7:1, never white)
+const INK_D = [0.0273, 0.0232, 0.0185], LABEL_D = [0.147, 0.115, 0.084];
+const lineItems = (L, dark = false) => {
+  const it = [], ink = dark ? INK_D : INK;
   // T-048: the words come into focus one by one (typo3d reveal 'blur', 60 ms per word); the label under them in Geist Mono caps
-  if (L[0]) it.push({ text: L[0], font: 'sans', size: 0.15, y: L[1] ? 0.07 : 0, track: 0.02, alpha: 0.88, color: INK, edge: 0.5, reveal: 'blur' });
-  if (L[1]) it.push({ text: L[1], font: 'mono', size: 0.082, y: -0.15, track: 0.14, alpha: 0.6, color: INK, upper: true, edge: 0.48, delay: 0.15, reveal: 'blur' });
+  if (L[0]) it.push({ text: L[0], font: 'sans', size: 0.15, y: L[1] ? 0.07 : 0, track: 0.02, alpha: dark ? 1 : 0.88, color: ink, edge: dark ? 0.43 : 0.5, reveal: 'blur' });   // round 2: medium on sand
+  if (L[1]) it.push({ text: L[1], font: 'mono', size: 0.082, y: -0.15, track: 0.14, alpha: dark ? 1 : 0.6, color: dark ? LABEL_D : ink, upper: true, edge: 0.48, delay: 0.15, reveal: 'blur' });
   return it;
 };
 
@@ -101,7 +112,7 @@ const PALETTES = {
 };
 
 export function createGuide({ THREE, TSL, room }) {
-  const { pmremTexture, refract, cross, uniform, uv, vec2, vec3, float, smoothstep, exp, length, step, texture, select, clamp: tclamp, max, min, cos, sin, abs, pow, dot, normalize, reflect, attribute, positionGeometry, positionLocal, normalWorld, positionWorld, cameraPosition, mix, fract } = TSL;
+  const { pmremTexture, refract, cross, uniform, uv, vec2, vec3, vec4, atan, float, smoothstep, exp, length, step, texture, select, clamp: tclamp, max, min, cos, sin, abs, pow, dot, normalize, reflect, attribute, positionGeometry, positionLocal, normalWorld, positionWorld, cameraPosition, mix, fract } = TSL;
   const object = new THREE.Group(); object.name = 'guide';
   const NW = room.walls.length;
   const basis = room.walls.map((w) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, new THREE.Vector3(0, 1, 0), w.normal)));
@@ -145,132 +156,213 @@ export function createGuide({ THREE, TSL, room }) {
   }
   const handTex = new THREE.CanvasTexture(hcv); handTex.colorSpace = THREE.NoColorSpace; handTex.wrapS = handTex.wrapT = THREE.ClampToEdgeWrapping;
 
-  // ------------------------------------------------------------------ shared geometry
-  // the glass ring: a torus cut in NSEG segments (each vertex knows its segment's direction and a hash: it assembles and bursts by segments)
-  const ringGeo = (() => {
-    const g = new THREE.TorusGeometry(R, TUBE, 18, NSEG * 6).toNonIndexed();
-    const p = g.getAttribute('position'), n = p.count, seg = new Float32Array(n * 3);
-    for (let i = 0; i < n; i += 3) {
-      const cx = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, cy = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3;
-      const k = Math.floor(((Math.atan2(cy, cx) / (Math.PI * 2) + 1) % 1) * NSEG), a = ((k + 0.5) / NSEG) * Math.PI * 2;
-      const h = ((Math.sin(k * 12.9898 + 4.1) * 43758.5453) % 1 + 1) % 1;
-      for (let j = 0; j < 3; j++) { seg[(i + j) * 3] = Math.cos(a); seg[(i + j) * 3 + 1] = Math.sin(a); seg[(i + j) * 3 + 2] = h; }
-    }
-    g.setAttribute('aSeg', new THREE.Float32BufferAttribute(seg, 3));
-    return g;
-  })();
-  const discGeo = new THREE.PlaneGeometry(HALF * 2, HALF * 2);
-  const tileGeo = (() => {
+  // ------------------------------------------------------------------ T-059: the liquid-glass lens (one family for every target)
+  // The hand as a FINE LINE: the open hand's silhouette (palm + five round-tipped fingers, the same design as the trencadís hand),
+  // filled once at 512 px and blurred (3 px): the 0.5 level of that soft field is the outline, drawn in the shader as a hairline
+  // with a width in metres (2–3 px of the room, ARTE-ENTRADA), no fill.
+  const LN = 512, lcv = document.createElement('canvas'); lcv.width = lcv.height = LN;
+  {
+    const big = document.createElement('canvas'); big.width = big.height = 512;
+    const g = big.getContext('2d'); g.fillStyle = '#fff';
+    const capsule = (bx, by, len, w, a) => { g.save(); g.translate(bx, by); g.rotate(a); g.beginPath(); g.moveTo(-w / 2, 0); g.lineTo(-w / 2, -len + w / 2); g.arc(0, -len + w / 2, w / 2, Math.PI, 0); g.lineTo(w / 2, 0); g.arc(0, 0, w / 2, 0, Math.PI); g.closePath(); g.fill(); g.restore(); };
+    g.beginPath(); g.roundRect(184, 282, 156, 182, [64, 64, 86, 86]); g.fill();                    // palm
+    capsule(204, 352, 128, 28, -0.95);                                                              // thumb
+    capsule(210, 292, 150, 28, -0.24); capsule(254, 284, 172, 28, -0.07); capsule(296, 290, 156, 28, 0.11); capsule(334, 308, 114, 28, 0.32);
+    const out = lcv.getContext('2d', { willReadFrequently: true });
+    out.fillStyle = '#000'; out.fillRect(0, 0, LN, LN); out.filter = 'blur(3px)'; out.drawImage(big, 0, 0, LN, LN); out.filter = 'none';
+  }
+  const lineTex = new THREE.CanvasTexture(lcv); lineTex.colorSpace = THREE.NoColorSpace; lineTex.wrapS = lineTex.wrapT = THREE.ClampToEdgeWrapping;
+
+  // shared geometry: the lens and the instrument (one quad), its contact shadow (one quad), its grains (instanced quads)
+  const lensGeo = new THREE.PlaneGeometry(LQ * 2, LQ * 2), shadowGeo = new THREE.PlaneGeometry(0.8, 0.8);
+  const grainGeo = (() => {
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1], 2));
-    const a = new Float32Array(NTILE * 4);
-    for (let i = 0; i < NTILE; i++) { const h = (k) => ((Math.sin((i + 1) * (12.9898 + k * 7.3) + k) * 43758.5453) % 1 + 1) % 1; a[i * 4] = i; a[i * 4 + 1] = h(1); a[i * 4 + 2] = h(2); a[i * 4 + 3] = h(3); }
-    g.setAttribute('aI', new THREE.InstancedBufferAttribute(a, 4));
-    g.instanceCount = NTILE;
+    const a = new Float32Array(NGRAIN * 4);
+    for (let i = 0; i < NGRAIN; i++) { const h = (k) => ((Math.sin((i + 1) * (12.9898 + k * 7.3) + k * 3.1) * 43758.5453) % 1 + 1) % 1; a[i * 4] = h(1); a[i * 4 + 1] = h(2); a[i * 4 + 2] = h(3); a[i * 4 + 3] = h(4); }
+    g.setAttribute('aG', new THREE.InstancedBufferAttribute(a, 4));
+    g.instanceCount = NGRAIN;
     return g;
   })();
+  // the ONE erosion function, evaluated at a point's REST position by both the glass and its grains (hover-particle-dissolve):
+  // a 9 mm cell hash; eA (assemble: the centre condenses first, the rim last), eB (the burst: the seismic front releases it outwards)
+  const cellHash = (p) => { const c = TSL.floor(p.mul(110)); return fract(sin(dot(c, vec2(12.9898, 78.233))).mul(43758.5453)); };
+  const erosion = (p, U) => {
+    const h = cellHash(p), rr = length(p).div(RL);
+    const eA = h.mul(0.55).add(rr.mul(0.45)), kA = U.asm.mul(1.08);
+    const eB = rr.mul(0.7).add(h.mul(0.3)), kB = U.burst.mul(1.45).sub(0.3);
+    return { h, eA, kA, eB, kB };
+  };
+  const env = (dir, rough) => (room.envMap ? pmremTexture(room.envMap, dir, float(rough)).rgb : mix(vec3(0.02, 0.025, 0.05), vec3(0.5, 0.42, 0.36), smoothstep(-0.2, 0.9, dir.y)));
+  // the look of the block (eased): uLite 1 = a light ground (the sand entrance: ink, contact shadow), 0 = a deep universe (bone,
+  // a dark disc under the glass); uInk the glyph / label / ticks; uGlaze the liquid and the arc of light
+  const uLabel = uniform(new THREE.Vector3(0.147, 0.115, 0.084)), uLite = uniform(0), uInk = uniform(new THREE.Vector3(0.62, 0.6, 0.56)), uGlaze = uniform(new THREE.Vector3(0.03, 0.11, 0.62));
+  const TAU = Math.PI * 2;
 
   // ------------------------------------------------------------------ targets: a pool, each with its own uniforms
-  const ease3 = (k) => float(1).sub(float(1).sub(k).mul(float(1).sub(k)).mul(float(1).sub(k)));
   const targets = [];
   for (let i = 0; i < MAXT; i++) {
-    const U = { asm: uniform(0), held: uniform(0), hot: uniform(0), beat: uniform(0), arc: uniform(0), burst: uniform(0), soft: uniform(0), still: uniform(0), icon: uniform(1), seed: uniform(i * 0.137) };
+    const U = { asm: uniform(0), held: uniform(0), hot: uniform(0), arc: uniform(0), burst: uniform(0), soft: uniform(0), still: uniform(0), seed: uniform(i * 0.137),
+      hp: uniform(new THREE.Vector2(0, 0)), tap: uniform(9) };
     const group = new THREE.Group(); group.visible = false;
+    const breathe = float(1).add(sin(uTime.mul(0.9).add(U.seed.mul(9.0))).mul(0.02).mul(U.still));
+    const RLb = float(RL).mul(breathe);
+    const fade = float(1).sub(U.soft.mul(0.3));
 
-    // --- the dark disc, the hand in light, the held glow, the pulse ring
+    // --- the contact shadow on the wall (a light ground), or the soft dark disc that lets it read over a deep universe
     {
-      const d = uv().sub(0.5).mul(HALF * 2), r = length(d), lw = float(0.016);
-      const keep = float(1).sub(U.soft.mul(0.65));
-      const vis = smoothstep(0.2, 0.9, U.asm).mul(float(1).sub(U.burst.mul(0.6)));
-      const fill = exp(r.mul(r).negate().div(0.5 * R * R)).mul(U.held.mul(0.16).add(U.hot.mul(0.06)));
-      const bR = U.beat.mul(R);
-      const beat = select(U.beat.greaterThan(0), smoothstep(lw, 0, r.sub(bR).abs()).mul(float(1).sub(smoothstep(1, 3, U.beat))).mul(0.9), float(0));
-      const huv = d.div(R * 1.02).mul(0.5).add(0.5).add(vec2(0, -0.04));   // the hand inside the ring
-      const inside = step(0, huv.x).mul(step(huv.x, 1)).mul(step(0, huv.y)).mul(step(huv.y, 1));
-      const hs = texture(handTex, tclamp(huv, vec2(0), vec2(1))), tileM = hs.r.mul(inside), tileId = hs.g.mul(5), depth = hs.b;
-      // each tile lights from its heart outwards, one after another (palm first), as a hand comes and holds; at rest a soft glow
-      const L = U.held.mul(0.75).add(U.hot.mul(0.35)).add(0.18).mul(1.6).sub(tileId.mul(0.08));
-      const lit = smoothstep(float(1).sub(L), float(1.25).sub(L), depth);
-      const edgeG = smoothstep(0.35, 0.0, depth).mul(tileM);                                       // the glass's edge catches light
-      const hand = tileM.mul(lit.mul(0.85).add(0.12)).add(edgeG.mul(0.35)).mul(U.icon);
-      // the disc inside the glass: dark glass #0E1016 at 55 % (ARTE round 3), the trencadís hand lit inside it
-      const inDisc = float(1).sub(smoothstep(R * 0.97, R * 1.02, r));
-      const frost = vec3(0.0044, 0.0052, 0.0075).mul(inDisc);
-      const light = fill.mul(keep).add(beat).add(hand.mul(keep.mul(0.5).add(0.5))).mul(vis);
-      const shade = inDisc.mul(0.55).add(float(1).sub(smoothstep(R, R * 1.5, r)).mul(0.12)).mul(vis);
+      const p = uv().sub(0.5).mul(0.8), r = length(p), ps = length(p.sub(vec2(0, -0.01)));
+      const out = max(ps.sub(RLb), float(0));
+      const soft = exp(out.mul(out).div(-2 * 0.024 * 0.024));                      // the penumbra, a little below (light from above)
+      const ao = exp(max(r.sub(RLb), float(0)).div(-0.006)).mul(0.22).mul(float(1).sub(smoothstep(RL - 0.01, RL, r).oneMinus()));
+      const under = float(1).sub(smoothstep(RLb.sub(0.004), RLb, r));
+      const lite = soft.max(under).mul(0.25);   // ART: #8A6F58 at 25 %, offset 1 cm (no AO stacked on it)
+      const dark = under.mul(0.5).add(float(1).sub(smoothstep(RLb, RLb.mul(1.5), r)).mul(0.12));
+      const k = smoothstep(0.35, 0.95, U.asm).mul(float(1).sub(smoothstep(0.1, 0.6, U.burst))).mul(fade);
+      const a = mix(dark, lite, uLite).mul(k);
       const m = new THREE.MeshBasicNodeMaterial(OVER);
-      m.colorNode = vec3(0.82, 0.79, 0.74).mul(0.8).mul(light)   /* art round 5: bone at 80 % */.add(frost.mul(vis)); m.opacityNode = max(shade, 0);
-      const mesh = new THREE.Mesh(discGeo, m); mesh.renderOrder = 19; group.add(mesh);
+      m.colorNode = mix(vec3(0.004, 0.005, 0.008), vec3(0.254, 0.159, 0.098), uLite).mul(a); m.opacityNode = a;   // #8A6F58 (ART: the scene's value floor)
+      const mesh = new THREE.Mesh(shadowGeo, m); mesh.renderOrder = 19; group.add(mesh);
     }
-    // --- the glass ring
-    const ring = new THREE.Group(); group.add(ring);
+    const ring = new THREE.Group(); group.add(ring);                                           // the lens tilts towards a hand
+    // --- the lens and the instrument round it
     {
-      const S3 = attribute('aSeg', 'vec3'), dir = vec3(S3.x, S3.y, 0), h = S3.z;
-      const kin = tclamp(U.asm.mul(1.7).sub(h.mul(0.7)), 0, 1), e = ease3(kin), ie = float(1).sub(e);
-      const bk = tclamp(U.burst.mul(1.5).sub(h.mul(0.5)), 0, 1);
-      const off = dir.mul(ie.mul(h.mul(0.35).add(0.18))).add(vec3(0, ie.mul(h.sub(0.5)).mul(0.3), ie.mul(h.mul(0.3).add(0.15))))
-        .add(dir.mul(bk.mul(h.mul(0.5).add(0.25)))).add(vec3(0, bk.mul(bk).mul(0.25), bk.mul(0.2)));
-      const breathe = float(1).add(sin(uTime.mul(0.9).add(U.seed.mul(9.0))).mul(0.025).mul(U.still));
-      const m = new THREE.MeshBasicNodeMaterial({ ...OVER, side: THREE.FrontSide });
-      m.positionNode = positionLocal.mul(breathe).add(off);
-      // glass with thickness: the environment reflected (Fresnel) and seen refracted through the tube, a little darker and tinted;
-      // a soft thin-film iridescence only at the grazing rim; it brightens when a hand comes, holds, or the pulse lands
-      const N = normalize(normalWorld), V = normalize(cameraPosition.sub(positionWorld));
+      const p = uv().sub(0.5).mul(LQ * 2), r = length(p), dirR = p.div(max(r, float(1e-4)));
+      const fw = max(TSL.fwidth(r), float(1e-4));
+      const f = fract(atan(p.x, p.y).div(TAU).add(1));                                         // 0 at the top, clockwise
+      const E = erosion(p, U);
+      const solid = step(E.eA, E.kA).mul(step(E.kB, E.eB));
+      const inside = float(1).sub(smoothstep(RLb.sub(fw), RLb.add(fw), r));
+      // the lens's surface: a flat top with a slight dome and a round bevel of BEV m; slope → normal (local, z out of the wall)
+      const t = tclamp(float(1).sub(RLb.sub(r).div(BEV)), 0, 1);
+      let slope = t.div(TSL.sqrt(max(float(1).sub(t.mul(t)), float(0.03)))).min(5.0).add(r.div(RL).mul(0.12));
+      // the seismic ripple at completion (interactive-topography): a front from the centre past the rim in ~0.9 s
+      const front = U.burst.mul(0.42), dfr = r.sub(front);
+      const quake = sin(dfr.mul(150)).mul(exp(dfr.mul(dfr).mul(-1400))).mul(float(1).sub(smoothstep(0.6, 1.0, U.burst))).mul(step(0.0001, U.burst));
+      slope = slope.add(quake.mul(1.4));
+      // the touch: a ring in the glass from the hand's point, at once (< 100 ms), fading in ~1 s
+      const dh = p.sub(U.hp), rh = length(dh), dtp = rh.sub(U.tap.mul(0.32));
+      const touch = sin(dtp.mul(140)).mul(exp(dtp.mul(dtp).mul(-1800))).mul(exp(U.tap.mul(-2.2))).mul(0.9);
+      const nl = normalize(vec3(dirR.mul(slope).add(dh.div(max(rh, float(1e-4))).mul(touch)), 1));
+      const N = normalize(TSL.modelWorldMatrix.mul(vec4(nl, 0)).xyz), V = normalize(cameraPosition.sub(positionWorld));
       const ndv = abs(dot(N, V)), g1 = float(1).sub(ndv), F = g1.mul(g1).mul(g1).mul(g1).mul(g1).mul(0.96).add(0.04);
-      const Rf = reflect(V.negate(), N), Tf = refract(V.negate(), N, float(1 / 1.45));
-      const env = (dir, rough) => (room.envMap ? pmremTexture(room.envMap, dir, float(rough)).rgb : mix(vec3(0.02, 0.025, 0.05), vec3(0.5, 0.42, 0.36), smoothstep(-0.2, 0.9, dir.y)));
-      const glow = U.held.mul(1.0).add(U.hot.mul(0.4)).add(smoothstep(1.35, 1.0, U.beat).mul(step(0.5, U.beat)).mul(0.8))
-        .add(sin(uTime.mul(0.9).add(U.seed.mul(9.0))).mul(0.5).add(0.5).mul(0.3).mul(U.still)).add(bk.mul(1.2));
-      const rim = smoothstep(0.55, 0.95, g1);
-      // ONE sharp reflection that travels slowly round the ring, and at rest a soft pulse of the rim every 2.4 s
-      const side = normalize(cross(V, vec3(0, 1, 0)).add(vec3(0.0001, 0, 0)));
-      const Lw = normalize(V.mul(0.7).add(vec3(0, 0.75, 0)).add(side.mul(sin(uTime.mul(0.35).add(U.seed.mul(17.0))).mul(0.7))));
-      const hl = pow(max(dot(N, normalize(V.add(Lw))), 0), 220.0).mul(2.6);
-      const restPulse = exp(fract(uTime.div(2.4)).mul(-4.0)).mul(0.5).mul(float(1).sub(step(0.5, U.beat))).mul(float(1).sub(U.held));
-      const film = vec3(0.5).add(vec3(0.5).mul(cos(vec3(0.0, 0.33, 0.67).add(g1.mul(1.2)).add(h.mul(0.15)).add(uTime.mul(0.05)).mul(6.2831853))));
-      const refl = env(Rf, 0.04).mul(4.4), refr = env(Tf, 0.25).mul(vec3(0.75, 0.85, 0.95)).mul(0.9);
-      const vis = step(0.001, kin).mul(float(1).sub(smoothstep(0.6, 1.0, bk))).mul(float(1).sub(U.soft.mul(0.2)));
-      const warm = vec3(1.0, 0.86, 0.66).mul(glow).mul(float(0.12).add(rim.mul(0.5)));
-      // T-048 «la mano es una linterna»: the rim nearest a hand catches its light (room.flash: also a hand on the next wall, at a corner)
-      const lampR = room.flash ? room.flash(positionWorld) : float(0);
-      const col = mix(refr, refl, F).add(film.mul(rim).mul(0.3)).add(warm).add(vec3(hl)).add(vec3(1.0, 0.92, 0.82).mul(rim).mul(restPulse)).add(PAL[0].mul(glow).mul(0.06))
-        .add(mix(vec3(1.0, 0.9, 0.78), ACC, 0.5).mul(lampR).mul(rim.mul(0.55).add(0.08)));
-      m.colorNode = col.mul(vis).mul(e.mul(0.7).add(0.3)); m.opacityNode = F.mul(0.5).add(0.45).add(rim.mul(0.15)).add(hl.mul(0.3)).min(1.0).mul(vis);
-      const mesh = new THREE.Mesh(ringGeo, m); mesh.renderOrder = 21; mesh.frustumCulled = false; ring.add(mesh);
-    }
-    // --- the progress: ceramic tiles locking into a ring just outside the glass
-    {
-      const I = attribute('aI', 'vec4'), idx = I.x, r1 = I.y, r2 = I.z, r3 = I.w;
-      const ang = float(Math.PI / 2).sub(idx.add(0.5).div(NTILE).mul(Math.PI * 2));
-      const cr = cos(ang), sr = sin(ang), rad = float(R + TUBE + 0.04);
-      // a tile comes in while its share of the progress fills and waits just off its slot (e ≤ 0.82); it SNAPS home when the share is full
-      const lock = tclamp(U.arc.mul(NTILE).sub(idx), 0, 1), snapped = step(0.999, lock), e = mix(ease3(tclamp(lock.mul(1.25), 0, 1)).mul(0.82), float(1), snapped), ie = float(1).sub(e);
-      const bk = tclamp(U.burst.mul(1.5).sub(r1.mul(0.5)), 0, 1);
-      const w = rad.mul(Math.PI * 2 / NTILE * 0.8 * 0.6).mul(r1.mul(0.12).add(0.92))   // art round 5: segments at 60 % width
-     , hh = float(0.04).mul(r2.mul(0.25).add(0.88));
-      const pg = positionGeometry;
-      const jit = vec2(sin(r3.mul(40.0).add(pg.x.mul(7.0)).add(pg.y.mul(13.0))), cos(r2.mul(31.0).add(pg.x.mul(11.0)).add(pg.y.mul(5.0)))).mul(0.07);
-      const since = U.arc.mul(NTILE).sub(idx).sub(1.0), pop = exp(max(since, 0).mul(-9.0)).mul(snapped);
-      const loc0 = pg.xy.add(jit).mul(vec2(w, hh)).mul(pop.mul(0.18).add(1.0));
-      const spin = ie.mul(r2.sub(0.5).mul(7.0)).add(bk.mul(r3.sub(0.5).mul(10.0))).add(ang.sub(Math.PI / 2));
-      const loc = vec2(loc0.x.mul(cos(spin)).sub(loc0.y.mul(sin(spin))), loc0.x.mul(sin(spin)).add(loc0.y.mul(cos(spin)))).mul(float(1).sub(bk.mul(0.6)));
-      const slot = vec2(cr, sr).mul(rad), tng = vec2(sr.negate(), cr);
-      const p2 = slot.mul(float(1).add(ie.mul(r1.add(0.8))).add(bk.mul(r2.mul(1.5).add(1.0)))).add(tng.mul(ie.mul(r3.sub(0.5)).mul(0.5))).add(vec2(0, bk.mul(bk).mul(0.35)));
-      const z = ie.mul(r2.mul(0.3).add(0.15)).add(bk.mul(r3).mul(0.3));
+      // refraction with a slight chromatic split (three IORs), the env reflected; the key light from above (the room's one recipe)
+      const I = V.negate();
+      const refr = vec3(env(refract(I, N, float(1 / 1.43)), 0.2).r, env(refract(I, N, float(1 / 1.45)), 0.2).g, env(refract(I, N, float(1 / 1.47)), 0.2).b);
+      const refl = env(reflect(I, N), 0.06);
+      const Lk = normalize(vec3(-0.25, 0.85, 0.6)), shade = dot(nl, Lk).mul(0.5).add(0.5);
+      const H = normalize(V.add(normalize(TSL.modelWorldMatrix.mul(vec4(Lk, 0)).xyz)));
+      const spec = pow(max(dot(N, H), 0), 90.0);
+      const edge = smoothstep(0.0, 1.0, t);
+      // layer by layer, premultiplied (c: colour × alpha, a: coverage)
+      let c = vec3(0), a = float(0);
+      const over = (col, al) => { c = col.mul(al).add(c.mul(float(1).sub(al))); a = al.add(a.mul(float(1).sub(al))); };
+      // 1. the body: frosted, almost clear in the middle; the bevel shows the world bent through it (a light ground: milk and sand;
+      //    a deep universe: dark glass, as before)
+      const frost = mix(vec3(0.006, 0.007, 0.01), vec3(0.82, 0.89, 0.905), uLite);   // #EAF2F4 at 14 % on a light ground
+      // round 2 (ART): no grey env in the glass on a light ground — a cheap refraction of the SCENE's tones: the room's background
+      // gradient (sand below, cream above), sampled at the height the bevel looks to (flipped, as a lens does), a touch brighter
+      const bgk = tclamp(float(0.5).add(positionWorld.y.sub(HAND_Y).div(0.9)).sub(nl.y.mul(1.6)), 0, 1);
+      const sceneT = room.background ? mix(room.background.bottom, room.background.top, bgk).mul(room.background.gain).mul(1.04) : refr;
+      const bent = mix(refr, sceneT, uLite);
+      const bodyA = mix(mix(float(0.5), float(0.14), uLite), mix(float(0.75), float(0.7), uLite), edge.mul(edge)).mul(inside);
+      const body = mix(frost, bent.mul(mix(float(1.1), float(1.0), uLite)), edge.mul(0.9)).mul(shade.mul(mix(float(0.35), float(0.18), uLite)).add(mix(float(0.75), float(0.9), uLite)));
+      over(body, bodyA);
+      // 2. the liquid glaze, filling from the rim inwards as the hold grows, its meniscus trembling
+      const lvl = U.arc, wob = sin(atan(p.x, p.y).mul(5).add(uTime.mul(1.7))).mul(0.004).add(sin(atan(p.x, p.y).mul(9).sub(uTime.mul(2.3))).mul(0.0025)).mul(lvl.mul(float(1).sub(lvl)).mul(4));
+      const mr = RLb.mul(float(1).sub(lvl)).add(wob);
+      const wet = smoothstep(mr.sub(fw), mr.add(fw), r).mul(inside).mul(step(0.002, lvl));
+      const glazeC = uGlaze.mul(shade.mul(0.45).add(0.7)).add(refr.mul(0.08));
+      over(glazeC, wet.mul(mix(float(0.45), float(0.1), uLite)));   // quiet: the arc is the signal (ART)
+      const men = tclamp(float(1).sub(abs(r.sub(mr)).div(fw.mul(1.2))), 0, 1).mul(inside).mul(step(0.002, lvl)).mul(step(lvl, 0.995));
+      c = c.add(vec3(1.0, 0.98, 0.95).mul(men).mul(0.25));
+      // 3. the hand: a fine line, softly embossed; ink on a light ground, bone on a deep one; it warms to the glaze under a hand
+      const huv = p.div(GLYPH).add(vec2(0.5, 0.47)), gIn = step(0, huv.x).mul(step(huv.x, 1)).mul(step(0, huv.y)).mul(step(huv.y, 1));
+      const gv = texture(lineTex, tclamp(huv, vec2(0), vec2(1))).r.mul(gIn);
+      const gfw = max(TSL.fwidth(gv), float(1e-4)), gd = abs(gv.sub(0.5)).mul(fw).div(gfw);    // ≈ metres from the outline
+      const ghw = max(float(LINE_HW), fw.mul(0.75));
+      const gline = float(1).sub(smoothstep(ghw.sub(fw.mul(0.5)), ghw.add(fw.mul(0.5)), gd)).mul(step(0.02, gv));
+      const inkC = mix(uInk, uGlaze.mul(0.8), U.hot.mul(0.55).add(U.held.mul(0.25)).min(0.7));
+      over(inkC, gline.mul(0.92).mul(inside));
+      // 5. light: the soft key highlight on the upper bevel, a broad sheen, the env's Fresnel, the thin bright rim (inside the edge)
+      //    with the dark hairline that draws the edge on a light ground; the rim nearest a hand catches its light (the flashlight)
+      const lamp = room.flash ? room.flash(positionWorld) : float(0);
+      const sheen = exp(length(p.sub(vec2(-0.07, 0.11)).mul(vec2(1.0, 1.7))).mul(length(p.sub(vec2(-0.07, 0.11)).mul(vec2(1.0, 1.7)))).mul(-90.0)).mul(0.07);
+      c = c.add(vec3(spec.mul(edge.mul(0.8).add(0.2)).mul(0.85).add(sheen)).mul(inside)).add(refl.mul(F).mul(mix(float(0.5), float(0.12), uLite)).mul(inside));
+      const rimIn = tclamp(float(1).sub(abs(r.sub(RLb.sub(0.0035))).div(fw.mul(1.1))), 0, 1);
+      const rimUp = dirR.y.mul(0.35).add(0.65).mul(dirR.x.mul(-0.2).add(1));
+      const rimL = rimIn.mul(rimUp.mul(0.5).add(lamp.mul(0.8)).add(U.hot.mul(0.15)));
+      c = c.add(mix(vec3(1.0, 0.97, 0.92), uGlaze.mul(0.6).add(0.5), lamp.mul(0.4).min(0.4)).mul(rimL));
+      const rimOut = tclamp(float(1).sub(abs(r.sub(RLb.add(0.0012))).div(fw.mul(0.9))), 0, 1);
+      over(vec3(0.05, 0.04, 0.035), rimOut.mul(uLite).mul(0.35));
+      // the contour lines of the quake, riding the front inside the glass (thin, in the glaze)
+      const cont = tclamp(float(1).sub(abs(fract(dfr.mul(1 / 0.022)).sub(0.5)).mul(0.022).div(fw.mul(0.8))), 0, 1).mul(step(dfr, 0)).mul(exp(dfr.mul(12))).mul(step(0.0001, U.burst)).mul(float(1).sub(smoothstep(0.5, 1.0, U.burst)));
+      over(uGlaze.add(0.15), cont.mul(inside).mul(0.6));
+      // the thickness on a light ground: the bevel darkens on the side away from the key (an inner shade) and a crescent of light
+      // rides the upper-left bevel (the liquid-glass read); both follow the tilt (nl) and the ripples
+      const bevBand = smoothstep(0.15, 0.6, t).mul(float(1).sub(smoothstep(0.92, 1.0, t))).mul(inside);
+      const away = tclamp(dot(dirR, vec2(0.3, -0.95)), 0, 1);
+      over(vec3(0.33, 0.27, 0.22), bevBand.mul(away).mul(0.22).mul(uLite));
+      // the white specular arc: 60° centred top-left (135°), soft ends, on the outer half of the bevel
+      const toward = smoothstep(0.82, 0.93, dot(dirR, vec2(-0.7071, 0.7071)));                 // ≈ ±30° about the centre
+      const specBand = smoothstep(RLb.sub(BEV), RLb.sub(BEV * 0.55), r).mul(float(1).sub(smoothstep(RLb.sub(0.0035), RLb.sub(0.0005), r)));
+      over(vec3(1.0, 1.0, 1.0), specBand.mul(toward).mul(mix(float(0.45), float(0.8), uLite)));   // the 60° white arc (ART), opaque white on sand
+      const glass = solid.mul(smoothstep(0.0, 0.25, U.asm));
+      c = c.mul(glass); a = a.mul(glass);
+      // 6. the instrument round the glass: a faint track, the arc of light (1–1.5 px) filling clockwise from the top with a bright
+      //    head, and fine ticks every 5° (longer every 30°) that take the glaze as the arc passes them
+      const instr = smoothstep(0.75, 1.0, U.asm).mul(float(1).sub(smoothstep(0.2, 0.7, U.burst)));
+      const track = tclamp(float(1).sub(abs(r.sub(RA)).div(fw.mul(0.75))), 0, 1);
+      const on = step(f, lvl).mul(step(0.002, lvl));
+      over(uGlaze, track.mul(0.22).mul(instr));
+      const ahw = max(float(ARC_HW), fw.mul(0.75));
+      const arcL = float(1).sub(smoothstep(ahw.sub(fw.mul(0.5)), ahw.add(fw.mul(0.5)), abs(r.sub(RA)))).mul(on);
+      over(uGlaze, arcL.mul(0.95).mul(instr));
+      const headD = length(p.sub(vec2(sin(lvl.mul(TAU)), cos(lvl.mul(TAU))).mul(RA)));
+      const head = exp(headD.mul(headD).mul(-60000)).mul(step(0.002, lvl)).mul(step(lvl, 0.998));
+      over(uGlaze, head.mul(instr).mul(0.9));                                                   // the head: a cobalt bead, no glow
+      const td = abs(fract(f.mul(36).add(0.5)).sub(0.5)).div(36).mul(TAU).mul(r);
+      const major = step(abs(fract(f.mul(12).add(0.5)).sub(0.5)), 0.5 / 36 * 12 * 0.6);
+      const t0 = select(major.greaterThan(0.5), float(RT0 - 0.01), float(RT0));
+      const thw = max(float(TICK_HW), fw.mul(0.6)), tick = float(1).sub(smoothstep(thw.sub(fw.mul(0.5)), thw.add(fw.mul(0.5)), td)).mul(step(t0, r)).mul(step(r, float(RT1)));
+      const tickOn = step(f, lvl).mul(step(0.002, lvl));
+      over(uGlaze, tick.mul(mix(float(0.4), float(1.0), tickOn)).mul(instr).mul(inside.max(0.5)));
+      // the flashlight on the ticks and the track too (the instrument's edge near a hand)
+      c = c.add(mix(vec3(1.0, 0.95, 0.88), uGlaze, 0.3).mul(lamp.mul(0.35)).mul(track.add(tick)).mul(instr));
+      const vis = fade;
       const m = new THREE.MeshBasicNodeMaterial(OVER);
-      m.positionNode = vec3(p2.add(loc), z);
-      const pal = select(r1.lessThan(0.34), PAL[0], select(r1.lessThan(0.67), PAL[1], PAL[2])).mul(r2.mul(0.5).add(0.7));
-      const flash = pop.mul(1.6).add(exp(max(since, 0).mul(-1.2)).mul(snapped).mul(0.35));
-      const q = uv(), edge = min(min(q.x, float(1).sub(q.x)), min(q.y, float(1).sub(q.y)));
-      const glaze = smoothstep(0.0, 0.16, edge).mul(0.45).add(0.55).add(smoothstep(0.55, 1.0, q.y).mul(0.3));
-      const vis = step(0.001, lock).mul(float(1).sub(smoothstep(0.55, 1.0, bk))).mul(smoothstep(0.3, 0.9, U.asm)).mul(snapped.mul(0.45).add(0.55));
-      m.colorNode = pal.mul(glaze).mul(0.85).add(vec3(1.0, 0.9, 0.75).mul(flash)).mul(vis);
-      m.opacityNode = vis.mul(0.95);
-      const mesh = new THREE.Mesh(tileGeo, m); mesh.renderOrder = 22; mesh.frustumCulled = false; group.add(mesh);
+      m.colorNode = c.mul(vis); m.opacityNode = a.mul(vis);
+      const mesh = new THREE.Mesh(lensGeo, m); mesh.renderOrder = 21; mesh.frustumCulled = false; ring.add(mesh);
+    }
+    // --- the grains: where the glass is not (yet / any more) solid, its grains hang near their homes (assemble: scattered, drawing in;
+    //     the burst: released by the seismic front, drifting outwards and up, thinning out)
+    let grains;
+    {
+      const G = attribute('aG', 'vec4');
+      const rr = TSL.sqrt(G.x).mul(RL * 0.995), ang = G.y.mul(TAU), home = vec2(cos(ang), sin(ang)).mul(rr);
+      const E = erosion(home, U);
+      const dA = E.eA.sub(E.kA), dB = E.kB.sub(E.eB);
+      const rnd = vec2(G.z.sub(0.5), G.w.sub(0.5)).normalize();
+      const far = select(G.z.lessThan(0.65), float(0.35), select(G.z.lessThan(0.91), float(0.8), float(1.6)));   // 65 % close, 26 % drift, 9 % far
+      const dirO = home.div(max(rr, float(1e-3)));
+      const offA = rnd.mul(max(dA, float(0)).mul(far).mul(0.9)).add(vec2(0, max(dA, float(0)).mul(0.25)));
+      const tB = max(dB, float(0));
+      const offB = dirO.mul(0.6).add(rnd.mul(0.5)).mul(tB.mul(far).mul(0.9)).add(vec2(0, tB.mul(tB).mul(0.35)));
+      const aA = step(0, dA).mul(float(1).sub(smoothstep(0.05, 0.45, dA))).mul(step(0.001, U.asm));
+      const aB = step(0, dB).mul(float(1).sub(smoothstep(0.1, 0.75, dB))).mul(step(0.0001, U.burst));
+      const sz = float(0.007).add(G.w.mul(0.005));
+      const m = new THREE.MeshBasicNodeMaterial(OVER);
+      m.positionNode = vec3(home.add(offA).add(offB).add(positionGeometry.xy.mul(sz)), max(dA, float(0)).mul(0.1).add(tB.mul(0.15)));
+      const q = uv().sub(0.5), dot2 = float(1).sub(smoothstep(0.25, 0.5, length(q)));
+      const glint = step(0.78, G.x.mul(7.31).fract());
+      const col = mix(mix(uInk, mix(uGlaze, vec3(0.55, 0.62, 0.85), 0.3), step(0.004, U.arc).max(step(0.0001, aB)).mul(0.9)), mix(uLabel, vec3(1.0, 0.95, 0.85), float(1).sub(uLite)), glint);
+      const al = aA.max(aB).mul(dot2).mul(mix(float(0.85), float(0.7), uLite)).mul(fade);
+      m.colorNode = col.mul(al); m.opacityNode = al.mul(mix(float(0.4), float(1), uLite));
+      grains = new THREE.Mesh(grainGeo, m); grains.renderOrder = 22; grains.frustumCulled = false; grains.visible = false; ring.add(grains);
     }
     object.add(group);
-    targets.push({ group, ring, U, held: 0, hot: 0, asm: 0, arcPrev: 0, burst: 0, turn: 0, tilt: 0, used: false });
+    targets.push({ group, ring, grains, U, held: 0, hot: 0, asm: 0, arcPrev: 0, burst: 0, turn: 0, tilt: 0, used: false, wasHot: false, tap: 9, hx: 0, hy: 0 });
   }
 
   // ------------------------------------------------------------------ the words
@@ -351,32 +443,40 @@ export function createGuide({ THREE, TSL, room }) {
   }
 
   // ------------------------------------------------------------------ per frame
-  let guideA = 0, guideKey = '', nT = 0, softNow = 0, stillNow = 0, time0 = 0, revealNow = 1;
+  let guideA = 0, guideKey = '', nT = 0, softNow = 0, stillNow = 0, time0 = 0, revealNow = 1, liteNow = 0;
   const near = (hands, wi, off) => { for (const h of hands) if (h.wall === wi && Math.abs((h.u - 0.5) * room.walls[wi].width - off) < 0.55 && Math.abs(h.pos.y - HAND_Y) < 0.75) return true; return false; };
-  function put(wi, off, vis, held, hot, beat, arc, dt) {
+  let handsNow = [];
+  function put(wi, off, vis, held, hot, beat, arc, dt) {   // (beat: kept in the signature; no block sends a pulse any more, #13)
     if (nT >= MAXT) return;
     const T = targets[nT++], w = room.walls[wi], U = T.U;
     T.held = ease(T.held, held ? 1 : 0, dt, held ? 14 : 3);
     T.hot = ease(T.hot, hot || held ? 1 : 0, dt, hot ? 16 : 2.5);
     vis *= 1 - learnedK;
-    T.asm = ease(T.asm, vis * guideA * revealNow, dt, 2.2);
+    const bursting = T.burst > 0 && T.burst < 1;                 // while it bursts, the glass is the burst's (the block may already be leaving)
+    if (!bursting) T.asm = ease(T.asm, vis * guideA * revealNow, dt, 2.2);
     if (vis * guideA * revealNow > T.asm && T.asm > 0.97) T.asm = vis * guideA * revealNow;
-    // the burst: the progress has just completed
+    // the burst: the progress has just completed (the seismic ripple, then the glass goes to grains)
     if (arc >= 0.999 && T.arcPrev < 0.999 && T.burst === 0) T.burst = 0.001;
-    if (T.burst > 0 && T.burst < 1) T.burst = Math.min(1, T.burst + dt / 1.4);
+    if (T.burst > 0 && T.burst < 1) T.burst = Math.min(1, T.burst + dt / 1.6);
     if (arc < 0.95) T.burst = 0;
     T.arcPrev = arc;
     T.group.position.copy(w.centre).addScaledVector(w.right, off).setY(HAND_Y).addScaledVector(w.normal, -0.04);
     T.group.quaternion.copy(basis[wi]);
-    // it turns when a hand comes (not in the Pom: there it stays still and breathes)
-    const turnTo = stillNow ? 0 : T.hot * (0.42 * Math.sin(time0 * 1.7 + nT)) + 0.06 * Math.sin(time0 * 0.37 + nT * 1.3);
-    const tiltTo = stillNow ? 0 : T.hot * 0.22 * Math.cos(time0 * 1.3 + nT) + 0.04 * Math.cos(time0 * 0.29 + nT);
+    // the nearest hand, in the lens's own metres: the touch ring starts where it lands (< 100 ms), the lens leans towards it
+    let best = 0.62, hx = 0, hy = 0;
+    for (const h of handsNow) { if (h.wall !== wi) continue; const x = (h.u - 0.5) * w.width - off, y = h.pos.y - HAND_Y, d = Math.hypot(x, y); if (d < best) { best = d; hx = x; hy = y; } }
+    const isHot = best < 0.62;
+    if (isHot && !T.wasHot) { T.tap = 0; T.hx = clamp(hx, -RL, RL); T.hy = clamp(hy, -RL, RL); }
+    T.wasHot = isHot; T.tap = Math.min(9, T.tap + dt);
+    // 3d-feature-objects: it turns TOWARDS the hand (±0.25 rad), smoothed at 10/s, and drifts a hair at rest (the Pom: still)
+    const turnTo = stillNow ? 0 : T.hot * clamp(hx / 0.35, -1, 1) * 0.25 + 0.03 * Math.sin(time0 * 0.37 + nT * 1.3);
+    const tiltTo = stillNow ? 0 : -T.hot * clamp(hy / 0.35, -1, 1) * 0.2 + 0.025 * Math.cos(time0 * 0.29 + nT);
     T.turn = ease(T.turn, turnTo, dt, 10); T.tilt = ease(T.tilt, tiltTo, dt, 10);
     T.ring.rotation.set(T.tilt, T.turn, 0);
-    U.asm.value = T.asm; U.held.value = T.held; U.hot.value = T.hot; U.beat.value = beat; U.arc.value = arc; U.burst.value = T.burst;
-    U.soft.value = softNow; U.still.value = stillNow;
-    U.icon.value = (1 - T.held * 0.6) * (0.82 + 0.18 * Math.sin(time0 * 1.6 + nT));
-    T.group.visible = T.asm > 0.004;
+    U.asm.value = T.asm; U.held.value = T.held; U.hot.value = T.hot; U.arc.value = arc; U.burst.value = T.burst;
+    U.soft.value = softNow; U.still.value = stillNow; U.tap.value = T.tap; U.hp.value.set(T.hx, T.hy);
+    T.group.visible = T.asm > 0.004 || (T.burst > 0 && T.burst < 1);
+    T.grains.visible = (T.asm > 0.002 && T.asm < 0.999) || (T.burst > 0 && T.burst < 1);
     T.used = true;
   }
   // ------------------------------------------------------------------ ghost hands (T-043): hands of light on the wall plane that
@@ -452,6 +552,8 @@ export function createGuide({ THREE, TSL, room }) {
   // is INT/RND-F's (T-028); until it exists (or when it does not answer a number) every wall is open at once.
   // ASSUMED contract (to confirm against PARTS.md when it lands): tileFront(w) >= 1 once the front has passed wall w.
   const waveGate = (w) => { if (typeof room.tileFront !== 'function') return true; const f = room.tileFront(w); return !(typeof f === 'number') || f >= 1; };
+  const lumOf = (c) => (c ? 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] : 0);
+  const waitIsLight = () => { const P = room.PALETTE && room.PALETTE.wait; return !!P && (lumOf(P.top) + lumOf(P.bottom)) / 2 > 0.2; };
   function update(dt, { state: S, hands = [], time = 0, on = true, acta = null, hold = false, pace = 1, events = null }) {
     // warnings (#19): the score's state.warn ('fall' | 'abandon') or its events 'warn:fall' / 'warn:abandon' (if the host passes events)
     if (events) for (const e of events) if (e === 'warn:fall' || e === 'warn:abandon') { warnKind = e.slice(5); warnUntil = time + 4; }
@@ -477,6 +579,14 @@ export function createGuide({ THREE, TSL, room }) {
     nT = 0;
     for (const T of targets) T.used = false;
     softNow = gb === 'pinya' || gb === 'tronc' || gb === 'baixada' ? 1 : 0;
+    // T-059: the lens's look follows the ground. The wait is light when its palette is (ENT, T-058: pastel sand); read every frame
+    handsNow = hands;
+    const liteTo = gb === 'wait' && waitIsLight() ? 1 : 0;
+    liteNow = ease(liteNow, liteTo, dt, 2); uLite.value = liteNow; 
+    { const ink = [0.0273 + (0.62 - 0.0273) * (1 - liteNow), 0.0232 + (0.6 - 0.0232) * (1 - liteNow), 0.0185 + (0.56 - 0.0185) * (1 - liteNow)];
+      uInk.value.set(ink[0], ink[1], ink[2]);
+      const gz = gb === 'wait' ? [0.0137, 0.0497, 0.392] : palNow[0];                  // cobalt #1F3FA8 in the wait; the chapter's glaze after
+      uGlaze.value.set(gz[0], gz[1], gz[2]); }
     stillNow = gb === 'pom' ? 1 : 0;
     const walls = S.walls || [];
     for (let w = 0; w < NW; w++) {
@@ -516,7 +626,12 @@ export function createGuide({ THREE, TSL, room }) {
     if (warn) for (let w = 0; w < NW; w++) if (time0 - ghosts[w].extAt >= 0.5) { ghosts[w].want = 'still'; ghosts[w].wantS = 0.6 + 0.4 * Math.abs(Math.sin(time0 * 3)); ghosts[w].anchor = 0; }   // the visual pulse of a warning
     stepGhosts(dt);
     // the targets not placed this frame break where they were
-    for (let i = nT; i < MAXT; i++) { const T = targets[i]; T.asm = ease(T.asm, 0, dt, 4); T.U.asm.value = T.asm; T.group.visible = T.asm > 0.004; T.held = 0; }
+    for (let i = nT; i < MAXT; i++) {
+      const T = targets[i]; T.held = 0;
+      if (T.burst > 0 && T.burst < 1) { T.burst = Math.min(1, T.burst + dt / 1.6); T.U.burst.value = T.burst; } else T.asm = ease(T.asm, 0, dt, 4);
+      T.U.asm.value = T.asm;
+      T.group.visible = T.asm > 0.004 || (T.burst > 0 && T.burst < 1); T.grains.visible = T.group.visible;
+    }
 
     // the words; from the Tronc on, the instructions belong to the walls that carry the castell
     const g = on ? lines(S, acta, learnedNow, warn) : {};
@@ -524,11 +639,12 @@ export function createGuide({ THREE, TSL, room }) {
     for (let w = 0; w < NW; w++) inS[w] = !!walls[w];
     card.want(g.card ? 'c|' + g.card.join('|') : '', g.card ? cardItems(g.card) : null);
     const L = g.line && (g.line[0] || g.line[1]) ? g.line : null;   // (an empty invitation with a label: the floor's / climber's name alone)
-    line.want(L ? 'l|' + L.join('|') : '', L ? lineItems(L) : null);
+    const darkInk = b === 'wait' && waitIsLight();
+    line.want(L ? 'l|' + L.join('|') + (darkInk ? '|d' : '') : '', L ? lineItems(L, darkInk) : null);
     // readability (audit 24-11): the dark plates under the words are stronger where the world behind is busy (Tronc, Pom: 60 %)
     const plateK = b === 'baixada' ? 0.75 : b === 'tronc' || b === 'pom' ? 0.6 : null;   // art round 5b: 75 % in the baixada only   // art round 5: baixada too (white porcelain behind)
     for (const t of card.texts) t.U.plate.value = plateK ?? 0.5;
-    for (const t of line.texts) t.U.plate.value = plateK ?? 0.45;
+    for (const t of line.texts) { t.U.plate.value = darkInk ? 0.2 : plateK ?? 0.45; t.U.halo.value = darkInk ? 0 : 0.4; t.U.plateCol.value.set(darkInk ? 0.86 : 0, darkInk ? 0.8 : 0, darkInk ? 0.7 : 0); }   // T-059: a pale veil, not a dark plate, on sand
     card.step(dtT, { hold, gate: waveGate });
     // the wait's words come with the button (reveal) and thin out as the hands start the pass
     const st = b === 'wait' ? Math.min(1, S.start || 0) : 0;
@@ -547,6 +663,7 @@ export function createGuide({ THREE, TSL, room }) {
     if (!line.up) line.object.position.y = b === 'wait' ? 2.12 - 1.98 : (b === 'tronc' && S.phase !== 'title') || b === 'baixada' ? 2.30 - 1.98 : 0;   // art round 5 (not under Tronc's card: there the 60 % plate): above the porcelain in tronc / baixada
     if (!lineOut.up) lineOut.object.position.y = (b === 'tronc' && S.phase !== 'title') || b === 'baixada' ? 2.30 - 1.98 : 0;
     line.step(dtT, { gain: warn ? 1 : gain, hold, mask, gate: waveGate });
+    if (darkInk) for (const t of line.texts) t.U.sweepK.value = 0;   // T-059: no thin-film sweep over ink (it read as a coloured word on sand)
     if (warn) for (const t of line.texts) { t.U.sweepK.value = 1; t.U.sweep.value = ((time0 * 0.9) % 1.6) - 0.3; }   // the warning pulses
     // the walls outside the structure: «Ayudad desde aquí» (they count at 50 %), while the structure's walls carry the invitation
     const outOn = on && structureOnly && !warn && S.phase !== 'reward' && !learnedNow && (b === 'tronc' || b === 'pom' || b === 'baixada');
@@ -555,7 +672,7 @@ export function createGuide({ THREE, TSL, room }) {
     lineOut.step(dtT, { gain, hold, mask: (w) => !inS[w], gate: waveGate });
   }
   function dispose() {
-    ringGeo.dispose(); discGeo.dispose(); tileGeo.dispose(); handTex.dispose(); gq.dispose(); for (const G of ghosts) for (const H of G.h) H.mesh.material.dispose();
+    lensGeo.dispose(); shadowGeo.dispose(); grainGeo.dispose(); lineTex.dispose(); handTex.dispose(); gq.dispose(); for (const G of ghosts) for (const H of G.h) H.mesh.material.dispose();
     for (const T of targets) T.group.traverse((o) => { if (o.material) o.material.dispose(); });
     for (const s of [card, line, lineOut]) s.dispose(); fineText.dispose(); fineObj.traverse((o) => { if (o.material) { o.material.dispose(); o.geometry.dispose(); } });
   }

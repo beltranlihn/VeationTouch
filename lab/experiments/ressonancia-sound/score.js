@@ -28,7 +28,7 @@ export const STRUCTURES = ['', 'pilar', 'torre', 'tres', 'quatre'];
 export const TIMES = {                       // seconds
   linger: 2,                                 // a wall stays "held" this long after its last hand (the sensor drops hands; people shift)
   start: 3, abandon: 45, dup: 0.1,   // dup: a new stroke within this (m) of a live one on its wall is the same hand (folded, 24-11)
-  reveal: { down: 0.035, downMax: 3, hold: 0.02, holdMax: 4, rate: 0.055, soloRate: 0.08, bank: 0.2, idle: 6, decay: 60, keep: 25, settle: 1, button: 0.55 },   // the wait's button: see step()
+  reveal: { down: 0.035, downMax: 3, hold: 0.02, holdMax: 4, rate: 0.055, soloRate: 0.08, bank: 0.2, move: 0.03, idle: 6, decay: 60, keep: 25, settle: 1, button: 0.55 },   // the wait's button: see step()
   intro: 70,
   title: 6,                                  // the chapter card
   brasa: { min: 45, target: 60, max: 75, reward: 7, spark: 12, gap: 0.8, slower: 0.2, early: 0.5, late: 0.7, pause: 3.2, lead: 1.0,   // 24-11: the call (tok… tok… TOK; window −early/+late around the TOK)
@@ -271,7 +271,7 @@ export function createScore(nWalls, opt = {}) {
    *  (heights read 0, nothing rises). */
   function step(dt, hands) {
     S.clock += dt; S.t += dt; S.tp += dt; if (S.block !== 'wait') S.passT += dt;
-    const now = S.clock, seen = new Set(); let downs = 0, maxSpeed = 0;
+    const now = S.clock, seen = new Set(); let downs = 0, maxSpeed = 0, moving = 0;
     onButton = 0; downsW.fill(0); landed.length = 0; if (S.lamps.length) S.lamps = [];
     S.count.fill(0);
     hands = fold(hands, now);
@@ -281,6 +281,7 @@ export function createScore(nWalls, opt = {}) {
       if ((h.dx || 0) <= 0.15) seenL[h.wall] = now; if ((h.dx || 0) >= -0.15) seenR[h.wall] = now;
       if (!strokes.has(h.stroke)) { lastDown[h.wall] = now; downs++; downsW[h.wall]++; downTimes.push(now); landed.push(h); }
       if (h.speed > maxSpeed) maxSpeed = h.speed;
+      moving += Math.min(1, (h.speed || 0) / 0.3);   // T-061: a hand that strokes without lifting also earns the reveal (the «painter»)
       if (Math.abs(h.dx || 0) <= T.reveal.button) onButton++;
     }
     // heights, spread and stillness (step 0)
@@ -338,7 +339,7 @@ export function createScore(nWalls, opt = {}) {
       // a big group in no less than ~18 s (time to see the room).
       const R = T.reveal;
       if (S.reveal < 1) {
-        revealBank = Math.min(R.bank, revealBank + R.down * Math.min(R.downMax, downs) + dt * R.hold * Math.min(R.holdMax, S.hands));
+        revealBank = Math.min(R.bank, revealBank + R.down * Math.min(R.downMax, downs) + dt * R.hold * Math.min(R.holdMax, S.hands) + dt * (R.move || 0) * Math.min(R.holdMax, moving));
         const pay = Math.min(revealBank, (S.solo ? R.soloRate : R.rate) * dt); revealBank -= pay;
         S.reveal = Math.min(1, S.reveal + pay);
         if (emptyFor >= R.idle) S.reveal = Math.max(0, S.reveal - dt / R.decay);

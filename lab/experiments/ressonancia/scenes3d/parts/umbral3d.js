@@ -1,31 +1,38 @@
 // Ressonància — «umbral», the threshold (block 'wait'): the first impression and the showcase of the room. See ../PARTS.md.
 //
-// THE SERPENTINE (the hero): one continuous wall of real TRENCADÍS that winds round the whole room, 5–10 m from the eye — Gaudí's bench
-// become a wave: it comes near and goes away, leans over the public like a wave about to break, is pierced by parabolic ARCHES (the
-// thresholds: the deep world is seen through them) and dissolves at its crest into shards that float away. ~2,500 broken pieces, no two
-// alike (a Voronoi mosaic on the surface: tiny chips, middle pieces and plate-sized "mothers", 1 : 3 : 9), each a thick bevelled shard
-// of red clay seated on a dark bed with a wide joint. Every piece has two faces: at rest BONE, GRAPHITE or MIRROR; behind, the GLAZE
-// (cobalt, turquoise, ochre, blood, rose, in fields and medallions). COLOUR ONLY APPEARS WHERE THE PUBLIC PLAYS — and it stays a while:
-// the room is coloured by the group, and that colour is the reveal.
-//   a hand lands     its pieces flip at once (< 1 frame), a WAVE runs out from it over the mosaic (each piece peels off its bed, turns in
-//                    the air showing its glaze, and seats again), and the nearest pieces are KNOCKED OUT: they fall, bounce, break, skate
-//                    on the black mirror of the floor, and later fly back to their place (what breaks is put back together);
+// T-058 (25-11, ENT) «ARENA Y VIDRIO»: from night to a soft sand noon (lab/estudio/ARTE-ENTRADA.md). A sanctuary of light ceramic.
+// T-058c (Vicente, live): THE SHELL (the hero, was the serpentine): one continuous wall of FINE TRENCADÍS that follows the room 0.6 m
+// behind every wall (a rounded rectangle; its foot meets the sand ~0.2 m above each wall's bottom edge), rises straight to 2.3 m and leans
+// in as a vault, so the walls show mosaic from bottom to top and the sky only through the four PORTALS (frontal, from the floor: ARC's
+// umbral3d/arches.js, mounted 0.12–0.52 m behind each wall; DOOR_A 0.8 / H 1.95 / P 2.2). It no longer turns. ~11,300 broken pieces, no two
+// alike (a Voronoi mosaic on the surface, sized by height: ~6 cm on the wall in the band the hands reach, ~10 cm above 2.2 m, ~15 cm in the vault, 96 rosette
+// "mothers" of 12–18 cm, 40 % of them round medallions with the fine pieces fitted round them, ref 02), each a thin bevelled shard on
+// a continuous bone-white grout. Every piece has two faces: at rest LIGHT CERAMIC in patches of 0.4–1.2 m (bone, cream, sand 70 %;
+// pale aqua, mist blue, sage, clay 30 %); behind, the saturated GLAZE (cobalt, turquoise, sea green,
+// amber, orange, coral — ref 01, in rings round each rosette's heart). COLOUR ONLY APPEARS WHERE THE PUBLIC PLAYS, and stays a while.
+//   a hand lands     its pieces flip at once (< 1 frame), a WAVE runs out from it over the mosaic (each piece lifts 3–6 cm, turns
+//                    showing its glaze and seats again), and the nearest pieces are KNOCKED OUT in a spiral: they fall, bounce, break,
+//                    skate on the sand, and later fly back to their place (what breaks is put back together);
 //   a hand moves     it paints: the pieces under it turn to colour;
-//   a hand stays     (0.6 s) the CASCADE: the whole column above it lets go in a chain, from the hand up to the crest;
-//   several hands    their waves cross: where two fronts meet the pieces spin and their edges LIGHT — the crossings draw moving lines of
-//                    light on the wall (interference: the title of the work);
-//   reveal = 1       RESONANCE: the whole room settles into a Chladni figure — lines of white pieces with lit edges on a field of colour.
-// Nearer (0.3–0.9 m behind each wall): a few MOBILES of big pieces on threads (mirror, bone, glass; 0.4–0.85 m) that swing, turn, fall
-// and break under the hands — the parallax layer. Farther (13–45 m): arcs of big mirror shards, glints, haze, a thread of embers.
-// The room moves: the serpentine turns round the public (1°/s — in six minutes the whole wall has passed by every visitor), the far
-// world turns the other way and breathes; a lighthouse beam goes round the room every 24 s and its glints cross the four walls.
-// THE REVEAL (score.js, block 'wait': state.reveal 0..1, state.start 0..1): small glazed tiles fly from the dark and lock into a ring
-// round the centre of every wall at 1.25 m (where GUI draws the start button); start turns and lights the ring; 'start' blows it apart
-// and sends the biggest wave. Alone (res-3d-study) the part runs its own copy of the score from the hands (params reveal/start = -1).
+//   a hand stays     (0.6 s) the CASCADE: the column above it lets go in a chain, from the hand up towards the crest;
+//   several hands    their waves cross: where two fronts meet the pieces spin and their bevels catch a warm light (interference);
+//   reveal = 1       RESONANCE: the whole room settles into a Chladni figure — rings of light pieces on a field of colour.
+// The room moves: the serpentine turns round the public (1°/s), the far world (sand sky, dunes and terraces, a few far vaults in the
+// haze — no stars, no embers) turns the other way and breathes. The floor is sand with terraces and a contact shadow under the wave.
+// The mobiles on threads and the far arcs of shards are OFF (ART: nothing floats, no vertical lines; MOBILES = true brings them back).
+// THE REVEAL (score.js, block 'wait': state.reveal 0..1, state.start 0..1): a MEDALLION FRAME of two rows of contiguous ~3 cm tiles
+// (r 0.31–0.39 m, flush, bone / cream / old gold on a grout bed) flies in round the centre of every wall at 1.25 m, round GUI's glass
+// button (r ≤ 0.28), inside the door; start turns its rows against each other and lights it a little; 'start' blows it apart.
+// T-058b (ART «CASI»): the key light is an overhead spot (14 m above the centre: ~33° grazing on every wall), the grout sits just under
+// the faces, ±8 % value per piece; restraint — a touch colours ~1.1–1.4 m round the hand inside its rosette, 30 % of the pieces stay
+// pastel, colour lasts 6–8 s; the resonance colours a third of its rings (≈ 23 % of the wall); idle play is a soft wave only (no colour,
+// no fall, nothing off the wall before anyone touches); the door is a near-parabola (base 1.45 m, height 1.95 m).
+// Alone (res-3d-study) the part runs its own copy of the score from the hands (params reveal/start = -1).
 // Sound: physical impacts go to the sound piece on BroadcastChannel('ressonancia') as
 //   { type: 'fx', fx: 'impact', wall, u (0..1 along the wall), strength (0..1), mat ('ceramic'|'chrome'|'glass'), kind ('hit'|'floor'|'break'|'hook') }
-// (≤ 16 a second). How it is drawn: the mosaic is ONE mesh; a small float texture carries each piece's turn, lift, light and scale
-// (springs and waves on the CPU, the pose in the vertex stage). Its mirror image under a black gloss is the floor's reflection.
+// (≤ 16 a second). How it is drawn: the mosaic is ONE mesh (position, normal, id/face per vertex; ~0.85 M vertices); a static float
+// texture carries each piece's centre, axis, normal, glaze and rest colour, a live float texture its turn, lift, light and scale
+// (springs and waves on the CPU, the pose in the vertex stage). No floor reflection (was a second copy of the mosaic), no shadows.
 import { createScore } from '../../score.js';
 
 export function create(ctx) {
@@ -45,15 +52,21 @@ export function create(ctx) {
   const UP = new THREE.Vector3(0, 1, 0);
   const G = 5.4;                             // gravity, slow (0.65 g): falls read at room scale and feel dreamt
 
-  // the palette (linear): at rest bone, graphite, chrome; the glaze behind every piece — the colours of the chapters to come
-  const BONE = [0.66, 0.63, 0.57], GRAPHITE = [0.022, 0.023, 0.026], GOLD = [0.86, 0.5, 0.09];   // bone #F1ECE2 (kept under the bloom), graphite #1A1B20, gold #F6C65B
-  // the glaze behind the pieces, by FAMILIES — one per rosette, the colours of the chapters to come: [heart, first ring, outer ring, accent]
-  const FAMILY = [
-    [[0.95, 0.14, 0.014], [0.7, 0.03, 0.01], [0.3, 0.012, 0.006], [0.95, 0.84, 0.55]],        // brasa: orange, red, dark red · spark
-    [[0.95, 0.15, 0.095], [0.027, 0.62, 0.53], [0.004, 0.115, 0.133], [0.86, 0.68, 0.55]],    // pinya: coral, turquoise, teal · bone
-    [[0.77, 0.37, 0.024], [0.015, 0.061, 0.43], [0.55, 0.12, 0.042], [0.86, 0.84, 0.78]],     // tronc: ochre, cobalt, terracotta · white
-    [[0.95, 0.6, 0.18], [0.82, 0.86, 0.96], [0.004, 0.012, 0.09], [0.95, 0.6, 0.18]],         // pom: gold, white, deep blue
-    [[0.92, 0.56, 0.36], [0.9, 0.45, 0.54], [0.46, 0.36, 0.78], [0.26, 0.72, 0.62]],          // dawn: peach, rose, lilac · aquamarine
+  // the palette (linear). T-058 «arena y vidrio»: at rest LIGHT CERAMIC — bone, cream, sand, pale aqua, mist blue, sage, clay (refs 07–10), a
+  // glossy glaze; behind every piece the SATURATED glaze (ref 01: cobalt, turquoise, ochre, orange, coral), shown only where the public plays
+  const BONE = [0.905, 0.847, 0.753], GRAPHITE = [0.716, 0.546, 0.352], GOLD = [0.584, 0.371, 0.107];   // bone #F4EDE1, (the darkest rest tone, now) sand #DCC3A0, old gold #C9A45C
+  const PASTEL = [   // ART (ARTE-ENTRADA.md a): bone 30 % · cream 22 · sand 18 · pale aqua 12 · mist blue 10 · sage 5 · clay rose 3
+    [0.905, 0.847, 0.753], [0.831, 0.716, 0.539], [0.716, 0.546, 0.352], [0.624, 0.768, 0.687], [0.584, 0.687, 0.776], [0.558, 0.624, 0.423], [0.791, 0.584, 0.503],
+  ];
+  // the glaze behind the pieces (ref 01; ART: cobalt #1F3FA8, turquoise #1FA39A, sea green #35B88A, amber #E0A22B, orange #E8662A, coral #E5574B;
+  // cold 60 %), by FAMILIES — one per rosette: [heart, first ring, outer ring, accent]
+  const C_COB = [0.02, 0.065, 0.479], C_TUR = [0.014, 0.366, 0.323], C_GRN = [0.036, 0.479, 0.254], C_AMB = [0.745, 0.361, 0.024], C_ORA = [0.807, 0.133, 0.023], C_COR = [0.784, 0.095, 0.07];
+  const FAMILY = [   // T-058b (ART): cobalt #2748B8; over the five families ~67 % cool, ~13 % amber, ~20 % orange + coral
+    [C_COR, C_TUR, C_AMB, C_COB],
+    [C_TUR, C_COB, C_GRN, C_AMB],
+    [C_AMB, C_COB, C_TUR, C_COR],
+    [C_ORA, C_GRN, C_COB, C_AMB],
+    [C_GRN, C_TUR, C_COR, C_COB],
   ];
   const GLAZE = FAMILY.map((f) => f[1]);
 
@@ -65,10 +78,10 @@ export function create(ctx) {
   try {
     const { Fn: F_, normalize: nz, positionLocal: pl, vec3: v3, mix: mx, smoothstep: ss, exp: ex } = TSL;
     const es = new THREE.Scene(), sky = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide });
-    sky.colorNode = F_(() => { const y = nz(pl).y; return mx(v3(0.01, 0.01, 0.012), v3(0.085, 0.092, 0.105), ss(-0.1, 0.9, y)).add(v3(0.8, 0.26, 0.07).mul(ex(y.add(0.02).div(0.05).pow(2).negate())).mul(0.45)); })();
+    sky.colorNode = F_(() => { const y = nz(pl).y; return mx(v3(0.55, 0.42, 0.28), v3(1.05, 0.95, 0.82), ss(-0.15, 0.7, y)).add(v3(0.9, 0.72, 0.5).mul(ex(y.div(0.12).pow(2).negate())).mul(0.25)); })();   // T-058: a sand noon (cream above, warm sand below)
     es.add(new THREE.Mesh(new THREE.SphereGeometry(50, 48, 24), sky));
     const pg = new THREE.PlaneGeometry(1, 1);
-    for (const [col, a, y, w, h] of [[[2.6, 2.7, 2.9], 0.3, 22, 26, 6], [[1.5, 1.7, 2.1], 3.4, 16, 16, 4], [[2.4, 2.2, 1.9], 1.7, 8, 6, 7], [[1.7, 1.85, 2.2], 4.6, 7, 5, 8], [[1.5, 0.9, 0.5], 5.6, 2.5, 8, 2]]) {
+    for (const [col, a, y, w, h] of [[[4.0, 3.7, 3.2], 0.95, 26, 14, 10], [[1.6, 1.55, 1.45], 3.4, 16, 20, 6], [[1.3, 1.35, 1.45], 5.2, 12, 14, 6]]) {   // a soft sun, two pale panels of sky
       const m = new THREE.Mesh(pg, new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(...col), side: THREE.DoubleSide }));
       m.position.set(Math.cos(a) * 30, y, Math.sin(a) * 30); m.scale.set(w, h, 1); m.lookAt(0, y, 0); es.add(m);
     }
@@ -104,53 +117,70 @@ export function create(ctx) {
     return t;
   })();
 
-  // =========================================================================================== THE SERPENTINE
-  // The surface, in its own parameters: cu = metres along (θ = cu / RM, closed: 0..LL), cy = metres up.
-  const RM = 7.5, LL = Math.PI * 2 * RM, YTOP = 8.8;
+  // =========================================================================================== THE SHELL (T-058c; was the serpentine)
+  // Vicente (25-11): the mosaic starts low, right behind each wall, and covers the walls upward completely, leaning in as a vault. The
+  // surface follows the room: a rounded rectangle OFF m behind the walls (its foot meets the sand ~0.2 m above each wall's bottom edge),
+  // straight up to YS, then curving in (a circle of radius RV) — the sky shows only through the four portals. Fixed to the room (no turn).
+  // Its own parameters: cu = metres along (θ = cu / RM, closed: 0..LL), cy = v = metres along the profile from the foot (= height up to YS).
+  const RM = 4.6, LL = Math.PI * 2 * RM, YTOP = 4.4, OFF = 0.6, YS = 2.3, RV = 3.0;
   const wrapU = (d) => d - Math.round(d / LL) * LL;
-  function surfR(th, y) {
-    const R = 7.7 + 1.45 * Math.sin(3 * th + 0.6) + 0.65 * Math.sin(5 * th + 2.0) + 0.3 * Math.sin(8 * th + 4.0);
-    const lean = 0.45 + 1.15 * Math.sin(2 * th + 1.0), k = y / 6;
-    return Math.max(5.35, R - lean * k * k);
+  const WK = walls.map((w) => ({ nx: w.normal.x, nz: w.normal.z, k: -((w.centre.x - eye.x) * w.normal.x + (w.centre.z - eye.z) * w.normal.z) }));
+  const HMAX = Math.max(...walls.map((w) => w.height));
+  function wallD(th) {                         // the distance from the eye to the walls along θ, corners rounded (a p-norm of the facing walls)
+    const ux = Math.cos(th), uz = Math.sin(th); let a = 0;
+    for (const q of WK) { const dn = -(ux * q.nx + uz * q.nz); if (dn > 0) a += (dn / q.k) ** 8; }
+    return a > 0 ? a ** (-1 / 8) : 5;
   }
-  const surfP = (cu, y, out) => { const th = cu / RM, r = surfR(th, y); return out.set(r * Math.cos(th), y, r * Math.sin(th)); };
+  const yOf = (v) => (v <= YS ? v : YS + RV * Math.sin(Math.min(1.5, (v - YS) / RV)));
+  const vOf = (y) => (y <= YS ? y : YS + RV * Math.asin(Math.min(1, (y - YS) / RV)));
+  function surfR(th, v) { return wallD(th) + OFF - (v <= YS ? 0 : RV * (1 - Math.cos(Math.min(1.5, (v - YS) / RV)))); }
+  const surfP = (cu, v, out) => { const th = cu / RM, r = surfR(th, v); return out.set(r * Math.cos(th), yOf(v), r * Math.sin(th)); };
   const ARCH = [];                          // (no openings baked in the mosaic: the thresholds are cut where the walls' centres look, see doorK)
-  function archF(cu, y) {                     // < 0 inside an arch (a parabola: Gaudí's arch); small and positive on its rim
-    let f = 9;
-    for (const A of ARCH) { const du = wrapU(cu - A.cu); if (Math.abs(du) < A.a + 0.6) f = Math.min(f, y - A.h * (1 - (du / A.a) * (du / A.a))); }
-    return f;
-  }
-  function crest(cu) {
-    const th = cu / RM;
-    let H = 4.7 + 1.7 * Math.sin(2 * th + 0.3) + 0.9 * Math.sin(5 * th + 1.1) + 0.3 * Math.sin(13 * th + 0.5);
-    for (const A of ARCH) { const du = wrapU(cu - A.cu); H = Math.max(H, (A.h + 1.1) * Math.exp(-(du * du) / (A.a * A.a * 2.2))); }
-    return H;
-  }
+  function archF() { return 9; }
+  function crest() { return YTOP; }
+  const DOOR_A = 0.8, DOOR_H = 1.95, DOOR_P = 2.2;   // T-058c: half base span, height, shape — y = H·(1 − |x/A|^P), metres ON THE WALL: a near-parabola, base 1.6 m, apex the narrowest; the start ring (r 0.31–0.39 at 1.25 m) sits inside with ≥ 7 cm to the jambs; the guide's words go above
 
-  // ---- the mosaic: Poisson sites of three sizes → Voronoi cells → shards
+  // ---- the mosaic (T-058): FINE trencadís. Poisson sites whose size follows the height (fine in the band the hands reach, larger above,
+  // where nobody reaches) → Voronoi cells → thin bevelled shards. Measured on the wall (the serpentine is ~2.2× farther than the wall):
+  // ~3–5 cm pieces in the hand band, 8–12 cm above, a few rosette "mothers" (some ROUND medallions, ref 02) of 12–18 cm.
   const cells = [];
   let heroGeo;
+  const BS = 0.25, BW = Math.ceil(LL / BS), BH = Math.ceil(YTOP / BS) + 1, RIMAX = 0.3, PT = 5;
   {
-    const BW = Math.ceil(LL), BH = Math.ceil(YTOP) + 1, bucket = Array.from({ length: BW * BH }, () => []);
-    const bOf = (cu, y) => (Math.min(BH - 1, Math.max(0, Math.floor(y))) * BW + ((Math.floor((cu / LL) * BW) % BW) + BW) % BW);
+    const bucket = Array.from({ length: BW * BH }, () => []);
+    const bxOf = (cu) => ((Math.floor((cu / LL) * BW) % BW) + BW) % BW, byOf = (y) => Math.min(BH - 1, Math.max(0, Math.floor(y / BS)));
     const sites = [];
     const fits = (cu, y, ri) => {
-      const bx = Math.floor((cu / LL) * BW), by = Math.floor(y), reach = Math.ceil((ri + 1.6) / 2) + 1;
+      const bx = Math.floor((cu / LL) * BW), by = byOf(y), reach = Math.ceil((ri + RIMAX) / 2 / BS);
       for (let j = Math.max(0, by - reach); j <= Math.min(BH - 1, by + reach); j++) for (let i = bx - reach; i <= bx + reach; i++) {
         for (const k of bucket[j * BW + ((i % BW) + BW) % BW]) { const s = sites[k], du = wrapU(cu - s.cu), dy = y - s.y, m = (ri + s.ri) / 2; if (du * du + dy * dy < m * m) return false; }
       }
       return true;
     };
-    const put = (cu, y, ri, mother) => { sites.push({ cu, y, ri, mother }); bucket[bOf(cu, y)].push(sites.length - 1); };
-    for (let t = 0, n = 0; t < 4000 && n < 44; t++) {     // the mothers first: plate-sized pieces, inside the wall, clear of the arches
-      const cu = rr(0, LL), y = rr(0.9, 5.6);
-      if (y > crest(cu) - 0.8 || archF(cu, y) < 0.7 || !fits(cu, y, 2.3)) continue;
-      put(cu, y, rr(1.25, 1.65), true); n++;
+    const put = (cu, y, ri, mother) => { const s = { cu, y, ri, mother, round: false, Rm: 0 }; sites.push(s); bucket[byOf(y) * BW + bxOf(cu)].push(sites.length - 1); return s; };
+    const seen = (cu, v) => { const th = cu / RM; return (yOf(v) - eye.y) / surfR(th, v) < (HMAX + 0.12 - eye.y) / wallD(th); };   // above what the walls show: no piece
+    const inDoor = (cu, v) => {                                                        // deep inside a portal (the door only ever widens): no piece
+      const th = cu / RM, r = surfR(th, v), px = r * Math.cos(th) - eye.x, py = yOf(v) - eye.y, pz = r * Math.sin(th) - eye.z;
+      for (const w of walls) {
+        const dn = px * w.normal.x + py * w.normal.y + pz * w.normal.z; if (dn > -1e-4) continue;
+        const t = ((w.centre.x - eye.x) * w.normal.x + (w.centre.y - eye.y) * w.normal.y + (w.centre.z - eye.z) * w.normal.z) / dn; if (t <= 0 || t > 1) continue;
+        const x = Math.abs((eye.x + px * t - w.centre.x) * w.right.x + (eye.z + pz * t - w.centre.z) * w.right.z), y = eye.y + py * t;
+        if (x < DOOR_A - 0.1 && y < DOOR_H * (1 - (x / DOOR_A) ** DOOR_P) - 0.1) return true;
+      }
+      return false;
+    };
+    for (let t = 0, n = 0; t < 6000 && n < 96; t++) {     // the mothers first (rosette hearts), 40 % of them round medallions
+      const cu = rr(0, LL), y = rr(0.35, 3.2);
+      if (!seen(cu, y) || inDoor(cu, y) || !fits(cu, y, 0.5)) continue;
+      const s = put(cu, y, rr(0.2, 0.24), true); n++;
+      if (rnd() < 0.4) { s.round = true; s.Rm = rr(0.05, 0.065); }
     }
-    const fine = (cu, y) => 0.135 + 0.2 * (0.5 + 0.5 * Math.sin(cu * 0.42 + 1.3 * Math.sin(y * 0.6))) * (0.6 + 0.4 * Math.sin(cu * 0.13 + y * 0.9 + 2));
-    for (let t = 0; t < 320000; t++) { const cu = rr(0, LL), y = rr(0.03, YTOP), ri = fine(cu, y); if (fits(cu, y, ri)) put(cu, y, ri, false); }
+    // the size: ~0.08 m (physical) up to 2.9 m (on the wall: up to ~2.2 m), growing to ~0.2 m at the top; zones a little finer / coarser
+    const fine = (cu, v) => { const y = yOf(v); return (0.06 + 0.05 * smooth(1.95, 2.6, y) + 0.06 * smooth(2.9, 3.9, v)) * (0.9 + 0.2 * (0.5 + 0.5 * Math.sin(cu * (4 / RM) + 1.3 * Math.sin(v * 0.7)))); };   // T-058c: ~6 cm on the wall in the hands' band, ~10 cm above 2.2 m, ~15 cm in the vault
+    for (let t = 0; t < 600000 && sites.length < 12600; t++) { const cu = rr(0, LL), y = rr(0.0, YTOP); if (!seen(cu, y) || inDoor(cu, y)) continue; const ri = fine(cu, y); if (fits(cu, y, ri)) put(cu, y, ri, false); }
 
-    // Voronoi: clip a big octagon round each site by the bisectors of its neighbours (periodic in cu)
+    // Voronoi: clip an octagon round each site by the bisectors of its neighbours (periodic in cu); against a round medallion the
+    // neighbour grows up to the medallion's rim (a tangent cut), so the fine pieces fit round it as in ref 02
     const clip = (poly, mx, my, nx, ny) => {     // keep the side where (p − m)·n ≤ 0
       const out = [];
       for (let i = 0; i < poly.length; i++) {
@@ -160,31 +190,38 @@ export function create(ctx) {
       }
       return out;
     };
-    const pos = [], nor = [], aC = [], aAx = [], aN = [], aCol = [], aInf = [];
+    const pos = [], nor = [], inf = [], piece = [];
     const P0 = new THREE.Vector3(), Pu = new THREE.Vector3(), Pv = new THREE.Vector3(), Nn = new THREE.Vector3(), Tu = new THREE.Vector3(), Tv = new THREE.Vector3();
     const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), fn = new THREE.Vector3(), ax = new THREE.Vector3();
     const mothers = sites.filter((q) => q.mother); mothers.forEach((q, i) => { q.fam = i % 5; });
+    // the rest colour by PATCHES of 0.4–1.2 m (ART: 70 % sand-bone, 30 % cool pastel / clay): two smooth fields, periodic round the room
+    const fW = (cu, y) => Math.sin(cu * (17 / RM) + 1.3 * Math.sin(y * 1.9)) + 0.8 * Math.sin(y * 2.7 + cu * (7 / RM) + 2) + 0.5 * Math.sin(cu * (25 / RM) - y * 3.1);
+    const fC = (cu, y) => Math.sin(cu * (13 / RM) + 2.1 + 1.1 * Math.sin(y * 1.3 + cu * (3 / RM))) + 0.7 * Math.sin(y * 2.1 - cu * (9 / RM) + 0.4);
+    const fK = (cu, y) => Math.sin(cu * (5 / RM) + y * 0.9) + 0.6 * Math.sin(cu * (11 / RM) - y * 1.7 + 1);
     for (const s of sites) {
       const H = crest(s.cu), af = archF(s.cu, s.y);
       if (af < 0) continue;                                                             // an arch: open
       let loose = 0;
-      if (s.y > H) { if (s.mother || s.y > H + 1.9 || rnd() > 0.17 * (1 - (s.y - H) / 1.9)) continue; loose = 1; }   // T-053 (ARTE r5): the shards floating off the crest at half (was 0.34)
-      else if (!s.mother && (rnd() < 0.018 || (H - s.y < 0.45 && rnd() < 0.3))) continue;   // a missing piece; a ragged crest
+      if (s.y > H) { continue; }   // T-058b (ART): nothing off the wall at rest   // ART: (almost) nothing floats at rest
+      else if (!s.mother && (rnd() < 0.002 || (H - s.y < 0.12 && rnd() < 0.25))) continue;   // a missing piece; a ragged crest
+      const R0 = s.mother ? 0.34 : s.ri * 1.25 + 0.03;
       let poly = []; const a0 = rr(0, 6.28);
-      for (let k = 0; k < 8; k++) poly.push([Math.cos(a0 + k * 0.7854) * 1.0, Math.sin(a0 + k * 0.7854) * 1.0]);
-      const bx = Math.floor((s.cu / LL) * BW), by = Math.floor(s.y);
-      for (let j = Math.max(0, by - 3); j <= Math.min(BH - 1, by + 3) && poly.length > 2; j++) for (let i = bx - 3; i <= bx + 3; i++) {
+      for (let k = 0; k < 8; k++) poly.push([Math.cos(a0 + k * 0.7854) * R0, Math.sin(a0 + k * 0.7854) * R0]);
+      const bx = Math.floor((s.cu / LL) * BW), by = byOf(s.y), reach = Math.ceil((2 * R0) / BS), RR = 4 * R0 * R0;
+      for (let j = Math.max(0, by - reach); j <= Math.min(BH - 1, by + reach) && poly.length > 2; j++) for (let i = bx - reach; i <= bx + reach; i++) {
         for (const k of bucket[j * BW + ((i % BW) + BW) % BW]) {
           const o = sites[k]; if (o === s) continue;
-          const dx = wrapU(o.cu - s.cu), dy = o.y - s.y; if (dx * dx + dy * dy > 4.4) continue;
-          poly = clip(poly, dx / 2, dy / 2, dx, dy); if (poly.length < 3) break;
+          const dx = wrapU(o.cu - s.cu), dy = o.y - s.y, dd = dx * dx + dy * dy; if (dd > RR) continue;
+          let kk = 0.5; if (o.round) { const d = Math.sqrt(dd); kk = Math.max(0.5, (d - o.Rm - 0.005) / d); }
+          poly = clip(poly, dx * kk, dy * kk, dx, dy); if (poly.length < 3) break;
         }
       }
-      poly = clip(poly, 0, 0.012 - s.y, 0, -1);                                         // the floor
+      if (s.round) for (let k = 0; k < 18; k++) { const a = (k / 18) * Math.PI * 2; poly = poly.length > 2 ? clip(poly, Math.cos(a) * s.Rm, Math.sin(a) * s.Rm, Math.cos(a), Math.sin(a)) : poly; }
+      poly = clip(poly, 0, 0.006 - s.y, 0, -1);                                          // the floor
       if (poly.length < 3) continue;
       let area = 0, gx = 0, gy = 0;
       for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length], c = a[0] * b[1] - b[0] * a[1]; area += c; gx += (a[0] + b[0]) * c; gy += (a[1] + b[1]) * c; }
-      area /= 2; if (Math.abs(area) < 0.012) continue;
+      area /= 2; if (Math.abs(area) < 0.0005) continue;
       gx /= 6 * area; gy /= 6 * area; if (area < 0) poly.reverse();
       const cu = s.cu + gx, cy = s.y + gy;
       let rad = 0; for (const p of poly) { p[0] -= gx; p[1] -= gy; rad = Math.max(rad, Math.hypot(p[0], p[1])); }
@@ -192,29 +229,29 @@ export function create(ctx) {
       surfP(cu, cy, P0); surfP(cu + 0.05, cy, Pu); surfP(cu, cy + 0.05, Pv);
       Tu.subVectors(Pu, P0).multiplyScalar(20); Tv.subVectors(Pv, P0).multiplyScalar(20);
       Nn.crossVectors(Tu, Tv).normalize(); if (Nn.x * P0.x + Nn.z * P0.z > 0) Nn.negate();      // towards the public
-      // what it is: kind at rest (0 bone, 1 mirror, 2 graphite) and its glaze
-      const u = rnd(), vein = Math.abs(Math.sin(cu * 0.31 + 1.7 * Math.sin(cy * 0.55 + cu * 0.07)));
-      let kind = s.mother ? (u < 0.4 ? 1 : 0) : (vein < 0.06 ? 1 : u < 0.07 ? 1 : u < 0.2 ? 2 : 0);
+      // what it is: kind (0 ceramic, 1 pearl glaze, 2 old-gold glaze: a fine vein through the mosaic) — no metal (ART: the arch's gold is the only metal)
+      const u = rnd(), vein = Math.abs(Math.sin(cu * (2 / RM) * 1.25 + 1.7 * Math.sin(cy * 0.55 + cu * (1 / RM))));
+      const kind = s.mother ? (s.round ? 0 : u < 0.3 ? 1 : 0) : (u < 0.03 ? 1 : 0);   // T-058b: no gold vein (it read as dark ochre specks)
       // its rosette: the nearest mother piece; its glaze: the rosette's family, in rings round the heart
-      let ros = 0, rd = 1e9; mothers.forEach((M, k) => { const d = Math.hypot(wrapU(cu - M.cu), cy - M.y); if (d < rd) { rd = d; ros = k; } });
-      const fam = FAMILY[mothers[ros].fam], bandN = Math.floor(rd / 0.62 + rnd() * 0.3);
-      let col = s.mother ? fam[0] : rnd() < 0.08 ? fam[3] : bandN % 3 === 0 ? fam[1] : bandN % 3 === 1 ? fam[2] : fam[0];
-      if (loose) { col = rnd() < 0.5 ? BONE : GRAPHITE; kind = rnd() < 0.3 ? 1 : 0; }
-      const tone = rr(0.78, 1.12), id = cells.length, idRnd = rnd();
+      let ros = 0, rd = 1e9; mothers.forEach((M, k) => { const d = Math.hypot(wrapU(cu - M.cu), cy - M.y) * (1 + 0.22 * Math.sin(cu * 3.1 + k * 1.7) * Math.sin(cy * 2.6 + k * 0.9)); if (d < rd) { rd = d; ros = k; } });   // wavy borders between rosettes (not straight Voronoi edges)
+      const fam = FAMILY[mothers[ros].fam], bandN = Math.floor(rd / 0.42 + rnd() * 0.3);
+      let col = s.mother ? fam[0] : rnd() < 0.06 ? fam[3] : bandN % 3 === 0 ? fam[1] : bandN % 3 === 1 ? fam[2] : fam[0];
+      if (kind === 2) col = GOLD;
+      const id = cells.length, idRnd = rnd();
       const inAx = rr(-0.7, 0.7);                                                        // the axis of its turn: in the surface, near the vertical
       ax.copy(Tv).normalize().multiplyScalar(Math.cos(inAx)).addScaledVector(e1.copy(Tu).normalize(), Math.sin(inAx)).normalize();
       const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(e1.copy(Tu).normalize(), e2.crossVectors(Nn, e1).normalize(), Nn));
-      cells.push({ cu, cy, rad, loose, kind, col, ros, rd, c: P0.clone(), n: Nn.clone(), q, mother: s.mother, over: loose ? (cy - H) / 1.9 : 0, r1: idRnd, r2: rnd(), th: cu / RM });
-      // the shard: inset for the joint, thick, with a chamfer that catches the light; tilted a little (no two pieces lie alike)
-      const gap = s.mother ? 0.013 : 0.009, n = poly.length, thick = (s.mother ? 0.06 : 0.036) + rr(0, 0.018), ch = Math.min(0.016, thick * 0.4);
-      const tiltA = rr(0, 6.28), tiltK = loose ? 0 : rr(0.035, 0.08), tx = Math.cos(tiltA) * tiltK, ty = Math.sin(tiltA) * tiltK;
-      const O = poly.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.45, 1 - (gap * 1.25) / l); return [p[0] * k, p[1] * k]; });
-      const T = O.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.5, 1 - (ch * 1.2) / l); return [p[0] * k, p[1] * k]; });
+      const cell = { cu, cy, rad, loose, kind, col, ros, rd, c: P0.clone(), n: Nn.clone(), q, mother: s.mother, round: s.round, over: loose ? (cy - H) / 0.6 : 0, r1: idRnd, r2: rnd(), keep: rnd() < 0.3, th: cu / RM, ax: ax.clone(), rest: null, w: fW(cu, cy), cC: fC(cu, cy), k: fK(cu, cy) };
+      cells.push(cell);
+      // the shard: inset for the joint (grout ~8 mm physical ≈ 3–4 mm on the wall), thin (~1.5 cm), a bevel that catches the light; tilted a little
+      const gap = s.mother ? 0.005 : 0.004, n = poly.length, thick = (s.mother ? 0.024 : 0.014) + rr(0, 0.006), ch = Math.min(0.007, thick * 0.5);
+      const tiltA = rr(0, 6.28), tiltK = loose ? 0 : rr(0.02, 0.06), tx = Math.cos(tiltA) * tiltK, ty = Math.sin(tiltA) * tiltK;
+      const O = poly.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.45, 1 - gap / l); return [p[0] * k, p[1] * k]; });
+      const T = O.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.5, 1 - (ch * 1.1) / l); return [p[0] * k, p[1] * k]; });
       const W = (p, h, out) => out.copy(P0).addScaledVector(Tu, p[0]).addScaledVector(Tv, p[1]).addScaledVector(Nn, h + (h > 0.001 ? p[0] * tx + p[1] * ty : 0));
       const tri = (pa, ha, pb, hb, pc, hc, face, wantOut, dome) => {
         W(pa, ha, va); W(pb, hb, vb); W(pc, hc, vc);
-        fn.crossVectors(e1.subVectors(vb, va), e2.subVectors(vc, va)); if (fn.lengthSq() < 1e-12) return; fn.normalize();
-        // orient: the top faces the public, the back faces away, the sides face out from the centre
+        fn.crossVectors(e1.subVectors(vb, va), e2.subVectors(vc, va)); if (fn.lengthSq() < 1e-14) return; fn.normalize();
         let flip;
         if (wantOut) { e1.copy(va).add(vb).add(vc).multiplyScalar(1 / 3).sub(P0).addScaledVector(Nn, -thick * 0.5); flip = fn.dot(e1) < 0; }
         else flip = fn.dot(Nn) * (face === 1 ? -1 : 1) < 0;
@@ -222,126 +259,156 @@ export function create(ctx) {
         for (const v of [va, vb, vc]) {
           pos.push(v.x, v.y, v.z);
           if (dome && v !== va) { e1.subVectors(v, va).normalize().multiplyScalar(dome).add(fn).normalize(); nor.push(e1.x, e1.y, e1.z); } else nor.push(fn.x, fn.y, fn.z);   // a face a little domed (hand-made): the sheen slides over it
-          aC.push(P0.x, P0.y, P0.z); aAx.push(ax.x, ax.y, ax.z); aN.push(Nn.x, Nn.y, Nn.z); aCol.push(col[0] * tone, col[1] * tone, col[2] * tone); aInf.push(id, face, kind, idRnd);
+          inf.push(id, face);
         }
       };
       const Z = [0, 0];
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n;
-        tri(Z, thick, T[i], thick, T[j], thick, 0, false, kind === 1 ? 0.05 : 0.16);            // the face
-        tri(T[i], thick, O[i], thick - ch, O[j], thick - ch, 0, true); tri(T[i], thick, O[j], thick - ch, T[j], thick, 0, true);   // its chamfer
-        tri(O[i], thick - ch, O[i], 0, O[j], 0, 2, true); tri(O[i], thick - ch, O[j], 0, O[j], thick - ch, 2, true);             // the broken side (red clay)
+        tri(Z, thick, T[i], thick, T[j], thick, 0, false, s.round ? 0.3 : 0.14);          // the face (a medallion is domed)
+        tri(T[i], thick, O[i], 0, O[j], 0, 2, true); tri(T[i], thick, O[j], 0, T[j], thick, 2, true);   // the bevel down to the grout
         tri(Z, 0, O[j], 0, O[i], 0, 1, false);                                           // the back (the glaze)
       }
-      if (!loose) {                                                                      // its bed: the dark mortar, exactly on the surface
-        const B = poly.map((p) => { surfP(cu + p[0] * 1.02, cy + p[1] * 1.02, Pu); return Pu.clone().addScaledVector(Nn, -0.03); });
-        for (let i = 0; i < n; i++) {
-          const j = (i + 1) % n; va.copy(P0).addScaledVector(Nn, -0.03); vb.copy(B[i]); vc.copy(B[j]);
-          fn.crossVectors(e1.subVectors(vb, va), e2.subVectors(vc, va)).normalize(); if (fn.dot(Nn) < 0) { const t = vb.clone(); vb.copy(vc); vc.copy(t); }
-          for (const v of [va, vb, vc]) { pos.push(v.x, v.y, v.z); nor.push(Nn.x, Nn.y, Nn.z); aC.push(P0.x, P0.y - 0.03 * Nn.y, P0.z); aAx.push(0, 1, 0); aN.push(Nn.x, Nn.y, Nn.z); aCol.push(0, 0, 0); aInf.push(id, 3, 0, idRnd); }
-        }
-      }
     }
+    // the rest colours by rank (exact shares): warm field → bone 30 · cream 22 · sand 18 (of all); cool patches (30 %) → aqua 12 · mist 10 · sage 5 · clay 3
+    const NCc = cells.length, byC = cells.map((c, i) => i).sort((a, b) => cells[a].cC - cells[b].cC), coolFrom = Math.floor(NCc * 0.7);
+    const warm = byC.slice(0, coolFrom).sort((a, b) => cells[a].w - cells[b].w), cool = byC.slice(coolFrom).sort((a, b) => cells[a].k - cells[b].k);
+    warm.forEach((i, r) => { const q = r / warm.length; cells[i].rest = q < 0.30 / 0.7 ? PASTEL[0] : q < 0.52 / 0.7 ? PASTEL[1] : PASTEL[2]; });
+    cool.forEach((i, r) => { const q = r / cool.length; cells[i].rest = q < 0.4 ? PASTEL[3] : q < 0.733 ? PASTEL[4] : q < 0.9 ? PASTEL[5] : PASTEL[6]; });
+    for (const c of cells) { if (c.kind === 2) c.rest = GOLD; else if (c.kind === 1) c.rest = [0.86, 0.84, 0.8]; if (c.round) c.rest = c.r1 < 0.5 ? PASTEL[3] : PASTEL[4]; }
+    // per piece, static (a float texture, PT rows per piece): centre + rnd, turn axis + kind, normal + mother, glaze, rest
+    const TW0 = 128, TH0 = Math.max(1, Math.ceil(NCc / TW0)), pd = new Float32Array(TW0 * TH0 * PT * 4);
+    cells.forEach((c, i) => {
+      const x = i % TW0, y = Math.floor(i / TW0), tone = 0.92 + 0.16 * c.r2, hue = (c.r1 - 0.5) * 0.04;
+      const rows = [[c.c.x, c.c.y, c.c.z, c.r1], [c.ax.x, c.ax.y, c.ax.z, c.kind], [c.n.x, c.n.y, c.n.z, c.mother ? 1 : 0], [c.col[0], c.col[1], c.col[2], 0], [c.rest[0] * tone * (1 + hue), c.rest[1] * tone, c.rest[2] * tone * (1 - hue), 0]];
+      rows.forEach((r, k) => pd.set(r, ((y * PT + k) * TW0 + x) * 4));
+    });
+    var pieceTex = new THREE.DataTexture(pd, TW0, TH0 * PT, THREE.RGBAFormat, THREE.FloatType);
+    pieceTex.magFilter = pieceTex.minFilter = THREE.NearestFilter; pieceTex.generateMipmaps = false; pieceTex.needsUpdate = true;
     heroGeo = new THREE.BufferGeometry();
-    const A = (name, arr, n) => heroGeo.setAttribute(name, new THREE.BufferAttribute(new Float32Array(arr), n));
-    A('position', pos, 3); A('normal', nor, 3); A('aC', aC, 3); A('aAx', aAx, 3); A('aN', aN, 3); A('aCol', aCol, 3); A('aInf', aInf, 4);
+    heroGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3)); heroGeo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3));
+    heroGeo.setAttribute('aInf', new THREE.BufferAttribute(new Float32Array(inf), 2));
     heroGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 3, 0), 16);
   }
-  const NC = cells.length, TW = 64, TH = Math.max(1, Math.ceil(NC / TW));
+  const NC = cells.length, TW = 128, TH = Math.max(1, Math.ceil(NC / TW));
   // per piece, live: turn and its speed, colour (until when), light, gone (fallen), last crossing
+  const sleep = new Uint8Array(NC), HL2 = LL / 2, SH2 = LL * 0.37, CU = Float64Array.from(cells, (c) => c.cu), CY = Float64Array.from(cells, (c) => c.cy);
   const phi = new Float32Array(NC), vphi = new Float32Array(NC), colT = new Float32Array(NC).fill(-1), glow = new Float32Array(NC), gone = new Uint8Array(NC), resT = new Float32Array(NC).fill(-9);
-  const stData = new Uint16Array(TW * TH * 4), toH = THREE.DataUtils.toHalfFloat;
-  const stTex = new THREE.DataTexture(stData, TW, TH, THREE.RGBAFormat, THREE.HalfFloatType);
+  const stData = new Float32Array(TW * TH * 4);
+  const stTex = new THREE.DataTexture(stData, TW, TH, THREE.RGBAFormat, THREE.FloatType);
   stTex.magFilter = stTex.minFilter = THREE.NearestFilter; stTex.generateMipmaps = false; stTex.needsUpdate = true;
 
-  const { Fn, attribute, uniform, varying, textureLoad, ivec2, int, float, vec3, vec4, modelWorldMatrix, normalize, mix, step, sin, cos, cross, dot, floor, mod, exp, abs, smoothstep, max, positionLocal, normalLocal, positionWorld, instancedBufferAttribute } = TSL;
-  const uBed = uniform(1), uPush = uniform(0), uDoor = uniform(1);
+  const { Fn, attribute, uniform, varying, textureLoad, ivec2, int, float, vec3, vec4, modelWorldMatrix, normalize, mix, step, sin, cos, cross, dot, floor, mod, exp, abs, smoothstep, max, positionLocal, normalLocal, positionWorld, instancedBufferAttribute, fract } = TSL;
+  const uBed = uniform(1), uPush = uniform(0), uDoor = uniform(1), PUSH = 1.4;   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
   // THE THRESHOLDS: at the centre of every wall the mosaic opens in a tall arch (Gaudí's: straight jambs, a pointed round head) — cut
   // where the wall LOOKS, not in the mosaic: the serpentine turns and its pieces fold away as they reach the door and grow back past it.
-  const DOOR_A = 0.9, DOOR_H = 1.95, DOOR_P = 4.5;   // half width, height (the keystone: a door at human scale) and roundness — y = H·(1 − |x/A|^P), metres ON THE WALL (the start ring, r 0.42 at 1.25 m, floats inside; the guide's words go above, as a lintel)
+  // (DOOR_A / DOOR_H / DOOR_P: see THE SHELL above; T-058b had A 0.725: half base span, height, shape — y = H·(1 − |x/A|^P), metres ON THE WALL: a near-catenary (P 2 = a parabola), base 1.45 m, apex the narrowest (was 0.9 / 4.5: a flat lintel). The start ring (r 0.31–0.39 at 1.25 m) sits inside; the guide's words go above
   const E3 = vec3(eye.x, eye.y, eye.z);
   function doorK(wc) {                        // 1 = there, 0 = inside a door (wc: the piece's centre in the world)
     let k = float(1);
+    const jit = fract(sin(dot(floor(wc.mul(9)), vec3(12.9898, 78.233, 37.719))).mul(43758.5453)).sub(0.5).mul(0.24).mul(uPush.div(PUSH));   // QA: on 'start' the widening door frays piece by piece (±0.12 m), not a cardboard cut
     for (const w of walls) {
       const d = wc.sub(E3), dn = dot(d, vec3(w.normal.x, w.normal.y, w.normal.z));
       const t = float((w.centre.x - eye.x) * w.normal.x + (w.centre.y - eye.y) * w.normal.y + (w.centre.z - eye.z) * w.normal.z).div(dn.min(-0.0001));
       const hp = E3.add(d.mul(t));
-      const x = abs(dot(hp.sub(vec3(w.centre.x, w.centre.y, w.centre.z)), vec3(w.right.x, w.right.y, w.right.z))).div(uDoor), y = hp.y.div(uDoor);
+      const x = abs(dot(hp.sub(vec3(w.centre.x, w.centre.y, w.centre.z)), vec3(w.right.x, w.right.y, w.right.z))).add(jit).div(uDoor), y = hp.y.div(uDoor);
       const edge = y.sub(float(DOOR_H).mul(float(1).sub(x.div(DOOR_A).min(1).pow(DOOR_P))));
       k = k.mul(max(max(smoothstep(-0.03, 0.2, edge), step(DOOR_A, x)), step(-0.0001, dn)));
     }
     return k;
   }
-  function heroMaterial(reflection) {
-    const m = new THREE.MeshPhysicalNodeMaterial({ envMap: env, envMapIntensity: reflection ? 0.35 : 0.7 });
-    const aC_ = attribute('aC', 'vec3'), aAx_ = attribute('aAx', 'vec3'), aN_ = attribute('aN', 'vec3'), aCol_ = attribute('aCol', 'vec3'), aInf_ = attribute('aInf', 'vec4');
-    const st = textureLoad(stTex, ivec2(int(mod(aInf_.x, TW)), int(floor(aInf_.x.div(TW)))));      // turn, lift, light, scale
-    const bed = step(2.5, aInf_.y);
-    const rotA = (v, a, c, s) => v.mul(c).add(cross(a, v).mul(s)).add(a.mul(dot(a, v)).mul(float(1).sub(c)));
-    m.positionNode = Fn(() => {
-      const ang = st.x.mul(float(1).sub(bed)), c = cos(ang), s = sin(ang);
-      const wc0 = modelWorldMatrix.mul(vec4(aC_, 1)).xyz, wc = reflection ? vec3(wc0.x, wc0.y.negate(), wc0.z) : wc0;
-      const local = positionLocal.sub(aC_).mul(mix(st.w, uBed, bed)).mul(doorK(wc));
-      normalLocal.assign(rotA(normalLocal, aAx_, c, s));
-      // 'start': the world closes in round the eye — the four doors come to the walls and pass them
-      const inward = normalize(vec3(aC_.x, 0, aC_.z)).mul(uPush.negate());
-      return aC_.add(rotA(local, aAx_, c, s)).add(aN_.mul(st.y.mul(float(1).sub(bed)))).add(inward);
-    })();
-    const face = aInf_.y, kind = aInf_.z, r = aInf_.w;
-    const top = float(1).sub(step(0.5, face)), back = step(0.5, face).mul(float(1).sub(step(1.5, face))), side = step(1.5, face).mul(float(1).sub(step(2.5, face)));
-    const kMir = step(0.5, kind).mul(float(1).sub(step(1.5, kind))), kGra = step(1.5, kind);
-    const bone = vec3(...BONE).mul(r.mul(0.42).add(0.74));
-    const restCol = mix(mix(bone, vec3(0.93, 0.94, 0.96), kMir), vec3(...GRAPHITE), kGra);
-    // a piece turns a WHOLE turn to change colour (so it seats again in its own outline): its two faces swap what they show at the
-    // half turn, when the public sees the other one. kc = 1: the face shows the glaze
-    const packed = varying(st.z), kc = step(6, packed), g = packed.sub(kc.mul(8));
-    const topCol = mix(restCol, aCol_, kc), backCol = mix(aCol_, restCol, kc);
-    const topMir = kMir.mul(float(1).sub(kc)), backMir = kMir.mul(kc);
-    // the quiet zones of every wall (art bible §4): behind the guide's words (±1.6 m × 1.75–2.2 m) and round the button (±0.9 m ×
-    // 0.9–1.6 m) the mosaic stays in half shadow — a soft shade round the threshold, on whichever wall this fragment is seen
+  // the quiet zones of every wall (art bible §4): behind the guide's words (±1.6 m × 1.75–2.2 m) and round the button (±0.9 m × 0.9–1.6 m)
+  function quietOf(p) {
     let quiet = float(0);
-    if (!reflection) for (const w of walls) {
-      const d = positionWorld.sub(E3), dn = dot(d, vec3(w.normal.x, w.normal.y, w.normal.z));
+    for (const w of walls) {
+      const d = p.sub(E3), dn = dot(d, vec3(w.normal.x, w.normal.y, w.normal.z));
       const t = float((w.centre.x - eye.x) * w.normal.x + (w.centre.y - eye.y) * w.normal.y + (w.centre.z - eye.z) * w.normal.z).div(dn.min(-0.0001));
       const hp = E3.add(d.mul(t)), x = abs(dot(hp.sub(vec3(w.centre.x, w.centre.y, w.centre.z)), vec3(w.right.x, w.right.y, w.right.z))), y = hp.y;
-      const words = smoothstep(2.2, 1.6, x).mul(smoothstep(1.6, 1.85, y)).mul(smoothstep(2.7, 2.4, y));   // the words: a lintel inscription at 2.12 m (also fine at 1.75–2.2)
+      const words = smoothstep(2.2, 1.6, x).mul(smoothstep(1.6, 1.85, y)).mul(smoothstep(2.7, 2.4, y));
       const button = smoothstep(1.35, 0.9, x).mul(smoothstep(0.6, 0.9, y)).mul(smoothstep(1.9, 1.6, y));
       quiet = max(quiet, max(words, button).mul(step(dn, -0.0001)));
     }
-    const dim = float(1).sub(quiet.mul(0.6)).mul(mix(float(0.75), float(1), kc));   // T-053 (ARTE r5): the mosaic at rest ×0.75 (the played colour stays full)
-    const fade = reflection ? exp(positionWorld.y.mul(0.42)).mul(0.6) : float(1);
-    m.colorNode = topCol.mul(top).add(backCol.mul(back)).add(vec3(0.42, 0.15, 0.065).mul(side)).add(vec3(0.042, 0.037, 0.032).mul(bed)).mul(dim).mul(fade);
-    m.metalnessNode = top.mul(topMir).add(back.mul(backMir));
-    m.roughnessNode = top.mul(mix(mix(float(0.28), float(0.2), kc), float(0.13), topMir)).add(back.mul(mix(float(0.28), float(0.13), backMir))).add(side.mul(0.85)).add(bed.mul(0.92));
-    if (!reflection) { m.clearcoatNode = top.mul(float(1).sub(topMir)).mul(mix(float(0.22), float(1), kc)).add(back.mul(float(1).sub(backMir))); m.clearcoatRoughnessNode = float(0.045); }
-    // the light of a crossing: the broken edges light up (thin: only they bloom), iridescent; the faces barely
-    const iri = mix(mix(vec3(0.27, 0.77, 1.0), vec3(0.89, 0.38, 0.58), smoothstep(0.2, 0.55, r)), vec3(0.95, 0.68, 0.2), smoothstep(0.55, 0.9, r));
-    m.emissiveNode = iri.mul(side.mul(1.5).add(top.add(back).mul(0.04))).mul(g).add(aCol_.mul(top.mul(kc).mul(0.15))).mul(dim).mul(fade);   // + the glaze holds a little light of its own: the colour reads wherever the lighthouse is
+    return quiet;
+  }
+  const LUMW = vec3(0.2126, 0.7152, 0.0722), CALM = vec3(...PASTEL[0]);
+  const rotA = (v, a, c, s) => v.mul(c).add(cross(a, v).mul(s)).add(a.mul(dot(a, v)).mul(float(1).sub(c)));
+  function heroMaterial() {
+    const m = new THREE.MeshPhysicalNodeMaterial({ envMap: env, envMapIntensity: 0.38 });
+    const aInf_ = attribute('aInf', 'vec2'), id = aInf_.x, ix = int(mod(id, TW)), iy = int(floor(id.div(TW)));
+    const ld = (k) => textureLoad(pieceTex, ivec2(ix, iy.mul(PT).add(k)));
+    const st = textureLoad(stTex, ivec2(ix, iy));      // turn, lift, light (+8 = the glaze shows), scale
+    m.positionNode = Fn(() => {
+      const d0 = ld(0), aC_ = d0.xyz, aAx_ = ld(1).xyz, aN_ = ld(2).xyz;
+      const ang = st.x, c = cos(ang), s = sin(ang);
+      const wc = modelWorldMatrix.mul(vec4(aC_, 1)).xyz;
+      const local = positionLocal.sub(aC_).mul(st.w).mul(doorK(wc));
+      normalLocal.assign(rotA(normalLocal, aAx_, c, s));
+      const inward = normalize(vec3(aC_.x, 0, aC_.z)).mul(uPush.negate());          // 'start': the world closes in round the eye
+      return aC_.add(rotA(local, aAx_, c, s)).add(aN_.mul(st.y)).add(inward);
+    })();
+    const face = aInf_.y, vKind = varying(ld(1).w), r = varying(ld(0).w), vGl = varying(ld(3).xyz), vRest = varying(ld(4).xyz), packed = varying(st.z);
+    const top = float(1).sub(step(0.5, face)), back = step(0.5, face).mul(float(1).sub(step(1.5, face))), side = step(1.5, face);
+    const kPearl = step(0.5, vKind).mul(float(1).sub(step(1.5, vKind)));
+    // a piece turns a WHOLE turn to change colour (so it seats again in its own outline): its two faces swap what they show at the
+    // half turn, when the public sees the other one. kc = 1: the face shows the glaze
+    const kc = step(6, packed), g = packed.sub(kc.mul(8));
+    const topCol = mix(vRest, vGl, kc), backCol = mix(vGl, vRest, kc);
+    const quiet = quietOf(positionWorld);
+    const body = vec3(0.86, 0.8, 0.7);                                                  // the fired body on the bevel: light, it draws every piece
+    let col = topCol.mul(top).add(backCol.mul(back)).add(mix(topCol, body, 0.55).mul(side));
+    col = mix(col, CALM.mul(dot(col, LUMW).div(dot(CALM, LUMW)).mul(0.35).add(0.65)), quiet.mul(0.75));   // the quiet zones: only bone / cream, calm
+    m.colorNode = col;
+    const glazed = top.mul(kc).add(back.mul(float(1).sub(kc)));                          // the side showing the glaze
+    m.roughnessNode = mix(mix(float(0.3), float(0.16), glazed), float(0.2), kPearl).add(side.mul(0.25));
+    m.clearcoatNode = mix(float(0.35), float(1), glazed).mul(float(1).sub(quiet.mul(0.6))).mul(float(1).sub(side)); m.clearcoatRoughnessNode = float(0.06);
+    // the light of a crossing: the bevels light up (thin, warm-white — no neon); the glaze holds a breath of its own light (≤ 0.15)
+    m.emissiveNode = vec3(1.0, 0.92, 0.78).mul(side.mul(0.3).add(top.add(back).mul(0.03))).mul(g).add(vGl.mul(glazed.mul(0.07))).mul(float(1).sub(quiet));
     return m;
   }
-  const heroMesh = new THREE.Mesh(heroGeo, heroMaterial(false)); heroMesh.frustumCulled = false; hero.add(heroMesh);
-  const heroRefl = new THREE.Mesh(heroGeo, heroMaterial(true)); heroRefl.frustumCulled = false; heroRefl.scale.y = -1; hero.add(heroRefl);
+  const heroMesh = new THREE.Mesh(heroGeo, heroMaterial()); heroMesh.frustumCulled = false; hero.add(heroMesh);
+  // the GROUT: one continuous surface just behind the pieces, bone-white and matte (ART: #F2EBDD); it shows in the joints and where a piece
+  // has fallen; cut by the doors per pixel, it dissolves in patches as the part comes and goes
+  const groutMesh = (() => {
+    const NU = 380, NV = 48, P = new THREE.Vector3(), Q = new THREE.Vector3(), R = new THREE.Vector3(), N = new THREE.Vector3(), pos = new Float32Array((NU + 1) * (NV + 1) * 3), nor = new Float32Array(pos.length), idx = [];
+    for (let i = 0; i <= NU; i++) {
+      const cu = (i / NU) * LL, top = crest(cu) - 0.12;
+      for (let j = 0; j <= NV; j++) {
+        const y = (j / NV) * top; surfP(cu, y, P); surfP(cu + 0.05, y, Q); surfP(cu, y + 0.05, R);
+        N.crossVectors(Q.sub(P), R.sub(P)).normalize(); if (N.x * P.x + N.z * P.z > 0) N.negate();
+        const o = (i * (NV + 1) + j) * 3; P.addScaledVector(N, 0.008);   // T-058b: up to ~6 mm under the faces: the joint reads sunk, the bevels catch the light above it pos[o] = P.x; pos[o + 1] = P.y; pos[o + 2] = P.z; nor[o] = N.x; nor[o + 1] = N.y; nor[o + 2] = N.z;
+        if (i < NU && j < NV) { const a = i * (NV + 1) + j, b = a + NV + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+      }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setIndex(idx);
+    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });   // unlit: the joint is in the pieces' shade anyway (and it is cheap)
+    m.positionNode = positionLocal.add(normalize(vec3(positionLocal.x, 0, positionLocal.z)).mul(uPush.negate()));
+    const pw = positionWorld, hsh = fract(sin(dot(floor(pw.xz.mul(3.0)).add(floor(pw.y.mul(3.0))), vec3(12.9898, 78.233, 37.719).xy)).mul(43758.5453));
+    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return vec3(0.765, 0.606, 0.418).mul(0.8); })();   // #D9CFBE on screen (ACES-inverted; unlit)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; return mesh;
+  })();
+  hero.add(groutMesh);
 
   // waves on the mosaic: the idle shimmer goes round for ever; hands launch rings
   const PULSES = 20, pulses = Array.from({ length: PULSES }, () => ({ on: false, s: 0, y: 0, t0: 0, amp: 1, speed: 2.6, reach: 0, hold: 0, ros: -1 }));
   let pulseNext = 0;
+  const pa = new Int32Array(PULSES), paR = new Float32Array(PULSES), paMax = new Float32Array(PULSES), paMin2 = new Float32Array(PULSES), paAmp = new Float32Array(PULSES);
   function launch(s, y, amp, speed, reach, hold, ros = -1) { const p = pulses[pulseNext]; p.ros = ros; pulseNext = (pulseNext + 1) % PULSES; p.on = true; p.s = s; p.y = y; p.t0 = time; p.amp = amp; p.speed = speed; p.reach = reach; p.hold = hold; }
   // a point on a wall → the piece of the serpentine drawn there (the ray from the eye through the hand)
   const hit = { cu: 0, cy: 0, p: new THREE.Vector3() };
   function surfHit(pos) {
     const dx = pos.x - eye.x, dy = pos.y - eye.y, dz = pos.z - eye.z, dh = Math.hypot(dx, dz) || 1e-3, th = Math.atan2(dz, dx) + hero.rotation.y;
-    let t = RM / dh, y = eye.y;
-    for (let i = 0; i < 5; i++) { y = clamp(eye.y + t * dy, 0, YTOP); t = surfR(th, y) / dh; }
-    hit.cu = ((th * RM) % LL + LL) % LL; hit.cy = clamp(eye.y + t * dy, 0, YTOP);
-    hit.p.set(eye.x + dx * t, hit.cy, eye.z + dz * t);
+    let t = 0, v = eye.y;
+    for (let i = 0; i < 6; i++) { t = surfR(th, v) / dh; v = clamp(vOf(eye.y + t * dy), 0, YTOP); }
+    hit.cu = ((th * RM) % LL + LL) % LL; hit.cy = v;
+    hit.p.set(eye.x + dx * t, eye.y + dy * t, eye.z + dz * t);
     return hit;
   }
 
   // =========================================================================================== loose shards (instanced): mobiles, fallen pieces, far arcs
   // tile geometry: an irregular polygon, extruded thick with a rounded bevel, bent like a piece of a vase; group 0 = the face, 1 = back and sides
-  function tileGeo(n, thick, curve) {
-    const s = new THREE.Shape();
-    for (let k = 0; k < n; k++) { const a = (k / n) * Math.PI * 2 + rr(-0.3, 0.3) * (3 / n), r = rr(0.36, 0.54); const x = Math.cos(a) * r, y = Math.sin(a) * r * rr(0.7, 1); if (k) s.lineTo(x, y); else s.moveTo(x, y); }
+  function tileGeo(n, thick, curve, shapeIn = null) {
+    const s = shapeIn || new THREE.Shape();
+    if (!shapeIn) for (let k = 0; k < n; k++) { const a = (k / n) * Math.PI * 2 + rr(-0.3, 0.3) * (3 / n), r = rr(0.36, 0.54); const x = Math.cos(a) * r, y = Math.sin(a) * r * rr(0.7, 1); if (k) s.lineTo(x, y); else s.moveTo(x, y); }
     const g0 = new THREE.ExtrudeGeometry(s, { depth: thick, bevelEnabled: true, bevelThickness: thick * 0.5, bevelSize: 0.05, bevelOffset: -0.05, bevelSegments: 3, curveSegments: 1 });
     g0.center();
     const src = g0.index ? g0.toNonIndexed() : g0;
@@ -377,7 +444,9 @@ export function create(ctx) {
   const faceQ = walls.map((w) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, UP, w.normal)));
   const looseBody = () => ({ state: 0, v: new THREE.Vector3(), w: new THREE.Vector3(), flat: new THREE.Quaternion(), timer: 0, landed: false, from: new THREE.Vector3(), fromQ: new THREE.Quaternion(), spinAxis: new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).normalize() });
 
-  // ---- 0.3–0.9 m behind each wall: mobiles of big pieces on threads (the layer of parallax; what the hand hits directly)
+  // ---- 0.3–0.9 m behind each wall: mobiles of big pieces on threads (the layer of parallax; what the hand hits directly). T-058: OFF by
+  // default (ARTE-ENTRADA: no floating shards, no vertical lines); the code stays for a rollback (MOBILES = true)
+  const MOBILES = false;
   const band = [];
   function hanging(w, x, y, d, size, kind, mother) {
     const s = shard('band', kind, size);
@@ -391,7 +460,7 @@ export function create(ctx) {
     band.push(s);
   }
   const motherKind = () => { const u = rnd(); return u < 0.5 ? 1 : u < 0.85 ? 0 : 2; };
-  for (const w of walls) {                    // one mobile at each side of the wall: the middle (the threshold, the guide's words ±1.6 m, the button) stays clear
+  if (MOBILES) for (const w of walls) {        // one mobile at each side of the wall (T-058: off — ART: nothing floats, no vertical threads)
     const half = w.width / 2;
     for (const side of [-1, 1]) {
       const cx = side * rr(2.62, Math.max(2.64, half - 0.62)), d0 = rr(0.45, 0.8);
@@ -407,14 +476,14 @@ export function create(ctx) {
   }
 
   // ---- the pool of fallen pieces of the serpentine (a glazed face, a mirror back)
-  const NB = 220, bodies = [];
+  const NB = 320, bodies = [];
   for (let i = 0; i < NB; i++) { const s = shard('body', 0, 0.4); Object.assign(s, looseBody(), { cell: -1 }); bodies.push(s); }
   // pieces waiting their turn to let go (the chain of a cascade)
   const QN = 200, queue = Array.from({ length: QN }, () => ({ on: false, cell: 0, at: 0, power: 1 }));
 
   // ---- 13–21 m: arcs of big shards that turn with the far world
   const mid = [];
-  for (const [R, y, n, dir, ph] of [[12.5, 1.9, 24, 1, 0.4], [16.5, 5.0, 22, -1, 2.1], [21, 8.5, 22, 1, 4.0]]) for (let i = 0; i < n; i++) {
+  if (MOBILES) for (const [R, y, n, dir, ph] of [[12.5, 1.9, 24, 1, 0.4], [16.5, 5.0, 22, -1, 2.1], [21, 8.5, 22, 1, 4.0]]) for (let i = 0; i < n; i++) {   // T-058: off with the mobiles
     const a = (i / n) * Math.PI * 2 + rr(-0.08, 0.08);
     if (Math.sin(a * 3 + ph) < -0.2) continue;
     const s = shard('mid', rnd() < 0.6 ? 1 : rnd() < 0.2 ? 2 : 0, rr(0.7, 1.9));
@@ -424,9 +493,9 @@ export function create(ctx) {
   }
 
   // ---- materials and meshes of the loose shards
-  const mirrorM = new THREE.MeshPhysicalNodeMaterial({ color: 0xf2f3f6, metalness: 1, roughness: 0.14, envMap: env, envMapIntensity: 1.0 });   // a soft mirror: the lighthouse leaves a sheen on it, not a burnt core
+  const mirrorM = new THREE.MeshStandardNodeMaterial({ color: new THREE.Color(0.86, 0.8, 0.7), metalness: 0, roughness: 0.7 });   // T-058: the back of a piece is its fired body (cream, matte) — no mirror
   function glazeMat(attr, glowU) {
-    const m = new THREE.MeshPhysicalNodeMaterial({ color: 0xffffff, roughness: 0.36, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, normalMap: crackle, normalScale: new THREE.Vector2(0.5, 0.5), envMap: env, envMapIntensity: 1.0 });
+    const m = new THREE.MeshPhysicalNodeMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0, clearcoat: 0.8, clearcoatRoughness: 0.06, normalMap: crackle, normalScale: new THREE.Vector2(0.35, 0.35), envMap: env, envMapIntensity: 0.6 });
     m.colorNode = vec3(instancedBufferAttribute(attr));
     if (glowU) m.emissiveNode = vec3(instancedBufferAttribute(attr)).mul(glowU);
     return m;
@@ -436,7 +505,7 @@ export function create(ctx) {
   const meshes = MESHDEF.map(([kind, n, thick, curve], i) => {
     const m = kind === 2 ? [glassM, glassM] : kind === 1 ? [mirrorM, mirrorM] : [glazeMat(glazeAttrs[i]), mirrorM];
     const mesh = new THREE.InstancedMesh(tileGeo(n, thick, curve), m, Math.max(1, counts[i]));
-    mesh.frustumCulled = false; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); mesh.renderOrder = kind === 2 ? 3 : 0;
+    mesh.frustumCulled = false; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); mesh.renderOrder = kind === 2 ? 3 : 0; mesh.count = counts[i];   // an unused kind draws nothing
     object.add(mesh); return mesh;
   });
   const paint = (s) => { glazeAttrs[s.mesh].setXYZ(s.idx, s.color[0], s.color[1], s.color[2]); glazeAttrs[s.mesh].needsUpdate = true; };
@@ -449,30 +518,68 @@ export function create(ctx) {
   for (let i = 0; i < CHIPS; i++) chips.push({ on: false, owner: null, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), s: 0.04, rest: false, from: new THREE.Vector3() });
 
   // threads of the mobiles (collapsed when a piece is not hanging)
-  const threadPos = new Float32Array(band.length * 6);
+  const threadPos = new Float32Array(Math.max(1, band.length) * 6);
   const threadGeo = new THREE.BufferGeometry(); threadGeo.setAttribute('position', new THREE.BufferAttribute(threadPos, 3).setUsage(THREE.DynamicDrawUsage));
   const threadMat = new THREE.LineBasicNodeMaterial({ color: new THREE.Color(0.5, 0.36, 0.25), transparent: true, opacity: 0.3, depthWrite: false });
-  const threads = new THREE.LineSegments(threadGeo, threadMat); threads.frustumCulled = false; object.add(threads);
+  const threads = new THREE.LineSegments(threadGeo, threadMat); threads.frustumCulled = false; threads.visible = band.length > 0; object.add(threads);
 
-  // ---- the ring that becomes the start button: 30 glazed tiles per wall (the colours of the play)
-  const RING_N = 30, RING_R = 0.42, RING_Y = 1.25, RING_D = 0.12;
-  const ring = [], uRing = uniform(0);
-  const ringAttr = new THREE.InstancedBufferAttribute(new Float32Array(NW * RING_N * 3), 3);
-  const ringMesh = new THREE.InstancedMesh(tileGeo(5, 0.11, 0.2), [glazeMat(ringAttr, uRing), mirrorM], NW * RING_N);
+  // ---- the ring that becomes the start button (T-058b): a MEDALLION FRAME round GUI's glass button (r ≤ 0.30), flush with the wall —
+  // two rows of CONTIGUOUS tiles (slightly tapered, ~3 × 3.7 cm, 3 mm joints) on a grout bed, r 0.31–0.39 m; bone and cream with one in
+  // eight in old gold. They fly in with the reveal and lock in place, the inner row first; start turns the rows against each other and
+  // lights the frame a little; 'start' blows it apart.
+  const RING_ROWS = [0.3295, 0.3705], RING_W = 0.037, RING_STEP = 0.032, RING_K = 0.11, RING_Y = 1.25, RING_D = 0.012, RING_R = 0.35;   // T-058b: inside the parabolic door (±0.42 m at 1.25 m), ≥ 3 cm of air round GUI's glass (r 0.28)
+  const ring = [], uRing = uniform(0); let ringZeroed = false, ringTick = 0;
+  const RING_TOTAL = NW * RING_ROWS.reduce((a, r) => a + Math.round((2 * Math.PI * r) / RING_STEP), 0);
+  const ringAttr = new THREE.InstancedBufferAttribute(new Float32Array(RING_TOTAL * 3), 3);
+  const trap = new THREE.Shape(); trap.moveTo(-0.5, -0.5); trap.lineTo(0.5, -0.5); trap.lineTo(0.5 * (1 + RING_K), 0.5); trap.lineTo(-0.5 * (1 + RING_K), 0.5); trap.closePath();
+  const ringMesh = new THREE.InstancedMesh(tileGeo(4, 0.25, 0.02, trap), [glazeMat(ringAttr, uRing), mirrorM], RING_TOTAL);
   ringMesh.frustumCulled = false; ringMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); object.add(ringMesh);
-  for (const w of walls) for (let k = 0; k < RING_N; k++) {
-    const size = rr(0.12, 0.17), aspect = rr(1.0, 1.6), col = k % 3 === 1 ? GOLD : k % 3 === 2 ? [0.8, 0.78, 0.72] : BONE;
-    const far = new THREE.Vector3().copy(w.centre).addScaledVector(w.right, rr(-w.width * 0.45, w.width * 0.45)).addScaledVector(w.normal, -rr(1.2, 3.2)).setY(rr(0.3, 3.4));
-    ringAttr.setXYZ(ring.length, col[0], col[1], col[2]);
-    ring.push({ wall: w.index, k, sc: new THREE.Vector3(size * aspect, size / aspect, size), a0: (k / RING_N) * Math.PI * 2, at: (k / RING_N) * 0.62 + rr(0, 0.06), far, ph: rr(0, 6.28), axis: new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).normalize(), spin: rr(0.2, 0.6), ex: new THREE.Vector3(rr(-1, 1), rr(-0.4, 1), 0) });
-  }
+  // the frame's bed: a flush annulus of grout (0.309–0.391 m) the tiles seat on — it comes with the reveal, so the frame reads as one piece
+  const ringBeds = walls.map((w) => {
+    const m = new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(0.765 * 0.9, 0.606 * 0.9, 0.418 * 0.9), transparent: true, opacity: 0, depthWrite: false });   // #D9CFBE-ish joint
+    const mesh = new THREE.Mesh(new THREE.RingGeometry(0.309, 0.391, 128, 1), m);
+    mesh.position.copy(w.centre).addScaledVector(w.normal, -RING_D - 0.004); mesh.position.y = RING_Y; mesh.quaternion.copy(faceQ[w.index]); mesh.frustumCulled = false; object.add(mesh); return mesh;
+  });
+  for (const w of walls) RING_ROWS.forEach((rr_, row) => {
+    const n = Math.round((2 * Math.PI * rr_) / RING_STEP), off = rr(0, 1), L = ((2 * Math.PI * rr_) / n - 0.003) / (1 + RING_K / 2);
+    for (let k = 0; k < n; k++) {
+      const u = rnd(), col = u < 0.125 ? GOLD : u < 0.6 ? PASTEL[0] : PASTEL[1];
+      const far = new THREE.Vector3().copy(w.centre).addScaledVector(w.right, rr(-w.width * 0.4, w.width * 0.4)).addScaledVector(w.normal, -rr(0.8, 2.6)).setY(rr(0.4, 3.0));
+      ringAttr.setXYZ(ring.length, col[0] * rr(0.96, 1.04), col[1] * rr(0.96, 1.04), col[2] * rr(0.96, 1.04));
+      ring.push({ wall: w.index, k, r: rr_, sc: new THREE.Vector3(L * rr(0.97, 1.0), RING_W * rr(0.96, 1.0), 0.01), a0: ((k + off) / n) * Math.PI * 2, roll: rr(-0.015, 0.015), at: row * 0.15 + (k / n) * 0.45 + rr(0, 0.05), far, ph: rr(0, 6.28), axis: new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).normalize(), spin: rr(0.2, 0.6), ex: new THREE.Vector3(rr(-1, 1), rr(-0.4, 1), 0) });
+    }
+  });
 
-  // ---- the floor: a black gloss; the serpentine's mirror image shows through it
-  const floorMesh = new THREE.Mesh(new THREE.CircleGeometry(60, 72), new THREE.MeshBasicNodeMaterial({ color: 0x010101, transparent: true, opacity: 0.7, depthWrite: false }));
-  floorMesh.rotation.x = -Math.PI / 2; floorMesh.position.y = 0.001; floorMesh.renderOrder = 1; object.add(floorMesh);
+  // ---- the floor (T-058): SAND in the light of noon — the room's floor, then terraces that step away in soft curves (ref 04), with a
+  // soft contact shadow at the foot of the serpentine (it turns: the shadow follows). Lit (the key rakes the terrace lips).
+  const uHeroRot = uniform(0), uFar = uniform(1);
+  // T-058b (ART): unlit, its values ACES-inverted so the screen shows them: sand #D9BC98, three soft terraces whose shadow is #CFAE88,
+  // the contact shadow the same tone (never darker), melting into the horizon's #E9D2B4
+  const ACES_SAND = [0.731, 0.42, 0.222], ACES_SHADE = [0.591, 0.337, 0.179], ACES_HORIZON = [1.153, 0.632, 0.328];
+  const floorMesh = (() => {
+    const { atan, length: len } = TSL;
+    const m = new THREE.MeshBasicNodeMaterial({ fog: false });
+    const pw = positionWorld, r = len(pw.xz), th = atan(pw.z, pw.x), ths = th.sub(uHeroRot);
+    const ux = TSL.cos(th), uz = sin(th); let pn = float(0);
+    for (const q of WK) pn = pn.add(max(ux.mul(-q.nx).add(uz.mul(-q.nz)), 0).div(q.k).pow(8));
+    const Rs = pn.max(1e-6).pow(-1 / 8).add(OFF);                                       // the shell's foot (T-058c)
+    const rw = r.add(sin(th.mul(3).add(r.mul(0.21))).mul(0.6)).add(sin(th.mul(7).add(1.3)).mul(0.2));
+    let shade = float(0);
+    for (const R0 of [10.8, 14.2, 18.5]) { const d = rw.sub(R0); shade = max(shade, smoothstep(-0.05, 0.12, d).mul(smoothstep(0.75, 0.12, d))); }   // a soft step: shade just past each lip
+    const contact = exp(r.sub(Rs).div(0.5).pow(2).negate()).mul(step(r, Rs.add(0.2)));
+    const grain = fract(sin(dot(floor(pw.xz.mul(40)), vec3(12.9898, 78.233, 0).xy)).mul(43758.5453)).sub(0.5).mul(0.03);
+    const col = mix(vec3(...ACES_SAND), vec3(...ACES_SHADE), max(shade.mul(0.85), contact.mul(0.8))).mul(grain.add(1));
+    m.colorNode = mix(col, vec3(...ACES_HORIZON), smoothstep(22, 58, r).mul(0.85)).mul(uFar);
+    return new THREE.Mesh(new THREE.CircleGeometry(60, 96), m);
+  })();
+  floorMesh.rotation.x = -Math.PI / 2; floorMesh.position.y = 0.0; object.add(floorMesh);
   const HX = Math.max(...walls.map((w) => Math.abs(w.centre.x))) + 0.18, HZ = Math.max(...walls.map((w) => Math.abs(w.centre.z))) + 0.18;
 
-  // ---- the jambs of the four thresholds: the wall's own edge — a splayed reveal of gold tiles set on edge, 0.7–1.3 m behind each
+  // ---- the jambs of the four thresholds (until T-058): gold tiles set on edge round the opening, 0.7–1.3 m behind each wall. T-058: the
+  // arches are ARC's (umbral3d/arches.js, loaded below); the old jambs stay behind a flag for a rollback (useOldJambs). The groups (frames)
+  // are kept either way: they carry the 'start' push and the arrival scale.
+  const useOldJambs = false;
+  // (old) a splayed reveal of gold tiles set on edge, 0.7–1.3 m behind each
   // wall, exactly round the opening as the eye sees it, with a thread of embers along its inner rim
   const frames = walls.map((w) => {
     const dw = -((w.centre.x - eye.x) * w.normal.x + (w.centre.z - eye.z) * w.normal.z);
@@ -507,45 +614,83 @@ export function create(ctx) {
     // the group scales about the foot of the door (it grows from the floor when the part arrives)
     const foot = new THREE.Vector3().copy(w.centre).setY(0).sub(eye).multiplyScalar((dw + 1) / dw).add(eye); foot.y = 0;
     const grp = new THREE.Group(), pivot = new THREE.Group(); pivot.position.copy(foot);
-    for (const m of [jamb, emberRim]) { m.position.copy(foot).negate(); m.frustumCulled = false; pivot.add(m); }
+    if (useOldJambs) for (const m of [jamb, emberRim]) { m.position.copy(foot).negate(); m.frustumCulled = false; pivot.add(m); } else { g.dispose(); jambM.dispose(); emberRim.geometry.dispose(); emberRim.material.dispose(); }
     grp.add(pivot); grp.userData.pivot = pivot; object.add(grp); return grp;
   });
 
-  // ---- far: glints, layers of haze, the thread of embers
-  const FAR = 380, farMesh = new THREE.InstancedMesh(new THREE.TetrahedronGeometry(1, 0), new THREE.MeshBasicNodeMaterial({ color: 0xffffff }), FAR);
-  farMesh.frustumCulled = false; world.add(farMesh);
+  // ---- T-058: the four 3D arches are ARC's module (umbral3d/arches.js: createArches(ctx, { walls, env }) → { object, update(dt, state), dispose }).
+  // Loaded if it is there (until then the doors are open cuts in the mosaic); it hangs from our object (the host's rig moves it with us).
+  let arches = null, arcErr = false;
+  const arcState = { arrive: 0, leave: 0, push: 0, reveal: 0, start: 0, time: 0, hands: [], doorA: DOOR_A, doorH: DOOR_H, doorP: DOOR_P };
   {
-    const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(), c = new THREE.Color(), e = new THREE.Euler();
-    for (let i = 0; i < FAR; i++) {
-      const a = rr(0, Math.PI * 2), R = rr(22, 46), y = rr(0.5, 22) * rr(0.3, 1);
-      p.set(Math.cos(a) * R, y, Math.sin(a) * R); q.setFromEuler(e.set(rr(0, 6), rr(0, 6), rr(0, 6))); const k = rr(0.04, 0.15) * (R / 25); s.set(k, k * rr(0.5, 2), k);
-      farMesh.setMatrixAt(i, m.compose(p, q, s));
-      const b = rr(0.08, 0.6) ** 2 * 2.2; if (rnd() < 0.18) c.setRGB(b * 1.2, b * 0.5, b * 0.22); else c.setRGB(b * 0.8, b * 0.88, b);
-      farMesh.setColorAt(i, c);
-    }
-    farMesh.instanceMatrix.needsUpdate = true; farMesh.instanceColor.needsUpdate = true;
+    const url = new URL('./umbral3d/arches.js', import.meta.url).href;
+    fetch(url, { method: 'HEAD' }).then((r) => (r.ok ? import(url) : null)).then((mod) => {
+      if (!mod?.createArches) return;
+      arches = mod.createArches(ctx, { walls, env, door: { A: DOOR_A, H: DOOR_H, P: DOOR_P }, depth: 0.12, thickness: 0.4, frontal: true }); if (arches?.object) object.add(arches.object);   // T-058c: the arch 0.12–0.52 m behind each wall, in front of the shell (OFF 0.6 m)
+    }).catch((err) => { arcErr = String(err.message); console.info('umbral3d: arches not loaded (' + err.message + ')'); });
   }
-  const ember = new THREE.Mesh(new THREE.TorusGeometry(38, 0.03, 6, 256), new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(2.6, 0.62, 0.13) }));
-  ember.rotation.x = Math.PI / 2; ember.position.y = 0.25; world.add(ember);
-  const hazes = [];
-  {
-    const { uv } = TSL;
-    for (const [R, H, cr, cg, cb, a, band_] of [[12, 12, 0.14, 0.28, 1.0, 0.022, 0], [19, 16, 0.14, 0.28, 1.0, 0.032, 0], [30, 22, 0.14, 0.28, 1.0, 0.05, 0], [40, 10, 1, 0.36, 0.1, 0.15, 1]]) {
-      const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-      const y = uv().y;
-      m.colorNode = band_ ? vec3(cr, cg, cb).mul(exp(y.sub(0.04).div(0.02).pow(2).negate()).mul(a * 2).add(exp(y.sub(0.04).div(0.2).pow(2).negate()).mul(a * 0.5)))
-        : vec3(cr, cg, cb).mul(exp(y.mul(-3.2)).mul(a));
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(R, R, H, 96, 1, true), m); mesh.position.y = H / 2 - 0.1; world.add(mesh); hazes.push(mesh);
-      if (band_) { const refl = new THREE.Mesh(mesh.geometry, m); refl.scale.y = -1; refl.position.y = -(H / 2 - 0.1); world.add(refl); hazes.push(refl); }   // the horizon's glow, mirrored in the gloss of the floor
+
+  // ---- far (T-058): a PASTEL SAND noon — a creamy sky (#F3E6D3 above → #E9D2B4 at the horizon → #D9BC98 below), warm haze, low dunes and
+  // terraces far away, a few vaults of sand stone in the haze (ref 04 / 03). Low contrast, high value: it never competes with the mosaic.
+  // (No stars, no embers: the old glints / ember thread are gone.)
+  const SKY_GAIN = 0.88;   // (the bloom adds a little to what is this bright)
+  const skyMesh = (() => {
+    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
+    m.colorNode = Fn(() => {
+      const d = normalize(positionLocal), y = d.y;
+      const up = mix(vec3(1.153, 0.632, 0.328), vec3(1.924, 1.104, 0.579), smoothstep(0.0, 0.55, y));   // T-058b: ACES-inverted #E9D2B4 → #F3E6D3 (it read grey)
+      const c = mix(vec3(0.731, 0.42, 0.222), up, smoothstep(-0.12, 0.02, y));
+      const sun = exp(dot(d, vec3(0.42, 0.55, 0.72).normalize()).sub(1).mul(9)).mul(0.07);          // the sun's veil, high and soft
+      return c.add(vec3(1, 0.95, 0.85).mul(sun)).mul(SKY_GAIN).mul(uFar);
+    })();
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(150, 48, 24), m); mesh.renderOrder = -900; mesh.frustumCulled = false; return mesh;
+  })();
+  world.add(skyMesh);
+  const HAZE = vec3(1.489, 0.805, 0.419).mul(SKY_GAIN);   // #EFDCC3 on screen
+  // dunes and terraces: rings of soft ridges, lit on their crests, hazier with distance
+  function ridgeRing(R, h0, amp, seedK, hazeK) {
+    const N = 320, pos = new Float32Array((N + 1) * 2 * 3), uvs = new Float32Array((N + 1) * 2 * 2), idx = [];
+    for (let i = 0; i <= N; i++) {
+      const a = (i / N) * Math.PI * 2, h = h0 + amp * (0.55 + 0.25 * Math.sin(3 * a + seedK) + 0.15 * Math.sin(7 * a + seedK * 2.3) + 0.08 * Math.sin(13 * a + seedK * 0.7));
+      const rr2 = R + 1.5 * Math.sin(5 * a + seedK);
+      pos.set([Math.cos(a) * rr2, -0.5, Math.sin(a) * rr2, Math.cos(a) * rr2, h, Math.sin(a) * rr2], i * 6); uvs.set([i / N, 0, i / N, 1], i * 4);
+      if (i < N) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
     }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2)); g.setIndex(idx);
+    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, fog: false });
+    const v = TSL.uv().y, terr = fract(v.mul(4.5)), line = exp(terr.mul(terr).div(-0.004)).mul(0.12);
+    m.colorNode = mix(mix(vec3(0.591, 0.337, 0.179), vec3(1.153, 0.632, 0.328), smoothstep(0.0, 0.95, v)).mul(float(1).sub(line)).mul(SKY_GAIN), HAZE, hazeK).mul(uFar);
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; return mesh;
+  }
+  const hazes = [ridgeRing(56, 2.5, 7, 0.4, 0.62), ridgeRing(38, 0.8, 3.2, 2.1, 0.42), ridgeRing(24, 0.1, 1.2, 4.2, 0.25)];
+  for (const h of hazes) world.add(h);
+  // a few far vaults of sand stone (parabolic ribs), half lost in the haze
+  {
+    const { normalWorld } = TSL;
+    const vm = new THREE.MeshBasicNodeMaterial({ fog: false });
+    const lit = dot(normalWorld, vec3(0.42, 0.62, 0.66).normalize()).mul(0.5).add(0.5);
+    vm.colorNode = mix(mix(vec3(0.535, 0.339, 0.2), vec3(1.6, 1.0, 0.55), lit).mul(SKY_GAIN), HAZE, 0.45).mul(uFar);
+    for (const [a, R, H, A] of [[0.5, 30, 8.5, 3.4], [1.25, 33, 10, 4.2], [2.6, 29, 7.5, 3.0], [3.7, 34, 11, 4.4], [4.6, 31, 8, 3.2], [5.6, 35, 9.5, 3.9]]) {
+      const pts = []; for (let k = 0; k <= 40; k++) { const x = -1.08 + (2.16 * k) / 40; pts.push(new THREE.Vector3(x * A, H * (1 - x * x), 0)); }
+      const mesh = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, 0.32 + H * 0.03, 8, false), vm);
+      mesh.position.set(Math.cos(a) * R, -0.3, Math.sin(a) * R); mesh.lookAt(0, -0.3, 0); mesh.rotateY(Math.PI / 2 + rr(-0.5, 0.5)); world.add(mesh); hazes.push(mesh);
+    }
+  }
+  // the near haze: a warm veil that thickens with distance (normal blending — the old additive blue haze is gone)
+  for (const [R, H, a] of [[15, 14, 0.2], [26, 20, 0.3]]) {
+    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, transparent: true, depthWrite: false, fog: false });
+    const y = TSL.uv().y; m.colorNode = HAZE.mul(uFar); m.opacityNode = exp(y.mul(-2.6)).mul(a).mul(uFar);
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(R, R, H, 96, 1, true), m); mesh.position.y = H / 2 - 0.2; mesh.renderOrder = 2; world.add(mesh); hazes.push(mesh);
   }
 
   // ---- light: a zenith key, the LIGHTHOUSE that goes round the room, ember backlights behind the wall, the hands
-  const hemi = new THREE.HemisphereLight(0xa8a49c, 0x0a0806, 0.34); object.add(hemi);
-  const key = new THREE.DirectionalLight(0xffe6cc, 0.9); key.position.set(0.5, 10, 0.3); object.add(key);
+  // T-058 (ART b): noon, soft — a warm key at ~52° elevation, raking; a cream / sand hemisphere fill (key:fill ≈ 2.5:1); no lighthouse, no embers
+  const KEYS = { key: 0.3, fill: 0.45, spot: 1.3 };   // T-058b: the overhead spot is the key; the directional only a breath of sun
+  const hemi = new THREE.HemisphereLight(0xf7ebdd, 0xe2c7a3, 1.0); object.add(hemi);
+  const key = new THREE.DirectionalLight(0xfff1dc, 2.6); key.position.set(4.2, 9.5, 6.0); object.add(key);
   const beam = new THREE.SpotLight(0xfff0dc, 0, 0, 0.5, 1, 0);   // cone 0.72 → 0.5 rad (24-11, ENT): the beam no longer washes the near mosaic beam.position.set(0, 5.2, 0); object.add(beam, beam.target);
-  const beam2 = new THREE.SpotLight(0xffeedd, 0, 0, 0.55, 1, 0); beam2.position.set(0, 0.9, 0); object.add(beam2, beam2.target);   // the second, cool and low: it rakes the relief from below
-  const rims = [0, 1, 2].map((i) => { const l = new THREE.PointLight(0xff6b2e, 0, 15, 1.2); l.userData.a = (i / 3) * Math.PI * 2 + 0.4; world.add(l); return l; });
+  const beam2 = new THREE.SpotLight(0xfff1dc, 0, 0, 1.2, 0.25, 0); beam2.position.set(0, 7.5, 0); beam2.target.position.set(0, 0, 0); object.add(beam2, beam2.target);   // T-058b/c: THE KEY — from 7.5 m above the room's centre it reaches the near shell at ~30–35° (grazing): each tile shows a lit upper bevel and a shaded lower one
+  const rims = [0, 1, 2].map((i) => { const l = new THREE.PointLight(0xdce8f0, 0, 15, 1.2); l.userData.a = (i / 3) * Math.PI * 2 + 0.4; world.add(l); return l; });
   const HL = 4, handLights = Array.from({ length: HL }, () => { const l = new THREE.PointLight(0xffd9b0, 0, 3.6, 1.6); object.add(l); return l; });
 
   // ------------------------------------------------------------------------------------------- sound: impacts on the channel
@@ -669,10 +814,10 @@ export function create(ctx) {
     const c = cells[i];
     gone[i] = 1; goneN++; b.cell = i; b.state = 1; b.timer = 0; b.landed = false;
     cellPose(i, b.p, b.q); 
-    const size = clamp(c.rad * 2.0, 0.2, 1.3); b.sc.set(size * rr(0.85, 1.15), size * rr(0.85, 1.15), Math.min(size, 0.55));
+    const size = clamp(c.rad * 2.1, 0.06, 0.42); b.sc.set(size * rr(0.85, 1.15), size * rr(0.85, 1.15), size * 0.45);
     _v.copy(c.n).applyAxisAngle(UP, hero.rotation.y);                                   // towards the public
     b.p.addScaledVector(_v, 0.12);
-    b.v.copy(_v).multiplyScalar(rr(1.5, 3.3) * power).add(_v2.set(rr(-0.8, 0.8), rr(1.1, 2.7) * power, rr(-0.8, 0.8)));   // out of the wall, up and towards the public: it grows as it comes
+    b.v.copy(_v).multiplyScalar(rr(0.3, 0.8) * power).add(_v2.set(rr(-0.5, 0.5), rr(0.6, 1.6) * power, rr(-0.5, 0.5)));   // T-058c: a short drop in front of the shell   // out of the wall, up and towards the public: it grows as it comes
     b.w.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).normalize().multiplyScalar(rr(3, 9));
     b.color[0] = c.col[0]; b.color[1] = c.col[1]; b.color[2] = c.col[2]; paint(b);
     return true;
@@ -681,12 +826,12 @@ export function create(ctx) {
   // the cascade: the column above a point lets go in a chain, from the point up to the crest
   function cascade(cu, cy, t) {
     let n = 0;
-    if (goneN > 90) return 0;
-    for (let i = 0; i < NC && n < 14; i++) {
+    if (goneN > 200) return 0;
+    for (let i = 0; i < NC && n < 30; i++) {
       const c = cells[i]; if (gone[i] || c.loose || c.cy < cy - 0.35) continue;
-      const du = Math.abs(wrapU(c.cu - cu)); if (du > 0.46 + (c.mother ? 0.3 : 0)) continue;
+      const du = Math.abs(wrapU(c.cu - cu)); if (du > 0.34 + (c.mother ? 0.12 : 0)) continue;
       if (rnd() < 0.2) continue;
-      later(i, t + Math.max(0, c.cy - cy) * 0.17 + rr(0, 0.06), 0.8 + 0.4 * rnd()); n++;
+      later(i, t + Math.max(0, c.cy - cy) * 0.12 + rr(0, 0.05), 0.8 + 0.4 * rnd()); n++;
     }
     return n;
   }
@@ -699,7 +844,7 @@ export function create(ctx) {
   // a knock: the pieces round a point let go in a SPIRAL, from the point outwards (a rosette comes undone petal by petal)
   const spiralI = new Int32Array(64), spiralK = new Float32Array(64);
   function knock(cu, cy, r, max_, power, t) {
-    if (goneN > 100) return 0;
+    if (goneN > 220) return 0;
     let n = 0;
     for (let i = 0; i < NC && n < 64; i++) {
       const c = cells[i]; if (gone[i] || c.loose) continue;
@@ -710,7 +855,7 @@ export function create(ctx) {
     for (let k = 0; k < max_ && k < n; k++) {                                            // the next along the spiral, max_ times
       let b = -1, bk = 9; for (let j = 0; j < n; j++) if (spiralK[j] < bk) { bk = spiralK[j]; b = j; }
       if (b < 0) break; spiralK[b] = 99;
-      if (k === 0) { if (letGo(spiralI[b], power)) done++; } else { later(spiralI[b], t + k * 0.045, power); done++; }
+      if (k === 0) { if (letGo(spiralI[b], power)) done++; } else { later(spiralI[b], t + k * 0.03, power); done++; }
     }
     return done;
   }
@@ -719,7 +864,7 @@ export function create(ctx) {
   function land(pos, under, hold) {
     const ros = under >= 0 ? cells[under].ros : -1, onHeart = under >= 0 && cells[under].mother;
     launch(hit.cu, hit.cy, 1, 2.6, 7, hold, ros);
-    if (knock(hit.cu, hit.cy, onHeart ? 1.25 : 0.9, onHeart ? 13 : 9, 1, time)) fx('hit', pos, onHeart ? 0.9 : 0.6, 0);
+    if (knock(hit.cu, hit.cy, onHeart ? 0.7 : 0.5, onHeart ? 26 : 18, 1, time)) fx('hit', pos, onHeart ? 0.9 : 0.6, 0);
   }
 
   // ------------------------------------------------------------------------------------------- the stand-in score (study page)
@@ -730,7 +875,7 @@ export function create(ctx) {
   let time = 0, emptyT = 99, ghostAt = 2.5, rot = 0, heroRot = 0, ringSpin = 0, exploded = -1, revealV = 0, startV = 0, idleC = 0, wasRevealed = false, figT0 = -1, figK = 0, cascades = 0, crossings = 0, goneN = 0, pushV = 0, wasWait = true;
   const figAt = Array.from({ length: NW }, () => ({ cu: 0, cy: 0 }));
   const MAXH = 12, hcu = new Float32Array(MAXH), hcy = new Float32Array(MAXH), hfresh = new Uint8Array(MAXH);
-  const HOLD = Array.from({ length: 16 }, () => ({ stroke: null, seen: 0, t0: 0, cu: 0, cy: 0, next: 0, ros: -1 }));
+  const HOLD = Array.from({ length: 16 }, () => ({ stroke: null, seen: -9, t0: 0, cu: 0, cy: 0, next: 0, ros: -1, lu: 0, lv: 0 }));
   function holdOf(stroke) {
     let free = null;
     for (const h of HOLD) { if (h.stroke === stroke) return h; if (!free && (h.stroke === null || time - h.seen > 1)) free = h; }
@@ -773,10 +918,11 @@ export function create(ctx) {
     const playing = arrive > 0.6 && leave < 0.3;
 
     // ---- the room moves: the serpentine turns round the public, the far world the other way, and breathes
-    heroRot += dt * 0.0175 * motion; hero.rotation.y = heroRot; _hq.setFromAxisAngle(UP, heroRot);
+    hero.rotation.y = heroRot;   // T-058c: the shell follows the room — it no longer turns (the far world still does)
+    _hq.setFromAxisAngle(UP, heroRot);
     rot -= dt * 0.011 * motion; world.rotation.y = rot; world.position.y = Math.sin(time * (Math.PI * 2 / 26)) * 0.3 * motion;
     const ba = time * (Math.PI * 2 / 26);                                               // the lighthouse: two lights, once round the room every 26 s
-    beam.target.position.set(Math.cos(ba) * 9, 2.2, Math.sin(ba) * 9); beam2.target.position.set(Math.cos(ba + 2.5) * 9, 3.4, Math.sin(ba + 2.5) * 9);
+    beam.target.position.set(Math.cos(ba) * 9, 2.2, Math.sin(ba) * 9);
 
     // ---- the reveal is whole: resonance (the figure spreads from the four buttons); 'start': the biggest wave
     if (reveal >= 1 && !wasRevealed && playing) {
@@ -784,15 +930,15 @@ export function create(ctx) {
       for (let i = 0; i < NW; i++) { const w = walls[i]; surfHit(_v.copy(w.centre).setY(RING_Y)); figAt[i].cu = hit.cu; figAt[i].cy = hit.cy; launch(hit.cu, hit.cy, 0.9, 3.4, 0, 0); }
     }
     if (reveal < 1) figT0 = -1;
-    wasRevealed = reveal >= 1;
+    wasRevealed = reveal >= 1 && (wasRevealed || playing);   // (T-058c: a reveal reached while the part was still arriving starts the figure once it plays)
     if (startEv) { exploded = 0; for (let i = 0; i < NW; i++) { surfHit(_v.copy(walls[i].centre).setY(RING_Y)); launch(hit.cu, hit.cy, 1.6, 5, 99, 30); } }
     if (exploded >= 0) exploded += dt;
     // 'start' (and the way out): the world closes in round the eye, eased, 2.5 s — every wall walks through its own door
     const pushT = Math.max(exploded >= 0 ? smooth(0, 2.5, exploded) : 0, smooth(0, 0.7, leave));
     pushV += (pushT - pushV) * (1 - Math.exp(-dt * (pushT > pushV ? 30 : 1.2)));
-    uPush.value = 2.8 * pushV; uDoor.value = 1 + 3.2 * pushV * pushV;
-    for (let i = 0; i < NW; i++) { const d = frames[i], k = 1 - smooth(0.75, 1, Math.max(pushV, leave)); d.position.copy(walls[i].normal).multiplyScalar(2.8 * pushV); d.userData.pivot.scale.setScalar(Math.max(0.001, smooth(0.3, 0.9, arrive) * k)); d.visible = arrive * k > 0.01; }
-    const hold = 40 + 60 * revealV;                                                     // how long a touched piece keeps its colour
+    uPush.value = PUSH * pushV; uDoor.value = 1 + 3.2 * pushV * pushV;
+    for (let i = 0; i < NW; i++) { const d = frames[i], k = 1 - smooth(0.75, 1, Math.max(pushV, leave)); d.position.copy(walls[i].normal).multiplyScalar(PUSH * pushV); d.userData.pivot.scale.setScalar(Math.max(0.001, smooth(0.3, 0.9, arrive) * k)); d.visible = arrive * k > 0.01; }
+    const hold = 7;                                                                     // T-058b (ART): a touched piece goes back to rest in 6–8 s
 
     // ---- hands: light, waves, knocks, cascades; the mobiles
     emptyT = hands.length ? 0 : emptyT + dt;
@@ -806,10 +952,17 @@ export function create(ctx) {
         const da = hy < DOOR_H ? DOOR_A * Math.pow(1 - hy / DOOR_H, 1 / DOOR_P) : 0;
         if (Math.abs(hx) < da + 0.12) surfHit(_v3.copy(h.pos).addScaledVector(w.right, (hx < 0 ? -1 : 1) * (da + 0.38) - hx)); else surfHit(h.pos);
         if (nh < MAXH) { hcu[nh] = hit.cu; hcy[nh] = hit.cy; hfresh[nh] = fresh ? 1 : 0; nh++; }
-        if (nh <= HL) { const l = handLights[nh - 1]; l.position.copy(hit.p).multiplyScalar(0.9).setY(hit.cy + 0.15); l.intensity += (2.0 * arrive * (1 - leave) - l.intensity) * (1 - Math.exp(-dt * 18)); }
+        if (nh <= HL) { const l = handLights[nh - 1]; l.position.copy(hit.p).multiplyScalar(0.9); l.position.y = hit.p.y + 0.15; l.intensity += (2.0 * arrive * (1 - leave) - l.intensity) * (1 - Math.exp(-dt * 18)); }
         const under = nearest(hit.cu, hit.cy), ros = under >= 0 ? cells[under].ros : -1;
-        if (fresh) land(h.pos, under, hold);
+        // QA (T-058c): the LiDAR may drop a still hand and give it a new stroke ~every 2 s — a landing within ~0.15 m (on the wall) of a hand
+        // that left < 0.5 s ago is the same hand: no new wave, knock or sound, and it keeps that hand's hold
+        let reland = null;
+        if (fresh) for (const o of HOLD) { if (o.stroke === null || o.stroke === h.stroke || time - o.seen > 0.5 || time - o.seen < dt * 1.5) continue; const du = wrapU(hit.cu - o.lu), dv = hit.cy - o.lv; if (du * du + dv * dv < 0.05) { reland = o; break; } }
+        if (fresh && !reland) land(h.pos, under, hold);
+        if (reland && nh > 0) hfresh[nh - 1] = 0;
         const hd = holdOf(h.stroke);
+        if (hd && reland && hd !== reland) { hd.t0 = reland.t0; hd.next = reland.next; hd.cu = reland.cu; hd.cy = reland.cy; hd.ros = reland.ros; reland.stroke = null; }
+        if (hd) { hd.lu = hit.cu; hd.lv = hit.cy; }
         if (hd) {
           if (!fresh && ros >= 0 && ros !== hd.ros) launch(hit.cu, hit.cy, 0.55, 2.6, 7, hold, ros);   // it moves into another rosette: that one takes colour too
           hd.ros = ros;
@@ -835,12 +988,11 @@ export function create(ctx) {
         const cu = rr(0, LL), cy = rr(0.7, 2.6), u = rnd();
         const under = nearest(cu, cy);
         if (under >= 0 && cy < crest(cu)) {
-          launch(cu, cy, 0.9, 2.2, 7, 16, cells[under].ros);
+          launch(cu, cy, 0.5, 2.2, 0, 0);                                            // T-058b (ART): the idle play is a soft wave — no colour, no fall
           surfP(cu, cy, _v).applyAxisAngle(UP, heroRot);
-          if (u < 0.25) { if (cascade(cu, cy, time)) fx('hit', _v, 0.5, 0); } else if (u < 0.7) { if (knock(cu, cy, 0.8, 6, 0.8, time)) fx('hit', _v, 0.3, 0); }
         }
         const s = band[Math.floor(rnd() * band.length)];
-        if (s.state === 0 && u > 0.5) { s.vax += rr(-0.5, 0.5); s.vyaw += rr(-3, 3); }
+        if (s && s.state === 0 && u > 0.5) { s.vax += rr(-0.5, 0.5); s.vyaw += rr(-3, 3); }
       }
     }
     // ---- the chain: pieces whose turn has come let go
@@ -852,6 +1004,8 @@ export function create(ctx) {
     const figOn = figT0 >= 0 && arrive > 0.6, figR = figOn ? (time - figT0) * 4.2 : 0, figPh = time * 0.55;
     if (figOn) for (let k = 0; k < NW; k++) { surfHit(_v.copy(walls[k].centre).setY(RING_Y)); figAt[k].cu = hit.cu; figAt[k].cy = hit.cy; }   // the serpentine turns: the figure stays on the buttons
     figK += ((figOn ? 1 : 0) - figK) * (1 - Math.exp(-dt * 1.5));
+    let npa = 0; const settled = arrive >= 1 && leave <= 0;
+    for (let k = 0; k < PULSES; k++) { const p = pulses[k]; if (!p.on) continue; const age = time - p.t0, r = p.speed * age; pa[npa++] = k; paR[k] = r; paMax[k] = r + 1.43; paMin2[k] = r > 1.43 ? (r - 1.43) * (r - 1.43) : 0; paAmp[k] = p.amp * Math.exp(-age / 7); }
     const kSpring = 30, cSpring = 6.2, glowDecay = Math.exp(-dt * 1.3), startGlow = startV * 0.7 + (exploded >= 0 && exploded < 2 ? Math.sin(exploded * Math.PI / 2) * 0.8 : 0);
     const bedK = smooth(0, 0.45, arrive) * (1 - smooth(0.35, 1, leave));
     uBed.value = bedK;
@@ -862,41 +1016,56 @@ export function create(ctx) {
         turn = time * (0.12 + c.r1 * 0.3) * (c.r2 < 0.5 ? -1 : 1) + c.r1 * 6.28;
         lift = 0.15 + c.over * (0.5 + c.r2) + Math.sin(time * 0.31 + c.r1 * 6.28) * 0.12; sc = 1 - 0.55 * c.over;
       } else {
-        let ds = wrapU(c.cu - c.cy * 0.6 - idleC), sh = Math.exp(-(ds * ds) / 3.2);
-        ds = wrapU(c.cu + c.cy * 0.4 + idleC * 0.6 - LL * 0.37); sh += 0.7 * Math.exp(-(ds * ds) / 2.2);
+        const cu_ = CU[i], cy_ = CY[i];
+        let ds = cu_ - cy_ * 0.6 - idleC, sh = 0;                                     // the idle shimmer: two soft bands going round (a cheap bump, no exp)
+        if (ds < -HL2) ds += LL; if (ds < -HL2) ds += LL; if (ds > HL2) ds -= LL;
+        if (ds > -3.6 && ds < 3.6) { const u = 1 - (ds * ds) / 12.96; sh = u * u * u; }
+        ds = cu_ + cy_ * 0.4 + idleC * 0.6 - SH2; if (ds < -HL2) ds += LL; if (ds < -HL2) ds += LL; if (ds > HL2) ds -= LL; if (ds > HL2) ds -= LL;
+        if (ds > -3 && ds < 3) { const u = 1 - (ds * ds) / 9; sh += 0.7 * u * u * u; }
         let bump = 0, n = 0;
-        for (let k = 0; k < PULSES; k++) {
-          const p = pulses[k]; if (!p.on) continue;
-          const d = wrapU(c.cu - p.s), dy = c.cy - p.y, dist = Math.sqrt(d * d + dy * dy), age = time - p.t0, r = p.speed * age, x = (dist - r) / 0.55;
+        for (let q = 0; q < npa; q++) {                                                 // (T-058: only the live pulses, and a cheap reject before the root)
+          const k = pa[q], p = pulses[k], rMax = paMax[k], dy = cy_ - p.y; if (dy > rMax || dy < -rMax) continue;
+          let d = cu_ - p.s; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; if (d > rMax || d < -rMax) continue;
+          const dd = d * d + dy * dy; if (dd > rMax * rMax || dd < paMin2[k]) continue;
+          const dist = Math.sqrt(dd), x = (dist - paR[k]) / 0.55;
           if (x > -2.6 && x < 2.6) {
-            const b = p.amp * Math.exp(-x * x) * Math.exp(-age / 7); bump += b; if (b > 0.6) n++;
-            if (p.hold > 0 && dist < p.reach && (p.ros < 0 || p.ros === c.ros) && x < 0.3 && b > 0.1 && colT[i] < time + p.hold) colT[i] = time + p.hold * (0.75 + 0.5 * c.r2);
+            const b = paAmp[k] * Math.exp(-x * x); bump += b; if (b > 0.6) n++;
+            if (p.hold > 0 && !c.keep && dist < p.reach && dist < 1.1 + 0.3 * c.r1 && (p.ros < 0 || p.ros === c.ros || dist < 0.7 + 0.3 * c.r1) && x < 0.3 && b > 0.1 && colT[i] < time + p.hold) colT[i] = time + p.hold * (0.75 + 0.5 * c.r2);   // T-058b: ~1.1–1.4 m round the hand, 30 % stay pastel
           }
         }
         for (let k = 0; k < nh; k++) {                                                   // under a hand: at once
-          const d = wrapU(c.cu - hcu[k]), dy = c.cy - hcy[k], dd = d * d + dy * dy;
-          if (dd < 0.3) { colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { glow[i] = Math.max(glow[i], 1.0 * (1 - dd / 0.3)); vphi[i] += 5; } }
+          let d = cu_ - hcu[k]; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; const dy = cy_ - hcy[k], dd = d * d + dy * dy;
+          if (dd < 0.3) { if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { glow[i] = Math.max(glow[i], 1.0 * (1 - dd / 0.3)); vphi[i] += 5; } }
         }
         if (n >= 2 && time - resT[i] > 3) { resT[i] = time; glow[i] = 1.1; vphi[i] += 6 * (c.r2 < 0.5 ? -1 : 1); crossings++; }   // two fronts meet here
         let col = colT[i] > time ? 1 : 0, g = startGlow * (0.4 + 0.6 * c.r1);
         if (figOn) {                                                                    // resonance: the figure
           let fd = 1e9, f = 0;
-          for (let k = 0; k < NW; k++) { const d = wrapU(c.cu - figAt[k].cu), dy = c.cy - figAt[k].cy; fd = Math.min(fd, d * d + dy * dy); }
+          for (let k = 0; k < NW; k++) { let d = cu_ - figAt[k].cu; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; const dy = cy_ - figAt[k].cy, e2 = d * d + dy * dy; if (e2 < fd) fd = e2; }
           fd = Math.sqrt(fd); f = Math.cos(fd * 2.4 + figPh);                           // rings round the nearest button, closing slowly on it
-          if (fd < figR) { if (f > 0.45 && !c.mother) { col = 0; g += 0.9; } else col = 1; }
+          if (fd < figR) { if (f > 0.82 && !c.mother) { col = 0; g += 0.5; } else if (f < -0.5 + 0.3 * (c.r1 - 0.5) && !c.keep) col = 1; }   // T-058b: a third of the rings in colour (≈ 23 % of the wall), thin lit lines, the rest at rest
         }
         if (g > glow[i]) glow[i] += (g - glow[i]) * Math.min(1, dt * 6);
+        // asleep (T-058, ~14k pieces): nothing moves it and it is home — its last pose stays in the texture, skip it
+        if (settled && !figOn && sh === 0 && bump === 0 && g === 0 && glow[i] < 0.002 && !gone[i]) {
+          const tg = col * Math.PI, e = phi[i] - tg;
+          if (e < 0.002 && e > -0.002 && vphi[i] < 0.003 && vphi[i] > -0.003) {
+            if (!sleep[i]) { sleep[i] = 1; phi[i] = tg; vphi[i] = 0; glow[i] = 0; stData[o] = (tg * 2) % 6.2831853; stData[o + 1] = 0; stData[o + 2] = col ? 8 : 0; stData[o + 3] = 1; }
+            continue;
+          }
+        }
+        sleep[i] = 0;
         target = col * Math.PI + sh * 0.2 + Math.min(bump, 1.3) * 0.36;
         vphi[i] += (kSpring * (target - phi[i]) - cSpring * vphi[i]) * dt; phi[i] += vphi[i] * dt;
         turn = phi[i] * 2; kc = phi[i] > 1.5708 ? 8 : 0;
-        lift = Math.abs(Math.sin(phi[i])) * c.rad * 0.95 + bump * 0.1 + sh * 0.04;
+        lift = Math.abs(Math.sin(phi[i])) * Math.min(0.07, c.rad * 1.1) + bump * 0.05 + sh * 0.008;   // ART: relief at rest ≤ 1.5 cm; a touched piece comes out 3–6 cm
       }
       glow[i] *= glowDecay;
       // it comes (a sweep round the room: every piece flies to its bed, turning) and goes (breaks away, towards the public and up)
-      const aAt = 0.5 * ((c.th / (Math.PI * 2) + c.r1 * 0.22) % 1), ka = smooth(aAt, aAt + 0.42, arrive), kl = smooth(c.r2 * 0.45, c.r2 * 0.45 + 0.5, leave);
-      if (ka < 1 || kl > 0) { lift += (1 - ka) * (1 - ka) * 1.5 + kl * kl * 1.6; turn += (1 - ka) * 5 + kl * 4 * (c.r1 - 0.5) * 2; sc *= ka * (1 - kl); }
+      const aAt = settled ? 0 : 0.5 * ((c.th / (Math.PI * 2) + c.r1 * 0.22) % 1), ka = settled ? 1 : smooth(aAt, aAt + 0.42, arrive), kl = settled ? 0 : smooth(c.r2 * 0.45, c.r2 * 0.45 + 0.5, leave);
+      if (ka < 1 || kl > 0) { lift += (1 - ka) * (1 - ka) * 0.5 + kl * kl * 0.5; /* T-058c: a short flight (the shell is near the wall) */ turn += (1 - ka) * 5 + kl * 4 * (c.r1 - 0.5) * 2; sc *= ka * (1 - kl); }
       if (gone[i]) sc = 0;
-      stData[o] = toH(turn % 6.2831853); stData[o + 1] = toH(lift); stData[o + 2] = toH(Math.min(glow[i], 3.5) + kc); stData[o + 3] = toH(sc);
+      stData[o] = turn % 6.2831853; stData[o + 1] = lift; stData[o + 2] = Math.min(glow[i], 3.5) + kc; stData[o + 3] = sc;
     }
     stTex.needsUpdate = true;
 
@@ -967,21 +1136,25 @@ export function create(ctx) {
     // ---- the ring: tiles fly in from the dark and lock round the button; start turns and lights it; 'start' blows it apart
     ringSpin += dt * (0.05 + startV * 2.2);
     const ex = exploded >= 0 ? smooth(0, 2.2, exploded) : 0;
-    for (let i = 0; i < ring.length; i++) {
-      const s = ring[i], w = walls[s.wall], k = smooth(s.at, s.at + 0.32, revealV);
+    const ringOff = revealV < 0.0005 || arrive <= 0 || leave >= 0.9 || ex >= 1;         // nothing of the frame shows: zero it once, then skip (T-058: ~1,400 tiles)
+    const ringCalm = revealV > 0.999 && startV < 0.03 && ex === 0 && settled; ringTick = (ringTick + 1) % 4;   // locked and slow: its pose at 15 Hz is enough
+    if ((ringOff && ringZeroed) || (ringCalm && ringTick)) { /* nothing new */ } else for (let i = 0; i < ring.length; i++) {
+      const s = ring[i], w = walls[s.wall], k = smooth(s.at, s.at + 0.3, revealV);
       _v.copy(s.far); _v.y += Math.sin(time * 0.3 + s.ph) * 0.25; _v.addScaledVector(w.right, Math.cos(time * 0.21 + s.ph) * 0.3);
       _q.setFromAxisAngle(s.axis, time * s.spin + s.ph);
-      const a = s.a0 + ringSpin;
-      _v2.copy(w.centre).addScaledVector(w.right, Math.cos(a) * RING_R).addScaledVector(w.normal, -RING_D); _v2.y = RING_Y + Math.sin(a) * RING_R;
-      _q2.setFromAxisAngle(w.normal, a + Math.PI / 2).multiply(faceQ[s.wall]);
-      _v.lerp(_v2, k); _v.y += Math.sin(k * Math.PI) * 0.5; _q.slerp(_q2, k);
+      const a = s.a0 + ringSpin * (s.r < 0.35 ? 1 : -0.6);                                   // start: the rows turn against each other, like a lock
+      _v2.copy(w.centre).addScaledVector(w.right, Math.cos(a) * s.r).addScaledVector(w.normal, -RING_D); _v2.y = RING_Y + Math.sin(a) * s.r;
+      _q2.setFromAxisAngle(w.normal, a - Math.PI / 2 + s.roll).multiply(faceQ[s.wall]);   // local x along the row, local y outwards (the taper widens outwards)
+      _v.lerp(_v2, k); _v.y += Math.sin(k * Math.PI) * 0.35; _q.slerp(_q2, k);
       if (ex > 0) { _v.addScaledVector(w.right, s.ex.x * ex * 2.4).addScaledVector(w.normal, -ex * 1.5); _v.y += s.ex.y * ex * 2 + ex * ex * 0.5; _q.premultiply(_q2.setFromAxisAngle(s.axis, ex * 8)); }
       const vis = smooth(0, 0.5, arrive) * (1 - smooth(0.2, 0.9, leave)) * (1 - smooth(0.4, 1, ex)) * smooth(0, 0.25, k + (revealV > 0.02 ? 0.12 : 0));
       _s.copy(s.sc).multiplyScalar(vis);
       ringMesh.setMatrixAt(i, _m.compose(_v, _q, _s));
     }
-    ringMesh.instanceMatrix.needsUpdate = true;
-    uRing.value = arrive * (1 - leave) * (smooth(0.6, 1, revealV) * 0.25 + startV * 1.3) * (1 - ex) + (ex > 0 && ex < 1 ? Math.sin(ex * Math.PI) * 2.5 : 0);
+    if (!(ringOff && ringZeroed) && !(ringCalm && ringTick)) ringMesh.instanceMatrix.needsUpdate = true;
+    ringZeroed = ringOff;
+    { const k = smooth(0.15, 0.75, revealV) * smooth(0, 0.5, arrive) * (1 - smooth(0.2, 0.9, leave)) * (1 - smooth(0.1, 0.6, ex)); for (const b of ringBeds) { b.material.opacity = 0.9 * k; b.visible = k > 0.005; } }
+    uRing.value = arrive * (1 - leave) * (smooth(0.6, 1, revealV) * 0.04 + startV * 0.14) * (1 - ex) + (ex > 0 && ex < 1 ? Math.sin(ex * Math.PI) * 0.4 : 0);   // ART: emissive ≤ 0.15 (the flash of 'start' a breath more)
 
     // ---- far arcs (they turn with the far world)
     for (const s of mid) {
@@ -997,11 +1170,11 @@ export function create(ctx) {
 
     // ---- the far world and the light come and go with the part
     const farK = arrive * (1 - leave);
-    ember.material.color.setRGB(2.6 * farK, 0.62 * farK, 0.13 * farK);
-    farMesh.visible = farK > 0.01; for (const h of hazes) h.visible = farK > 0.01;
-    floorMesh.material.opacity = 0.7 * smooth(0, 0.3, farK); floorMesh.visible = farK > 0.005; heroRefl.visible = farK > 0.05;
-    hemi.intensity = 0.46 * farK; key.intensity = 1.25 * farK; beam.intensity = 0.5 * farK; beam2.intensity = 0.45 * farK;   // T-053 (ARTE r5): the mosaic at rest ×0.75, the lighthouse capped (≈ 1.5 m of near-white tiles in P3)   // capped: near the walls the lighthouse leaves a sheen, not a white patch
-    for (const l of rims) { l.position.set(Math.cos(l.userData.a) * 12.5, 1.2, Math.sin(l.userData.a) * 12.5); l.intensity = 5 * farK; }
+    for (const h of hazes) h.visible = farK > 0.01; skyMesh.visible = farK > 0.01;   // (the room's own background is the same sand: PALETTE.wait)
+    floorMesh.visible = farK > 0.005; uHeroRot.value = heroRot;
+    hemi.intensity = KEYS.fill * farK; key.intensity = KEYS.key * farK; beam.intensity = 0; beam2.intensity = KEYS.spot * farK;   // T-058: no lighthouse (kept as lights at 0: the set of lights must not change)
+    for (const l of rims) { l.position.set(Math.cos(l.userData.a) * 12.5, 1.2, Math.sin(l.userData.a) * 12.5); l.intensity = 0; }
+    if (arches) { arcState.arrive = arrive; arcState.leave = leave; arcState.push = pushV; arcState.reveal = revealV; arcState.start = startV; arcState.time = time; arcState.hands = hands; try { arches.update(dt, arcState); } catch (err) { if (!arcErr) { arcErr = true; console.info('umbral3d: arches.update skipped (' + err.message + ')'); } } }
   }
 
   return {
@@ -1009,11 +1182,11 @@ export function create(ctx) {
     update,
     setParams() { /* read live from params */ },
     touch(wall, x, y) { const w = walls[wall]; surfHit(_v2.copy(w.centre).addScaledVector(w.right, x).setY(y)); land(_v2, nearest(hit.cu, hit.cy), 40); },   // lab checks only: a landing at a point of a wall (x from its centre, y from the floor, m)
-    debug: () => ({ env: envRT ? 'own' : room.envMap ? 'room' : 'none', pieces: NC, verts: heroGeo.attributes.position.count, mothers: cells.filter((c) => c.mother).length, loose: cells.filter((c) => c.loose).length, band: band.length, mid: mid.length, gone: gone.reduce((a, b) => a + b, 0), falling: bodies.filter((s) => s.state === 1).length + band.filter((s) => s.state === 1).length, resting: bodies.filter((s) => s.state >= 2).length, chips: chips.filter((c) => c.on).length, pulses: pulses.filter((p) => p.on).length, coloured: colT.reduce((a, t) => a + (t > time ? 1 : 0), 0), cascades, crossings, figure: figT0 >= 0, fxSent, reveal: revealV, start: startV }),
+    debug: () => ({ arches: arches ? (arches.info || true) : arcErr ? 'error' : 'none', env: envRT ? 'own' : room.envMap ? 'room' : 'none', pieces: NC, verts: heroGeo.attributes.position.count, mothers: cells.filter((c) => c.mother).length, loose: cells.filter((c) => c.loose).length, band: band.length, mid: mid.length, gone: gone.reduce((a, b) => a + b, 0), falling: bodies.filter((s) => s.state === 1).length + band.filter((s) => s.state === 1).length, resting: bodies.filter((s) => s.state >= 2).length, chips: chips.filter((c) => c.on).length, pulses: pulses.filter((p) => p.on).length, coloured: colT.reduce((a, t) => a + (t > time ? 1 : 0), 0), glazed: phi.reduce((a, v) => a + (v > 1.5708 ? 1 : 0), 0), asleep: sleep.reduce((a, v) => a + v, 0), cascades, crossings, figure: figT0 >= 0, fxSent, reveal: revealV, start: startV }),
     dispose() {
       try { bc?.close(); } catch { /* closed */ }
       for (const m of meshes) m.dispose?.();
-      heroGeo.dispose(); stTex.dispose(); envRT?.dispose?.(); crackle.dispose();
+      heroGeo.dispose(); stTex.dispose(); pieceTex.dispose(); envRT?.dispose?.(); crackle.dispose(); try { arches?.dispose?.(); } catch { /* gone */ }
     },
   };
 }

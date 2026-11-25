@@ -115,7 +115,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // warm one below, so chrome reads as metal. `hdri` weights: g = generated, night, sky. The host calls room.setEnvironment(block).
   const ENV_PRESETS = {
     generated: { g: 1, night: 0, sky: 0, sat: 1, tint: [1, 1, 1], top: [1, 1, 1], bottom: [1, 1, 1], gain: 1, panels: true },
-    wait:    { g: 0, night: 1, sky: 0, sat: 0.15, tint: hueOf('#AEB8C8'), top: [1, 1, 1], bottom: hueOf('#FF6B2E', 0.5), gain: 0.9, panels: false },
+    wait:    { g: 0, night: 0, sky: 1, sat: 0.25, tint: hueOf('#F3E6D3'), top: [1, 1, 1], bottom: hueOf('#D9BC98', 0.75), gain: 1.15, panels: false },   // T-058 (ENT): a pastel sand noon (was a dim silver night)
     intro:   { g: 0.5, night: 1, sky: 0, sat: 0.6, tint: hueOf('#6E86C8'), top: [1, 1, 1], bottom: hueOf('#FFB25A', 0.9), gain: 1.1, panels: true },
     brasa:   { g: 0, night: 0.35, sky: 1, sat: 0.2, tint: [1, 1, 1], top: hueOf('#9FB4D8', 0.7), bottom: hueOf('#FF6A1F', 0.3), gain: 0.9, panels: false },
     pinya:   { g: 0, night: 1, sky: 0.25, sat: 0.3, tint: [1, 1, 1], top: hueOf('#2ED3C6', 0.8), bottom: hueOf('#FF6F59', 0.55), gain: 1.0, panels: false },
@@ -388,7 +388,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // lifted a little towards the chapter's colour above), `accent` = the chapter's accent for the fine graphics and the hands' light.
   const linA = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
   const PALETTE = {
-    wait:    { bottom: linA('#050506'), top: linA('#0F1016'), accent: linA('#FF6B2E') },
+    wait:    { bottom: linA('#D9BC98'), top: linA('#F3E6D3'), accent: linA('#1F3FA8') },   // T-058 (ENT): sand below, cream above; the accent is ART's cobalt
     intro:   { bottom: linA('#0B1430'), top: linA('#1B2A52'), accent: linA('#FFB25A') },
     brasa:   { bottom: linA('#0A0504'), top: linA('#1C0B07'), accent: linA('#FF6A1F') },
     pinya:   { bottom: linA('#03090B'), top: linA('#082028'), accent: linA('#2ED3C6') },

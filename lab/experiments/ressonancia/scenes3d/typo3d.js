@@ -239,14 +239,15 @@ function makePlate(U, a, flash) {
   // T-048: the plate's soft edge catches a hand's light (gradient-border-flashlight): a faint warm band near r ≈ 0.75, only near a hand
   const lamp = flash ? flash(TSL.positionWorld) : float(0);
   const band = exp(r.sub(0.72).mul(r.sub(0.72)).mul(-60.0));
-  m.colorNode = U.lamp.mul(band.mul(lamp).mul(0.05)).mul(k).mul(a);
-  m.opacityNode = float(1).sub(smoothstep(0.15, 1.0, r)).mul(U.plate).mul(k).mul(a);
+  const op = float(1).sub(smoothstep(0.15, 1.0, r)).mul(U.plate).mul(k).mul(a);
+  m.colorNode = U.lamp.mul(band.mul(lamp).mul(0.05)).mul(k).mul(a).add(U.plateCol.mul(op));   // T-059: plateCol (0 = the dark plate; a cream = a pale veil on a light ground)
+  m.opacityNode = op;
   return m;
 }
 
 function text({ placements, renderOrder = 20, max = 160, spread = 2.0, depth = 0.3, halo = 0.4, plate = 0.45, flash = null } = {}) {
   const U = { dur: uniform(1.5), asm: uniform(0), out: uniform(0), sweep: uniform(-1), sweepK: uniform(0), spread: uniform(spread), depth: uniform(depth), halo: uniform(halo), plate: uniform(plate),
-    lamp: uniform(new THREE.Vector3(1, 0.86, 0.66)) };   // T-048: the colour a hand's light gives the plate's edge (the chapter's accent)
+    lamp: uniform(new THREE.Vector3(1, 0.86, 0.66)), plateCol: uniform(new THREE.Vector3(0, 0, 0)) };   // T-048: the colour a hand's light gives the plate's edge (the chapter's accent)
   const plateGeo = new THREE.PlaneGeometry(1, 1);
   const P = placements.map((pl) => {
     const geo = new THREE.InstancedBufferGeometry();

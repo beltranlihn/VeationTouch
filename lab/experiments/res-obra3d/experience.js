@@ -33,7 +33,7 @@ const vt = await connectExperience();
 const canvas = document.getElementById('c');
 canvas.width = vt.size.width; canvas.height = vt.size.height;
 const q = new URLSearchParams(location.search);
-const P = Object.assign({ jump: 'none', pace: 1, guide: true, bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: true, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab', warmSets: true, prewarmRT: true }, vt.params);   // T-057: warmSets / prewarmRT (see 'pre-warming'), false = as before
+const P = Object.assign({ jump: 'none', pace: 1, guide: true, bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: true, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab', warmSets: true, prewarmRT: true, entranceFirst: false }, vt.params);   // T-057: warmSets / prewarmRT (see 'pre-warming'), false = as before · T-065: entranceFirst (see 'entrance first'), false = as before
 // T-052 «modo sala»: in the room (mode 'room', or 'auto' inside the app, which opens the page with ?run=1) the lab's URL switches are
 // ignored, so a stray ?q3 / ?parts / ?tiles can never reach the walls. Read at load: changing `mode` needs a reload (Stop / Play).
 const LAB = P.mode === 'lab' || (P.mode !== 'room' && !q.has('run'));
@@ -45,6 +45,19 @@ if (LAB) {
 }
 const QS = { low: 0.6, medium: 0.8, high: 1 }, DENS = { low: 0.4, medium: 0.6, high: 1 };
 const LT = { start: performance.now() }; const lt = (k) => { LT[k] = Math.round(performance.now() - LT.start); };   // T-057: load phases (ms), window.__obra.load
+// ------------------------------------------------------------------------------------------------ the parts (their files)
+const NAMES = ['umbral3d', 'atmos', 'plaza', 'castell', 'tronc3d', 'fall3d', 'introtext', 'actatext', 'brasa3d', 'pinya3d', 'pom3d', 'festa3d', 'baixada3d'];
+const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d', 'pom3d', 'festa3d', 'baixada3d', 'fall3d', 'tronc3d']);
+const only = LAB ? q.get('parts') : null;                                       // lab: ?parts=plaza,castell loads only those
+// T-065 (LOAD): every part's module and defaults are fetched at once, while the renderer starts (they were fetched one part after
+// another — HEAD, HEAD, defaults, import: 13 × 4 round trips, seconds when the machine is busy or the sound piece loads its files)
+const loads = new Map();
+for (const name of NAMES) {
+  if (only && !only.split(',').includes(name)) continue;
+  const src = new URL(`../ressonancia/scenes3d/parts/${name}.js`, import.meta.url).href;
+  const defsUrl = new URL(`../res-3d-study/parts/${name}.json`, import.meta.url).href;
+  loads.set(name, Promise.all([import(src).then((mod) => ({ mod }), (err) => ({ err })), fetch(defsUrl).then((r) => (r.ok ? r.json() : [])).catch(() => [])]));
+}
 const room = await createRoom3D(vt, canvas, { forceWebGL: P.renderer === 'webgl2', bloom: { strength: P.bloom }, exposure: P.exposure, renderScale: QS[P.quality] ?? 1, samples: P.quality === 'high' ? 2 : 0, aa: P.aa === 'auto' ? (P.quality === 'high' ? 'taa' : 'msaa') : P.aa });   // aa 'auto': TAA at high (RND-F's variance-clipped TAA), MSAA below — switch the default after QA's fps window   // MSAA 2 at high (T-011, DECISIONES 23:26; was 4)
 lt('room'); const NW = room.walls.length;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -53,27 +66,30 @@ const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate)
 const TR = 4;                                                      // a part's arrive / leave, s (5 before T-028: the tiles carry the change now)
 
 // ------------------------------------------------------------------------------------------------ the parts
-const NAMES = ['umbral3d', 'atmos', 'plaza', 'castell', 'tronc3d', 'fall3d', 'introtext', 'actatext', 'brasa3d', 'pinya3d', 'pom3d', 'festa3d', 'baixada3d'];
-const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d', 'pom3d', 'festa3d', 'baixada3d', 'fall3d', 'tronc3d']);
+// T-065 (LOAD), entrance first: every part is still CREATED before the loop (a part's create is synchronous — the square alone takes
+// 0.3 s — and would stall the entrance if it ran during the wait), but only the entrance (umbral3d, atmos, the guide) is compiled and
+// warmed before the first frame; the others are compiled a few meshes per frame while the wait plays (bgWarm, below), and until they
+// are the start ring holds and a jump waits. entranceFirst: false = as before (everything compiled and warmed before the loop).
+const EF = P.entranceFirst !== false;
+const ENTRY = new Set(['umbral3d', 'atmos']);
 const parts = {}, byName = {}, list = [];
-const only = LAB ? q.get('parts') : null;                                       // lab: ?parts=plaza,castell loads only those
-async function exists(url) { try { const r = await fetch(url, { method: 'HEAD' }); return r.ok; } catch { return false; } }
-for (const name of NAMES) {
-  if (only && !only.split(',').includes(name)) continue;
-  const src = new URL(`../ressonancia/scenes3d/parts/${name}.js`, import.meta.url);
-  if (CHAPTERS.has(name) && !(await exists(src))) { console.info(`res-obra3d: part "${name}" is not there yet; its stand-in plays`); continue; }
+for (const [name, pr] of loads) {
+  const [{ mod, err }, defs] = await pr;
+  if (!mod) {
+    if (CHAPTERS.has(name)) console.info(`res-obra3d: part "${name}" is not there yet (${err?.message}); its stand-in plays`);
+    else console.warn(`res-obra3d: part "${name}" failed to load (${err?.message}); skipped`);
+    continue;
+  }
   try {
     const params = {};
-    const defsUrl = new URL(`../res-3d-study/parts/${name}.json`, import.meta.url);
-    const defs = (await exists(defsUrl)) ? await fetch(defsUrl).then((r) => r.json()).catch(() => []) : [];
-    for (const d of defs) params[d.key] = d.default;
+    for (const d of Array.isArray(defs) ? defs : []) params[d.key] = d.default;
     if (name === 'atmos') params.demoLamps = false;                // the square's own lamps light the dust
     if (name === 'plaza') params.glow = 0.3;                       // atmos draws the lamps' glow in the air too
     if (name === 'castell') params.density = DENS[P.quality] ?? 1;
     if (name === 'pinya3d') params.density = DENS[P.quality] ?? 1;
     if (name === 'baixada3d') params.town = false;                // the real square (plaza, silhouette) is the town behind the dawn   // 3D-PI: fewer points at medium / low
     if (name === 'fall3d') params.duration = TIMES.fall;           // its 15 s script rescaled to the score's fall
-    const t0p = performance.now(); const part = (await import(src.href)).create({ THREE, TSL, room, params, parts: byName }); LT['part:' + name] = Math.round(performance.now() - t0p);
+    const t0p = performance.now(); const part = mod.create({ THREE, TSL, room, params, parts: byName }); LT['part:' + name] = Math.round(performance.now() - t0p);
     // every part hangs from a rig of the host: the global eye moves the rigs (T-028), and the tile passes show / hide them
     const rig = new THREE.Group(); rig.name = 'rig:' + name; rig.add(part.object); room.scene.add(rig);
     part.object.visible = false;
@@ -92,12 +108,76 @@ const has = (n) => !!parts[n];
 // intensity once, e.g. a room.lightRecipe().group, stayed dark after their first exit). The value kept is the last one > 0 the light had.
 function steadyOff(e) { for (const l of e.steady) { if (l.intensity > 0) l.userData.hostIntensity = l.intensity; l.intensity = 0; } }
 function steadyOn(e) { for (const l of e.steady) if (l.intensity === 0 && l.userData.hostIntensity != null) l.intensity = l.userData.hostIntensity; }
+// ------------------------------------------------------------------------------------------------ T-060 (TRN): the light of the wait
+// The wait is a bright sand noon (ARTE-ENTRADA); every block after it is night. Leaving it is never a cut: over ~2.9 s the outgoing
+// threshold goes through a warm dusk — its far sky towards #C98F6A, then the intro's night blue —, its sun and fill redden and sink, and
+// last of all the whole threshold fades: the glazed pieces the public revealed (they carry their own glaze light) are the last to go.
+// Two multiply shells (one draw per wall each, and only while the ramp runs) hang from the threshold's rig, so the tile passes apply
+// them to the OUTGOING world only: the night coming in through the slabs is untouched. `far` is depth-tested at 11.5 m (sky, haze,
+// dunes, far floor; the serpentine at 5–10 m is lit and goes down with its lights); `all` covers the whole threshold. Uniforms only.
+// Bloom per block (ART: the noon's whites keep their relief): the wait 0.07 on screen with threshold 1.0; the night's bloom comes back
+// only once the noon has gone (dusk.t ≥ 2.3 s), so no halo ever blooms over the sand.
+const BLOOM = { wait: { strength: 0.14, threshold: 1.0 } };          // strength in the host's scale: room3d applies × 0.5 (BLOOM_K) → 0.07
+const bloomTo = (b) => BLOOM[b] || { strength: P.bloom, threshold: 0.85 };
+const bloomNow = { ...bloomTo('wait') };
+const linC = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
+const SAND = linC('#F3E6D3'), DUSK = linC('#C98F6A').map((v, i) => v / SAND[i]), NIGHT = linC('#1B2A52').map((v, i) => (6.4 * v) / SAND[i]);   // far shell: sand sky × this = #C98F6A / the intro's night blue (its hue: the darkness is the `all` shell's)
+const NEAR = DUSK.map(Math.sqrt);                                  // the near world (floor, unlit glaze) takes half the dusk's stops: it warms with the sky
+const GONE = [0.035, 0.04, 0.06];                                  // the whole threshold at the end of the ramp (a cool dark, ≈ the intro's level)
+const geo = (a, b, k) => a * Math.pow(b / a, k);                  // in stops: an exposure ramp, not a linear fade
+const dusk = { t: -1, T: 2.9, far: null, all: null, lights: [], warm: { key: new THREE.Color('#FF9C5A'), sky: new THREE.Color('#E8A070'), ground: new THREE.Color('#6E4636') } };
+function duskShell(r, depthTest, order) {
+  const col = TSL.uniform(new THREE.Vector3(1, 1, 1));
+  const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, transparent: true, depthWrite: false, depthTest, fog: false, toneMapped: false });
+  m.colorNode = col;
+  m.blending = THREE.CustomBlending; m.blendEquation = THREE.AddEquation; m.blendSrc = THREE.ZeroFactor; m.blendDst = THREE.SrcColorFactor;   // dst × col
+  m.blendEquationAlpha = THREE.AddEquation; m.blendSrcAlpha = THREE.ZeroFactor; m.blendDstAlpha = THREE.OneFactor;
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 32, 16), m);
+  mesh.name = 'host:dusk'; mesh.renderOrder = order; mesh.frustumCulled = false; mesh.position.copy(room.eye);
+  return { mesh, col };
+}
+if (parts.umbral3d) {
+  const U = parts.umbral3d;
+  dusk.far = duskShell(11.5, true, 9000); dusk.all = duskShell(1.5, false, 9001);
+  U.rig.add(dusk.far.mesh, dusk.all.mesh);                         // visible now: compiled with the rest below; hidden from the first frame
+  for (const l of U.steady) dusk.lights.push({ l, color: l.color.clone(), ground: l.groundColor ? l.groundColor.clone() : null });
+}
+function duskEnd() {
+  if (!dusk.far) return;
+  dusk.far.mesh.visible = false; dusk.all.mesh.visible = false; dusk.far.col.value.set(1, 1, 1); dusk.all.col.value.set(1, 1, 1);
+  if (dusk.t >= 0) for (const d of dusk.lights) { d.l.color.copy(d.color); if (d.ground) d.l.groundColor.copy(d.ground); }
+  dusk.t = -1;
+}
+// after the parts' update (umbral3d sets its lights' intensity every frame) and before the render
+function stepDusk(dt) {
+  const U = parts.umbral3d;
+  if (!dusk.far || !U || S.block === 'wait' || U.state === 'off') { if (dusk.t >= 0 || dusk.far?.mesh.visible) duskEnd(); return; }
+  dusk.t = dusk.t < 0 ? 0 : dusk.t + dt;
+  const t = dusk.t, a = smooth(t / 1.0), b = smooth((t - 1.2) / 1.4), c = smooth((t - 1.0) / 1.9);   // dusk 0–1 s · the sky's hue to night 1.2–2.6 s · everything down 1–2.9 s (sky never darker than the ground)
+  const f = dusk.far.col.value, g = dusk.all.col.value;
+  f.set(geo(geo(1, NEAR[0], a), NIGHT[0], b), geo(geo(1, NEAR[1], a), NIGHT[1], b), geo(geo(1, NEAR[2], a), NIGHT[2], b));   // × the `all` shell's NEAR: the sky = #C98F6A at the dusk
+  g.set(geo(geo(1, NEAR[0], a), GONE[0], c), geo(geo(1, NEAR[1], a), GONE[1], c), geo(geo(1, NEAR[2], a), GONE[2], c));
+  dusk.far.mesh.visible = t > 0; dusk.all.mesh.visible = t > 0;
+  const gl = geo(1, 0.5, a) * (1 - smooth((t - 0.9) / 1.1));      // the sun and the fill: ×0.5 at the dusk, out by 2.0 s (the ground darkens with the sky, not after it)
+  for (const d of dusk.lights) {
+    d.l.intensity *= gl;
+    if (d.ground) { d.l.color.copy(d.color).lerp(dusk.warm.sky, a); d.l.groundColor.copy(d.ground).lerp(dusk.warm.ground, a); }
+    else d.l.color.copy(d.color).lerp(dusk.warm.key, a);
+  }
+}
+function stepBloom(dt) {
+  const hold = S.block !== 'wait' && dusk.t >= 0 && dusk.t < 2.3;  // the noon's soft bloom until the threshold is dark
+  const g = hold ? BLOOM.wait : bloomTo(S.block), r = S.block === 'wait' ? 8 : 2.5;
+  bloomNow.strength = ease(bloomNow.strength, g.strength, dt, r); bloomNow.threshold = ease(bloomNow.threshold, g.threshold, dt, r);
+  room.setBloom(bloomNow);
+}
+room.setBloom(bloomNow);
 lt('parts'); const guide = createGuide({ THREE, TSL, room });
 room.overlay.add(guide.object);   // T-028: the guide is drawn over the final image (after the tiles: the words never break); its materials are depthTest-free
 // compile every material once, now, so a universe arriving later does not stall the room
 // T-057 (prewarmRT): into the strip's format — with no target, compileAsync built pipelines for the canvas that no frame uses
 const toStrip = async (fn) => { const rt0 = room.renderer.getRenderTarget(); if (P.prewarmRT !== false) room.renderer.setRenderTarget(room.strip); try { return await fn(); } finally { room.renderer.setRenderTarget(rt0); } };
-try { for (const e of list) e.part.object.visible = true; await toStrip(() => room.renderer.compileAsync(room.scene, room.walls[0].camera)); } catch (err) { console.info('res-obra3d: precompile skipped (' + err.message + ')'); }
+try { for (const e of list) e.part.object.visible = !EF || ENTRY.has(e.name); await toStrip(() => room.renderer.compileAsync(room.scene, room.walls[0].camera)); } catch (err) { console.info('res-obra3d: precompile skipped (' + err.message + ')'); }
 for (const e of list) e.part.object.visible = false;
 lt('compile');
 
@@ -115,15 +195,19 @@ const tell = (o) => { try { bc?.postMessage({ type: 'ctl', ...o }); } catch { /*
 // A jump made on this page (the 'Go to' parameter, the lab's checks, the review page) goes to the sound piece too: while the sound leads,
 // a local jump alone was overwritten by the sound's next state (25 ms later) and the picture only changed when the sound's own score
 // got there — the "3–4 s" lag of the audits. The sound applies a ctl jump within ~0.2 s.
-{ const raw = score.jump; score.jump = (b) => { raw(b); tell({ jump: b }); }; }
+// T-065: until the chapters are compiled (bgWarm) a jump waits (the last one asked is made then) and the start ring holds: the ring's
+// time is 600 s, here and in the sound piece (ctl times), so a hand on the button barely moves it; the real time comes back when ready.
+const bg = { ready: !EF, jump: null, HOLD: 600, slow: [] };   // slow: the background steps > 30 ms (lab)
+{ const raw = score.jump; score.jump = (b) => { if (!bg.ready) { bg.jump = b; return; } raw(b); tell({ jump: b }); }; }
 let lastJump = 'none';
 const doJump = () => { if (P.jump !== lastJump) { lastJump = P.jump; if (P.jump && P.jump !== 'none') score.jump(P.jump); } };
 // T-052: the thresholds (params `tuning` + `t.<block>.<field>`, ressonancia/tuning.js) go LIVE into this page's score and, over the
 // channel, into the sound piece's score (which leads): { type: 'ctl', times } on every change and every 1 s (a sound started later
 // picks them up). The score reads T.<block>.<field> on every step: no reload.
 let tuned = tuneOverrides(P);
-const tune = () => { tuned = tuneOverrides(P); const n = applyTimes(score.times, tuned, TIMES); if (n) { console.info('res-obra3d: thresholds', JSON.stringify(Object.fromEntries(Object.entries(tuned).filter(([, v]) => v != null)))); tell({ times: tuned }); } };
-vt.on('params', (p) => { Object.assign(P, p); room.setBloom({ strength: P.bloom }); room.renderer.toneMappingExposure = P.exposure; tune(); doJump(); });
+const timesNow = () => (bg.ready ? tuned : { ...tuned, start: bg.HOLD });
+const tune = () => { tuned = tuneOverrides(P); const n = applyTimes(score.times, timesNow(), TIMES); if (n) { console.info('res-obra3d: thresholds', JSON.stringify(Object.fromEntries(Object.entries(tuned).filter(([, v]) => v != null)))); tell({ times: timesNow() }); } };
+vt.on('params', (p) => { Object.assign(P, p); room.renderer.toneMappingExposure = P.exposure; tune(); doJump(); });
 tune();
 doJump();
 
@@ -279,6 +363,7 @@ function placeRig(rig, s, mv) {              // s: the share of the move this wo
 }
 function startTransition(from, to) {
   tr.on = true; tr.t = 0; tr.at = time; tr.from = from; tr.to = to; tr.mv = MOVES[to] || MOVES.wait; tr.dur = tr.mv.dur;
+  tr.delay = from === 'wait' ? 1.0 : 0.15;                              // T-060: out of the noon the slabs wait 1 s: the dusk falls first, they carry dusk → night
   tr.origin = (Math.random() * 4 | 0) * 0.25 + 0.125;                  // the front starts at the centre of one wall
   room.setTiles({ on: P.tiles !== false, seed: Math.random() * 100, origin: tr.origin, origins: 1, mix: 0, amount: 1, accentFrom: (PAL[from] || PAL.intro).thread, accentTo: (PAL[to] || PAL.intro).thread });
   thread.begin(from, to);
@@ -408,7 +493,7 @@ function frame(dt) {
   frameEvents.length = 0;
   if (following()) {
     if (S.block === 'tronc') S.beat = (link.beat + (((Date.now() - link.ts) / 1000) * link.pace) / score.times.tronc.period) % 1;   // between two messages the pulse keeps moving
-    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: tuned }); }
+    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: timesNow() }); }
     frameEvents.push(...link.events.splice(0));
   } else { score.step(dt * (P.pace || 1), scoreHands); frameEvents.push(...S.events); S.events.length = 0; }
   if ((time - actaAt > 0.5 || S.block !== lastBlock) && S.block !== 'wait' && S.block !== 'intro') { actaAt = time; acta = link.acta && following() ? link.acta : score.acta(); }   // kept through the wait: the acta leaving must not read a reset score
@@ -501,6 +586,7 @@ function frame(dt) {
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
   p1 = performance.now(); const ib = stepIntroBreak();
   for (const e of list) e.rig.visible = !e.torn;
+  stepDusk(dt); stepBloom(dt);                                      // T-060: the wait's light out, the bloom per block
   room.render(dt, tr.on ? pass : ib); if (tr.on || ib) for (const e of list) e.rig.visible = !e.torn; prof.max('render', performance.now() - p1);
   frames++; const n = performance.now(); if (n - f0 > 1000) { fps = (frames * 1000) / (n - f0); frames = 0; f0 = n; }
 }
@@ -512,15 +598,18 @@ function frame(dt) {
 async function warmUp() {
   const wi = { time: 0, t: 30, dt: 1 / 60, progress: 0.5, hands: [], downs: [], ups: [], params: null, state: S, events: [], arrive: 1, leave: 0, acta: score.acta() };
   const saved = [];
-  for (const e of list) e.part.object.visible = true;
+  const first = (e) => !EF || ENTRY.has(e.name);                    // T-065: entrance first — only the entrance's parts here, the rest in bgWarm
+  const hideRest = () => { for (const e of list) if (!first(e)) e.rig.visible = false; };   // after a traverse that saved every visibility
+  for (const e of list) e.part.object.visible = first(e);
   // two states: at rest (t 30) and breaking / arriving (t 52, the square's shatter at half): some parts switch what they draw
   // and once more without the square: its moon and sky light change every material's light set (a render object per light set)
-  for (const [tw, sh, noSquare] of [[30, 0, false], [52, 0.5, false], [30, 0, true]]) {
+  for (const [tw, sh, noSquare] of (EF ? [[30, 0, false], [52, 0.5, false]] : [[30, 0, false], [52, 0.5, false], [30, 0, true]])) {
     wi.t = tw;
-    for (const e of list) { wi.params = e.params; const s0 = e.params.shatter; if (e.name === 'plaza') e.params.shatter = sh; try { e.part.update(1 / 60, wi); } catch (err) { console.info(`res-obra3d: warm-up of "${e.name}" skipped (${err.message})`); } if (e.name === 'plaza') e.params.shatter = s0; }
+    for (const e of list) { if (!first(e)) continue; wi.params = e.params; const s0 = e.params.shatter; if (e.name === 'plaza') e.params.shatter = sh; try { e.part.update(1 / 60, wi); } catch (err) { console.info(`res-obra3d: warm-up of "${e.name}" skipped (${err.message})`); } if (e.name === 'plaza') e.params.shatter = s0; }
     saved.length = 0;
     room.scene.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
     room.overlay.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
+    hideRest();
     if (noSquare && parts.plaza) parts.plaza.part.object.visible = false;
     try { await toStrip(() => room.renderer.compileAsync(room.scene, room.walls[0].camera)); } catch { /* render below compiles too */ }
     for (let k = 0; k < 6; k++) { room.render(1 / 60); await new Promise((r) => requestAnimationFrame(r)); }
@@ -537,6 +626,7 @@ async function warmUp() {
     saved.length = 0;
     room.scene.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
     room.overlay.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
+    hideRest();
     room.setTiles({ on: true, mix: 0.5 });
     for (let k = 0; k < 2; k++) { room.render(1 / 60, () => {}); await new Promise((r) => requestAnimationFrame(r)); }
     room.setTiles({ on: false, mix: 0 });
@@ -546,7 +636,7 @@ async function warmUp() {
   lt('warm:sets');
   // the square's own environment (T-034): captured once, the square alone at rest (t 30), from the eye
   const pl = parts.plaza;
-  if (pl?.part.captureEnv) {
+  if (pl?.part.captureEnv && !EF) {                                  // T-065: entrance first → bgWarm captures it, once the square is compiled
     for (const e of list) { e.rig.visible = e === pl; e.part.object.visible = e === pl; }
     wi.t = 30; wi.params = pl.params; pl.part.update(1 / 60, wi);
     try { pl.part.captureEnv(); } catch (err) { console.info('res-obra3d: square environment skipped (' + err.message + ')'); }
@@ -556,14 +646,105 @@ async function warmUp() {
 }
 lt('pre-warmup'); try { await warmUp(); } catch (err) { console.info('res-obra3d: warm-up skipped (' + err.message + ')'); }
 
-window.__obra = { load: LT, tr, pal, score, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
+window.__obra = { load: LT, bg, dusk, bloom: bloomNow, tr, pal, score, tuned: () => tuned, lab: LAB, following, parts, room, guide, handStats, prof, fps: () => fps };   // for the lab's checks (and res-obra/autopilot.js) only
 lt('loop'); vt.loop(frame, canvas);
+const loopAt = performance.now();
+
+// ------------------------------------------------------------------------------------------------ T-065: the background compiles
+// `objs` compiled one by one (compileAsync(object, cam, room.scene): the object and its children, with the scene's lights), with the
+// whole scene shown, frustum culling off and `setup()` applied for the synchronous part of the calls only (no frame sees it): after
+// ~`budget` ms of calls the next frame is drawn first, so the entrance keeps its frames. Into the strip's format (T-057 prewarmRT), on a
+// camera of its own (its own render list). Returns the longest synchronous step (ms).
+const nextFrame = () => new Promise((r) => requestAnimationFrame(r));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const drawable = (o) => o.isMesh || o.isPoints || o.isLine || o.isSprite;
+// the drawables under `root` with no drawable above them (compileAsync takes an object's children too): each object compiled ONCE —
+// compiling one again in a later frame, after its part changed its material, disposed a render object whose binding buffers a frame
+// still used (WebGPU errors)
+function tops(root) { const out = []; (function walk(o) { if (drawable(o)) { out.push(o); return; } for (const c of o.children) walk(c); })(root); return out; }
+async function compileChunked(objs, cam, setup = null, budget = 8, tag = '') {
+  const all = []; room.scene.traverse((o) => all.push(o));
+  const vis = new Array(all.length), cull = new Array(all.length);
+  let i = 0, worst = 0;
+  while (i < objs.length) {
+    const t0 = performance.now();
+    for (let k = 0; k < all.length; k++) { const o = all[k]; vis[k] = o.visible; cull[k] = o.frustumCulled; o.visible = true; o.frustumCulled = false; }
+    const rt0 = room.renderer.getRenderTarget(), prs = [];
+    try {
+      setup?.();
+      if (P.prewarmRT !== false) room.renderer.setRenderTarget(room.strip);
+      while (i < objs.length && performance.now() - t0 < budget) {
+        try { prs.push(room.renderer.compileAsync(objs[i], cam, room.scene).catch(() => {})); } catch { /* the first real frame compiles */ }
+        i++;
+      }
+    } finally {
+      room.renderer.setRenderTarget(rt0);
+      for (let k = 0; k < all.length; k++) { all[k].visible = vis[k]; all[k].frustumCulled = cull[k]; }
+    }
+    const dt0 = performance.now() - t0; worst = Math.max(worst, dt0); if (dt0 > 30) bg.slow.push([tag + ':compile', Math.round(dt0)]);
+    await Promise.all(prs);                                          // one chunk's pipelines at a time: a backlog of GPU compiles held the frames back
+    await nextFrame();
+  }
+  return worst;
+}
+// Entrance first: what warmUp() did for every part, done for the chapters while the wait plays — each part updated once (the square
+// also breaking: it switches what it draws), its meshes compiled a few per frame, then the square's own environment. Then the start
+// ring gets its real time back and a jump asked meanwhile is made.
+async function bgWarm() {
+  const t0 = performance.now(), cam = room.walls[0].camera.clone();
+  const wi = { time: 0, t: 30, dt: 1 / 60, progress: 0.5, hands: [], downs: [], ups: [], params: null, state: S, events: [], arrive: 1, leave: 0, acta: score.acta() };
+  let worst = 0;
+  while (prewarm.busy) await nextFrame();
+  prewarm.busy = true;                                               // the next-block pre-warm waits for this
+  try {
+    for (const e of list) {
+      if (ENTRY.has(e.name)) continue;
+      for (const [tw, sh] of [[30, 0]]) {                            // one state (at rest): see tops()
+        if (e.state === 'off') {                                     // (a part already on screen — a sound piece far into its pass — is left alone)
+          const u0 = performance.now(); wi.t = tw; wi.params = e.params; const s0 = e.params.shatter; if (e.name === 'plaza') e.params.shatter = sh;
+          try { e.part.update(1 / 60, wi); } catch (err) { console.info(`res-obra3d: warm-up of "${e.name}" skipped (${err.message})`); }
+          if (e.name === 'plaza') e.params.shatter = s0;
+          const du = performance.now() - u0; worst = Math.max(worst, du); if (du > 30) bg.slow.push([e.name + ':update', Math.round(du)]);
+          await nextFrame();
+        }
+        const objs = tops(e.part.object);
+        worst = Math.max(worst, await compileChunked(objs, cam, null, 8, e.name));
+      }
+    }
+    // the square's own environment (T-034): captured once, the square alone at rest (t 30), from the eye, its lights as at load
+    const pl = parts.plaza;
+    if (pl?.part.captureEnv && pl.state === 'off') {
+      const c0 = performance.now(), keep = list.map((e) => [e.rig.visible, e.part.object.visible]), lv = pl.lights.map((l) => l.visible);
+      const steady = list.flatMap((e) => e.steady.map((l) => [l, l.intensity]));
+      for (const e of list) { e.rig.visible = e === pl; e.part.object.visible = e === pl; }
+      for (const l of pl.lights) l.visible = true;
+      for (const [l] of steady) if (l.userData.hostIntensity != null) l.intensity = l.userData.hostIntensity;
+      try { wi.t = 30; wi.params = pl.params; pl.part.update(1 / 60, wi); pl.part.captureEnv(); } catch (err) { console.info('res-obra3d: square environment skipped (' + err.message + ')'); }
+      finally {
+        list.forEach((e, k) => { e.rig.visible = keep[k][0]; e.part.object.visible = keep[k][1]; });
+        pl.lights.forEach((l, k) => { l.visible = lv[k]; });
+        for (const [l, v] of steady) l.intensity = v;
+      }
+      const dc = performance.now() - c0; worst = Math.max(worst, dc); if (dc > 30) bg.slow.push(['plaza:env', Math.round(dc)]);
+    }
+  } finally { prewarm.busy = false; }
+  bg.worst = Math.round(worst);
+  console.info(`res-obra3d: chapters compiled in the background, ${Math.round(performance.now() - t0)} ms (longest step ${bg.worst} ms)`);
+}
+function bgDone() {
+  if (bg.ready) return;
+  bg.ready = true; lt('ready');
+  tune();                                                            // the start ring's real time, here and in the sound piece
+  if (bg.jump) { const b = bg.jump; bg.jump = null; score.jump(b); }
+}
 
 // T-057 (warmSets): the light sets the load did not draw, compiled in the background while the wait plays (~2.5 s each on the M1 Max;
 // the wait lasts ≥ 18 s). The chapters' set (no carrier lit) first, then the acta's, then the wait's alone. Each compile runs on a camera
 // of its own (its own render list, so the frames drawn meanwhile do not change the lights it compiles with) into the strip's format; the
 // scene is shown / the lights set only for the synchronous part of the call (no frame sees it). Pipelines and shaders are shared by
-// every camera and target with the same format, so the walls' real frames find them built.
+// every camera and target with the same format, so the walls' real frames find them built. T-065: after the chapters' background
+// compile and ≥ 3 s of entrance. (Not chunked per object: compiling the live entrance's objects one by one made WebGPU errors —
+// a binding buffer destroyed while a frame used it.)
 async function warmSetsLater() {
   if (P.warmSets === false || room.backend !== 'webgpu') return;   // WebGL2: its compiles block the main thread (a 200 ms hitch in the wait): as before
   const t0 = performance.now(), cam = room.walls[0].camera.clone();
@@ -573,7 +754,7 @@ async function warmSetsLater() {
   const full = (1 << carriers.length) - 1, order = [];
   for (let n = 0; n < carriers.length; n++) for (let m = 0; m < full; m++) if (popcount(m) === n) order.push(m);   // fewest lights first; all lit: done at load
   function popcount(m) { let c = 0; for (; m; m &= m - 1) c++; return c; }
-  while (prewarm.busy) await new Promise((r) => setTimeout(r, 100));
+  while (prewarm.busy) await sleep(100);
   prewarm.busy = true;                                               // the next-block pre-warm waits for this
   try {
     for (const mask of order) {
@@ -586,10 +767,17 @@ async function warmSetsLater() {
       for (let i = 0; i < saved.length; i += 2) saved[i].visible = saved[i + 1];
       for (const o of culled) o.frustumCulled = true;
       try { await pr; } catch { /* idem */ }
-      await new Promise((r) => setTimeout(r, 250));
+      await sleep(250);
     }
     lt('warm:setsLater');
     console.info(`res-obra3d: warmed ${order.length + 1} light sets (${carriers.map((e) => e.name).join(', ') || 'none'}), ${Math.round(performance.now() - t0)} ms in the background`);
   } finally { prewarm.busy = false; }
 }
-setTimeout(() => { warmSetsLater().catch((err) => console.info('res-obra3d: light-set warm-up skipped (' + err.message + ')')); }, 500);
+(async () => {
+  if (EF) {
+    await sleep(500);
+    try { await bgWarm(); } catch (err) { console.info('res-obra3d: background warm-up skipped (' + err.message + ')'); } finally { bgDone(); }
+  }
+  const rest = 3000 - (performance.now() - loopAt); if (rest > 0) await sleep(rest);   // the light sets: after ≥ 3 s of entrance
+  await warmSetsLater();
+})().catch((err) => console.info('res-obra3d: light-set warm-up skipped (' + err.message + ')'));

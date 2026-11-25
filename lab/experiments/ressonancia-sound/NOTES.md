@@ -110,7 +110,7 @@ A file that fails to load logs a warning and the piece goes on without it (a mis
   está coronado»), said 1.6 s after the crown. A line never repeats in a pass (the wait's calls are between passes).
 - 2026-11-24: `v-wait` is no longer used (the start button is revealed by play). New lines, both languages, same voices/settings/tag,
   checked with scribe_v1: `v-wait-invite` («Tocad. Jugad con la sala.» / «Touch. Play with the room.»: the empty room's call before
-  the reveal) and `v-wait-start` («Sostened el anillo para empezar.» / «Hold the ring to begin.»: 1.4 s after 'reveal').
+  the reveal) and `v-wait-start` («Mantened la mano en el círculo.» / «Keep your hand in the circle.», re-recorded 2026-11-25: 1.4 s after 'reveal').
 - **Spanish is the default** since 2026-11-24 (Vicente: all the work in Spanish). Parameter `lang` ("Voice language": Spanish (Spain) /
   English); it can change live (the other language's lines are loaded).
 - 26 lines in peninsular Spanish (vosotros: the public is in Barcelona), the casteller words kept in Catalan (castell, pinya, seny,
