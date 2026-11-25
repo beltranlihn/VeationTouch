@@ -35,7 +35,7 @@ const Y = { castell: 1.89, ribbon: 1.5, gloss: 2.64, sentence: 2.2, credits: 2.2
 // the ring of prints (wall-local metres): centre, two rings; the dials: x, y per value (two each side, inside the walls' free edge)
 const RING = { y: 2.05, rx: [1.95, 2.22], ry: [0.68, 0.87], cap: [40, 48] };
 const DIAL = { r: 0.19, pos: [[-2.58, 2.72], [-2.58, 1.72], [2.58, 2.72], [2.58, 1.72]] };   // ART r5: each value block ×1.6
-const PRINT_H = 0.12, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
+const PRINT_H = 0.15, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
 const env = (t, a, b, c, d) => (t < a || t > d ? 0 : t < b ? smooth((t - a) / (b - a)) : t > c ? 1 - smooth((t - c) / (d - c)) : 1);
@@ -98,12 +98,13 @@ export function create({ THREE, TSL, room, params = {} }) {
     const A = attribute('pA', 'vec4'), B = attribute('pB', 'vec4'), N = attribute('pN', 'vec4'), D = attribute('pD', 'vec4');
     const ca = cos(B.w), sa = sin(B.w), q = positionGeometry.xy;
     const lx = q.x.mul(ca).sub(q.y.mul(sa)).mul(N.w), ly = q.x.mul(sa).add(q.y.mul(ca)).mul(N.w);
-    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+    // 25-11 (AD #13): gold LEAF over the lit lime wall — premultiplied «over» (additive light vanished on a light wall)
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor, side: THREE.DoubleSide, fog: false });
     m.positionNode = A.xyz.add(B.xyz.mul(lx)).add(vec3(0, 1, 0).mul(ly));
     const vQ = varying(q), vK = varying(A.w), vD = varying(D), vN = varying(N.xyz), vA = varying(B.w), vW = varying(positionWorld);
     m.colorNode = Fn(() => {
       If(dot(cameraWorldMatrix.element(2).xyz, vN).lessThan(0.999), () => { Discard(); });
-      const c = vec3(0).toVar();
+      const c = vec3(0).toVar(), cov = float(0).toVar();
       If(vK.lessThan(0.5), () => {
         // a hand, in units of the half size (fingers along +y): palm + five capsules, smooth union; mirrored for a left hand
         const mir = select(vD.z.greaterThan(0.5), float(-1), float(1)), sd = vD.z.mul(17.0).fract();
@@ -127,8 +128,9 @@ export function create({ THREE, TSL, room, params = {} }) {
         const rim = float(1).sub(smoothstep(fw.mul(0.6), fw.mul(1.8), abs(d.add(fw.mul(0.8)))));
         const ridge = float(1).sub(rr.mul(0.45)).max(0.4);   // gold leaf: denser at the palm, thinner to the fingertips
         const wet = exp(rr.sub(front).div(0.06).pow(2).negate()).mul(step(vD.x, 0.99)).mul(fill);
-        const g = vec3(1.0, 0.6, 0.22);
-        c.addAssign(g.mul(fill.mul(ridge).mul(0.17).add(rim.mul(0.75)).add(wet.mul(0.9))).mul(reveal));
+        const g = vec3(0.62, 0.38, 0.1);   // old gold leaf (linear): reads on the lime
+        cov.assign(fill.mul(ridge.mul(0.55).add(0.3)).max(rim).mul(reveal).min(1));
+        c.addAssign(g.mul(cov).add(vec3(0.9, 0.62, 0.25).mul(rim.mul(0.35).add(wet.mul(0.5))).mul(reveal)));
         c.addAssign(vec3(1.0, 0.78, 0.45).mul(fill.mul(vD.y).mul(0.6)));
         const lamp = flash ? flash(vW) : float(0);
         c.addAssign(vec3(1.0, 0.82, 0.55).mul(rim.mul(lamp).mul(0.6)));
@@ -137,7 +139,7 @@ export function create({ THREE, TSL, room, params = {} }) {
         const r2 = dot(vQ, vQ);
         c.addAssign(vec3(0.95, 0.72, 0.4).mul(exp(r2.mul(-4.0))).mul(1.3));
       });
-      return vec4(c.mul(vD.w).mul(uPK), 1);
+      return vec4(c.mul(vD.w).mul(uPK), cov.mul(vD.w).mul(uPK));
     })();
     mats.push(m);
     var printMesh = new THREE.Mesh(piG, m); printMesh.frustumCulled = false; printMesh.renderOrder = 11; object.add(printMesh);
@@ -228,7 +230,7 @@ export function create({ THREE, TSL, room, params = {} }) {
     if (colla > 0) story.push(`La colla ayudó en ${colla} ${colla === 1 ? 'piso' : 'pisos'}`);
     statT.t.set(story.map((text, i) => ({ text, font: 'italic', size: 0.18 / 0.7, y: story.length > 1 ? (i ? -0.16 : 0.16) : 0, track: 0.03, alpha: 0.9, color: SOFT, reveal: 'blur', delay: i * 0.3 })));
     const rec = VALUES.map(([, name], q) => [name, Math.round(values[q] * 100)]).filter(([, v]) => v > 0).map(([name, v]) => `${name.toUpperCase()} ${v}`).join('  ·  ');
-    valuesT.t.set(rec ? [{ text: rec, font: 'serif', size: 0.12 / 0.7, y: 0, track: 0.06, alpha: 0.6, color: INK }] : []);
+    valuesT.t.set(rec ? [{ text: rec, font: 'serif', size: 0.14 / 0.7, y: 0, track: 0.06, alpha: 0.8, color: INK }] : []);
     const lk = values.join(',');
     if (lk !== labelKey) { labelKey = lk; for (let k = 0; k < 4; k++) labelT[k].t.set([{ text: VALUES[k][1], font: 'sans', size: 0.13, y: 0, track: 0.14, alpha: 0.35 + 0.6 * values[k], color: INK, upper: true, reveal: 'blur' }]); }
   }
