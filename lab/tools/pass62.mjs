@@ -53,6 +53,7 @@ return JSON.stringify({ block: S.block, phase: S.phase, maxTargets: maxN, yMin: 
   const why = [];
   if (o.error) why.push(o.error);
   if ((o.errors || []).length) why.push(`${o.errors.length} console error(s): ${String(o.errors[0]).slice(0, 120)}`);
+  if ((o.skipped || []).length) why.push(`${o.skipped.length} skipped line(s): ${String(o.skipped[0]).slice(0, 120)}`);   // a part / step the host skipped (info level too)
   if (res && checks.targets && !(res.maxTargets > 0)) why.push('no targets');
   if (res && res.maxTargets > 16) why.push(`${res.maxTargets} targets (> 16)`);
   if (res && res.yMin != null && (res.yMin < 0.6 || res.yMax > 2.3)) why.push(`target heights ${res.yMin}–${res.yMax} m`);
