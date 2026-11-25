@@ -40,7 +40,7 @@ import { createStory } from './umbral3d/story.js';   // studio 25-11: the contin
 // (desaturated sand) and turning to its On colour where a hand plays. SHARDS = null (no file) → the procedural mosaic, as before.
 const SHARDS = await fetch(new URL('./umbral3d/story-shards.json', import.meta.url)).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
-const GROUT_H = 0.008, ARCH_FRAME = false, WK_DOOR = true, STORY = false, STORY_REST = 0.82, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
+const GROUT_H = 0.008, ORGANIC = true, STONE_SCALE = 5.5, ARCH_FRAME = false, WK_DOOR = true, STORY = false, STORY_REST = 0.82, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
 
 export function create(ctx) {
   const { THREE, TSL, room, params } = ctx;
@@ -274,6 +274,10 @@ export function create(ctx) {
       gx /= 6 * area; gy /= 6 * area; if (area < 0) poly.reverse();
       const cu = s.cu + gx, cy = s.y + gy;
       let rad = 0; for (const p of poly) { p[0] -= gx; p[1] -= gy; rad = Math.max(rad, Math.hypot(p[0], p[1])); }
+      if (ORGANIC && poly.length >= 3) {                                                // studio 25-11 (Beltrán: «piedras mucho más orgánicas»): round the corners
+        const sm = []; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; sm.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]); }
+        poly = sm;
+      }
       // the frame of the surface at the piece
       surfP(cu, cy, P0); surfP(cu + 0.05, cy, Pu); surfP(cu, cy + 0.05, Pv);
       Tu.subVectors(Pu, P0).multiplyScalar(20); Tv.subVectors(Pv, P0).multiplyScalar(20);
@@ -295,7 +299,7 @@ export function create(ctx) {
       // the shard: inset for the joint (see GROUT_H), thin (~1.5 cm), a bevel that catches the light; tilted a little
       // T-066: the grout bed sits 8 mm up (GROUT_H): the foot is widened below it (hidden) so that at the grout line the joint is
       // 2.5 mm (3 mm round a mother) everywhere, whatever the piece's thickness: no pools of grout, nothing floats
-      const n = poly.length, thick = (s.mother ? 0.024 : 0.014) + rr(0, 0.006), ch = Math.min(0.007, thick * 0.5), gap = (s.mother ? 0.0015 : 0.00125) - (GROUT_H / thick) * ch * 1.1;
+      const n = poly.length, thick = (s.mother ? 0.024 : 0.014) + rr(0, 0.006), ch = Math.min(ORGANIC ? 0.011 : 0.007, thick * 0.6), gap = (s.mother ? 0.0015 : ORGANIC ? rr(0.0016, 0.0032) : 0.00125) - (GROUT_H / thick) * ch * 1.1;   // ORGANIC: a softer, wider rounded edge; joints that vary
       const tiltA = rr(0, 6.28), tiltK = loose ? 0 : rr(0.02, 0.06), tx = Math.cos(tiltA) * tiltK, ty = Math.sin(tiltA) * tiltK;
       const O = poly.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.45, 1 - gap / l); return [p[0] * k, p[1] * k]; });
       const T = O.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.5, 1 - (ch * 1.1) / l); return [p[0] * k, p[1] * k]; });
@@ -316,7 +320,7 @@ export function create(ctx) {
       const Z = [0, 0];
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n;
-        tri(Z, thick, T[i], thick, T[j], thick, 0, false, s.round ? 0.3 : 0.14);          // the face (a medallion is domed)
+        tri(Z, thick + (ORGANIC ? 0.0035 : 0), T[i], thick, T[j], thick, 0, false, s.round ? 0.3 : ORGANIC ? 0.38 : 0.14);          // the face (a medallion is domed; ORGANIC: a pebble)
         tri(T[i], thick, O[i], 0, O[j], 0, 2, true); tri(T[i], thick, O[j], 0, T[j], thick, 2, true);   // the bevel down to the grout
         tri(Z, 0, O[j], 0, O[i], 0, 1, false);                                           // the back (the glaze)
       }
@@ -413,7 +417,10 @@ export function create(ctx) {
   const uBed = uniform(1), uPush = uniform(0), uDoor = uniform(1), PUSH = 1.4;
   const GROUT_BONE = float(0);   // studio 25-11 (Beltrán: «todavía se ve el fondo lechoso por detrás»): the whole bed is the night (1 = bone joints at rest, as before)
   const HAND_POOL = 0, HAND_LIGHT = 0;   // studio 25-11 (Beltrán: «quita la luz que genera la mano y las partículas»): pool and light off (Vicente's light was 2.0); motion only
-  const uHandP = Array.from({ length: 6 }, () => uniform(new THREE.Vector4(0, -9, 0, 0)));   // studio 25-11: the hands' points on the mosaic (w = strength)   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
+  const uHandP = Array.from({ length: 6 }, () => uniform(new THREE.Vector4(0, -9, 0, 0)));
+  const STONE_K = 1;   // studio 25-11: how much stone texture (0 = the plain glaze)
+  const stoneTex = new THREE.TextureLoader().load(new URL('./umbral3d/stone-detail.png', import.meta.url).href);
+  stoneTex.wrapS = stoneTex.wrapT = THREE.RepeatWrapping; stoneTex.colorSpace = THREE.NoColorSpace; stoneTex.anisotropy = 4;   // studio 25-11: the hands' points on the mosaic (w = strength)   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
   // THE THRESHOLDS: at the centre of every wall the mosaic opens in a tall arch (Gaudí's: straight jambs, a pointed round head) — cut
   // where the wall LOOKS, not in the mosaic: the serpentine turns and its pieces fold away as they reach the door and grow back past it.
   // (DOOR_A / DOOR_H / DOOR_P: see THE SHELL above; T-058b had A 0.725: half base span, height, shape — y = H·(1 − |x/A|^P), metres ON THE WALL: a near-catenary (P 2 = a parabola), base 1.45 m, apex the narrowest (was 0.9 / 4.5: a flat lintel). The start ring (r 0.31–0.39 at 1.25 m) sits inside; the guide's words go above
@@ -477,8 +484,15 @@ export function create(ctx) {
     let col = topCol.mul(top).add(backCol.mul(back)).add(mix(topCol, body, 0.55).mul(side));
     col = mix(col, CALM.mul(dot(col, LUMW).div(dot(CALM, LUMW)).mul(0.35).add(0.65)), quiet.mul(0.75));   // the quiet zones: only bone / cream, calm
     const gp = varying(positionLocal.sub(ld(0).xyz));                                     // the piece's own frame (before its turn)
+    // studio 25-11 (Beltrán: «textura de piedra»): a tileable stone detail (umbral3d/stone-detail.png: relief slopes, mottling, crackle) in the
+    // piece's own plane; the relief is read against the overhead key (lighter where the stone faces up)
+    const vNp = varying(ld(2).xyz), th2 = normalize(vec3(vNp.z, 0, vNp.x.negate()).add(vec3(1e-5, 0, 0))), tv2 = cross(vNp, th2);
+    const sUV = TSL.vec2(dot(gp, th2), dot(gp, tv2)).mul(STONE_SCALE).add(TSL.vec2(ld(0).w.mul(17.3), ld(0).w.mul(9.1)));
+    const stone = TSL.texture(stoneTex, sUV);
     const grain = TSL.mx_noise_float(gp.mul(260)).mul(0.6).add(TSL.mx_noise_float(gp.mul(70)).mul(0.4));   // ≈ 4 mm and 1.5 cm grain
     col = col.mul(grain.mul(0.09).add(1)).mul(side.mul(0.06).add(0.97));
+    const faceK = float(1).sub(side);
+    col = col.mul(mix(float(1), stone.z.mul(0.55).add(0.73).mul(stone.w.mul(0.4).add(0.6)).mul(stone.y.sub(0.5).mul(0.9).add(1)), faceK.mul(STONE_K)));   // mottling × crackle × relief
     const vein = TSL.mx_noise_float(gp.mul(vec3(38, 38, 38)).add(vec3(r, r.mul(2.3), 0))), vl = smoothstep(0.06, 0.0, abs(vein)).mul(0.16);   // studio 25-11: stone veins
     const mott = smoothstep(-0.25, 0.55, TSL.mx_noise_float(gp.mul(11).add(vec3(r.mul(7), 0, 0))));                                       // and a second tone within the piece
     col = col.mul(float(1).sub(vl)).mul(mix(float(0.9), float(1.04), mott));
