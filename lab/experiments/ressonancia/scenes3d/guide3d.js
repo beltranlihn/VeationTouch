@@ -596,7 +596,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     if (travel) {
       for (let w = 0; w < NW; w++) lineXT[w] = CONSIGNA_X[b] || 0;
       const ds = S.focus.s - travelS; if (Math.abs(ds) > 0.02 && Math.abs(ds) < 3) travelDir = Math.sign(ds); travelS = S.focus.s;   // the relay runs both ways
-      const fw2 = S.focus.wall, Wd = room.walls[fw2].width; lineXT[fw2] = clamp(S.focus.s - lineS0[fw2] - Wd / 2 + 1.8 * travelDir, -Wd / 2 + 1.1, Wd / 2 - 1.1);   // ahead of the fire, clear of the devil
+      const fw2 = S.focus.wall, Wd = room.walls[fw2].width; lineXT[fw2] = clamp(S.focus.s - lineS0[fw2] - Wd / 2 - 1.9 * travelDir, -Wd / 2 + 1.1, Wd / 2 - 1.1);   // it FOLLOWS the fire (behind it): the devil runs ahead, never into the words
       if (!travelOn) { lineX.set(lineXT); travelOn = true; }
       for (let w = 0; w < NW; w++) lineX[w] = ease(lineX[w], lineXT[w], dt, 2.2);
       placeX(line, lineX);
