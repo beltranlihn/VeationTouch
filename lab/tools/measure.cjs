@@ -40,7 +40,7 @@ app.whenReady().then(async () => {
     const win = new BrowserWindow({ show: false, width: w, height: h, useContentSize: true, webPreferences: { backgroundThrottling: false, offscreen: true, partition: `vt-lab-m-${process.pid}` } });
     win.webContents.setAudioMuted(true);
     win.webContents.setFrameRate(fps);
-    win.webContents.on('console-message', (e, level, message) => { const lv = e?.level ?? level, msg = e?.message ?? message; if (lv === 'error' || lv === 3) errors.push(String(msg).slice(0, 240)); });
+    win.webContents.on('console-message', (e, level, message) => { const lv = e?.level ?? level, msg = e?.message ?? message; if (lv === 'error' || lv === 3) errors.push(String(msg).slice(0, 240)); else if ((lv === 'warning' || lv === 2) && /failed to load|is not defined|skipped [(]/i.test(String(msg)) && !/setEnvironment|releaseTronc|precompile|warm-up/i.test(String(msg))) errors.push('[warn] ' + String(msg).slice(0, 240)); });
     win.webContents.on('render-process-gone', (_e, d) => errors.push('render process gone: ' + d.reason));
     return win;
   };

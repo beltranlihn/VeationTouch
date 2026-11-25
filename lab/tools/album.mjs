@@ -48,7 +48,7 @@ o.score.jump(${JSON.stringify(block)}); await w(300); if (o.tr) o.tr.t = 99;
 ${js}
 await w(${wait * 1000});
 const T = S.targets || [];
-return JSON.stringify({ block: S.block, phase: S.phase, t: Math.round((S.t || 0) * 10) / 10, targets: T.length, kinds: [...new Set(T.map((x) => x.kind))].join(','), yRange: T.length ? [Math.min(...T.map((x) => x.y)), Math.max(...T.map((x) => x.y))].map((v) => +v.toFixed(2)) : null, fps: Math.round(o.fps?.() || 0) });`);
+return JSON.stringify({ block: S.block, phase: S.phase, t: Math.round((S.t || 0) * 10) / 10, targets: T.length, kinds: [...new Set(T.map((x) => x.kind))].join(','), yRange: T.length ? [Math.min(...T.map((x) => x.y)), Math.max(...T.map((x) => x.y))].map((v) => +v.toFixed(2)) : null, fps: Math.round(o.fps?.() || 0), loaded: Object.keys(o.parts || {}).join(','), on: Object.values(o.parts || {}).filter((e) => e.state !== 'off').map((e) => e.name).join(',') });`);
   const url = `/experiences/res-obra3d/index.html?capture&group=${group}&seed=${seed}&params=${encodeURIComponent(JSON.stringify({ quality }))}`;
   const r = spawnSync(process.execPath, [path.join(HERE, 'shot.mjs'), 'album', url, '--eval-file', evalFile, '--rows', '--width', '1600', '--shot', path.join(out, name + '.png'), '--max', '90000', '--what', 'album-' + name], { encoding: 'utf8' });
   fs.rmSync(evalFile, { force: true });
