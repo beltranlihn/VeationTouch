@@ -1603,7 +1603,7 @@ export function create({ THREE, TSL, room, params, parts }) {
         if (n >= 3) cw[0] = cw[1] = cw[2] = cw[3] = 1; else { cw[1] = 1; if (n === 2) cw[3] = 0.5; }
       }
       callOnK += ((on ? 1 : 0) - callOnK) * (1 - Math.exp(-dt / 0.3));
-      U.callT.value = ct; U.callGap.value = gap; U.callOn.value = callOnK * (1 - leave); U.callW.value.set(cw[0], cw[1], cw[2], cw[3]);
+      U.callT.value = ct; U.callGap.value = gap; U.callOn.value = inPlazaK === true ? 0 : callOnK * (1 - leave);   // AD#12: the call ring (red bar) off in the square U.callW.value.set(cw[0], cw[1], cw[2], cw[3]);
     }
     const vW = Number(P.waveSpeed) || 3;
     for (const w of waves) {

@@ -403,7 +403,10 @@ export function create(ctx) {
         const ring = exp(r.sub(age.mul(1.6).add(0.15).min(0.9)).div(0.035).pow(2).negate()).mul(exp(age.mul(-2.0)));
         const kd = vD.z, qy = select(vQ.y.lessThan(0), vQ.y.div(kd.mul(3.0).add(1)), vQ.y), r2h = vQ.x.mul(vQ.x).add(qy.mul(qy));   // T-047: stretched down by the descent
         const halo = exp(r2h.mul(-30)).mul(held.mul(0.22).add(kd.mul(0.3)));
-        out.assign(vec4(v3(C.sun), ring.mul(0.6).add(halo).min(1)));
+        // AD#12: no ring (it read as UI) — dawn dust lifting from the hand: a soft warm glow that drifts up a little as it ages
+        const up = vQ.y.sub(age.mul(0.35).min(0.5)), r2u = vQ.x.mul(vQ.x).mul(1.6).add(up.mul(up));
+        const dust = exp(r2u.mul(-9.0)).mul(exp(age.mul(-0.6))).mul(0.32).add(halo.mul(0.5));
+        out.assign(vec4(v3(C.sun).mul(0.9).add(v3(C.rose).mul(0.2)), dust.min(0.6)));   void ring;
       }).ElseIf(vK.lessThan(1.5), () => {
         // a GLASS flower (ARTE round 2): a rosette of 6–9 shards — each petal a long irregular kite of clear glass with a bright rim, a
         // little turned from its neighbours, the caught shard's tint on 1 in 3, a cluster of small bright chips at the heart; it opens with `grow`
@@ -432,11 +435,11 @@ export function create(ctx) {
         const core = exp(y.sub(zig).div(0.018).pow(2).negate()), rims = exp(abs(y).sub(0.045).div(0.006).pow(2).negate()).mul(0.6), fill = step(abs(y), 0.045).mul(0.18);
         const cracks = step(0.82, fract(vQ.x.mul(9.0).add(sin(vQ.x.mul(23.0))))).mul(step(abs(y), 0.05)).mul(crk);
         const tint = mix(v3(C.sun), mix(v3(C.rose), v3(C.aqua), vD.z), 0.45);
-        out.assign(vec4(tint.mul(core.mul(1.2).add(rims).add(fill)).add(v3(C.sun).mul(cracks.mul(1.5))), core.add(rims).add(fill).add(cracks).mul(ends).mul(vD.y).min(1)));
+        out.assign(vec4(0));   // AD#12: THE BAND is obsolete (the descent is driven by the bajada's targets) and read as UI
       }).Else(() => {
         // the CATCH: a flash ring that opens fast and a soft core, in the floor's colour (vD.xyz), age vD.w (0..1)
         const a = vD.w, ring = exp(r.sub(a.mul(0.9).add(0.1)).div(0.05).pow(2).negate()).mul(float(1).sub(a)), core = exp(r.mul(r).mul(-30)).mul(float(1).sub(a).pow(2));
-        out.assign(vec4(mix(vD.xyz, v3(C.sun), 0.25).mul(1.1), ring.mul(0.85).add(core.mul(0.35)).min(1).mul(colDim(0.55))));   // capped inside the quiet zones
+        out.assign(vec4(mix(vD.xyz, v3(C.sun), 0.25).mul(1.1), core.mul(0.45).min(1).mul(colDim(0.55))));   // AD#12: a soft core only (no flash ring)   void ring;
       });
       return vec4(out.xyz.mul(uGain), out.w.mul(uWorld.mul(0.7).add(0.3)));
     })();
