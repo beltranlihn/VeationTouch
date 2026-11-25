@@ -31,9 +31,9 @@
 // GONE. The rings are drawn by targets3d.js (Tech/QA) from S.targets: the guide draws none (option rings: true brings them back as a
 // fallback only).
 import { FLOOR_NAMES, CLIMBERS } from '../score.js';
-import { CUES, cueKey, resolve, FLOOR_NAME } from '../cues.js';
+import { CUES, cueKey, resolve, FLOOR_NAME, STRUCT_NAME } from '../cues.js';
 import { typo, OVER } from './typo3d.js';
-import { chapter, ACH } from './palette.js';
+import { chapter, ACH, lin } from './palette.js';
 const CT = (k) => (CUES[k] && typeof CUES[k].text === 'string' ? CUES[k].text : '');   // a cue's text (the table wins)
 
 // [numeral, name, value]
@@ -66,7 +66,8 @@ function linesPlay(S, acta, learned, warn) {
   if (warn === 'abandon') return { line: ['Volved al muro', ''] };
   if (b === 'wait') return { line: (S.reveal ?? 1) >= 1 ? [CT('reveal'), ''] : ['Jugad con la sala', ''] };   // the voice: «Tocad. Jugad con la sala.»
   if (b === 'brasa') return S.phase === 'reward' ? {} : S.brasaStage === 'call' ? (learned ? {} : { line: [CT('stage:brasa:call'), ''] }) : S.brasaStage === 'relay' ? { line: [CT('relay:start'), ''] } : { line: [CT('title:brasa'), ''] };   // by the score's stage (#18)
-  if (b === 'pinya') return S.phase === 'reward' || learned ? {} : { line: [S.pinyaStage === 'pack' ? CT('stage:pinya:pack') : CT('title:pinya'), ''] };
+  if (b === 'pinya' && S.phase === 'reward') return S.tp < 7 && S.structure > 0 ? { card: ['II', 'Pinya', STRUCT_NAME[S.structure] || ''] } : {};   // joined: the card names the structure (Art Director 25-11)
+  if (b === 'pinya') return learned ? {} : { line: [S.pinyaStage === 'pack' ? CT('stage:pinya:pack') : CT('title:pinya'), ''] };
   if (b === 'tronc') {
     if (S.phase === 'reward') return {};
     const fl = '';   // 25-11: the floor's name is the achievement layer's (it rises with the tower); no label over the consigna
@@ -101,11 +102,12 @@ const PILLAR = new Set(['call', 'crown', 'echo']);   // targets drawn as columns
 const SPOTS = { brasa: [-1.75, -2.5, 1.9, 2.5], tronc: [-2.0, 2.0, -2.6, 2.6], baixada: [-2.0, 2.0, -2.6, 2.6], other: [0, -1.7, 1.7, -2.5, 2.5] };
 // the card: the numeral first (0.2 s ahead), the name (caps ≈ 0.31 m), the hairline drawn from the centre out, the value rising
 // from behind its baseline
+const CROWN_LIGHT = lin('os').map((v) => v * 0.95);   // the crown's card is always light: VFX darkens the plaza 40 % under it (Art Director 25-11)
 function cardItems(C) {
-  const it = [];
-  if (C[0]) it.push({ text: C[0], font: 'sans', size: 0.1, y: 0.4, track: 0.5, alpha: 0.6, color: INK, edge: 0.47 });
-  it.push({ text: C[1], font: 'serif', size: C[1].length > 14 ? 0.38 : 0.46, y: 0.04, track: 0.01, color: INK, delay: 0.2 });
-  if (C[2]) it.push({ text: C[2], font: 'italic', size: 0.17, y: -0.3, track: 0.015, rules: 0.5, alpha: 0.85, color: INK, rise: true, delay: 0.35 });
+  const it = [], crown = C[1] === 'Coronado', ink = crown ? CROWN_LIGHT : INK;
+  if (C[0]) it.push({ text: C[0], font: 'serif', size: 0.14, y: crown ? 0.52 : 0.4, track: 0.3, alpha: 0.7, color: ink });
+  it.push({ text: C[1], font: 'serif', size: crown ? 0.64 : C[1].length > 14 ? 0.38 : 0.46, y: crown ? 0.1 : 0.04, track: 0.01, color: ink, delay: 0.2 });
+  if (C[2]) it.push({ text: C[2], font: 'italic', size: crown ? 0.22 : 0.17, y: crown ? -0.36 : -0.3, track: 0.015, rules: 0.5, alpha: 0.9, color: ink, rise: true, delay: 0.35 });
   return it;
 }
 // the instruction: ONE centred line (caps 0.18 m, <= 22 characters) at 1.62 m; the label (a name) ABOVE it at ~1.95 m (the targets live at 0.9–1.4 m), caps 0.14 m, Geist too
@@ -607,7 +609,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
       if (b === 'crown') {
         const Wd = room.walls[w].width, lim = Wd / 2 - 1.15 - 0.45; y = 1.7;
         const o = OBST.find((q) => q.wall === w && (q.y1 || 0) > 2.0);
-        if (o) { const l = o.x - o.half - 1.2, r = o.x + o.half + 1.2; side = Math.abs(l) <= lim && (Math.abs(l) <= Math.abs(r) || Math.abs(r) > lim) ? l : Math.abs(r) <= lim ? r : clamp(l, -lim, lim); }
+        if (o) { const l = o.x - o.half - 1.6, r = o.x + o.half + 1.6; side = Math.abs(l) <= lim && (Math.abs(l) <= Math.abs(r) || Math.abs(r) > lim) ? l : Math.abs(r) <= lim ? r : clamp(l, -lim, lim); }   // in the shadow gap beside the tower, not stuck to it
         else side = Math.min(2.1, lim);
       } else {   // the other cards: the clearest of centre / left / right, away from pillars and the parts' heroes above 1.6 m
         const Wd = room.walls[w].width, lim = Wd / 2 - 1.3 - 0.45, TT = Array.isArray(S.targets) ? S.targets : [];
@@ -641,7 +643,11 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     if (fw < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fw = w; } }); }
     const allCall = !!warn || (b === 'brasa' && S.brasaStage === 'call') || (b === 'festa' && S.festaStage === 'call') || (b === 'wait' && (S.reveal ?? 1) < 1);
     const focusOn = fw >= 0 && !allCall;
-    const mask = (w) => (!!warn || S.phase === 'aleta' || !structureOnly || inS[w] ? (focusOn && w !== fw ? 0.3 : 1) : 0);   // a warning and l'aleta go on every wall
+    // never two copies across a corner (the P3→P4 seam included): when the calling wall's words stand within 2.6 m of a corner,
+    // the neighbour across that corner carries no echo
+    const seamOff = (w) => { if (!focusOn || w === fw) return false; const Wf = room.walls[fw].width / 2;
+      if (w === (fw + 1) % NW && lineCurX[fw] > Wf - 2.6) return true; if (w === (fw + NW - 1) % NW && lineCurX[fw] < -Wf + 2.6) return true; return false; };
+    const mask = (w) => (!!warn || S.phase === 'aleta' || !structureOnly || inS[w] ? (seamOff(w) ? 0 : focusOn && w !== fw ? 0.3 : 1) : 0);   // a warning and l'aleta go on every wall
     const lead = focusOn ? (w) => (w === fw ? 0 : 0.6) : null;
     // the wait: the instruction is the lintel inscription of ENT-F's doorway (keystone ~1.95 m): one line centred at 2.12 m. It moves
     // only while no words are up (never slides in view)
