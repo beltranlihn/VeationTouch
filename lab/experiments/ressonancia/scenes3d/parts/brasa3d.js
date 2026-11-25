@@ -1756,8 +1756,24 @@ export function create({ THREE, TSL, room, params, parts }) {
   }
 
   if (typeof window !== 'undefined') window.__brasa = { breath: () => U.breath.value, wait: () => waitK, puffs: () => puffCount, roots: () => devils.map((d, i) => (d.on && d.dis === 0 ? [i, JV[i * NJ].x, JV[i * NJ].z, d.wave ? 1 : 0] : null)).filter(Boolean), devils: () => devils.filter((d) => d.on).length, callT: () => U.callT.value, lift: () => lift, impacts: () => impacts, fx: () => fx.filter((f) => f.t >= 0), tiles: () => tiles.reduce((a, t) => { a[t.mode]++; return a; }, [0, 0, 0, 0, 0]), waves: () => waves.filter((w) => w.on).length, emitters: () => nE, white: () => whiteN, relay: () => ({ on: RL.on, s: RL.s, hop: RL.hopK < 1, jumps: RL.jumps, corners: RL.corners, assist: RL.assist, lap: lapCells.reduce((a, b) => a + b, 0) / NC, full: RL.full, helpers: [1, 2, 3].filter((j) => devils[MAXD - 1 - j].on).length }) };
+  // textObstacles() (director 25-11): what stands in the text's band, for the host's text placer: [{ wall, x, half, y0, y1 }]
+  // (wall index, metres from the wall's centre along it, half-width m, heights m from the floor). Allocation-light (a few per call).
+  const _to = [], _tp = new THREE.Vector3();
+  function wallOf(p) {
+    const ex = p.x - room.eye.x, ez = p.z - room.eye.z; let best = -1, bt = Infinity, bx = 0;
+    room.walls.forEach((w, i) => { const den = -(ex * w.normal.x + ez * w.normal.z); if (den <= 1e-4) return; const d = -((w.pa.x - room.eye.x) * w.normal.x + (w.pa.z - room.eye.z) * w.normal.z); const t = d / den;
+      const hx = room.eye.x + ex * t - w.centre.x, hz = room.eye.z + ez * t - w.centre.z, x = hx * w.right.x + hz * w.right.z;
+      if (t > 0 && t < bt && Math.abs(x) <= w.width / 2 + 0.01) { bt = t; best = i; bx = x; } });
+    return best < 0 ? null : { wall: best, x: bx };
+  }
+  function textObstacles() {
+    _to.length = 0;
+    devils.forEach((d, i) => { if (!d.on) return; const j = JV[i * NJ]; _tp.set(j.x, 0, j.z); const o = wallOf(_tp); if (o) _to.push({ wall: o.wall, x: o.x, half: 0.6, y0: 0, y1: 2.0, kind: 'devil' }); });
+    for (const F of fires) if (F.on && F.str > 0.05) { const w = room.walls[F.wall]; if (!w) continue; const x = (F.pos.x - w.centre.x) * w.right.x + (F.pos.z - w.centre.z) * w.right.z; _to.push({ wall: F.wall, x, half: 0.6, y0: 0, y1: Math.min(2.0, F.pos.y + 1.3), kind: 'fire' }); }
+    return _to;
+  }
   return {
-    object,
+    object, textObstacles,
     update,
     setParams(p) { if (p && p !== P) Object.assign(P, p); },
     dispose() {

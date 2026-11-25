@@ -1133,8 +1133,23 @@ export function create({ THREE, TSL, room, params }) {
     r.compute(sandCompute);
   }
 
+  // textObstacles() (director 25-11): what stands in the text's band, for the host's text placer: [{ wall, x, half, y0, y1 }]
+  // (wall index, metres from the wall's centre along it, half-width m, heights m from the floor). Allocation-light (a few per call).
+  const _to = [], _tp = new THREE.Vector3();
+  function wallOf(p) {
+    const ex = p.x - room.eye.x, ez = p.z - room.eye.z; let best = -1, bt = Infinity, bx = 0;
+    room.walls.forEach((w, i) => { const den = -(ex * w.normal.x + ez * w.normal.z); if (den <= 1e-4) return; const d = -((w.pa.x - room.eye.x) * w.normal.x + (w.pa.z - room.eye.z) * w.normal.z); const t = d / den;
+      const hx = room.eye.x + ex * t - w.centre.x, hz = room.eye.z + ez * t - w.centre.z, x = hx * w.right.x + hz * w.right.z;
+      if (t > 0 && t < bt && Math.abs(x) <= w.width / 2 + 0.01) { bt = t; best = i; bx = x; } });
+    return best < 0 ? null : { wall: best, x: bx };
+  }
+  function textObstacles() {   // the echo fronts (full height: they cross 1.4–2.1 m), where they are on the walls
+    _to.length = 0;
+    for (const v of FR) { if (v.w < 0.05) continue; for (const sg of [-1, 1]) { let s = (v.x + sg * v.y) % PER; if (s < 0) s += PER; let wi = 0; while (wi < NW - 1 && s >= cum[wi + 1]) wi++; _to.push({ wall: wi, x: s - cum[wi] - walls[wi].width / 2, half: 0.5, y0: 0, y1: walls[wi].height, kind: 'front' }); } }
+    return _to;
+  }
   return {
-    object,
+    object, textObstacles,
     update,
     get resonance() { return Rs; },
     get bloom() { return bloomEnv; },
