@@ -1271,7 +1271,7 @@ export function create(ctx) {
   // the festival spots: per castell wall, from 13 m up and 5 m to one side (alternating), 3 m beyond the tower, aimed at its foot
   const SPOT_K = 1100, SPOT_A = 15 * Math.PI / 180;   // (the pools: a stage pool, not a floodlit floor — AD m-tronc)
   const shafts = new THREE.Group(); shafts.name = 'plaza:shafts'; object.add(shafts);
-  const uDust = uniform(0);
+  const uDust = uniform(0); let dustObj = null;
   {
     const ND = 4000, dm = new THREE.SpriteNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
     const { instanceIndex, hash: hsh } = TSL;
@@ -1285,7 +1285,7 @@ export function create(ctx) {
     dm.scaleNode = vec2(0.025).mul(r3.mul(0.8).add(0.6));
     const tw2 = sin(uTime.mul(r1.mul(5.0).add(2.0)).add(r3.mul(40.0))).mul(0.5).add(0.5);
     dm.colorNode = Fn(() => { const q = length(uv().sub(0.5)).mul(2.0); return vec4(TLC.mul(exp(q.mul(q).mul(-5.0))).mul(tw2.mul(1.6).add(0.4)).mul(uDust).mul(2.5), 1); })();
-    const dust = new THREE.Sprite(dm); dust.count = ND; dust.frustumCulled = false; dust.renderOrder = 7; object.add(dust);
+    const dust = new THREE.Sprite(dm); dust.count = ND; dust.frustumCulled = false; dust.renderOrder = 7; object.add(dust); dustObj = dust;
   }
   {
     const coneG = new THREE.CylinderGeometry(0.15, 1, 1, 40, 1, true).translate(0, -0.5, 0);   // apex at 0, opening down to y = -1
@@ -1317,8 +1317,8 @@ export function create(ctx) {
   const PINYA_C = palLin('cal-foc').map((c, i) => c * 0.75 + palLin('fanal')[i] * 0.25), TRONC_C = palLin('cal-fanal');
   function placeSpots(td, mode = 'tronc') {
     const key = td + mode; if (key === spotTD) return; spotTD = key; spotMode = mode;
-    const crown = mode === 'crown'; if (crown) mode = 'tronc';
-    const nw = room.walls.length, cross = mode === 'tronc', n = cross ? Math.min(NSP, nw * 2) : Math.min(NSP, nw);
+    const crown = mode === 'crown' || mode === 'festa', light = mode === 'festa'; if (crown) mode = 'tronc';
+    const nw = room.walls.length, cross = mode === 'tronc', n = light ? Math.min(NSP, nw) : cross ? Math.min(NSP, nw * 2) : Math.min(NSP, nw);   // festa (perf): one spot per wall
     const A = (cross ? 8 : 18) * Math.PI / 180, AV = (cross ? 3.2 : 8) * Math.PI / 180;   // the light cone · the VISIBLE shaft (a narrow core)
     for (let i = 0; i < NSP; i++) {
       const c = shafts.children[i];
@@ -1439,9 +1439,9 @@ export function create(ctx) {
     if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, Math.max(input.state?.progress ?? 0, (input.state?.t ?? 0) / 45)));   // AD#14: the lamps go out visibly over the chapter (by time too) object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 0.7 - 0.5 * pg; uStars.value *= 0.4 * (1 - pg);
       hemi.color.setRGB(0.42, 0.55, 0.95); hemi.groundColor.setRGB(0.18, 0.14, 0.2); hemi.intensity = Math.max(hemi.intensity, 0.55 + 0.35 * pg); moon.color.setRGB(0.95, 0.7, 0.7); moon.intensity = Math.max(moon.intensity, 0.35 + 0.3 * pg); blueProg = pg; } else blueProg = 0;
     uDawn.value = blueK * smooth01((blueProg - 0.1) / 0.85);   // the blue hour: a cool sky fill, a rose dawn key;   // the lamps go out as the tower comes down
-    uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low';
+    uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low' && blk !== 'festa';   // festa (perf): no shafts
     stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
-    if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'crown' || blk === 'festa' ? 'crown' : 'tronc');
+    if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'crown' ? 'crown' : blk === 'festa' ? 'festa' : 'tronc');
     if (crK > 0.01) { uSpotC.value.lerp(_gold, crK); uShaftK.value = 2.2 + 1.2 * crK; uWin.value = Math.max(uWin.value, 0.9); crT += dt;
       const climb = smooth01((crT - 0.4) / 3.6), spread = smooth01((crT - 1.5) / 7);   // the gold climbs the tower in ~3.6 s, then the pool spreads
       for (let i = 0; i < 4; i++) { const w = room.walls[i % room.walls.length], td = +(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3; tlVec[i].set(w.centre.x - w.normal.x * td, 0.4 + 3.4 * climb, w.centre.z - w.normal.z * td, crK * (0.25 + 0.75 * climb)); }
@@ -1452,7 +1452,7 @@ export function create(ctx) {
       dustK = crK * smooth01((crT - 4.0) / 1.5) * (1 - smooth01((crT - 15) / 4));
       uWin.value *= 0.35; moon.intensity *= 0.35; hemi.intensity *= 0.35;   // the square dims ~65 % (AD#9): the gold towers are the light
     } else { crT = 0; dustK = 0; uPulseK.value = 0; for (const v of tlVec) v.w = 0; }
-    uDust.value = dustK;   // CORONATION (AD#5): gold light bathes the tower, the facades and the haze
+    uDust.value = dustK; if (dustObj) { dustObj.visible = dustK > 0.003; dustObj.count = blk === 'festa' ? 1500 : 4000; }   // festa (perf): fewer motes; none when out   // CORONATION (AD#5): gold light bathes the tower, the facades and the haze
     if (festK > 0) {                                                  // the festival night: the square's own night, richer and deeper
       uWin.value = Math.max(uWin.value, festK * 0.9); uFog.value = Math.max(uFog.value, 0.0065); uWet.value = Math.max(uWet.value, 0.8);
       uSky.value = Math.max(uSky.value, festK);   // (AD#6: no moon / sky / env boost — they were the milky veil; the night grade is the Pinya's)

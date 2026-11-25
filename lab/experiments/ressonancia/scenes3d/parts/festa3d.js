@@ -86,7 +86,7 @@ export function create({ THREE, TSL, room, params, parts }) {
   // ---- sound (wave 2): physical impacts to the sound piece (ressonancia-sound › impact()) on the work's BroadcastChannel; ≤ 16 a second
   let fxBc = null; try { fxBc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { fxBc = null; }
   const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
-  let fxN = 0, fxT = 0, growT = 0;
+  let fxN = 0, fxT = 0, growT = 0, simSkip = false, simDt = 0;
   function fxImpact(wall, u, strength, mat, kind) {                // wall: room.walls index · u: 0..1 along it · strength: 0..1
     if (!fxBc || fxN >= 16 || !canEmit()) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
@@ -1128,17 +1128,20 @@ export function create({ THREE, TSL, room, params, parts }) {
     U.still.value = Math.min(1, 0.7 + 0.3 * Ve);
     U.rmsK.value = clamp01(Math.max(bloomEnv * 1.5, (Ve - 0.5) * 2));
     U.derA.value = 1 - Math.exp(-dt / Math.max(0.004, num('smooth', 0.12) * Ve));
-    const sub = Math.max(1, Math.ceil(c * dt / (0.5 * DX))), dts = dt / sub * (1 - freeze);
+    // perf (festa in the square, few hands): the wave sim at half rate (two frames' time in one step)
+    simSkip = inPlazaF && nh <= 2 && U.nI.value === 0 ? !simSkip : false; simDt += dt;   // never skip a frame with a new impulse (a hand landing)
+    const dtS = simSkip ? 0 : simDt; if (!simSkip) simDt = 0;
+    const sub = Math.max(1, Math.ceil(c * dtS / (0.5 * DX))), dts = dtS / sub * (1 - freeze);
     U.dt.value = dts; U.eavg.value = 1 - Math.exp(-dts / 0.35);
     const r = room.renderer;
     if (!cleared) { cleared = true; }
-    for (let i = 0; i < sub; i++) {
+    if (!simSkip) for (let i = 0; i < sub; i++) {
       U.tau.value = i * dts; U.kick.value = i === 0 ? 1 : 0;
       simTex.value = sim[sc].texture; r.setRenderTarget(sim[1 - sc]); simQuad.render(r); sc = 1 - sc;
     }
     U.kick.value = 0; U.lineK.value = 0;
-    derTex.value = sim[sc].texture; r.setRenderTarget(derB); derQuad.render(r);
-    r.setRenderTarget(der); copyQuad.render(r);
+    if (!simSkip) { derTex.value = sim[sc].texture; r.setRenderTarget(derB); derQuad.render(r);
+    r.setRenderTarget(der); copyQuad.render(r); }
     r.setRenderTarget(null);
 
     // ---- look
@@ -1164,7 +1167,7 @@ export function create({ THREE, TSL, room, params, parts }) {
       U.swellA.value = Math.max(0, num('swell', 1)) * (0.85 + 0.35 * Ve) * (inCrown ? 1 - 0.75 * U.crownOn.value : 1);   // T-053: the crown's mirror is calm (no murky blotches)
       U.envLift.value = 0.035 * Math.sin(time * 0.21) * (0.4 + 0.6 * Ve);                 // the room floats: the reflected fiesta bobs slowly
       U.lvl.value = (0.8 + 0.2 * Ve) * (inCrown ? 1 - U.crownOn.value * (0.42 - 0.3 * U.fill.value) : 1); }   // T-053: the crown opens luminous (was 0.2 of the metal at its start)
-    r.compute(sandCompute);
+    if (!inPlazaF) r.compute(sandCompute);   // perf (festa in the square): the sand is hidden there — 600 k particles not simulated
   }
 
   // textObstacles() (director 25-11): what stands in the text's band, for the host's text placer: [{ wall, x, half, y0, y1 }]
