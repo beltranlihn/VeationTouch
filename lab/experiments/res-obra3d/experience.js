@@ -101,7 +101,7 @@ function steadyOff(e) { for (const l of e.steady) { if (l.intensity > 0) l.userD
 function steadyOn(e) { for (const l of e.steady) if (l.intensity === 0 && l.userData.hostIntensity != null) l.intensity = l.userData.hostIntensity; }
 lt('parts'); const guide = createGuide({ THREE, TSL, room, fine: LAB && q.get('fine') === '1' });   // lab ?fine=1: the instrument graphics (rulers, «P4», «1,25 m»); never in the room
 room.overlay.add(guide.object);
-const targets3d = LAB && q.get('tg') === '0' ? { object: new THREE.Group(), update() {}, count: 0 } : createTargets3D({ THREE, TSL, room }); room.overlay.add(targets3d.object);   // lab ?tg=0: without them (isolating a cost / an error)
+const targets3d = LAB && q.get('tg') === '0' ? { object: new THREE.Group(), update() {}, count: 0 } : createTargets3D({ THREE, TSL, room }); room.scene.add(targets3d.object);   // lab ?tg=0: without them (isolating a cost / an error)
 //   // v4: objects of the world, in its light and depth (the rules: ../ressonancia/targets.js)   // T-028: the guide is drawn over the final image (after the tiles: the words never break); its materials are depthTest-free
 // compile every material once, now, so a universe arriving later does not stall the room
 // T-057 (prewarmRT): into the strip's format — with no target, compileAsync built pipelines for the canvas that no frame uses
