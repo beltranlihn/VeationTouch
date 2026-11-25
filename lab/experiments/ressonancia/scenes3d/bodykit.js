@@ -227,7 +227,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   // them fall with gravity. Nothing radial, nothing fast.
   const splatSets = [];   // { build, lod, N, rows, tex, bodyTex, bodyData, geo, mesh, count }
   const uSize = uniform(1), uOpacity = uniform(1), uDrift = uniform(1), uFlow = uniform(1), uStreak = uniform(0);
-  const uLit = uniform(new THREE.Vector3(...palLin('cal-foc', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.22 + palLin('cal-foc')[i] * 0.5)));   // terracota, desaturated towards the lime
+  const uLit = uniform(new THREE.Vector3(...palLin('cal-fanal', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.4 + palLin('cal-foc')[i] * 0.32)));   // warm (sheet3), the half tone a soft terracota   // terracota, desaturated towards the lime
   const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
@@ -395,7 +395,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // back occlusion (a tower: each body's back faces the others): the back half sinks, so overlapping bodies part by shadow
     colr = colr.mul(mix(float(1), float(0.3), smoothstep(0.1, -0.7, nl.z).mul(uBackAO)));
     // dust: each splat faint (0.08–0.15), the volume comes from accumulation; the skin thins outwards (the edge is a density falloff)
-    const opa = mix(mix(float(0.3), float(0.2).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura)   // presence: the facade must not show through.mul(lod === 0 ? 1 : lod === 2 ? 1.2 : 1.5);
+    // near: the grain of sheet3; the tower (mid / far): presence — the facade must not show through
+    const opa = mix(mix(float(0.18), float(0.13).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : lod === 2 ? 1.8 : 2.2);
     const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura).mul(lod === 0 ? float(1) : float(1).sub(aura));
     const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(mix(float(1).sub(away).pow(2), float(1).sub(away.mul(0.6)), dust.max(riseM))), 'vSplA');   // gathering splats are faint until home (no heaps on the floor)
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
