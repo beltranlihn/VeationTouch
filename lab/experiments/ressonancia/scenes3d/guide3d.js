@@ -28,7 +28,7 @@ import { typo, OVER } from './typo3d.js';
 
 // [numeral, name, value]
 export const CARDS = { brasa: ['I', 'Brasa', 'El despertar'], pinya: ['II', 'Pinya', 'Fuerza'], tronc: ['III', 'Tronc', 'Equilibrio'], pom: ['IV', 'Pom de dalt', 'Valor'] };
-const HAND_Y = 1.25, MAXT = 16;
+const HAND_Y_DEF = 1.25, MAXT = 16;   // (createGuide's handY: the button's height, studio 26-11)
 // T-059 (ARTE-ENTRADA §c): the liquid-glass lens r 0.28 m (Ø 0.56) with a 2.5 cm round bevel; the 3 px cobalt arc on its rim (r 0.2875),
 // the ticks every 10° on the bezel inside the edge; everything inside r ≤ 0.30 m (ENT's tile ring is at 0.36–0.55 m)
 const RL = 0.28, BEV = 0.025, RA = 0.2875, ARC_HW = 0.0057, RT0 = 0.234, RT1 = 0.25, TICK_HW = 0.0034, LQ = 0.30, GLYPH = 0.39, LINE_HW = 0.0048, NGRAIN = 720;
@@ -111,7 +111,8 @@ const PALETTES = {
   baixada: [[1.0, 0.62, 0.75], [0.7, 0.6, 1.0], [0.5, 0.95, 0.85]],
 };
 
-export function createGuide({ THREE, TSL, room, studio = false, noTarget = [] }) {   // studio 25-11: noTarget = walls with no start ring (the trailer's title wall)   // T-069: studio = the lab / calibration look (rulers, figures, wall ids); false = the room
+export function createGuide({ THREE, TSL, room, studio = false, noTarget = [], handY = HAND_Y_DEF }) {
+  const HAND_Y = handY;   // studio 26-11: the targets' height (res-trailer: the picture's circles)   // studio 25-11: noTarget = walls with no start ring (the trailer's title wall)   // T-069: studio = the lab / calibration look (rulers, figures, wall ids); false = the room
   const { pmremTexture, refract, cross, uniform, uv, vec2, vec3, vec4, atan, float, smoothstep, exp, length, step, texture, select, clamp: tclamp, max, min, cos, sin, abs, pow, dot, normalize, reflect, attribute, positionGeometry, positionLocal, normalWorld, positionWorld, cameraPosition, mix, fract } = TSL;
   const object = new THREE.Group(); object.name = 'guide';
   const NW = room.walls.length;

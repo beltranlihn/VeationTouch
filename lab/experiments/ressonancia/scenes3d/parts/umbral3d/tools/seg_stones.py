@@ -5,7 +5,8 @@ from PIL import Image
 from scipy import ndimage as ndi
 from skimage import filters, segmentation, feature, morphology
 D = sys.argv[1]; S = sys.argv[2]
-im = np.asarray(Image.open(D + '/Finales/Mosaico.png')).astype(np.float64)
+IMG = sys.argv[4] if len(sys.argv) > 4 else D + '/Finales/Mosaico.png'   # (the picture: a 4th argument, else «Finales/Mosaico.png»)
+im = np.asarray(Image.open(IMG)).astype(np.float64)
 rgb, a = im[..., :3] / 255, im[..., 3]
 hole = a < 128
 L = rgb @ np.array([0.299, 0.587, 0.114])

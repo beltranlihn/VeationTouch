@@ -8,7 +8,7 @@
     {"key": "trailer.preroll", "label": "Entrance mosaic before the trailer (s)", "type": "number", "min": 3, "max": 60, "step": 1, "default": 12, "unit": "s"},
     {"key": "jump", "label": "Hold a block (rehearsal)", "type": "select", "default": "none", "options": [["none", "— (the trailer runs)"], ["wait", "Entrance"], ["intro", "The square: title"], ["brasa", "Correfoc: data"], ["festa", "Resonance: credits"]]},
     {"key": "guide", "label": "Hand targets and instructions", "type": "bool", "default": false},
-    {"key": "mosaic", "label": "Entrance stones (reload)", "type": "select", "default": "stone", "options": [["stone", "One colour per stone"], ["image", "The picture printed on the stones"]]},
+    {"key": "mosaic", "label": "Entrance stones (reload)", "type": "select", "default": "image", "options": [["stone", "One colour per stone"], ["image", "The picture printed on the stones"]]},
     {"key": "bloom", "label": "Bloom", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 0.6},
     {"key": "exposure", "label": "Exposure", "type": "number", "min": 0.2, "max": 3, "step": 0.05, "default": 1},
     {"key": "quality", "label": "Quality", "type": "select", "default": "high", "options": [["low", "Low (laptop: 60 % resolution, fewer particles)"], ["medium", "Medium (80 %)"], ["high", "High (the room: 100 %, antialiased)"]]},

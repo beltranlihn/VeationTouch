@@ -49,7 +49,10 @@ export const TIMES = {                       // seconds
 
 export function createScore(nWalls, opt = {}) {
   const W = Math.max(1, nWalls), T = { ...TIMES, ...(opt.times || {}) };
-  const NOBUTTON = opt.noButton || [];
+  // studio 25/26-11: the start button can be configured (res-trailer): walls with NO button (the title's wall), its height per wall (m)
+  // and its reach (m, from its centre). Without them: as before (any hand within T.reveal.button of a wall's centre, any height).
+  const BTN = { no: opt.noButton || [], y: opt.buttonY || null, r: opt.buttonR || 0.5 };
+  function setButton(o = {}) { if (Array.isArray(o.noButton)) BTN.no = o.noButton; if (Array.isArray(o.y)) BTN.y = o.y; if (o.r > 0) BTN.r = o.r; }
   const zeros = (v = 0) => Array.from({ length: W }, () => v);
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   // T-055 the room along its perimeter (m): each wall's length and where it starts (P4 = 0 in the XR Lab), the same frame as a hand's `s`
@@ -283,7 +286,7 @@ export function createScore(nWalls, opt = {}) {
       if (!strokes.has(h.stroke)) { lastDown[h.wall] = now; downs++; downsW[h.wall]++; downTimes.push(now); landed.push(h); }
       if (h.speed > maxSpeed) maxSpeed = h.speed;
       moving += Math.min(1, (h.speed || 0) / 0.3);   // T-061: a hand that strokes without lifting also earns the reveal (the «painter»)
-      if (Math.abs(h.dx || 0) <= T.reveal.button && !NOBUTTON.includes(h.wall)) onButton++;   // studio 25-11: opt.noButton = walls with no start button (the trailer's title wall)
+      if (!BTN.no.includes(h.wall) && (BTN.y && BTN.y[h.wall] != null ? Math.hypot(h.dx || 0, (h.y || 0) - BTN.y[h.wall]) <= BTN.r : Math.abs(h.dx || 0) <= T.reveal.button)) onButton++;   // studio 25-11: opt.noButton = walls with no start button (the trailer's title wall)
     }
     // heights, spread and stillness (step 0)
     for (const a of wallHands) a.length = 0;
@@ -744,5 +747,5 @@ export function createScore(nWalls, opt = {}) {
     if (block === 'baixada') downT = 0;
     go(block);
   }
-  return { state: S, step, acta, jump, times: T };
+  return { state: S, step, acta, jump, times: T, setButton };
 }

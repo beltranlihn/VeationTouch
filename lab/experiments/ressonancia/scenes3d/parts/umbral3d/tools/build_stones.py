@@ -18,7 +18,8 @@ PX = sum(w[1] for w in WALLS) / sum(w[2] for w in WALLS)   # 260.9 px / m across
 SPLIT_D, TARGET_D, CRUMB_D, MIN_D = 0.10, 0.07, 0.03, 0.018
 
 L = np.load(D + '/lbl2.npy').astype(np.int64)
-im = np.asarray(Image.open(D + '/Finales/Mosaico.png')).astype(np.float64)
+IMG = sys.argv[4] if len(sys.argv) > 4 else D + '/Finales/Mosaico.png'   # (the picture: a 4th argument, else «Finales/Mosaico.png»)
+im = np.asarray(Image.open(IMG)).astype(np.float64)
 ON = im[..., :3]; HOLE = im[..., 3] < 128
 Wm = np.load(D + '/off_map.npy'); o = ON / 255
 OFF = np.clip(np.concatenate([o, o ** 2, np.ones(o.shape[:2] + (1,))], -1) @ Wm, 0, 1) * 255

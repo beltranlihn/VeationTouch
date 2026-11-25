@@ -92,7 +92,7 @@ for (const [name, pr] of loads) {
   try {
     const params = {};
     for (const d of Array.isArray(defs) ? defs : []) params[d.key] = d.default;
-    if (name === 'umbral3d') params.mosaic = P.mosaic || 'stone';   // studio 25-11: the entrance's stones — one colour each, or his picture printed on them
+    if (name === 'umbral3d') params.mosaic = P.mosaic || 'image';   // studio 25-11: the entrance's stones — one colour each, or his picture printed on them
     if (name === 'atmos') params.demoLamps = false;                // the square's own lamps light the dust
     if (name === 'plaza') params.glow = 0.3;                       // atmos draws the lamps' glow in the air too
     if (name === 'castell') params.density = DENS[P.quality] ?? 1;
@@ -183,7 +183,11 @@ function stepBloom(dt) {
 }
 room.setBloom(bloomNow);
 const TITLE_WALL = 1;                                                // studio 25-11 (Beltrán): P1 opens a window for the title — no start ring there
-lt('parts'); const guide = createGuide({ THREE, TSL, room, studio: P.mode === 'lab', noTarget: [TITLE_WALL] });   // T-069 (Vicente 25-11): rulers and wall IDs only in mode 'lab'
+// studio 26-11 (Beltrán: «subí los círculos donde se tendrá que apretar»): the start button sits in the picture's round windows, at
+// 1.51 m of its 3.75 m (MosaicEtapa1_1094.png) — the same fraction of each wall's height here; a hand counts within 0.5 m of the
+// circle's centre. The SOUND piece runs its own score (it leads): it gets the same button over the channel (ctl.button, every 1 s).
+const BUTTON_V = 1.511 / 3.75, BUTTON = { noButton: [TITLE_WALL], y: room.walls.map((w) => +(BUTTON_V * (w.height || 3.75)).toFixed(3)), r: 0.5 };
+lt('parts'); const guide = createGuide({ THREE, TSL, room, studio: P.mode === 'lab', noTarget: [TITLE_WALL], handY: BUTTON.y[0] });   // T-069 (Vicente 25-11): rulers and wall IDs only in mode 'lab'
 room.overlay.add(guide.object);   // T-028: the guide is drawn over the final image (after the tiles: the words never break); its materials are depthTest-free
 // compile every material once, now, so a universe arriving later does not stall the room
 // T-057 (prewarmRT): into the strip's format — with no target, compileAsync built pipelines for the canvas that no frame uses
@@ -193,7 +197,7 @@ for (const e of list) e.part.object.visible = false;
 lt('compile');
 
 // ------------------------------------------------------------------------------------------------ the score: led by the sound piece, or its own
-const score = createScore(NW, { noButton: [TITLE_WALL] }), S = score.state;
+const score = createScore(NW, { noButton: BUTTON.noButton, buttonY: BUTTON.y, buttonR: BUTTON.r }), S = score.state;
 const link = { at: -1e9, ts: 0, pace: 1, beat: 0, events: [], acta: null, told: 0 };
 const bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null;
 if (bc) bc.onmessage = (ev) => {
@@ -546,7 +550,7 @@ function frame(dt) {
   trailerStep(dt);                                                  // TRAILER
   if (following()) {
     if (S.block === 'tronc') S.beat = (link.beat + (((Date.now() - link.ts) / 1000) * link.pace) / score.times.tronc.period) % 1;   // between two messages the pulse keeps moving
-    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: timesNow(), lang: P.lang }); }   // TRAILER: lang — the voice speaks the trailer's language
+    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: timesNow(), lang: P.lang, button: BUTTON }); }   // TRAILER: lang — the voice speaks the trailer's language
     frameEvents.push(...link.events.splice(0));
   } else { score.step(dt * (P.pace || 1), scoreHands); frameEvents.push(...S.events); S.events.length = 0; }
   if ((time - actaAt > 0.5 || S.block !== lastBlock) && S.block !== 'wait' && S.block !== 'intro') { actaAt = time; acta = link.acta && following() ? link.acta : score.acta(); }   // kept through the wait: the acta leaving must not read a reset score

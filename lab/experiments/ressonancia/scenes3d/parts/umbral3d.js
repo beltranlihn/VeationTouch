@@ -533,9 +533,12 @@ export function create(ctx) {
   const HAND_POOL = 0, HAND_LIGHT = 0;   // studio 25-11 (Beltrán: «quita la luz que genera la mano y las partículas»): pool and light off (Vicente's light was 2.0); motion only
   const uHandP = Array.from({ length: 6 }, () => uniform(new THREE.Vector4(0, -9, 0, 0)));
   const STONE_K = 1;
-  // studio 25-11 (Beltrán): one colour per stone by default; his picture printed on the stones with params.mosaic = 'image' (or ?mosaic=image)
-  const MOSAIC_TEX = (() => { let q = null; try { q = new URLSearchParams(location.search).get('mosaic'); } catch { /* no location */ } return q || params?.mosaic || 'stone'; })();
-  const UNPAINTED = true, RAW_STONE = vec3(0.6, 0.5, 0.37);                             // a warm travertine (linear ≈ #CBBBA4)
+  // studio 26-11 (Beltrán: «la versión con la textura se ve mucho mejor»): his picture printed on the stones by default; params.mosaic = 'stone'
+  // (or ?mosaic=stone) = one colour per stone
+  const MOSAIC_TEX = (() => { let q = null; try { q = new URLSearchParams(location.search).get('mosaic'); } catch { /* no location */ } return q || params?.mosaic || 'image'; })();
+  // studio 26-11 (Beltrán: «la parte de atrás está demasiado blanca, que sea más beige, y con variaciones: unas más oscuras, otras más
+  // claras, para que se note que son piezas distintas»): a warmer beige (linear ≈ #BFA37E) that each stone shifts on its own (rawOf)
+  const UNPAINTED = true, RAW_STONE = vec3(0.52, 0.366, 0.21);
   const texLoad = (f) => { const t = new THREE.TextureLoader().load(new URL(f, import.meta.url).href); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.wrapS = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
   const texOn = STONES && MOSAIC_TEX === 'image' ? texLoad('./umbral3d/mosaic-on.jpg') : null, texOff = STONES && MOSAIC_TEX === 'image' ? texLoad('./umbral3d/mosaic-off.jpg') : null;   // (only when used)   // studio 25-11: how much stone texture (0 = the plain glaze)
   const stoneTex = new THREE.TextureLoader().load(new URL('./umbral3d/stone-detail.png', import.meta.url).href);
@@ -632,10 +635,12 @@ export function create(ctx) {
     let topCol = mix(vRest, vGl, kc);
     if (MOSAIC_TEX === 'image' && STONES) { const uv = varying(attribute('aUV', 'vec2')); topCol = mix(TSL.texture(texOff, uv).rgb, TSL.texture(texOn, uv).rgb, kc); }
     // studio 25-11 (Beltrán: «por detrás se van a ver de arcilla o de piedra, están pintadas por adelante nomás»): back and sides are raw stone
-    const backCol = UNPAINTED ? RAW_STONE : mix(vGl, vRest, kc);
+    const rk = fract(r.mul(7.137)), rw = fract(r.mul(3.71));                              // this stone's own beige: 0.74–1.12 of the light, a touch warmer or cooler
+    const RAW = RAW_STONE.mul(rk.mul(0.38).add(0.74)).mul(vec3(rw.mul(0.08).add(0.96), 1, float(1.04).sub(rw.mul(0.1))));
+    const backCol = UNPAINTED ? RAW : mix(vGl, vRest, kc);
     const quiet = STORY || SHARDS ? float(0) : quietOf(positionWorld);   // studio 25-11: the story runs through (the trailer has no guide words on the entrance)
     const body = vec3(0.86, 0.8, 0.7);                                                  // the fired body on the bevel: light, it draws every piece
-    let col = topCol.mul(top).add(backCol.mul(back)).add(UNPAINTED ? topCol.mul(0.82).mul(shoulder).add(RAW_STONE.mul(split)) : mix(topCol, body, ORGANIC ? 0.25 : 0.55).mul(side));   // ORGANIC: a stone is the same stone through
+    let col = topCol.mul(top).add(backCol.mul(back)).add(UNPAINTED ? topCol.mul(0.82).mul(shoulder).add(RAW.mul(split)) : mix(topCol, body, ORGANIC ? 0.25 : 0.55).mul(side));   // ORGANIC: a stone is the same stone through
     col = mix(col, CALM.mul(dot(col, LUMW).div(dot(CALM, LUMW)).mul(0.35).add(0.65)), quiet.mul(0.75));   // the quiet zones: only bone / cream, calm
     const gp = varying(positionLocal.sub(ld(0).xyz));                                     // the piece's own frame (before its turn)
     // studio 25-11 (Beltrán: «textura de piedra»): a tileable stone detail (umbral3d/stone-detail.png: relief slopes, mottling, crackle) in the
@@ -869,7 +874,7 @@ export function create(ctx) {
   // two rows of CONTIGUOUS tiles (slightly tapered, ~3 × 3.7 cm, 3 mm joints) on a grout bed, r 0.31–0.39 m; bone and cream with one in
   // eight in old gold. They fly in with the reveal and lock in place, the inner row first; start turns the rows against each other and
   // lights the frame a little; 'start' blows it apart.
-  const RING_ROWS = [0.3295, 0.3705], RING_W = 0.037, RING_STEP = 0.032, RING_K = 0.11, RING_Y = 1.25, RING_D = 0.012, RING_R = 0.35;   // T-058b: inside the parabolic door (±0.42 m at 1.25 m), ≥ 3 cm of air round GUI's glass (r 0.28)
+  const RING_ROWS = [0.3295, 0.3705], RING_W = 0.037, RING_STEP = 0.032, RING_K = 0.11, RING_Y = OPEN.find((o) => o.hw / o.hh < 1.4)?.cy ?? 1.25,   /* studio 26-11: at the picture's round windows (MosaicEtapa1: 1.51 m) */ RING_D = 0.012, RING_R = 0.35;   // T-058b: inside the parabolic door (±0.42 m at 1.25 m), ≥ 3 cm of air round GUI's glass (r 0.28)
   const ring = [], uRing = uniform(0); let ringZeroed = false, ringTick = 0;
   const RING_TOTAL = NW * RING_ROWS.reduce((a, r) => a + Math.round((2 * Math.PI * r) / RING_STEP), 0);
   const ringAttr = new THREE.InstancedBufferAttribute(new Float32Array(RING_TOTAL * 3), 3);
