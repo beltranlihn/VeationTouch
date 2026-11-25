@@ -111,7 +111,7 @@ const PALETTES = {
   baixada: [[1.0, 0.62, 0.75], [0.7, 0.6, 1.0], [0.5, 0.95, 0.85]],
 };
 
-export function createGuide({ THREE, TSL, room, studio = false }) {   // T-069: studio = the lab / calibration look (rulers, figures, wall ids); false = the room
+export function createGuide({ THREE, TSL, room, studio = false, noTarget = [] }) {   // studio 25-11: noTarget = walls with no start ring (the trailer's title wall)   // T-069: studio = the lab / calibration look (rulers, figures, wall ids); false = the room
   const { pmremTexture, refract, cross, uniform, uv, vec2, vec3, vec4, atan, float, smoothstep, exp, length, step, texture, select, clamp: tclamp, max, min, cos, sin, abs, pow, dot, normalize, reflect, attribute, positionGeometry, positionLocal, normalWorld, positionWorld, cameraPosition, mix, fract } = TSL;
   const object = new THREE.Group(); object.name = 'guide';
   const NW = room.walls.length;
@@ -614,7 +614,7 @@ export function createGuide({ THREE, TSL, room, studio = false }) {   // T-069: 
     const walls = S.walls || [];
     for (let w = 0; w < NW; w++) {
       const sw = !!walls[w];
-      if (gb === 'wait') put(w, 0, 1, nearX(hands, w) && revealNow >= 1, near(hands, w, 0), 0, S.start || 0, dt);   // lit only where the score counts (#14)
+      if (gb === 'wait') { if (!noTarget.includes(w)) put(w, 0, 1, nearX(hands, w) && revealNow >= 1, near(hands, w, 0), 0, S.start || 0, dt); }   // lit only where the score counts (#14)
       else if (gb === 'pinya') { const offs = S.buttons >= 3 ? 3 : S.buttons === 2 ? 2 : 1; for (let k = 0; k < offs; k++) { const o = offs === 3 ? (k - 1) * 1.1 : offs === 2 ? (k ? 0.7 : -0.7) : 0; const nh = near(hands, w, o); put(w, o, 1, nh, nh, 0, S.fill[w], dt); } }
       else if (gb === 'tronc') { const beat = 0;   // no 2.4 s pulse ring: the Tronc is lift and level (#13); off the structure the ring teaches too (#11d)
         if (!sw) { put(w, 0, 0.6, S.count[w] > 0, near(hands, w, 0), beat, 0, dt); continue; } if (S.balance) { put(w, -0.65, 1, S.left[w] && near(hands, w, -0.65), near(hands, w, -0.65), beat, S.floorProgress, dt); put(w, 0.65, 1, S.right[w] && near(hands, w, 0.65), near(hands, w, 0.65), beat, S.floorProgress, dt); } else put(w, 0, 1, S.count[w] > 0, near(hands, w, 0), beat, S.floorProgress, dt); }

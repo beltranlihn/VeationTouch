@@ -49,6 +49,7 @@ export const TIMES = {                       // seconds
 
 export function createScore(nWalls, opt = {}) {
   const W = Math.max(1, nWalls), T = { ...TIMES, ...(opt.times || {}) };
+  const NOBUTTON = opt.noButton || [];
   const zeros = (v = 0) => Array.from({ length: W }, () => v);
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   // T-055 the room along its perimeter (m): each wall's length and where it starts (P4 = 0 in the XR Lab), the same frame as a hand's `s`
@@ -282,7 +283,7 @@ export function createScore(nWalls, opt = {}) {
       if (!strokes.has(h.stroke)) { lastDown[h.wall] = now; downs++; downsW[h.wall]++; downTimes.push(now); landed.push(h); }
       if (h.speed > maxSpeed) maxSpeed = h.speed;
       moving += Math.min(1, (h.speed || 0) / 0.3);   // T-061: a hand that strokes without lifting also earns the reveal (the «painter»)
-      if (Math.abs(h.dx || 0) <= T.reveal.button) onButton++;
+      if (Math.abs(h.dx || 0) <= T.reveal.button && !NOBUTTON.includes(h.wall)) onButton++;   // studio 25-11: opt.noButton = walls with no start button (the trailer's title wall)
     }
     // heights, spread and stillness (step 0)
     for (const a of wallHands) a.length = 0;

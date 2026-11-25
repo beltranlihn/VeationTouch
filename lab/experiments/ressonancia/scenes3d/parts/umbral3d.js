@@ -38,7 +38,11 @@ import { createStory } from './umbral3d/story.js';   // studio 25-11: the contin
 // studio 25-11 (Beltrán): THE MOSAIC IS HIS PICTURE — «Prueba On / OFF» (7196 × 912, the room strip) measured shard by shard
 // (lab: watershed on the drawn grout lines, ~7300 shards, ~11 cm): each becomes one tile, at its place, resting in its OFF colour
 // (desaturated sand) and turning to its On colour where a hand plays. SHARDS = null (no file) → the procedural mosaic, as before.
-const SHARDS = await fetch(new URL('./umbral3d/story-shards.json', import.meta.url)).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+// studio 25-11 (Beltrán: «que las piedras acompañen y creen la imagen, como un dibujo hecho con piedras»): STONES = the stones AS DRAWN
+// in the picture, one polygon each (umbral3d/story-stones.json, see its note) — preferred; story-shards.json (k-means sites) is the fallback
+const getJSON = (f) => fetch(new URL(f, import.meta.url)).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+const STONES = await getJSON('./umbral3d/story-stones.json');
+const SHARDS = STONES || await getJSON('./umbral3d/story-shards.json');
 
 const GROUT_H = 0.008, ORGANIC = true, STONE_SCALE = 5.5, ARCH_FRAME = false, WK_DOOR = true, STORY = false, STORY_REST = 0.82, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
 
@@ -155,9 +159,9 @@ export function create(ctx) {
     for (const w of walls) {
       const dn = px * w.normal.x + py * w.normal.y + pz * w.normal.z; if (dn > -1e-4) continue;
       const t = ((w.centre.x - eye.x) * w.normal.x + (w.centre.y - eye.y) * w.normal.y + (w.centre.z - eye.z) * w.normal.z) / dn; if (t <= 0 || t > 1.0001) continue;
-      const x = Math.abs((eye.x + px * t - w.centre.x) * w.right.x + (eye.z + pz * t - w.centre.z) * w.right.z), y = eye.y + py * t;
-      if (x > w.width / 2 + 0.01) continue;
-      const d = y < DOOR_H ? x - DOOR_A * Math.pow(Math.max(0, 1 - y / DOOR_H), 1 / DOOR_P) : Math.hypot(x, y - DOOR_H);
+      const xs = (eye.x + px * t - w.centre.x) * w.right.x + (eye.z + pz * t - w.centre.z) * w.right.z, y = eye.y + py * t;
+      if (Math.abs(xs) > w.width / 2 + 0.01) continue;
+      const d = openD(w.index, xs, y);
       if (d >= REVEAL_W) return r0;
       const k = 1 - Math.max(0, d) / REVEAL_W; return r0 + REVEAL_D * k * k;
     }
@@ -168,6 +172,29 @@ export function create(ctx) {
   function archF() { return 9; }
   function crest() { return VTOP; }
   const DOOR_A = 0.85, DOOR_H = 2.5, DOOR_P = 1.45;   // studio 25-11 (Beltrán, ref «correfoc»): a taller, pointed opening cut in the mosaic (was 0.8 / 1.95 / 2.2 with a stucco frame)   // T-058c: half base span, height, shape — y = H·(1 − |x/A|^P), metres ON THE WALL: a near-parabola, base 1.6 m, apex the narrowest; the start ring (r 0.31–0.39 at 1.25 m) sits inside with ≥ 7 cm to the jambs; the guide's words go above
+  // studio 25-11 (Beltrán): the openings are the picture's own transparent parts (STONES.openings: a round window at 1.26 m on P4, P2, P3,
+  // a wide one for the title on P1) — rounded rectangles in metres on the wall; without them, the old pointed door at every wall's centre
+  const OPEN = (STONES?.openings || []).map(([wi, cx, cy, hw, hh, rc]) => {             // (from his picture's walls to this room's: widths and height may differ)
+    const kx = walls[wi].width / (STONES.walls?.[wi]?.[2] || walls[wi].width), ky = (walls[wi].height || 3.75) / 3.75;
+    return { wi, cx: cx * kx, cy: cy * ky, hw: hw * kx, hh: hh * ky, rc: Math.min(rc * Math.min(kx, ky), hw * kx, hh * ky) };
+  });
+  function openD(wi, xs, y) {                 // signed distance (m) to the openings of wall wi (xs from the wall's centre, y from the floor): < 0 inside
+    if (!OPEN.length) { const x = Math.abs(xs); return y < DOOR_H ? x - DOOR_A * Math.pow(Math.max(0, 1 - y / DOOR_H), 1 / DOOR_P) : Math.hypot(x, y - DOOR_H); }
+    let d = 1e9;
+    for (const o of OPEN) {
+      if (o.wi !== wi) continue;
+      const qx = Math.abs(xs - (o.cx - walls[wi].width / 2)) - (o.hw - o.rc), qy = Math.abs(y - o.cy) - (o.hh - o.rc);
+      d = Math.min(d, Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - o.rc);
+    }
+    return d;
+  }
+  function openHalfW(wi, xs, y) {             // the opening of wall wi nearest xs at height y: [its centre (from the wall's centre), its half width there]
+    let best = null, bd = 1e9;
+    for (const o of OPEN) { if (o.wi !== wi) continue; const c = o.cx - walls[wi].width / 2, dd = Math.abs(xs - c); if (dd < bd) { bd = dd; best = o; } }
+    if (!best) return null;
+    const c = best.cx - walls[wi].width / 2, e = Math.abs(y - best.cy) - (best.hh - best.rc);
+    return [c, e <= 0 ? best.hw : best.hw - best.rc + Math.sqrt(Math.max(0, best.rc * best.rc - e * e))];
+  }
 
   // ---- the mosaic (T-058): FINE trencadís. Poisson sites whose size follows the height (fine in the band the hands reach, larger above,
   // where nobody reaches) → Voronoi cells → thin bevelled shards. Measured on the wall (the serpentine is ~2.2× farther than the wall):
@@ -193,22 +220,36 @@ export function create(ctx) {
       for (const w of walls) {
         const dn = px * w.normal.x + py * w.normal.y + pz * w.normal.z; if (dn > -1e-4) continue;
         const t = ((w.centre.x - eye.x) * w.normal.x + (w.centre.y - eye.y) * w.normal.y + (w.centre.z - eye.z) * w.normal.z) / dn; if (t <= 0 || t > 1) continue;
-        const x = Math.abs((eye.x + px * t - w.centre.x) * w.right.x + (eye.z + pz * t - w.centre.z) * w.right.z), y = eye.y + py * t;
-        if (x < DOOR_A - 0.1 && y < DOOR_H * (1 - (x / DOOR_A) ** DOOR_P) - 0.1) return true;
+        const xs = (eye.x + px * t - w.centre.x) * w.right.x + (eye.z + pz * t - w.centre.z) * w.right.z, y = eye.y + py * t;
+        if (Math.abs(xs) < w.width / 2 && openD(w.index, xs, y) < -0.1) return true;
       }
       return false;
     };
-    if (SHARDS) for (const a of SHARDS.shards) {                                      // his shards, from the wall into the shell
-      const w = walls[a[0]]; if (!w) continue;
-      const xw = (a[1] / w.width) * w.width - w.width / 2, py = (a[2] / 3.75) * w.height;   // the picture is the strip: 3.75 m high
+    const IW = (w) => (STONES?.walls?.[w.index]?.[2] || w.width);                     // the wall's width in his picture (m)
+    const toShell = (w, xm, ym, out) => {                                              // a point of the picture (m on wall w) → where the eye sees it on the shell
+      for (let g = 0; g < 4 && xm > IW(w); g++) { xm -= IW(w); w = walls[(w.index + 1) % walls.length]; }   // a stone running on past the corner
+      for (let g = 0; g < 4 && xm < 0; g++) { w = walls[(w.index + walls.length - 1) % walls.length]; xm += IW(w); }
+      const xw = (xm / IW(w)) * w.width - w.width / 2, py = (ym / 3.75) * w.height;      // the picture's wall → this room's wall (widths may differ); 3.75 m high
       const px = w.centre.x + w.right.x * xw, pz = w.centre.z + w.right.z * xw;
       const dx = px - eye.x, dy = py - eye.y, dz = pz - eye.z, dh = Math.hypot(dx, dz) || 1e-3, th = Math.atan2(dz, dx);
-      let t = 1, v = eye.y + SHIFT; for (let k = 0; k < 8; k++) { t = surfR(th, v) / dh; v = clamp(vOf(eye.y + t * dy), 0, VTOP); }
-      const cu = ((th * RM) % LL + LL) % LL;
-      if (inDoor(cu, v)) continue;
+      let t = 1, v = eye.y + SHIFT; for (let k = 0; k < 8; k++) { t = surfR(th, v) / dh; v = clamp(vOf(eye.y + t * dy), 0, VTOP + 0.6); }   // (past the crest: the top stones run on, as the shards' cells did)
+      if (Math.abs(t * dh - surfR(th, v)) > 1e-3) {                                      // up in the vault the iteration does not settle (the shell turns faster than the ray): bisect
+        let lo = 0.02, hi = 8;
+        for (let k = 0; k < 28; k++) { const m = (lo + hi) / 2, vm = clamp(vOf(eye.y + m * dy), 0, VTOP + 0.6); if (m * dh - surfR(th, vm) > 0) hi = m; else lo = m; }
+        t = (lo + hi) / 2; v = clamp(vOf(eye.y + t * dy), 0, VTOP + 0.6);
+      }
+      out[0] = ((th * RM) % LL + LL) % LL; out[1] = v; out[2] = t; return out;
+    };
+    const tsP = [0, 0, 0];
+    const IMG = STONES?.image || [7196, 1094, 91, 912], PERIM = walls.reduce((a, w) => a + w.width, 0), wallStart = walls.map((w, i) => walls.slice(0, i).reduce((a, q) => a + q.width, 0));
+    if (SHARDS) for (const a of SHARDS.stones || SHARDS.shards) {                    // his stones (or shards), from the wall into the shell
+      const w = walls[a[0]]; if (!w) continue;
+      const [cu, v, t] = toShell(w, a[1], a[2], tsP);
+      if (!STONES && inDoor(cu, v)) continue;                                          // (the stones are already cut by the portals)
       const st = put(cu, v, Math.max(0.025, a[3] * t), false); st.on = [a[4], a[5], a[6]]; st.off = [a[7], a[8], a[9]];
+      if (STONES) { st.wl = w; st.wx = a[1]; st.wy = a[2]; st.wp = a[10]; }
     }
-    if (SHARDS && WK_DOOR) for (let wi = 0; wi < walls.length; wi++) {             // studio 25-11: the opening's lip — a row of small shards along its edge
+    if (SHARDS && !STONES && WK_DOOR) for (let wi = 0; wi < walls.length; wi++) {   // studio 25-11: the opening's lip — a row of small shards along its edge
       const w = walls[wi];
       for (let side = -1; side <= 1; side += 2) for (let y = 0.05; y < DOOR_H + 0.1; y += 0.075) {
         const xa = y < DOOR_H ? DOOR_A * Math.pow(Math.max(0, 1 - y / DOOR_H), 1 / DOOR_P) : 0, xw = side * (xa + 0.05);
@@ -243,7 +284,7 @@ export function create(ctx) {
       }
       return out;
     };
-    const pos = [], nor = [], inf = [], piece = [];
+    const pos = [], nor = [], inf = [], piece = [], uvs = [];
     const P0 = new THREE.Vector3(), Pu = new THREE.Vector3(), Pv = new THREE.Vector3(), Nn = new THREE.Vector3(), Tu = new THREE.Vector3(), Tv = new THREE.Vector3();
     const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), fn = new THREE.Vector3(), ax = new THREE.Vector3();
     let mothers = sites.filter((q) => q.mother); if (!mothers.length) mothers = sites.filter((q, i) => i % 80 === 0); /* studio 25-11: his shards have no mothers — every 80th is a rosette's heart for the colour waves (geometry unchanged) */ mothers.forEach((q, i) => { q.fam = i % 5; });
@@ -255,13 +296,20 @@ export function create(ctx) {
       const H = crest(s.cu), af = archF(s.cu, s.y);
       if (af < 0) continue;                                                             // an arch: open
       let loose = 0;
-      if (s.y > H) { continue; }   // T-058b (ART): nothing off the wall at rest   // ART: (almost) nothing floats at rest
+      if (s.y > H && !s.wp) { continue; }   // T-058b (ART): nothing off the wall at rest   // ART: (almost) nothing floats at rest
       else if (!s.mother && (rnd() < 0.002 && MEDALLIONS || (H - s.y < 0.12 && rnd() < 0))) continue;   // studio 25-11: no missing pieces either (rnd() still drawn: same layout)   // T-069 (ART): no ragged crest any more (its holes read as white gaps); rnd() still drawn: same layout   // a missing piece; a ragged crest
       const R0 = s.mother ? 0.34 : SHARDS ? s.ri * 1.9 + 0.06 : s.ri * 1.25 + 0.03;   // his shards: room to meet their neighbours (no gaps)
       let poly = []; const a0 = rr(0, 6.28);
-      for (let k = 0; k < 8; k++) poly.push([Math.cos(a0 + k * 0.7854) * R0, Math.sin(a0 + k * 0.7854) * R0]);
+      const imgPts = [];
+      if (s.wp) for (let k = 0; k < s.wp.length; k += 2) {                              // a drawn stone: its own outline
+        const xm = s.wx + s.wp[k] / 1000, ym = s.wy + s.wp[k + 1] / 1000; toShell(s.wl, xm, ym, tsP);
+        poly.push([wrapU(tsP[0] - s.cu), tsP[1] - s.y]);
+        const iw = STONES.walls?.[s.wl.index]; imgPts.push([iw ? (iw[0] + (xm / iw[2]) * iw[1]) / IMG[0] : (wallStart[s.wl.index] + xm) / PERIM, (IMG[2] + IMG[3] - ym * IMG[3] / 3.75) / IMG[1]]);   // where the vertex is in his picture
+      }
+      else for (let k = 0; k < 8; k++) poly.push([Math.cos(a0 + k * 0.7854) * R0, Math.sin(a0 + k * 0.7854) * R0]);
+      const rawPoly = poly.map((p) => p.slice());                                        // (before any clip: the picture fit needs every vertex)
       const bx = Math.floor((s.cu / LL) * BW), by = byOf(s.y), reach = Math.ceil((2 * R0) / BS), RR = 4 * R0 * R0;
-      for (let j = Math.max(0, by - reach); j <= Math.min(BH - 1, by + reach) && poly.length > 2; j++) for (let i = bx - reach; i <= bx + reach; i++) {
+      for (let j = Math.max(0, by - reach); !s.wp && j <= Math.min(BH - 1, by + reach) && poly.length > 2; j++) for (let i = bx - reach; i <= bx + reach; i++) {
         for (const k of bucket[j * BW + ((i % BW) + BW) % BW]) {
           const o = sites[k]; if (o === s) continue;
           const dx = wrapU(o.cu - s.cu), dy = o.y - s.y, dd = dx * dx + dy * dy; if (dd > RR) continue;
@@ -279,7 +327,19 @@ export function create(ctx) {
       gx /= 6 * area; gy /= 6 * area; if (area < 0) poly.reverse();
       const cu = s.cu + gx, cy = s.y + gy;
       let rad = 0; for (const p of poly) { p[0] -= gx; p[1] -= gy; rad = Math.max(rad, Math.hypot(p[0], p[1])); }
-      if (ORGANIC && poly.length >= 3) {                                                // studio 25-11 (Beltrán: «debe ser más piedras», ref. tumbled stone mosaic): broken
+      let uvA = null;                                                                    // the piece's local plane → his picture (least squares, affine)
+      if (imgPts.length >= 3) {
+        const M = [0, 0, 0, 0, 0, 0, 0, 0, 0], Ru = [0, 0, 0], Rv = [0, 0, 0];
+        imgPts.forEach((q, k) => { const a = [rawPoly[k][0] - gx, rawPoly[k][1] - gy, 1]; for (let r = 0; r < 3; r++) { for (let c2 = 0; c2 < 3; c2++) M[r * 3 + c2] += a[r] * a[c2]; Ru[r] += a[r] * q[0]; Rv[r] += a[r] * q[1]; } });
+        const det = M[0] * (M[4] * M[8] - M[5] * M[7]) - M[1] * (M[3] * M[8] - M[5] * M[6]) + M[2] * (M[3] * M[7] - M[4] * M[6]);
+        if (Math.abs(det) > 1e-18) {
+          const inv = [M[4] * M[8] - M[5] * M[7], M[2] * M[7] - M[1] * M[8], M[1] * M[5] - M[2] * M[4], M[5] * M[6] - M[3] * M[8], M[0] * M[8] - M[2] * M[6], M[2] * M[3] - M[0] * M[5], M[3] * M[7] - M[4] * M[6], M[1] * M[6] - M[0] * M[7], M[0] * M[4] - M[1] * M[3]].map((x) => x / det);
+          const sol = (R) => [0, 1, 2].map((r) => inv[r * 3] * R[0] + inv[r * 3 + 1] * R[1] + inv[r * 3 + 2] * R[2]);
+          uvA = [sol(Ru), sol(Rv)];
+        }
+      }
+      const uvOf = (p) => (uvA ? [uvA[0][0] * p[0] + uvA[0][1] * p[1] + uvA[0][2], uvA[1][0] * p[0] + uvA[1][1] * p[1] + uvA[1][2]] : [0, 0]);
+      if (ORGANIC && poly.length >= 3 && !s.wp) {                                       // studio 25-11 (Beltrán: «debe ser más piedras», ref. tumbled stone mosaic): broken (a drawn stone keeps its own smooth outline)
         const sm = [];                                                                  // straight edges with worn corners (a small corner cut), each edge a little bitten in
         for (let i = 0; i < poly.length; i++) {
           const a = poly[i], b = poly[(i + 1) % poly.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -316,19 +376,31 @@ export function create(ctx) {
       const n = poly.length, thick = s.mother ? 0.024 : ORGANIC ? rr(0.018, 0.026) : 0.014 + rr(0, 0.006), ch = Math.min(ORGANIC ? 0.009 : 0.007, thick * 0.6);
       const gap = (s.mother ? 0.0015 : ORGANIC ? rr(0.0022, 0.0042) : 0.00125) - (ORGANIC ? (GROUT_H / (thick * 0.65)) * ch * 0.3 : (GROUT_H / thick) * ch * 1.1);
       const tiltA = rr(0, 6.28), tiltK = loose ? 0 : rr(0.02, 0.06), tx = Math.cos(tiltA) * tiltK, ty = Math.sin(tiltA) * tiltK;
-      const O = poly.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.45, 1 - gap / l); return [p[0] * k, p[1] * k]; });
+      // a drawn stone may be concave (a horn, an arm): its insets follow its own edges (mitred offset), not the way to its centre
+      const inset = (pp, d) => pp.map((p, i) => {
+        const a = pp[(i + pp.length - 1) % pp.length], b = pp[(i + 1) % pp.length], dv = typeof d === 'number' ? d : d[i];
+        let n1x = -(p[1] - a[1]), n1y = p[0] - a[0], n2x = -(b[1] - p[1]), n2y = b[0] - p[0];          // inward normals (counter-clockwise)
+        const l1 = Math.hypot(n1x, n1y) || 1, l2 = Math.hypot(n2x, n2y) || 1; n1x /= l1; n1y /= l1; n2x /= l2; n2y /= l2;
+        let mx = n1x + n2x, my = n1y + n2y; const ml = Math.hypot(mx, my) || 1; mx /= ml; my /= ml;
+        const k = dv / Math.max(0.45, mx * n1x + my * n1y); return [p[0] + mx * k, p[1] + my * k];
+      });
+      const radial = (pp, d, lo) => pp.map((p, i) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(lo, 1 - (typeof d === 'number' ? d : d[i]) / l); return [p[0] * k, p[1] * k]; });
+      const O = s.wp ? inset(poly, gap) : radial(poly, gap, 0.45);
       const chV = O.map(() => (ORGANIC ? ch * rr(0.55, 1.45) : ch * 1.1));
-      const T = O.map((p, i) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.5, 1 - chV[i] / l); return [p[0] * k, p[1] * k]; });
-      const M = O.map((p, i) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.5, 1 - (chV[i] * 0.3) / l); return [p[0] * k, p[1] * k]; });
+      const T = s.wp ? inset(O, chV) : radial(O, chV, 0.5);
+      const M = s.wp ? inset(O, chV.map((c) => c * 0.3)) : radial(O, chV.map((c) => c * 0.3), 0.5);
       const hM = thick * 0.65, hT = O.map(() => thick + (ORGANIC ? rr(-0.0012, 0.0012) : 0));   // the face not quite level: a split stone
       const W = (p, h, out) => out.copy(P0).addScaledVector(Tu, p[0]).addScaledVector(Tv, p[1]).addScaledVector(Nn, h + (h > 0.001 ? p[0] * tx + p[1] * ty : 0));
       const tri = (pa, ha, pb, hb, pc, hc, face, wantOut, dome) => {
         W(pa, ha, va); W(pb, hb, vb); W(pc, hc, vc);
         fn.crossVectors(e1.subVectors(vb, va), e2.subVectors(vc, va)); if (fn.lengthSq() < 1e-14) return; fn.normalize();
         let flip;
-        if (wantOut) { e1.copy(va).add(vb).add(vc).multiplyScalar(1 / 3).sub(P0).addScaledVector(Nn, -thick * 0.5); flip = fn.dot(e1) < 0; }
+        if (Array.isArray(wantOut)) flip = fn.dot(e1.copy(Tu).multiplyScalar(wantOut[0]).addScaledVector(Tv, wantOut[1])) < 0;   // the edge's own outward side
+        else if (wantOut) { e1.copy(va).add(vb).add(vc).multiplyScalar(1 / 3).sub(P0).addScaledVector(Nn, -thick * 0.5); flip = fn.dot(e1) < 0; }
         else flip = fn.dot(Nn) * (face === 1 ? -1 : 1) < 0;
+        const q2 = flip ? [pa, pc, pb] : [pa, pb, pc];
         if (flip) { fn.negate(); const t = vb.x, t2 = vb.y, t3 = vb.z; vb.copy(vc); vc.set(t, t2, t3); }
+        for (const q of q2) { const w2 = uvOf(q); uvs.push(w2[0], w2[1]); }
         for (const v of [va, vb, vc]) {
           pos.push(v.x, v.y, v.z);
           if (dome && v !== va) { e1.subVectors(v, va).normalize().multiplyScalar(dome).add(fn).normalize(); nor.push(e1.x, e1.y, e1.z); } else nor.push(fn.x, fn.y, fn.z);   // a face a little domed (hand-made): the sheen slides over it
@@ -339,14 +411,21 @@ export function create(ctx) {
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n;
         if (ORGANIC && !s.mother) {
-          tri(Z, thick + 0.0008, T[i], hT[i], T[j], hT[j], 0, false, 0.1);                                 // the face: flat, barely eased
-          tri(T[i], hT[i], M[i], hM, M[j], hM, 2, true); tri(T[i], hT[i], M[j], hM, T[j], hT[j], 2, true);   // the worn shoulder
-          tri(M[i], hM, O[i], 0, O[j], 0, 2, true); tri(M[i], hM, O[j], 0, M[j], hM, 2, true);             // the split side down to the grout
+          const out = s.wp ? [poly[j][1] - poly[i][1], poly[i][0] - poly[j][0]] : true;
+          if (!s.wp) tri(Z, thick + 0.0008, T[i], hT[i], T[j], hT[j], 0, false, 0.1);                     // the face: flat, barely eased (a drawn stone: below)
+          tri(T[i], hT[i], M[i], hM, M[j], hM, 2, out); tri(T[i], hT[i], M[j], hM, T[j], hT[j], 2, out);   // the worn shoulder
+          tri(M[i], hM, O[i], 0, O[j], 0, 3, out); tri(M[i], hM, O[j], 0, M[j], hM, 3, out);             // the split side down to the grout (face 3: raw stone)
         } else {
           tri(Z, thick, T[i], thick, T[j], thick, 0, false, s.round ? 0.3 : 0.14);          // the face (a medallion is domed)
           tri(T[i], thick, O[i], 0, O[j], 0, 2, true); tri(T[i], thick, O[j], 0, T[j], thick, 2, true);   // the bevel down to the grout
         }
-        tri(Z, 0, O[j], 0, O[i], 0, 1, false);                                           // the back (the glaze)
+        if (!s.wp) tri(Z, 0, O[j], 0, O[i], 0, 1, false);                                // the back (the glaze)
+      }
+      if (s.wp) {                                                                         // a drawn stone (maybe concave): face and back by ear-cutting
+        const ft = THREE.ShapeUtils.triangulateShape(T.map((p) => new THREE.Vector2(p[0], p[1])), []);
+        for (const [a, b, c] of ft) tri(T[a], hT[a], T[b], hT[b], T[c], hT[c], 0, false, 0);
+        const bt = THREE.ShapeUtils.triangulateShape(O.map((p) => new THREE.Vector2(p[0], p[1])), []);
+        for (const [a, b, c] of bt) tri(O[a], 0, O[c], 0, O[b], 0, 1, false);
       }
     }
     // the rest colours by rank (exact shares): warm field → bone 30 · cream 22 · sand 18 (of all); cool patches (30 %) → aqua 12 · mist 10 · sage 5 · clay 3
@@ -380,9 +459,9 @@ export function create(ctx) {
       for (const w of walls) {
         const dn = dx * w.normal.x + dy * w.normal.y + dz * w.normal.z; if (dn > -1e-4) continue;
         const t = ((w.centre.x - eye.x) * w.normal.x + (w.centre.y - eye.y) * w.normal.y + (w.centre.z - eye.z) * w.normal.z) / dn; if (t <= 0 || t > 1.0001) continue;
-        const x = Math.abs((eye.x + dx * t - w.centre.x) * w.right.x + (eye.z + dz * t - w.centre.z) * w.right.z), y = eye.y + dy * t;
-        if (x > w.width / 2 + 0.01) continue;
-        const d = y < DOOR_H ? x - DOOR_A * Math.pow(Math.max(0, 1 - y / DOOR_H), 1 / DOOR_P) : Math.hypot(x, y - DOOR_H);
+        const xs = (eye.x + dx * t - w.centre.x) * w.right.x + (eye.z + dz * t - w.centre.z) * w.right.z, y = eye.y + dy * t;
+        if (Math.abs(xs) > w.width / 2 + 0.01) continue;
+        const d = openD(w.index, xs, y);
         k = Math.max(0, 1 - Math.max(0, d) / 0.38); break;
       }
       c.edge = k * k;
@@ -399,7 +478,7 @@ export function create(ctx) {
     pieceTex.magFilter = pieceTex.minFilter = THREE.NearestFilter; pieceTex.generateMipmaps = false; pieceTex.needsUpdate = true;
     heroGeo = new THREE.BufferGeometry();
     heroGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3)); heroGeo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3));
-    heroGeo.setAttribute('aInf', new THREE.BufferAttribute(new Float32Array(inf), 2));
+    heroGeo.setAttribute('aInf', new THREE.BufferAttribute(new Float32Array(inf), 2)); heroGeo.setAttribute('aUV', new THREE.BufferAttribute(new Float32Array(uvs), 2));
     heroGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 3, 0), 16);
   }
   const NC = cells.length, TW = 128, TH = Math.max(1, Math.ceil(NC / TW));
@@ -439,10 +518,22 @@ export function create(ctx) {
 
   const { Fn, attribute, uniform, varying, textureLoad, ivec2, int, float, vec3, vec4, modelWorldMatrix, normalize, mix, step, sin, cos, cross, dot, floor, mod, exp, abs, smoothstep, max, positionLocal, normalLocal, positionWorld, instancedBufferAttribute, fract } = TSL;
   const uBed = uniform(1), uPush = uniform(0), uDoor = uniform(1), PUSH = 1.4;
+  // studio 25-11 (Beltrán: «el movimiento constante del mural debe ser un curl noise, ahora se ve como una ola de izquierda a derecha»): the idle
+  // life is a CURL field on the GPU — every piece drifts in its own plane along the curl of a slow noise potential (divergence-free: eddies,
+  // no direction of travel) and leans with the potential itself. Two layers drifting against each other, so the eddies form and dissolve.
+  const IDLE_CURL = true, uIdleT = uniform(0), IDLE_F = 0.75, IDLE_AMP = 0.011, IDLE_TILT = 0.085, IDLE_LIFT = 0.004;
+  const IDLE_WAVES = [];                                                                // [kx, ky, kz (1/m), ω (rad/s), phase, amplitude]: 6 directions, slow, no net drift
+  { let sd = 91; const rq = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 6; i++) { const th = (i / 6) * Math.PI + rq() * 0.4, el = (rq() - 0.5) * 1.2, f = IDLE_F * (0.7 + rq() * 0.9), sgn = i % 2 ? -1 : 1;
+      IDLE_WAVES.push([Math.cos(th) * Math.cos(el) * f * 6.283, Math.sin(el) * f * 6.283, Math.sin(th) * Math.cos(el) * f * 6.283, sgn * (0.25 + rq() * 0.25), rq() * 6.283, 0.42]); } }
   const GROUT_BONE = float(0);   // studio 25-11 (Beltrán: «todavía se ve el fondo lechoso por detrás»): the whole bed is the night (1 = bone joints at rest, as before)
   const HAND_POOL = 0, HAND_LIGHT = 0;   // studio 25-11 (Beltrán: «quita la luz que genera la mano y las partículas»): pool and light off (Vicente's light was 2.0); motion only
   const uHandP = Array.from({ length: 6 }, () => uniform(new THREE.Vector4(0, -9, 0, 0)));
-  const STONE_K = 1;   // studio 25-11: how much stone texture (0 = the plain glaze)
+  const STONE_K = 1;
+  const MOSAIC_TEX = (() => { try { return new URLSearchParams(location.search).get('mosaic') || 'image'; } catch { return 'image'; } })();   // lab: ?mosaic=stone to compare
+  const UNPAINTED = true, RAW_STONE = vec3(0.6, 0.5, 0.37);                             // a warm travertine (linear ≈ #CBBBA4)
+  const texLoad = (f) => { const t = new THREE.TextureLoader().load(new URL(f, import.meta.url).href); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.wrapS = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
+  const texOn = STONES ? texLoad('./umbral3d/mosaic-on.jpg') : null, texOff = STONES ? texLoad('./umbral3d/mosaic-off.jpg') : null;   // studio 25-11: how much stone texture (0 = the plain glaze)
   const stoneTex = new THREE.TextureLoader().load(new URL('./umbral3d/stone-detail.png', import.meta.url).href);
   stoneTex.wrapS = stoneTex.wrapT = THREE.RepeatWrapping; stoneTex.colorSpace = THREE.NoColorSpace; stoneTex.anisotropy = 4;   // studio 25-11: the hands' points on the mosaic (w = strength)   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
   // THE THRESHOLDS: at the centre of every wall the mosaic opens in a tall arch (Gaudí's: straight jambs, a pointed round head) — cut
@@ -456,7 +547,17 @@ export function create(ctx) {
       const d = wc.sub(E3), dn = dot(d, vec3(w.normal.x, w.normal.y, w.normal.z));
       const t = float((w.centre.x - eye.x) * w.normal.x + (w.centre.y - eye.y) * w.normal.y + (w.centre.z - eye.z) * w.normal.z).div(dn.min(-0.0001));
       const hp = E3.add(d.mul(t));
-      const x = abs(dot(hp.sub(vec3(w.centre.x, w.centre.y, w.centre.z)), vec3(w.right.x, w.right.y, w.right.z))).add(jit).div(uDoor), y = hp.y.div(uDoor);
+      const xs = dot(hp.sub(vec3(w.centre.x, w.centre.y, w.centre.z)), vec3(w.right.x, w.right.y, w.right.z));
+      if (OPEN.length) {                                                                 // studio 25-11: his openings (rounded rectangles, see openD)
+        let sd = float(9);
+        for (const o of OPEN) if (o.wi === w.index) {
+          const qx = abs(xs.sub(o.cx - w.width / 2)).add(jit).div(uDoor).sub(o.hw - o.rc), qy = abs(hp.y.sub(o.cy)).div(uDoor).sub(o.hh - o.rc);
+          sd = TSL.min(sd, TSL.length(TSL.vec2(TSL.max(qx, 0), TSL.max(qy, 0))).add(TSL.min(TSL.max(qx, qy), 0)).sub(o.rc));
+        }
+        k = k.mul(max(smoothstep(-0.02, 0.005, sd), step(-0.0001, dn)));
+        continue;
+      }
+      const x = abs(xs).add(jit).div(uDoor), y = hp.y.div(uDoor);
       const edge = y.sub(float(DOOR_H).mul(float(1).sub(x.div(DOOR_A).min(1).pow(DOOR_P))));
       k = k.mul(max(max(WK_DOOR ? smoothstep(-0.02, 0.005, edge) : smoothstep(-0.03, 0.2, edge), step(DOOR_A, x)), step(-0.0001, dn)));   // studio 25-11: no frame — the pieces at the opening keep their full size (no slivers)
     }
@@ -487,25 +588,44 @@ export function create(ctx) {
     const st = textureLoad(stTex, ivec2(ix, iy));      // turn, lift, light (+8 = the glaze shows), scale
     m.positionNode = Fn(() => {
       const d0 = ld(0), aC_ = d0.xyz, aAx_ = ld(1).xyz, aN_ = ld(2).xyz;
-      const ang = st.x, c = cos(ang), s = sin(ang);
+      const th_ = normalize(vec3(aN_.z, 0, aN_.x.negate()).add(vec3(1e-5, 0, 0))), tv_ = cross(aN_, th_);
+      let idle = vec3(0), idleA = float(0);
+      if (IDLE_CURL) {                                                                   // the curl field at the piece's centre (the same for all its vertices)
+        // the potential: a few plane waves in different directions and speeds (their interference makes eddies that form and dissolve;
+        // analytic gradient — cheap enough for every vertex of ~29,000 stones)
+        let p0 = float(0), grad = vec3(0);
+        for (const [kx, ky, kz, w, ph, a] of IDLE_WAVES) {
+          const arg = aC_.x.mul(kx).add(aC_.y.mul(ky)).add(aC_.z.mul(kz)).add(uIdleT.mul(w)).add(ph);
+          p0 = p0.add(sin(arg).mul(a)); grad = grad.add(vec3(kx, ky, kz).mul(cos(arg).mul(a)));
+        }
+        idle = th_.mul(dot(grad, tv_)).sub(tv_.mul(dot(grad, th_))).mul(IDLE_AMP / (IDLE_F * 6.283 * 1.6)).add(aN_.mul(p0.mul(IDLE_LIFT)));
+        idleA = p0.mul(IDLE_TILT);
+      }
+      const ang = st.x.add(idleA), c = cos(ang), s = sin(ang);
       const wc = modelWorldMatrix.mul(vec4(aC_, 1)).xyz;
       const local = positionLocal.sub(aC_).mul(st.w).mul(doorK(wc));
       normalLocal.assign(rotA(normalLocal, aAx_, c, s));
       const inward = normalize(vec3(aC_.x, 0, aC_.z)).mul(uPush.negate());          // 'start': the world closes in round the eye
-      const ow = textureLoad(offTex, ivec2(ix, iy)), th_ = normalize(vec3(aN_.z, 0, aN_.x.negate()).add(vec3(1e-5, 0, 0))), tv_ = cross(aN_, th_);
+      const ow = textureLoad(offTex, ivec2(ix, iy));
       const wind = th_.mul(ow.x).add(tv_.mul(ow.y)).add(aN_.mul(ow.z));                // studio 25-11: the wind's offset (sign of th_ fixed on the CPU)
-      return aC_.add(rotA(local, aAx_, c, s)).add(aN_.mul(st.y)).add(inward).add(wind);
+      return aC_.add(rotA(local, aAx_, c, s)).add(aN_.mul(st.y)).add(inward).add(wind).add(idle.mul(st.w));
     })();
     const vEdge = varying(ld(3).w), face = aInf_.y, vKind = varying(ld(1).w), r = varying(ld(0).w), vGl = varying(ld(3).xyz), vRest = varying(ld(4).xyz), packed = varying(st.z);
     const top = float(1).sub(step(0.5, face)), back = step(0.5, face).mul(float(1).sub(step(1.5, face))), side = step(1.5, face);
+    const shoulder = step(1.5, face).mul(float(1).sub(step(2.5, face))), split = step(2.5, face);   // studio 25-11: the glaze wraps the worn shoulder; the split side is raw
     const kPearl = step(0.5, vKind).mul(float(1).sub(step(1.5, vKind)));
     // a piece turns a WHOLE turn to change colour (so it seats again in its own outline): its two faces swap what they show at the
     // half turn, when the public sees the other one. kc = 1: the face shows the glaze
     const kc = step(6, packed), g = packed.sub(kc.mul(8));
-    const topCol = mix(vRest, vGl, kc), backCol = mix(vGl, vRest, kc);
+    // studio 25-11 (Beltrán): MOSAIC_TEX = 'image' — every stone carries ITS part of his picture (mosaic-off.jpg at rest, mosaic-on.jpg played),
+    // fixed to the stone (it turns with it); 'stone' — each stone one colour, his picture's mean there
+    let topCol = mix(vRest, vGl, kc);
+    if (MOSAIC_TEX === 'image' && STONES) { const uv = varying(attribute('aUV', 'vec2')); topCol = mix(TSL.texture(texOff, uv).rgb, TSL.texture(texOn, uv).rgb, kc); }
+    // studio 25-11 (Beltrán: «por detrás se van a ver de arcilla o de piedra, están pintadas por adelante nomás»): back and sides are raw stone
+    const backCol = UNPAINTED ? RAW_STONE : mix(vGl, vRest, kc);
     const quiet = STORY || SHARDS ? float(0) : quietOf(positionWorld);   // studio 25-11: the story runs through (the trailer has no guide words on the entrance)
     const body = vec3(0.86, 0.8, 0.7);                                                  // the fired body on the bevel: light, it draws every piece
-    let col = topCol.mul(top).add(backCol.mul(back)).add(mix(topCol, body, ORGANIC ? 0.25 : 0.55).mul(side));   // ORGANIC: a stone is the same stone through
+    let col = topCol.mul(top).add(backCol.mul(back)).add(UNPAINTED ? topCol.mul(0.82).mul(shoulder).add(RAW_STONE.mul(split)) : mix(topCol, body, ORGANIC ? 0.25 : 0.55).mul(side));   // ORGANIC: a stone is the same stone through
     col = mix(col, CALM.mul(dot(col, LUMW).div(dot(CALM, LUMW)).mul(0.35).add(0.65)), quiet.mul(0.75));   // the quiet zones: only bone / cream, calm
     const gp = varying(positionLocal.sub(ld(0).xyz));                                     // the piece's own frame (before its turn)
     // studio 25-11 (Beltrán: «textura de piedra»): a tileable stone detail (umbral3d/stone-detail.png: relief slopes, mottling, crackle) in the
@@ -522,7 +642,7 @@ export function create(ctx) {
     col = col.mul(float(1).sub(vl)).mul(mix(float(0.9), float(1.04), mott));
     m.colorNode = col;
     const fill = col.mul(0.28);                                                             // studio 25-11: the light the environment gave, as a flat fill (matte, cheap)
-    const glazed = top.mul(kc).add(back.mul(float(1).sub(kc)));                          // the side showing the glaze
+    const glazed = UNPAINTED ? top.mul(kc) : top.mul(kc).add(back.mul(float(1).sub(kc)));                          // the side showing the glaze
     // the light of a crossing: the bevels light up (thin, warm-white — no neon); the glaze holds a breath of its own light (≤ 0.15)
     let pool = float(0);                                                                    // studio 25-11: where a hand is, the mosaic warms at once
     for (const u of uHandP) { const d = positionWorld.sub(u.xyz); pool = pool.add(exp(dot(d, d).mul(-1 / (2 * 0.32 * 0.32))).mul(u.w)); }
@@ -705,6 +825,7 @@ export function create(ctx) {
   const ringMesh = new THREE.InstancedMesh(tileGeo(4, 0.25, 0.02, trap), [glazeMat(ringAttr, uRing), mirrorM], RING_TOTAL);
   ringMesh.frustumCulled = false; ringMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); object.add(ringMesh);
   // the frame's bed: a flush annulus of grout (0.309–0.391 m) the tiles seat on — it comes with the reveal, so the frame reads as one piece
+  const ringWall = walls.map((w) => (!OPEN.length || OPEN.some((o) => o.wi === w.index && o.hw / o.hh < 1.4) ? 1 : 0));   // studio 25-11: the ring only round a round window
   const ringBeds = walls.map((w) => {
     const m = new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(0.765 * 0.9, 0.606 * 0.9, 0.418 * 0.9), transparent: true, opacity: 0, depthWrite: false });   // #D9CFBE-ish joint
     const mesh = new THREE.Mesh(new THREE.RingGeometry(0.309, 0.391, 128, 1), m);
@@ -988,7 +1109,7 @@ export function create(ctx) {
   function letGo(i, power) {
     if (gone[i] || cells[i].loose) return false;
     cellPose(i, _v, _q); locate(_v);                                                    // folded away in a door: nothing to fall
-    { const x = Math.abs(loc.x) / uDoor.value, y = loc.y / uDoor.value; if (x < DOOR_A && y < DOOR_H * (1 - (x / DOOR_A) ** DOOR_P) + 0.1) return false; }
+    if (openD(loc.wall, loc.x / uDoor.value, loc.y / uDoor.value) < 0.1) return false;
     let b = null; for (const s of bodies) if (s.state === 0 && s.cell < 0) { b = s; break; }
     if (!b) return false;
     const c = cells[i];
@@ -1130,8 +1251,8 @@ export function create(ctx) {
         const w = walls[h.wall], hx = _v.subVectors(h.pos, w.centre).dot(w.right), hy = h.pos.y;
         const fresh = downs.includes(h), speed = Math.hypot(h.vx, h.vy);
         // a hand in the threshold (there is no mosaic there) plays the edge of the door nearest to it
-        const da = hy < DOOR_H ? DOOR_A * Math.pow(1 - hy / DOOR_H, 1 / DOOR_P) : 0;
-        if (Math.abs(hx) < da + 0.12) surfHit(_v3.copy(h.pos).addScaledVector(w.right, (hx < 0 ? -1 : 1) * (da + 0.38) - hx)); else surfHit(h.pos);
+        const oh = OPEN.length ? openHalfW(h.wall, hx, hy) : [0, hy < DOOR_H ? DOOR_A * Math.pow(1 - hy / DOOR_H, 1 / DOOR_P) : 0];
+        if (oh && openD(h.wall, hx, hy) < 0.12) surfHit(_v3.copy(h.pos).addScaledVector(w.right, oh[0] + (hx < oh[0] ? -1 : 1) * (oh[1] + 0.38) - hx)); else surfHit(h.pos);
         if (nh < MAXH) { hcu[nh] = hit.cu; hcy[nh] = hit.cy; hfresh[nh] = fresh ? 1 : 0; hsp[nh] = speed; hvu[nh] = h.vx * wallSgn[h.wall] * 1.15; hvv[nh] = h.vy * 1.15; nh++; }
         if (nh <= HL) { const l = handLights[nh - 1]; l.position.copy(hit.p).multiplyScalar(0.9); l.position.y = hit.p.y + 0.15; l.intensity += (HAND_LIGHT * arrive * (1 - leave) - l.intensity) * (1 - Math.exp(-dt * 18)); }   // studio 25-11: brighter (was 2.0)
         if (nh <= uHandP.length) { const U = uHandP[nh - 1].value; U.set(hit.p.x, hit.p.y, hit.p.z, U.w + ((fresh ? 1.4 : 1) * arrive * (1 - leave) - U.w) * (1 - Math.exp(-dt * 25))); }
@@ -1181,7 +1302,7 @@ export function create(ctx) {
     for (const e of queue) if (e.on && time >= e.at) { e.on = false; if (letGo(e.cell, e.power) && rnd() < 0.3) { cellPose(e.cell, _v, _q); fx('hit', _v, 0.3, 0); } }
 
     // ---- the mosaic: every piece follows the waves on a spring; colour where the play has been; light where waves cross
-    idleC = (idleC + dt * 1.5) % LL;
+    idleC = (idleC + dt * 1.5) % LL; uIdleT.value = time;
     for (const p of pulses) if (p.on) { const age = time - p.t0; if (age > LL / 2 / p.speed + 2.5 || p.amp * Math.exp(-age / 7) < 0.03) p.on = false; }
     const figOn = figT0 >= 0 && arrive > 0.6, figR = figOn ? (time - figT0) * 4.2 : 0, figPh = time * 0.55;
     if (figOn) for (let k = 0; k < NW; k++) { surfHit(_v.copy(walls[k].centre).setY(RING_Y)); figAt[k].cu = hit.cu; figAt[k].cy = hit.cy; }   // the serpentine turns: the figure stays on the buttons
@@ -1201,10 +1322,10 @@ export function create(ctx) {
       } else {
         const cu_ = CU[i], cy_ = CY[i];
         if (rub[i] > 0) rub[i] *= Math.exp(-dt * 0.25);
-        let ds = cu_ - cy_ * 0.6 - idleC, sh = 0;                                     // the idle shimmer: two soft bands going round (a cheap bump, no exp)
+        let ds = IDLE_CURL ? 1e9 : cu_ - cy_ * 0.6 - idleC, sh = 0;                   // the idle shimmer: two soft bands going round (IDLE_CURL: off — the curl field moves them on the GPU)
         if (ds < -HL2) ds += LL; if (ds < -HL2) ds += LL; if (ds > HL2) ds -= LL;
         if (ds > -3.6 && ds < 3.6) { const u = 1 - (ds * ds) / 12.96; sh = u * u * u; }
-        ds = cu_ + cy_ * 0.4 + idleC * 0.6 - SH2; if (ds < -HL2) ds += LL; if (ds < -HL2) ds += LL; if (ds > HL2) ds -= LL; if (ds > HL2) ds -= LL;
+        ds = IDLE_CURL ? 1e9 : cu_ + cy_ * 0.4 + idleC * 0.6 - SH2; if (ds < -HL2) ds += LL; if (ds < -HL2) ds += LL; if (ds > HL2) ds -= LL; if (ds > HL2) ds -= LL;
         if (ds > -3 && ds < 3) { const u = 1 - (ds * ds) / 9; sh += 0.7 * u * u * u; }
         let bump = 0, n = 0;
         for (let q = 0; q < npa; q++) {                                                 // (T-058: only the live pulses, and a cheap reject before the root)
@@ -1363,13 +1484,13 @@ export function create(ctx) {
       _q2.setFromAxisAngle(w.normal, a - Math.PI / 2 + s.roll).multiply(faceQ[s.wall]);   // local x along the row, local y outwards (the taper widens outwards)
       _v.lerp(_v2, k); _v.y += Math.sin(k * Math.PI) * 0.35; _q.slerp(_q2, k);
       if (ex > 0) { _v.addScaledVector(w.right, s.ex.x * ex * 2.4).addScaledVector(w.normal, -ex * 1.5); _v.y += s.ex.y * ex * 2 + ex * ex * 0.5; _q.premultiply(_q2.setFromAxisAngle(s.axis, ex * 8)); }
-      const vis = smooth(0, 0.5, arrive) * (1 - smooth(0.2, 0.9, leave)) * (1 - smooth(0.4, 1, ex)) * smooth(0, 0.25, k + (revealV > 0.02 ? 0.12 : 0));
+      const vis = smooth(0, 0.5, arrive) * (1 - smooth(0.2, 0.9, leave)) * (1 - smooth(0.4, 1, ex)) * smooth(0, 0.25, k + (revealV > 0.02 ? 0.12 : 0)) * ringWall[s.wall];   // studio 25-11: no ring on the title's wall
       _s.copy(s.sc).multiplyScalar(vis);
       ringMesh.setMatrixAt(i, _m.compose(_v, _q, _s));
     }
     if (!(ringOff && ringZeroed) && !(ringCalm && ringTick)) ringMesh.instanceMatrix.needsUpdate = true;
     ringZeroed = ringOff;
-    { const k = smooth(0.15, 0.75, revealV) * smooth(0, 0.5, arrive) * (1 - smooth(0.2, 0.9, leave)) * (1 - smooth(0.1, 0.6, ex)); for (const b of ringBeds) { b.material.opacity = 0.9 * k; b.visible = k > 0.005; } }
+    { const k = smooth(0.15, 0.75, revealV) * smooth(0, 0.5, arrive) * (1 - smooth(0.2, 0.9, leave)) * (1 - smooth(0.1, 0.6, ex)); ringBeds.forEach((b, wi) => { b.material.opacity = 0.9 * k; b.visible = k > 0.005 && ringWall[wi] > 0; }); }
     uRing.value = arrive * (1 - leave) * (smooth(0.6, 1, revealV) * 0.04 + startV * 0.14) * (1 - ex) + (ex > 0 && ex < 1 ? Math.sin(ex * Math.PI) * 0.4 : 0);   // ART: emissive ≤ 0.15 (the flash of 'start' a breath more)
 
     // ---- far arcs (they turn with the far world)

@@ -181,7 +181,8 @@ function stepBloom(dt) {
   room.setBloom(bloomNow);
 }
 room.setBloom(bloomNow);
-lt('parts'); const guide = createGuide({ THREE, TSL, room, studio: P.mode === 'lab' });   // T-069 (Vicente 25-11): rulers and wall IDs only in mode 'lab'
+const TITLE_WALL = 1;                                                // studio 25-11 (Beltrán): P1 opens a window for the title — no start ring there
+lt('parts'); const guide = createGuide({ THREE, TSL, room, studio: P.mode === 'lab', noTarget: [TITLE_WALL] });   // T-069 (Vicente 25-11): rulers and wall IDs only in mode 'lab'
 room.overlay.add(guide.object);   // T-028: the guide is drawn over the final image (after the tiles: the words never break); its materials are depthTest-free
 // compile every material once, now, so a universe arriving later does not stall the room
 // T-057 (prewarmRT): into the strip's format — with no target, compileAsync built pipelines for the canvas that no frame uses
@@ -191,7 +192,7 @@ for (const e of list) e.part.object.visible = false;
 lt('compile');
 
 // ------------------------------------------------------------------------------------------------ the score: led by the sound piece, or its own
-const score = createScore(NW), S = score.state;
+const score = createScore(NW, { noButton: [TITLE_WALL] }), S = score.state;
 const link = { at: -1e9, ts: 0, pace: 1, beat: 0, events: [], acta: null, told: 0 };
 const bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null;
 if (bc) bc.onmessage = (ev) => {
