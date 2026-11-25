@@ -125,10 +125,10 @@ export function create(ctx) {
   // straight up to YS, then curving in (a circle of radius RV) — the sky shows only through the four portals. Fixed to the room (no turn).
   // Its own parameters: cu = metres along (θ = cu / RM, closed: 0..LL), cy = v = metres along the profile from the foot (= height up to YS).
   const RM = 4.6, LL = Math.PI * 2 * RM, YTOP = 5.3, OFF = 0.6, YS = 1.95, RV = 2.2;   // YTOP 5.3 (was 4.4): the lower curl must still close over the walls' top   // studio 25-11 (Beltrán): the curl into the vault starts lower and rounder (was YS 2.3, RV 3.0)
-  // studio 25-11 (Beltrán: «el manto de mosaicos debe llegar al piso, la arena sólo se ve detrás del portal»): the profile now starts ON
-  // THE FLOOR right at the wall line (OF0), runs out along the sand (LS) and rises through a soft cove (radius RC) into the wall. v (the
-  // profile's own length) is SHIFT longer than the height up the straight part; VTOP is the old YTOP in v.
-  const OF0 = 0.03, RC = 0.25, LS = OFF - RC - OF0, V1 = LS + Math.PI * RC / 2, SHIFT = V1 - RC, VTOP = YTOP + SHIFT, FLOOR_Y = 0.004;
+  // studio 25-11 (Beltrán: «el manto de mosaicos debe llegar al piso… el piso no lo tomes como piso, que siga hacia abajo»): the shell no
+  // longer stands on the sand — it goes straight on DOWN below the floor (to −SHIFT m; the eye sees it down to ~−0.3 m through each wall's
+  // bottom edge), and the floor is cut where the shell is (see the floor). v (the profile's own length) starts SHIFT below the floor.
+  const SHIFT = 0.6, VTOP = YTOP + SHIFT;
   const wrapU = (d) => d - Math.round(d / LL) * LL;
   const WK = walls.map((w) => ({ nx: w.normal.x, nz: w.normal.z, k: -((w.centre.x - eye.x) * w.normal.x + (w.centre.z - eye.z) * w.normal.z) }));
   const HMAX = Math.max(...walls.map((w) => w.height));
@@ -138,13 +138,9 @@ export function create(ctx) {
     return a > 0 ? a ** (-1 / 8) : 5;
   }
   const yUp = (u) => (u <= YS ? u : YS + RV * Math.sin(Math.min(1.5, (u - YS) / RV)));                 // the wall and the vault (u = v − SHIFT)
-  const yOf = (v) => (v < LS ? FLOOR_Y : v < V1 ? FLOOR_Y + RC * (1 - Math.cos((v - LS) / RC)) : yUp(v - SHIFT));
-  const vOf = (y) => (y < RC ? LS + RC * Math.acos(Math.max(-1, Math.min(1, 1 - y / RC))) : (y <= YS ? y : YS + RV * Math.asin(Math.min(1, (y - YS) / RV))) + SHIFT);
-  function surfR(th, v) {
-    if (v < LS) return wallD(th) + OF0 + v;                                                        // the skirt, on the sand
-    if (v < V1) return wallD(th) + OF0 + LS + RC * Math.sin((v - LS) / RC);                        // the cove
-    const u = v - SHIFT; return wallD(th) + OFF - (u <= YS ? 0 : RV * (1 - Math.cos(Math.min(1.5, (u - YS) / RV))));
-  }
+  const yOf = (v) => yUp(v - SHIFT);
+  const vOf = (y) => (y <= YS ? y : YS + RV * Math.asin(Math.min(1, (y - YS) / RV))) + SHIFT;
+  function surfR(th, v) { const u = v - SHIFT; return wallD(th) + OFF - (u <= YS ? 0 : RV * (1 - Math.cos(Math.min(1.5, (u - YS) / RV)))); }
   const surfP = (cu, v, out) => { const th = cu / RM, r = surfR(th, v); return out.set(r * Math.cos(th), yOf(v), r * Math.sin(th)); };
   const ARCH = [];                          // (no openings baked in the mosaic: the thresholds are cut where the walls' centres look, see doorK)
   function archF() { return 9; }
@@ -310,6 +306,21 @@ export function create(ctx) {
   const stData = new Float32Array(TW * TH * 4);
   const stTex = new THREE.DataTexture(stData, TW, TH, THREE.RGBAFormat, THREE.FloatType);
   stTex.magFilter = stTex.minFilter = THREE.NearestFilter; stTex.generateMipmaps = false; stTex.needsUpdate = true;
+  // studio 25-11 (Beltrán: «al dar vuelta las baldosas, detrás de ellas se debe ver azul noche»): where a piece lifts, turns or is gone,
+  // the bed behind it shows the NIGHT; at rest the joints stay bone. A low-res mask over (cu, v), stamped each frame by the moving pieces.
+  const MW = 768, MH = Math.ceil(VTOP / 0.04), maskData = new Uint8Array(MW * MH);
+  const maskTex = new THREE.DataTexture(maskData, MW, MH, THREE.RedFormat, THREE.UnsignedByteType);
+  maskTex.magFilter = maskTex.minFilter = THREE.LinearFilter; maskTex.generateMipmaps = false; maskTex.wrapS = THREE.RepeatWrapping; maskTex.needsUpdate = true;
+  let maskDirty = true;
+  function stampHole(cu, v, r, a) {
+    if (a < 0.04) return;
+    const A = Math.min(255, Math.round(a * 255)), x0 = (cu / LL) * MW, y0 = (v / VTOP) * MH, rx = Math.max(1, (r / LL) * MW), ry = Math.max(1, (r / VTOP) * MH);
+    for (let y = Math.max(0, Math.floor(y0 - ry)); y <= Math.min(MH - 1, Math.ceil(y0 + ry)); y++) for (let xx = Math.floor(x0 - rx); xx <= Math.ceil(x0 + rx); xx++) {
+      const dx = (xx - x0) / rx, dy = (y - y0) / ry; if (dx * dx + dy * dy > 1) continue;
+      const k = y * MW + (((xx % MW) + MW) % MW); if (maskData[k] < A) maskData[k] = A;
+    }
+    maskDirty = true;
+  }
 
   const { Fn, attribute, uniform, varying, textureLoad, ivec2, int, float, vec3, vec4, modelWorldMatrix, normalize, mix, step, sin, cos, cross, dot, floor, mod, exp, abs, smoothstep, max, positionLocal, normalLocal, positionWorld, instancedBufferAttribute, fract } = TSL;
   const uBed = uniform(1), uPush = uniform(0), uDoor = uniform(1), PUSH = 1.4;
@@ -392,6 +403,7 @@ export function create(ctx) {
   // has fallen; cut by the doors per pixel, it dissolves in patches as the part comes and goes
   const groutMesh = (() => {
     const NU = 380, NV = 96, P = new THREE.Vector3(), Q = new THREE.Vector3(), R = new THREE.Vector3(), N = new THREE.Vector3(), pos = new Float32Array((NU + 1) * (NV + 1) * 3), nor = new Float32Array(pos.length), idx = [];
+    const uvG = new Float32Array((NU + 1) * (NV + 1) * 2);
     for (let i = 0; i <= NU; i++) {
       const cu = (i / NU) * LL, top = crest(cu) - 0.03;   // T-069: up to the ragged crest (was −0.12: the sky showed in its gaps)
       for (let j = 0; j <= NV; j++) {
@@ -399,14 +411,15 @@ export function create(ctx) {
         N.crossVectors(Q.sub(P), R.sub(P)).normalize(); if (P.y < 0.12 && Math.abs(N.y) > 0.7 ? N.y < 0 : N.x * P.x + N.z * P.z > 0) N.negate();
         const o = (i * (NV + 1) + j) * 3; P.addScaledVector(N, GROUT_H - 0.03 * smooth(2.2, 3.0, y));   // T-069: up the vault the big flat pieces' corners sink under the curved bed: it drops 3 cm there (no grout over them) · T-058b/T-066: the bed 8 mm up the bevels, the joint 2.5 mm wide there and sunk under the faces; the
         pos[o] = P.x; pos[o + 1] = P.y; pos[o + 2] = P.z; nor[o] = N.x; nor[o + 1] = N.y; nor[o + 2] = N.z;   // write was lost in a comment: no grout, the sky showed through
+        uvG[(i * (NV + 1) + j) * 2] = cu / LL; uvG[(i * (NV + 1) + j) * 2 + 1] = y / VTOP;   // studio 25-11: (cu, v) for the night mask
         if (i < NU && j < NV) { const a = i * (NV + 1) + j, b = a + NV + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
       }
     }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setIndex(idx);
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uvG, 2)); g.setIndex(idx);
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });   // unlit: the joint is in the pieces' shade anyway (and it is cheap)
     m.positionNode = positionLocal.add(normalize(vec3(positionLocal.x, 0, positionLocal.z)).mul(uPush.negate()));
     const pw = positionWorld, hsh = fract(sin(dot(floor(pw.xz.mul(3.0)).add(floor(pw.y.mul(3.0))), vec3(12.9898, 78.233, 37.719).xy)).mul(43758.5453));
-    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return vec3(0.765, 0.606, 0.418); })();   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
+    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return mix(vec3(0.765, 0.606, 0.418), vec3(0.014, 0.026, 0.080), TSL.texture(maskTex, TSL.uv()).r.mul(1.6).min(1)); })();   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; return mesh;
   })();
   hero.add(groutMesh);
@@ -578,7 +591,7 @@ export function create(ctx) {
   const uHeroRot = uniform(0), uFar = uniform(1);
   // T-058b (ART): unlit, its values ACES-inverted so the screen shows them: sand #D9BC98, three soft terraces whose shadow is #CFAE88,
   // the contact shadow the same tone (never darker), melting into the horizon's #E9D2B4
-  const ACES_SAND = [0.731, 0.42, 0.222], ACES_SHADE = [0.591, 0.337, 0.179], ACES_HORIZON = [1.153, 0.632, 0.328];
+  const ACES_SAND = [0.018, 0.026, 0.062], ACES_SHADE = [0.010, 0.015, 0.038], ACES_HORIZON = [0.030, 0.045, 0.105];   // studio 25-11 (Beltrán: «sin arena, todo el fondo azulado»): a night-blue ground (was sand #D9BC98 / #CFAE88 / #E9D2B4)
   const floorMesh = (() => {
     const { atan, length: len } = TSL;
     const m = new THREE.MeshBasicNodeMaterial({ fog: false });
@@ -592,7 +605,7 @@ export function create(ctx) {
     const contact = exp(r.sub(Rs).div(0.5).pow(2).negate()).mul(step(r, Rs.add(0.2)));
     const grain = fract(sin(dot(floor(pw.xz.mul(40)), vec3(12.9898, 78.233, 0).xy)).mul(43758.5453)).sub(0.5).mul(0.03);
     const col = mix(vec3(...ACES_SAND), vec3(...ACES_SHADE), max(shade.mul(0.85), contact.mul(0.8))).mul(grain.add(1));
-    m.colorNode = mix(col, vec3(...ACES_HORIZON), smoothstep(22, 58, r).mul(0.85)).mul(uFar);
+    m.colorNode = Fn(() => { TSL.If(r.lessThan(Rs.add(0.05)), () => { TSL.Discard(); }); return mix(col, vec3(...ACES_HORIZON), smoothstep(22, 58, r).mul(0.85)).mul(uFar); })();   // studio 25-11: no floor inside the shell (it goes on down)
     return new THREE.Mesh(new THREE.CircleGeometry(60, 96), m);
   })();
   floorMesh.rotation.x = -Math.PI / 2; floorMesh.position.y = 0.0; object.add(floorMesh);
@@ -649,7 +662,7 @@ export function create(ctx) {
     const url = new URL('./umbral3d/arches.js', import.meta.url).href;
     fetch(url, { method: 'HEAD' }).then((r) => (r.ok ? import(url) : null)).then((mod) => {
       if (!mod?.createArches) return;
-      arches = mod.createArches(ctx, { walls, env, door: { A: DOOR_A, H: DOOR_H, P: DOOR_P }, depth: 0.12, thickness: 0.4, frontal: true }); if (arches?.object) object.add(arches.object);   // T-058c: the arch 0.12–0.52 m behind each wall, in front of the shell (OFF 0.6 m)
+      arches = mod.createArches(ctx, { walls, env, door: { A: DOOR_A, H: DOOR_H, P: DOOR_P }, depth: 0.04, thickness: 0.4, frontal: true }); if (arches?.object) object.add(arches.object);   // T-058c: the arch 0.12–0.52 m behind each wall, in front of the shell (OFF 0.6 m)
     }).catch((err) => { arcErr = String(err.message); console.info('umbral3d: arches not loaded (' + err.message + ')'); });
   }
 
@@ -1038,6 +1051,7 @@ export function create(ctx) {
     const kSpring = 30, cSpring = 6.2, glowDecay = Math.exp(-dt * 1.3), startGlow = startV * 0.7 + (exploded >= 0 && exploded < 2 ? Math.sin(exploded * Math.PI / 2) * 0.8 : 0);
     const bedK = smooth(0, 0.45, arrive) * (1 - smooth(0.35, 1, leave));
     uBed.value = bedK;
+    if (maskDirty) { maskData.fill(0); maskDirty = false; maskTex.needsUpdate = true; }
     for (let i = 0; i < NC; i++) {
       const c = cells[i], o = i * 4;
       let target, lift, sc = 1, turn, kc = 0;
@@ -1095,8 +1109,9 @@ export function create(ctx) {
       if (ka < 1 || kl > 0) { lift += (1 - ka) * (1 - ka) * 0.5 + kl * kl * 0.5; /* T-058c: a short flight (the shell is near the wall) */ turn += (1 - ka) * 5 + kl * 4 * (c.r1 - 0.5) * 2; sc *= ka * (1 - kl); }
       if (gone[i]) sc = 0;
       stData[o] = turn % 6.2831853; stData[o + 1] = lift; stData[o + 2] = Math.min(glow[i], 3.5) + kc; stData[o + 3] = sc;
+      if (!c.loose) stampHole(CU[i], CY[i], c.rad * 0.85, Math.max(1 - sc, smooth(0.012, 0.04, lift), Math.abs(Math.sin(turn * 0.5)) * 0.9));   // studio 25-11: the night behind
     }
-    stTex.needsUpdate = true;
+    stTex.needsUpdate = true; if (maskDirty) maskTex.needsUpdate = true;
 
     // ---- the fallen pieces of the serpentine
     const vis0 = arrive * (1 - smooth(0, 0.6, leave));
