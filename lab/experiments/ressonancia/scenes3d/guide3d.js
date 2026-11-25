@@ -592,7 +592,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     if (L && !(b === 'brasa' && S.brasaStage === 'relay') && blocked(S, b, L[0], time)) lineNonce++;
     line.want(L ? 'l|' + lineNonce + '|' + (S.stage || '') + '|' + L.join('|') : '', L ? lineItems(L) : null);   // a consigna lives within its stage
     // 25-11: no plates; a tight soft halo (lighter on the light chapters, where the ink is dark)
-    for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : (chapter(b).luma || 0) > 0.25 ? 0.55 : 0.3; }   // bone over a lit plaza (crown, festa): a fuller soft shadow under the letters
+    for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : (chapter(b).luma || 0) > 0.25 || b === 'wait' ? 0.55 : 0.35; }   // bone over a lit plaza (crown, festa): a fuller soft shadow under the letters
     if (!card.up) { for (const t of card.texts) t.P.forEach((P, w) => { const side = b === 'crown' ? Math.min(2.1, room.walls[w].width / 2 - 1.7) : 0; P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], side); }); }   // beside the crowned castell (seen at the centre of every wall), never across a corner (the P3→P4 seam)
     { let fwc = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // no calling wall yet: the wall with the most hands
       if (fwc < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fwc = w; } }); }   // the card too: 100 % on the wall that calls, 30 % elsewhere
