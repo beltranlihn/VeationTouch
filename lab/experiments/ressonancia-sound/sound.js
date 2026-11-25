@@ -364,6 +364,7 @@ export default async function start(host) {
     g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(k, at + 0.04); g.gain.linearRampToValueAtTime(0, at + dur);
     n.start(at, Math.random() * 1.5, dur + 0.05);
   }
+  let dragAt = -9; const NOCHIME = () => {};   // studio 25-11: the last time a hand dragged (s, wall clock)
   function impact(m) {
     if (!running() || !(m.wall >= 0 && m.wall < NW)) return;
     const wt = performance.now() / 1000; if (wt - impactWin > 1) { impactWin = wt; impactN = 0; } if (++impactN > 20) return;
@@ -371,13 +372,15 @@ export default async function start(host) {
     const crowd = 1 / Math.sqrt(1 + impactRate / 4);                                               // 1 alone … ~0.45 at 16/s
     const wallId = walls[m.wall].id, u = clamp(+m.u || 0.5, 0, 1), k = clamp(+m.strength || 0.3, 0, 1), t = now() + 0.004;
     const mat = IMPACT_MAT[m.mat] ? m.mat : 'ceramic', parts = IMPACT_MAT[mat], deg = clamp(Math.floor(u * 5), 0, 4);
+    // studio 25-11 (Beltrán): in the entrance the chimes ring only while someone touches and drags; untouched, only the bed and the clicks
+    const md = S.block !== 'wait' || wt - dragAt < 0.6 ? modal : NOCHIME;
     const scale = STONE_BLOCKS.has(S.block) ? MINOR_PENTA : MAJOR_PENTA;
     const size = +m.size > 0 ? +m.size : rand(0.1, 0.35), sizeOct = size > 0.3 ? -12 : size < 0.15 ? 12 : 0;      // big pieces lower, small ones higher
     const mm = IMPACT_BASE[mat] + scale[(deg + Math.floor(Math.random() * 3)) % 5] + (m.kind === 'floor' || m.kind === 'hit' ? sizeOct : 0);
     // a cluster: this wall rang < 90 ms ago — add a tick to that voice, nothing more
     const cl = cluster[m.wall];
     if ((m.kind === 'floor' || m.kind === 'hit' || m.kind === 'hook') && cl.g && wt - cl.t < 0.09 && cl.n < 8) {
-      cl.n++; modal(t + rand(0, 0.03), midiHz(mm + 12), (0.004 + 0.008 * k) * P.effects * crowd, cl.g, mat === 'chrome' ? CHROME : mat === 'glass' ? GLASS : CERAMIC);
+      cl.n++; md(t + rand(0, 0.03), midiHz(mm + 12), (0.004 + 0.008 * k) * P.effects * crowd, cl.g, mat === 'chrome' ? CHROME : mat === 'glass' ? GLASS : CERAMIC);
       return;
     }
     // a burst on one wall cannot pile up: each wall carries a load that decays in ~0.35 s (as the hands do)
@@ -386,19 +389,19 @@ export default async function start(host) {
     switch (m.kind) {
       case 'hit': {                  // struck by a hand: a chime of its matter
         const g = handVoice(wallId, u, 3, 0.6);
-        modal(t, midiHz(mm), (0.012 + 0.03 * k) * lvl, g, parts); cl.t = wt; cl.g = g; cl.n = 0;
+        md(t, midiHz(mm), (0.012 + 0.03 * k) * lvl, g, parts); cl.t = wt; cl.g = g; cl.n = 0;
         if (mat === 'fire') play('s-ember-burst', { gain: 0.04 * k * lvl, dest: g, at: t, rate: rand(1.1, 1.4) });
         break;
       }
       case 'floor': {                // it lands
-        if (mat === 'glass') { const g = handVoice(wallId, u, 3, 0.9); modal(t, midiHz(mm + 12), (0.005 + 0.012 * k) * lvl, g, GLASS); cl.t = wt; cl.g = g; cl.n = 0; break; }   // a glass shard lands (the dawn's rain)
-        if (mat === 'line' || mat === 'petal') { const g = handVoice(wallId, u, 4, 1.4); modal(t, midiHz(mm), (0.004 + 0.01 * k) * lvl, g, GLASS); break; }   // far below, in the canyon
+        if (mat === 'glass') { const g = handVoice(wallId, u, 3, 0.9); md(t, midiHz(mm + 12), (0.005 + 0.012 * k) * lvl, g, GLASS); cl.t = wt; cl.g = g; cl.n = 0; break; }   // a glass shard lands (the dawn's rain)
+        if (mat === 'line' || mat === 'petal') { const g = handVoice(wallId, u, 4, 1.4); md(t, midiHz(mm), (0.004 + 0.01 * k) * lvl, g, GLASS); break; }   // far below, in the canyon
         const g = handVoice(wallId, u, 2.2, 0.35), low = mm - 12;
-        if (mat === 'stone') { play('s-ceramic', { gain: (0.02 + 0.05 * k) * lvl, dest: g, at: t, rate: rand(0.45, 0.65) }); modal(t, midiHz(low), (0.015 + 0.035 * k) * lvl, g, STONE); }
-        else if (mat === 'wire') { modal(t, midiHz(mm), (0.01 + 0.025 * k) * lvl, g, WIRE); modal(t + 0.004, midiHz(low - 12), 0.015 * k * lvl, g, STONE); }
+        if (mat === 'stone') { play('s-ceramic', { gain: (0.02 + 0.05 * k) * lvl, dest: g, at: t, rate: rand(0.45, 0.65) }); md(t, midiHz(low), (0.015 + 0.035 * k) * lvl, g, STONE); }
+        else if (mat === 'wire') { md(t, midiHz(mm), (0.01 + 0.025 * k) * lvl, g, WIRE); md(t + 0.004, midiHz(low - 12), 0.015 * k * lvl, g, STONE); }
         else {
           if (k > 0.3 && Math.random() < crowd * 1.4) play('sfx-tile', { gain: (0.02 + 0.06 * k) * lvl, dest: g, at: t, rate: rand(1.0, 1.6) * (size > 0.3 ? 0.8 : 1.15) });   // the clack thins out in a rain
-          modal(t, midiHz(low), (0.012 + 0.03 * k) * lvl, g, parts);
+          md(t, midiHz(low), (0.012 + 0.03 * k) * lvl, g, parts);
         }
         cl.t = wt; cl.g = g; cl.n = 0;
         if (k > 0.4 && crowd > 0.6) drum(t, g, { f0: 140, f1: 70, dur: 0.18, gain: 0.05 * k * lvl, noise: 0.25, sub: 0.15 * k, subDest: touchSub });
@@ -408,18 +411,18 @@ export default async function start(host) {
         const g = handVoice(wallId, u, 3, 0.5);
         play('s-crack', { gain: 0.06 * k * lvl, dest: g, at: t, rate: rand(1.3, 1.7) });
         play('sfx-tile', { gain: 0.1 * k * lvl, dest: g, at: t, rate: rand(0.9, 1.2) });
-        for (let j = 0; j < 6; j++) modal(t + 0.05 + j * rand(0.04, 0.09), midiHz(86 + scale[Math.floor(Math.random() * 5)]), 0.008 * lvl, g, CERAMIC);
+        for (let j = 0; j < 6; j++) md(t + 0.05 + j * rand(0.04, 0.09), midiHz(86 + scale[Math.floor(Math.random() * 5)]), 0.008 * lvl, g, CERAMIC);
         drum(t, g, { f0: 110, f1: 50, dur: 0.35, gain: 0.06 * k * lvl, noise: 0.3, sub: 0.25 * k, subDest: touchSub });
         break;
       }
       case 'hook': {                 // back on its thread: a tiny glass tick
-        modal(t, midiHz(93 + scale[deg]), 0.006 * lvl, handVoice(wallId, u, 2.5, 0.9), GLASS);
+        md(t, midiHz(93 + scale[deg]), 0.006 * lvl, handVoice(wallId, u, 2.5, 0.9), GLASS);
         break;
       }
       case 'lock': {                 // a piece locks into place (a floor, a cube going home): a clack in tune
         const g = handVoice(wallId, u, 2, 0.5);
         play('sfx-tile', { gain: (0.02 + 0.05 * k) * lvl, dest: g, at: t, rate: rand(1.3, 1.7) });
-        modal(t, midiHz(mm - (mat === 'stone' ? 0 : 12)), (0.01 + 0.025 * k) * lvl, g, mat === 'wire' ? WIRE : mat === 'stone' ? STONE : CERAMIC);
+        md(t, midiHz(mm - (mat === 'stone' ? 0 : 12)), (0.01 + 0.025 * k) * lvl, g, mat === 'wire' ? WIRE : mat === 'stone' ? STONE : CERAMIC);
         break;
       }
       case 'splash': {               // into the liquid chrome (brasa): a falling metal drop; a burning one hisses
@@ -448,7 +451,7 @@ export default async function start(host) {
       }
       case 'bloom': {                // a garden opens (pom): a soft rising glass arpeggio
         const g = handVoice(wallId, u, 4, 1.2);
-        for (let j = 0; j < 3; j++) modal(t + j * 0.09, midiHz(86 + MAJOR_PENTA[(deg + j * 2) % 5]), (0.004 + 0.008 * k) * lvl, g, GLASS);
+        for (let j = 0; j < 3; j++) md(t + j * 0.09, midiHz(86 + MAJOR_PENTA[(deg + j * 2) % 5]), (0.004 + 0.008 * k) * lvl, g, GLASS);
         break;
       }
       default: break;
@@ -1124,6 +1127,7 @@ export default async function start(host) {
       let p = lastPos.get(h.stroke);
       if (!p) { p = { x, y, t: wt, speed: 0, vx: 0, vy: 0 }; lastPos.set(h.stroke, p); }
       else if (wt - p.t >= 0.09) { const d = wt - p.t; p.vx = (x - p.x) / d; p.vy = (y - p.y) / d; p.speed = Math.hypot(p.vx, p.vy); p.x = x; p.y = y; p.t = wt; }
+      if (p.speed > 0.12) dragAt = wt;                                   // studio 25-11: someone is touching and dragging
       // the score's hand (plan de interacción, step 0): height from the floor, velocity, size and place on the perimeter, in metres
       const o = handPool[hands.length] || (handPool[hands.length] = {});
       o.stroke = h.stroke; o.wall = w; o.dx = (h.u - 0.5) * (W.width || 4); o.y = y; o.vx = p.vx; o.vy = p.vy; o.speed = p.speed;
