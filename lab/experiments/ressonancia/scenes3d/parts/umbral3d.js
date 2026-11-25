@@ -230,6 +230,10 @@ export function create(ctx) {
 
     // Voronoi: clip an octagon round each site by the bisectors of its neighbours (periodic in cu); against a round medallion the
     // neighbour grows up to the medallion's rim (a tangent cut), so the fine pieces fit round it as in ref 02
+    const pwOf = (q) => {                                                               // a site's weight (power diagram), fixed by where it is
+      if (q.pw === undefined) { const h = Math.sin(q.cu * 127.1 + q.y * 311.7) * 43758.5453, u = h - Math.floor(h), r = q.ri || 0.04; q.pw = (u * 2 - 1) * 0.5 * 4 * r * r; }
+      return q.pw;
+    };
     const clip = (poly, mx, my, nx, ny) => {     // keep the side where (p − m)·n ≤ 0
       const out = [];
       for (let i = 0; i < poly.length; i++) {
@@ -262,6 +266,7 @@ export function create(ctx) {
           const o = sites[k]; if (o === s) continue;
           const dx = wrapU(o.cu - s.cu), dy = o.y - s.y, dd = dx * dx + dy * dy; if (dd > RR) continue;
           let kk = 0.5; if (o.round) { const d = Math.sqrt(dd); kk = Math.max(0.5, (d - o.Rm - 0.005) / d); }
+          else if (ORGANIC && SHARDS) kk = clamp(0.5 + (pwOf(s) - pwOf(o)) / (2 * dd), 0.2, 0.8);   // studio 25-11 (ref. stone mosaic): a power diagram — stones of uneven size
           poly = clip(poly, dx * kk, dy * kk, dx, dy); if (poly.length < 3) break;
         }
       }
@@ -274,8 +279,15 @@ export function create(ctx) {
       gx /= 6 * area; gy /= 6 * area; if (area < 0) poly.reverse();
       const cu = s.cu + gx, cy = s.y + gy;
       let rad = 0; for (const p of poly) { p[0] -= gx; p[1] -= gy; rad = Math.max(rad, Math.hypot(p[0], p[1])); }
-      if (ORGANIC && poly.length >= 3) {                                                // studio 25-11 (Beltrán: «piedras mucho más orgánicas»): round the corners
-        const sm = []; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; sm.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]); }
+      if (ORGANIC && poly.length >= 3) {                                                // studio 25-11 (Beltrán: «debe ser más piedras», ref. tumbled stone mosaic): broken
+        const sm = [];                                                                  // straight edges with worn corners (a small corner cut), each edge a little bitten in
+        for (let i = 0; i < poly.length; i++) {
+          const a = poly[i], b = poly[(i + 1) % poly.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          const k = Math.min(0.22, 0.012 / Math.max(L, 1e-4)), bite = rr(0, 0.0035) / Math.max(Math.hypot((a[0] + b[0]) / 2, (a[1] + b[1]) / 2), 1e-3), m = rr(0.35, 0.65);
+          sm.push([a[0] * (1 - k) + b[0] * k, a[1] * (1 - k) + b[1] * k]);
+          if (L > 0.035) sm.push([(a[0] * (1 - m) + b[0] * m) * (1 - bite), (a[1] * (1 - m) + b[1] * m) * (1 - bite)]);
+          sm.push([a[0] * k + b[0] * (1 - k), a[1] * k + b[1] * (1 - k)]);
+        }
         poly = sm;
       }
       // the frame of the surface at the piece
@@ -299,10 +311,16 @@ export function create(ctx) {
       // the shard: inset for the joint (see GROUT_H), thin (~1.5 cm), a bevel that catches the light; tilted a little
       // T-066: the grout bed sits 8 mm up (GROUT_H): the foot is widened below it (hidden) so that at the grout line the joint is
       // 2.5 mm (3 mm round a mother) everywhere, whatever the piece's thickness: no pools of grout, nothing floats
-      const n = poly.length, thick = (s.mother ? 0.024 : 0.014) + rr(0, 0.006), ch = Math.min(ORGANIC ? 0.011 : 0.007, thick * 0.6), gap = (s.mother ? 0.0015 : ORGANIC ? rr(0.0016, 0.0032) : 0.00125) - (GROUT_H / thick) * ch * 1.1;   // ORGANIC: a softer, wider rounded edge; joints that vary
+      // ORGANIC (studio 25-11, ref. tumbled natural stone): a thick slab (1.8–2.6 cm) with a flat face and a worn, rounded edge — the edge
+      // in two steps (foot → shoulder at 65 % of the height → face), its width varying vertex by vertex (chipped); wider joints that vary
+      const n = poly.length, thick = s.mother ? 0.024 : ORGANIC ? rr(0.018, 0.026) : 0.014 + rr(0, 0.006), ch = Math.min(ORGANIC ? 0.009 : 0.007, thick * 0.6);
+      const gap = (s.mother ? 0.0015 : ORGANIC ? rr(0.0022, 0.0042) : 0.00125) - (ORGANIC ? (GROUT_H / (thick * 0.65)) * ch * 0.3 : (GROUT_H / thick) * ch * 1.1);
       const tiltA = rr(0, 6.28), tiltK = loose ? 0 : rr(0.02, 0.06), tx = Math.cos(tiltA) * tiltK, ty = Math.sin(tiltA) * tiltK;
       const O = poly.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.45, 1 - gap / l); return [p[0] * k, p[1] * k]; });
-      const T = O.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.5, 1 - (ch * 1.1) / l); return [p[0] * k, p[1] * k]; });
+      const chV = O.map(() => (ORGANIC ? ch * rr(0.55, 1.45) : ch * 1.1));
+      const T = O.map((p, i) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.5, 1 - chV[i] / l); return [p[0] * k, p[1] * k]; });
+      const M = O.map((p, i) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.5, 1 - (chV[i] * 0.3) / l); return [p[0] * k, p[1] * k]; });
+      const hM = thick * 0.65, hT = O.map(() => thick + (ORGANIC ? rr(-0.0012, 0.0012) : 0));   // the face not quite level: a split stone
       const W = (p, h, out) => out.copy(P0).addScaledVector(Tu, p[0]).addScaledVector(Tv, p[1]).addScaledVector(Nn, h + (h > 0.001 ? p[0] * tx + p[1] * ty : 0));
       const tri = (pa, ha, pb, hb, pc, hc, face, wantOut, dome) => {
         W(pa, ha, va); W(pb, hb, vb); W(pc, hc, vc);
@@ -320,8 +338,14 @@ export function create(ctx) {
       const Z = [0, 0];
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n;
-        tri(Z, thick + (ORGANIC ? 0.0035 : 0), T[i], thick, T[j], thick, 0, false, s.round ? 0.3 : ORGANIC ? 0.38 : 0.14);          // the face (a medallion is domed; ORGANIC: a pebble)
-        tri(T[i], thick, O[i], 0, O[j], 0, 2, true); tri(T[i], thick, O[j], 0, T[j], thick, 2, true);   // the bevel down to the grout
+        if (ORGANIC && !s.mother) {
+          tri(Z, thick + 0.0008, T[i], hT[i], T[j], hT[j], 0, false, 0.1);                                 // the face: flat, barely eased
+          tri(T[i], hT[i], M[i], hM, M[j], hM, 2, true); tri(T[i], hT[i], M[j], hM, T[j], hT[j], 2, true);   // the worn shoulder
+          tri(M[i], hM, O[i], 0, O[j], 0, 2, true); tri(M[i], hM, O[j], 0, M[j], hM, 2, true);             // the split side down to the grout
+        } else {
+          tri(Z, thick, T[i], thick, T[j], thick, 0, false, s.round ? 0.3 : 0.14);          // the face (a medallion is domed)
+          tri(T[i], thick, O[i], 0, O[j], 0, 2, true); tri(T[i], thick, O[j], 0, T[j], thick, 2, true);   // the bevel down to the grout
+        }
         tri(Z, 0, O[j], 0, O[i], 0, 1, false);                                           // the back (the glaze)
       }
     }
@@ -481,7 +505,7 @@ export function create(ctx) {
     const topCol = mix(vRest, vGl, kc), backCol = mix(vGl, vRest, kc);
     const quiet = STORY || SHARDS ? float(0) : quietOf(positionWorld);   // studio 25-11: the story runs through (the trailer has no guide words on the entrance)
     const body = vec3(0.86, 0.8, 0.7);                                                  // the fired body on the bevel: light, it draws every piece
-    let col = topCol.mul(top).add(backCol.mul(back)).add(mix(topCol, body, 0.55).mul(side));
+    let col = topCol.mul(top).add(backCol.mul(back)).add(mix(topCol, body, ORGANIC ? 0.25 : 0.55).mul(side));   // ORGANIC: a stone is the same stone through
     col = mix(col, CALM.mul(dot(col, LUMW).div(dot(CALM, LUMW)).mul(0.35).add(0.65)), quiet.mul(0.75));   // the quiet zones: only bone / cream, calm
     const gp = varying(positionLocal.sub(ld(0).xyz));                                     // the piece's own frame (before its turn)
     // studio 25-11 (Beltrán: «textura de piedra»): a tileable stone detail (umbral3d/stone-detail.png: relief slopes, mottling, crackle) in the
@@ -490,8 +514,8 @@ export function create(ctx) {
     const sUV = TSL.vec2(dot(gp, th2), dot(gp, tv2)).mul(STONE_SCALE).add(TSL.vec2(ld(0).w.mul(17.3), ld(0).w.mul(9.1)));
     const stone = TSL.texture(stoneTex, sUV);
     const grain = TSL.mx_noise_float(gp.mul(260)).mul(0.6).add(TSL.mx_noise_float(gp.mul(70)).mul(0.4));   // ≈ 4 mm and 1.5 cm grain
-    col = col.mul(grain.mul(0.09).add(1)).mul(side.mul(0.06).add(0.97));
-    const faceK = float(1).sub(side);
+    col = col.mul(grain.mul(ORGANIC ? 0.14 : 0.09).add(1)).mul(side.mul(ORGANIC ? -0.14 : 0.06).add(0.97));   // ORGANIC: the split sides a little darker, rougher
+    const faceK = ORGANIC ? float(1) : float(1).sub(side);
     col = col.mul(mix(float(1), stone.z.mul(0.55).add(0.73).mul(stone.w.mul(0.4).add(0.6)).mul(stone.y.sub(0.5).mul(0.9).add(1)), faceK.mul(STONE_K)));   // mottling × crackle × relief
     const vein = TSL.mx_noise_float(gp.mul(vec3(38, 38, 38)).add(vec3(r, r.mul(2.3), 0))), vl = smoothstep(0.06, 0.0, abs(vein)).mul(0.16);   // studio 25-11: stone veins
     const mott = smoothstep(-0.25, 0.55, TSL.mx_noise_float(gp.mul(11).add(vec3(r.mul(7), 0, 0))));                                       // and a second tone within the piece
