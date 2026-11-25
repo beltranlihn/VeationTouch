@@ -18,10 +18,46 @@
   "default": -1
  },
  {
+  "key": "progress",
+  "label": "Pom: progress (stand-in)",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.01,
+  "default": 0.2
+ },
+ {
+  "key": "cycle",
+  "label": "Pom: cycle (s, 0 = off)",
+  "type": "number",
+  "min": 0,
+  "max": 240,
+  "step": 5,
+  "default": 0
+ },
+ {
+  "key": "floors",
+  "label": "Pom: castell floors (stand-in)",
+  "type": "number",
+  "min": 5,
+  "max": 9,
+  "step": 1,
+  "default": 7
+ },
+ {
   "key": "restless",
   "label": "Pom: restless (someone moved)",
   "type": "bool",
   "default": false
+ },
+ {
+  "key": "aleta",
+  "label": "Pom: l'aleta (-1 off, 0..1)",
+  "type": "number",
+  "min": -1,
+  "max": 1,
+  "step": 0.01,
+  "default": -1
  },
  {
   "key": "arrive",
@@ -48,74 +84,8 @@
   "default": false
  },
  {
-  "key": "walls",
-  "label": "Pom: structure walls (stand-in)",
-  "type": "number",
-  "min": 2,
-  "max": 4,
-  "step": 1,
-  "default": 4
- },
- {
-  "key": "cycle",
-  "label": "Pom: auto ascent loop (0 = off)",
-  "type": "number",
-  "min": 0,
-  "max": 180,
-  "step": 5,
-  "default": 0,
-  "unit": "s"
- },
- {
-  "key": "height",
-  "label": "Pom: final eye height, m (0 = 90; 30–120)",
-  "type": "number",
-  "min": 0,
-  "max": 120,
-  "step": 5,
-  "default": 0,
-  "unit": "m"
- },
- {
-  "key": "spin",
-  "label": "Pom: turn during the rise",
-  "type": "number",
-  "min": 0,
-  "max": 120,
-  "step": 5,
-  "default": 90,
-  "unit": "deg"
- },
- {
-  "key": "lines",
-  "label": "Pom: city lines",
-  "type": "number",
-  "min": 0,
-  "max": 3,
-  "step": 0.05,
-  "default": 1
- },
- {
-  "key": "gardens",
-  "label": "Pom: gold gardens",
-  "type": "number",
-  "min": 0,
-  "max": 3,
-  "step": 0.05,
-  "default": 1
- },
- {
-  "key": "tiles",
-  "label": "Pom: falling tiles",
-  "type": "number",
-  "min": 0,
-  "max": 3,
-  "step": 0.05,
-  "default": 1
- },
- {
-  "key": "stars",
-  "label": "Pom: stars",
+  "key": "strata",
+  "label": "Pom: strata of haze (far)",
   "type": "number",
   "min": 0,
   "max": 2,
@@ -124,44 +94,11 @@
  },
  {
   "key": "gold",
-  "label": "Pom: gold lights",
+  "label": "Pom: the light (gold)",
   "type": "number",
   "min": 0,
-  "max": 3,
+  "max": 2,
   "step": 0.05,
   "default": 1
- },
- {
-  "key": "aleta",
-  "label": "Pom: l'aleta window (−1 off, 0..1)",
-  "type": "number",
-  "min": -1,
-  "max": 1,
-  "step": 0.05,
-  "default": -1
- },
- {
-  "key": "stage",
-  "label": "Climb (T-051)",
-  "type": "select",
-  "default": "auto",
-  "options": [
-   [
-    "auto",
-    "By climber"
-   ],
-   [
-    "relay",
-    "Relay (dosos)"
-   ],
-   [
-    "breath",
-    "Breath (acotxador)"
-   ],
-   [
-    "silence",
-    "Silence (enxaneta)"
-   ]
-  ]
  }
 ]
