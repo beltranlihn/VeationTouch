@@ -201,9 +201,10 @@ export function create(ctx) {
     const w = walls[wi]; ghost.x = w.centre.x - w.normal.x * 1.25; ghost.z = w.centre.z - w.normal.z * 1.25; ghost.yRest = ghost.y = (Math.max(1, floor) - 1) * 1.34; ghost.tower = wi;
     return ghost;
   }
+  const builtOf = [];                                              // the floors each tower on screen has built (tronc3d)
   function shownTowers() {
     const T = tronc(); if (!T || typeof T.levels !== 'function') return null;
-    try { return T.levels().map((l) => l.tower); } catch { return null; }
+    try { const L = T.levels(); for (const l of L) builtOf[l.tower] = l.built; return L.map((l) => l.tower); } catch { return null; }
   }
 
   // -------------------------------------------------------------------------------------------- state
@@ -276,7 +277,8 @@ export function create(ctx) {
     uWorld.value = sm((arrive - 0.05) / 0.5) * (1 - sm((leave - 0.3) / 0.6));
     uStrata.value = pr.strata ?? 1;
     // ---- the climber's height (rest frame) on her segment, by S.climb; a jump up is a LEAP, a drop is a SLIDE
-    const yTop = [restOf(towerW, F - 2), restOf(towerW, F - 1), restOf(towerW, F)];
+    const Fb = builtOf[towerW] > 0 ? Math.max(3, Math.min(9, builtOf[towerW])) : F;   // the tower as it stands on screen
+    const yTop = [restOf(towerW, Fb - 2), restOf(towerW, Fb - 1), restOf(towerW, Fb)];
     const y0 = climber === 0 ? restOf(towerW, 2) : yTop[climber - 1] - 0.6, y1 = yTop[climber];
     const done = phase === 'reward' || phase === 'aleta' || (S && S.block && S.block !== 'pom' && S.block !== 'fall');
     const rawY = done ? yTop[2] : y0 + (y1 - y0) * cl;
