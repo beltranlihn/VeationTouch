@@ -106,7 +106,7 @@ const CROWN_LIGHT = lin('os').map((v) => v * 0.95);   // the crown's card is alw
 function cardItems(C) {
   const it = [], crown = C[1] === 'Coronado', ink = crown ? CROWN_LIGHT : INK;
   if (C[0]) it.push({ text: C[0], font: 'serif', size: 0.14, y: crown ? 0.52 : 0.4, track: 0.3, alpha: 0.7, color: ink });
-  it.push({ text: C[1], font: 'serif', size: crown ? 0.64 : C[1].length > 14 ? 0.38 : 0.46, y: crown ? 0.1 : 0.04, track: 0.01, color: ink, delay: 0.2 });
+  it.push({ text: C[1], font: 'serif', size: crown ? 0.5 : C[1].length > 14 ? 0.38 : 0.46, y: crown ? 0.1 : 0.04, track: 0.01, color: ink, delay: 0.2 });
   if (C[2]) it.push({ text: C[2], font: 'italic', size: crown ? 0.22 : 0.17, y: crown ? -0.36 : -0.3, track: 0.015, rules: 0.5, alpha: 0.9, color: ink, rise: true, delay: 0.35 });
   return it;
 }
@@ -322,7 +322,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
   const line = typo.slot({ placements: typo.onWalls(room, TEXT.line), renderOrder: 23, outDur: 0.5, plate: 0, halo: 0.3, spread: 2.4, flash: room.flash });
   // move a slot's words along each wall (only while nothing is up: words never slide in view)
   const lineBase = typo.onWalls(room, TEXT.line), rightOf = room.walls.map((w) => w.right.clone());
-  let lineY = TEXT.line, crownWall = -1, cardYield = -1; const cardBase = typo.onWalls(room, TEXT.card);
+  let lineY = TEXT.line, crownWall = -1, cardYield = -1; const cardFit = new Float32Array(room.walls.length).fill(1); const cardBase = typo.onWalls(room, TEXT.card);
   const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { const xx = typeof x === 'number' ? x : x[w]; if (sl === line) lineCurX[w] = xx; P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], xx).setY(lineY); }); };
   // N7: the consigna TRAVELS with the Brasa's relay — on the devil's wall it follows the fire along the wall (eased, never past the
   // corners); the other walls keep their place. lineS0: where each wall starts along the perimeter (the score's s).
@@ -603,20 +603,23 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : (chapter(b).luma || 0) > 0.25 || b === 'wait' ? 0.55 : 0.35; }   // bone over a lit plaza (crown, festa): a fuller soft shadow under the letters
     // the crown's card (Art Director 25-11): on the wall where the crowned tower stands (tronc3d.textObstacles), at its lower side,
     // toward the wall's centre (away from the corners and their lamps); never across a corner
-    crownWall = -1;
-    if (b === 'crown') { let room0 = -1e9; for (const o of OBST) if ((o.y1 || 0) > 2.0 && o.wall >= 0 && o.wall < NW) { const free = room.walls[o.wall].width / 2 - Math.abs(o.x || 0) - (o.half || 0); if (free > room0) { room0 = free; crownWall = o.wall; } } }   // the wall with the most room beside the tower (the wide ones)
+    crownWall = -1; cardFit.fill(1);
+    // the tower: the widest tall obstacle of a wall without a kind (lamps say kind: 'lamp', fronts 'front')
+    const towerOf = (w) => { let t = null; for (const o of OBST) if (o.wall === w && !o.kind && (o.y1 || 0) > 2.0 && (o.half || 0) > 0.7 && (!t || o.half > t.half)) t = o; return t; };
+    const CH = 0.95, GAP = 0.35;   // the crown card's half width (Coronado at caps ≈ 0.35 m) and its gap to the tower
+    if (b === 'crown') { let room0 = -1e9; for (let w = 0; w < NW; w++) { const o = towerOf(w); if (!o) continue; const free = room.walls[w].width / 2 - Math.abs(o.x || 0) - o.half; if (free > room0) { room0 = free; crownWall = w; } } }   // the wall with the most room beside the tower (the wide ones)
     if (!card.up) for (const t of card.texts) t.P.forEach((P, w) => {
       let side = 0, y = TEXT.card;
       if (b === 'crown') {
-        const Wd = room.walls[w].width, lim = Wd / 2 - 1.15 - 0.45; y = 1.7;
-        const o = OBST.find((q) => q.wall === w && (q.y1 || 0) > 2.0);
-        if (o) {   // in the shadow gap beside the tower (tower half + 2.1 m: AD #9), on the side free of lamps (plaza.textObstacles), never across a corner
-          const l = o.x - o.half - 2.1, r = o.x + o.half + 2.1;
-          const free = (x) => { if (Math.abs(x) > lim) return -9; let g = 9; for (const q of OBST) if (q !== o && q.wall === w && (q.y1 ?? 3) > 1.3) g = Math.min(g, Math.abs((q.x || 0) - x) - 1.15 - (q.half || 0.5)); return g; };
+        const Wd = room.walls[w].width, lim = Wd / 2 - CH - 0.3; y = 1.7;
+        const o = towerOf(w);
+        if (o) {   // in the gap beside the tower (its edge + 0.35 m + the card), on the side free of lamps, never across a corner
+          const l = (o.x || 0) - o.half - GAP - CH, r = (o.x || 0) + o.half + GAP + CH;
+          const free = (x) => { if (Math.abs(x) > lim) return -9; let g = 9; for (const q of OBST) if (q !== o && q.wall === w && (q.y1 ?? 3) > 1.3) g = Math.min(g, Math.abs((q.x || 0) - x) - CH - (q.half || 0.5)); return g; };
           const fl = free(l), fr = free(r);
-          side = fl >= 0 && (fl >= fr || fr < 0) ? l : fr >= 0 ? r : fl > fr ? clamp(l, -lim, lim) : clamp(r, -lim, lim);
-        }
-        else side = Math.min(2.1, lim);
+          if (fl < -1 && fr < -1) cardFit[w] = 0;   // no room beside the tower on this wall: no card here (not even an echo)
+          side = fl >= fr ? l : r;
+        } else side = Math.min(2.1, lim);
       } else {   // the other cards: the clearest of centre / left / right, away from pillars and the parts' heroes above 1.6 m
         const Wd = room.walls[w].width, lim = Wd / 2 - 1.3 - 0.45, TT = Array.isArray(S.targets) ? S.targets : [];
         let bs = -1e9;
@@ -633,7 +636,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     { let fwc = crownWall >= 0 ? crownWall : S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // the crown: the tower's wall; no calling wall yet: the wall with the most hands
       if (fwc < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fwc = w; } }); }
       if (fwc < 0) fwc = 0;   // nobody on any wall: one wall still carries the card in full (Art Director 25-11), the others an echo   // the card too: 100 % on the wall that calls, 30 % elsewhere
-      card.step(dtT, { hold, gate: waveGate, mask: fwc >= 0 ? (w) => (w === fwc ? 1 : 0.3) : null, lead: fwc >= 0 ? (w) => (w === fwc ? 0 : 0.6) : null }); }
+      card.step(dtT, { hold, gate: waveGate, mask: fwc >= 0 ? (w) => (w === fwc ? 1 : 0.3) * cardFit[w] : null, lead: fwc >= 0 ? (w) => (w === fwc ? 0 : 0.6) : null }); }
     // the wait's words come with the button (reveal) and thin out as the hands start the pass
     const st = b === 'wait' ? Math.min(1, S.start || 0) : 0;
     let gain = b === 'wait' ? 1 - st * st : 1;   // the invitation to play before the reveal, the ring's line after it
