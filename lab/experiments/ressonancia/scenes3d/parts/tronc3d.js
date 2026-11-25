@@ -509,7 +509,7 @@ export function create(ctx) {
   // the look per mode (AD #10): the Tronc / crown / bajada warm (cal-foc ramp); the Pom an almost cold silhouette in lluna — only the
   // Pom's gold light (Interacción) is warm there
   const WARM = kit ? { lit: 'cal-fanal', half: kit.tok('terracota').map((v, i) => v * 0.34 + kit.tok('cal-foc')[i] * 0.36), amb: ['ombra', 0.8] } : null;   // warm, one tone (no red, no grey)
-  const COLD = { lit: ['lluna', 0.62], half: ['blau-hora', 0.55], amb: 'tinta' };
+  const COLD = { lit: ['lluna', 0.5], half: ['lluna', 0.34], amb: ['tinta', 0.9] };   // an almost-silhouette: lluna grey-blue, low contrast
   function setLook(look) { if (kit) kit.setSplat(look === 'pom' ? COLD : WARM); }
   if (kit) kit.setSplat(WARM);
   function setMode(m) { castMode = m || 'build'; if (castMode !== 'top') focusY = null; setLook(castMode === 'top' ? 'pom' : 'warm'); }
@@ -520,6 +520,7 @@ export function create(ctx) {
   function placeBodies(dt, inTronc, floorsNow, withScore) {
     if (!kit) return;
     for (const t of towers) for (const s of t.st) s.takenT = s.taken ? (s.takenT || 0) + dt : 0;
+    for (const t of towers) { if (t.lvAcc) { t.lvPos = t.lvAcc.map((a) => (a[2] ? { x: a[0] / a[2], z: a[1] / a[2], y: a[3] } : null)); for (const a of t.lvAcc) { a[0] = a[1] = a[2] = 0; a[3] = 1e9; } } }
     crownT = castMode === 'crowned' ? crownT + dt : 0;   // the crown: gold rises from the foot to the enxaneta, floor by floor
     // against the luminous gold air the tower must be a dark-and-gold sculpture: denser, a dark rim, the shadow side to bronze
     { const cw = castMode === 'crowned' ? 1 : 0; crownK += (cw - crownK) * Math.min(1, dt * 1.5); kit.setSplat({ darkRim: 0.9 * crownK, opacity: 1 + 0.5 * crownK }); }
@@ -547,7 +548,9 @@ export function create(ctx) {
         if (S.taken) { form = Math.max(0, 1 - tk / 2.5); fmode = 'light'; }
         if (c.lv === 0) form = 0.97 + 0.03 * Math.sin(time * 0.4 + c.x * 3 + c.z * 2);   // the pinya's mass breathes
         const sw = c.lv > 0 && !OLD ? Math.sin(time * 0.45 + t.tw * 1.7) * 0.012 * Math.min(1, c.y / 3) : 0;   // the trunk sways, 1–2 cm, slowly
-        const lx = (c.x + sw) * SC, ly = (c.y + dy) * SC, lz = c.z * SC;
+        // each wall's castell turned a little round its axis (no four identical clones)
+        const ra = t.tw * 0.83, cr = Math.cos(ra), sr = Math.sin(ra), cx = c.x * cr - c.z * sr, cz = c.x * sr + c.z * cr;
+        const lx = (cx + sw) * SC, ly = (c.y + dy) * SC, lz = cz * SC;
         const tx = lx * ct - ly * st, ty = lx * st + ly * ct;                       // the lean (tower frame, about its z)
         _bp.set(t.g.position.x + cp * tx + sp * lz, ty, t.g.position.z - sp * tx + cp * lz);
         // the pinya opens towards the room: nobody of it stands in front of (or on) the wall plane — the audience is its front
@@ -555,7 +558,9 @@ export function create(ctx) {
         const away = uAway.value;
         // arrive / leave: the particles gather / scatter (form below), no block movement
         const pose2 = c.enx ? (crowned ? 'raise' : 'stand') : c.pose;
-        kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw, pose: c.pose, pose2: c.enx ? pose2 : (c.pose2 || c.pose), mix: c.enx ? (crowned ? 1 : 0) : (c.lv > 0 && S.forming && S.solid < 0.5 ? 1 : (c.mixV || 0)),
+        // what is drawn is what trunk() / levels() report (the Pom's climbers sit on it)
+        if (c.lv > 0) { const A = t.lvAcc || (t.lvAcc = Array.from({ length: 10 }, () => [0, 0, 0, 1e9])); const a = A[c.lv]; a[0] += _bp.x; a[1] += _bp.z; a[2]++; a[3] = Math.min(a[3], _bp.y); }
+        kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw - ra, pose: c.pose, pose2: c.enx ? pose2 : (c.pose2 || c.pose), mix: c.enx ? (crowned ? 1 : 0) : (c.lv > 0 && S.forming && S.solid < 0.5 ? 1 : (c.mixV || 0)),
           form: form * (1 - uAway.value), fmode, lod: c.lv > 0 && c.lv <= 3 ? 'mid' : 'far', scale: c.s * SC,   /* the trunk in mid detail (9k splats): it must read as bodies */ build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - 0.4 - c.lv * 0.36) / 0.5)) * (c.enx ? 1.6 : 1) : S.flash * 0.35,   /* the gold RISES floor by floor from the foot (0.4–4 s, with VFX's light), the enxaneta last and brightest */ tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
       }
     }
@@ -903,6 +908,8 @@ export function create(ctx) {
     world.updateMatrixWorld(true);
     const y0 = world.matrixWorld.elements[13], th = t.theta || 0;
     const phi = Math.atan2(t.w.normal.x, t.w.normal.z), d = -Math.sin(th) * L.y * SC;   // the lean shifts the axis along the tower's x
+    const fl = Math.max(1, Math.min(9, floor | 0)), D = t.lvPos && t.lvPos[fl];        // as drawn (the bodies' mean, their feet) when it is on screen
+    if (D) return { x: D.x, z: D.z, y: D.y + y0, yRest: D.y, r: L.r * SC, h: L.h * SC, tower: t.tw };
     return { x: t.g.position.x + Math.cos(phi) * d, z: t.g.position.z - Math.sin(phi) * d, y: y0 + L.y * SC * Math.cos(th), yRest: L.y * SC, r: L.r * SC, h: L.h * SC, tower: t.tw };
   }
   // textObstacles() → [{ wall, x, half, y0, y1 }] (wall coordinates, m): the tower (or the pinya ring) on each wall, up to its visible top

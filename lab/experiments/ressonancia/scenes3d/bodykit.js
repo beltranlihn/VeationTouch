@@ -88,7 +88,7 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [20000, 2600, 6500], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [13000, 2600, 6500], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
   const splatOnlyLodMesh = false;
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;
@@ -227,7 +227,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   // them fall with gravity. Nothing radial, nothing fast.
   const splatSets = [];   // { build, lod, N, rows, tex, bodyTex, bodyData, geo, mesh, count }
   const uSize = uniform(1), uOpacity = uniform(1), uDrift = uniform(1), uFlow = uniform(1), uStreak = uniform(0);
-  const uLit = uniform(new THREE.Vector3(...palLin('cal-fanal', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.4 + palLin('cal-foc')[i] * 0.32)));   // warm (sheet3), the half tone a soft terracota   // terracota, desaturated towards the lime
+  const uLit = uniform(new THREE.Vector3(...palLin('cal-fanal').map((v, i) => v * 0.85 + palLin('terracota')[i] * 0.15))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.4 + palLin('cal-foc')[i] * 0.32)));   // warm (sheet3), the half tone a soft terracota   // terracota, desaturated towards the lime
   const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
@@ -331,7 +331,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const t = uTime, ph = rr.mul(61.7);
     const auraT = fract(t.mul(0.05).add(rr.mul(7.0)));
     // far LOD: a crisper body (the outward skin falloff mostly pulled in, no aura): at 4–6 m the fuzz would merge the bodies
-    pl = pl.add(nl.mul(lod === 0 ? depth : depth.min(depth.mul(0.25)))).add(vec3(auraT.mul(0.14), auraT.mul(-0.32), auraT.mul(-0.05)).mul(aura));   // the aura falls slowly and drifts to one side
+    pl = pl.add(nl.mul(depth)).add(vec3(auraT.mul(0.14), auraT.mul(-0.32), auraT.mul(-0.05)).mul(aura));   // the aura falls slowly and drifts to one side
     // the slow spring round home (1–2 cm, 0.2–0.4 Hz), the breath of the torso
     const hz = fract(rr.mul(5.3)).mul(0.2).add(0.2).mul(6.2832);
     const drift = vec3(sin(t.mul(hz).add(ph)), sin(t.mul(hz.mul(0.83)).add(ph.mul(1.7))), sin(t.mul(hz.mul(1.13)).add(ph.mul(2.3)))).mul(jit.mul(0.01).add(0.008)).mul(uDrift);
@@ -365,7 +365,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const reg = AX.x, w3 = smoothstep(2.35, 2.65, reg);
     const tE = normalize(vec3(uEye.x.sub(C.x), 0, uEye.z.sub(C.z))), side = vec3(tE.z, 0, tE.x.negate());
     // one warm ramp by light: tinta (shadow, luma ≈ 0.05–0.10, lost in the night) → terracota (half) → cal-foc (lit, ≤ 0.8)
-    const Lk = normalize(side.mul(-0.85).add(vec3(0, 0.85, 0)).add(tE.mul(0.15)));
+    const Lk = normalize(side.mul(-1.0).add(vec3(0, 0.75, 0)).add(tE.mul(0.05)));   // a true side key: half of every body in shadow
     const headK = float(1).sub(step(0.25, AX.x)).mul(step(1.35, pl.y));                // the head: no dark band under the jaw, no bulb on top
     // the core is volume: it takes the light of a normal turned half towards the eye (no dark specks from inner points of the far side)
     const nL = normalize(mix(nW, toCam, core.mul(0.3)));   // (0.55 flattened the modelling)
@@ -377,7 +377,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     colr = colr.add(uSRim.mul(pow(float(1).sub(abs(facing)), 4)).mul(smoothstep(1.15, 1.45, pl.y)).mul(float(1).sub(headK)).mul(0.6));   // a thin cool rim on the shoulders (not the jaw)
     if (room?.flash) colr = colr.add(uLit.mul(room.flash(C)).mul(0.35));
     // the palm's glow (palmGlow): a warm light held in the right palm, ≥ 35–40 cm, that lights the forearm and the chest («put your hand here»)
-    const dP = pl.sub(B4.xyz).length(), pgw = B4.w.mul(exp(dP.mul(dP).mul(-9.0)));
+    const dP = pl.sub(B4.xyz).length(), pgw = B4.w.mul(exp(dP.mul(dP).mul(-6.0))).mul(1.8);   // ≈ 40 cm, reads at scale 0.5
     colr = colr.add(uPalmCol.mul(pgw).mul(mix(float(0.55), float(1), smoothstep(-0.2, 0.6, dot(nW, rotY(B4.xyz.sub(pl)).normalize())))));
     // the stage spots of the square (plaza.js part.spots, when given): what stands in a beam is lit by it
     if (spots && SPP) {
@@ -395,12 +395,12 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     colr = mix(colr, goldRamp, B2.w.clamp(0, 1)).add(uColor.glow.mul(uSGlow));
     colr = colr.mul(mix(float(1), float(0.3), pow(float(1).sub(abs(facing)), 2).mul(uDarkRim)));   // a dark rim: the sculpture against a bright air
     // contact shade: the feet sink into the shoulders below / the floor — a dark gap between stacked bodies
-    colr = colr.mul(mix(float(1), smoothstep(0.0, 0.45, pl.y).mul(0.65).add(0.35), uContact));
+    colr = colr.mul(mix(float(1), smoothstep(0.0, 0.22, pl.y).mul(0.5).add(0.5), uContact));   // only the feet sink (no thread legs)
     // back occlusion (a tower: each body's back faces the others): the back half sinks, so overlapping bodies part by shadow
     colr = colr.mul(mix(float(1), float(0.3), smoothstep(0.1, -0.7, nl.z).mul(uBackAO)));
     // dust: each splat faint (0.08–0.15), the volume comes from accumulation; the skin thins outwards (the edge is a density falloff)
     // near: the grain of sheet3; the tower (mid / far): presence — the facade must not show through
-    const opa = mix(mix(float(0.18), float(0.13).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : lod === 2 ? 1.8 : 2.2);
+    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : lod === 2 ? 1.8 : 2.2);
     const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura).mul(lod === 0 ? float(1) : float(1).sub(aura));
     const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(mix(float(1).sub(away).pow(2), float(1).sub(away.mul(0.6)), dust.max(riseM))), 'vSplA');   // gathering splats are faint until home (no heaps on the floor)
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
