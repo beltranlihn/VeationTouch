@@ -29,7 +29,7 @@
 //   shadows (room.contactShadows). setBackground(block) — which the host calls on every block change — also sets the block's grade and
 //   air, so nothing else has to call them. See PARTS.md «What the room gives since the studio night».
 import * as THREE from 'three/webgpu';
-import { Discard, If, Loop, uniformArray, screenCoordinate, texture, uniform, uv, vec2, vec3, vec4, float, fract, sin, cos, dot, Fn, floor, select, clamp, abs, min, max, smoothstep, mix, pow, positionLocal, normalize, length, exp, atan, asin, pmremTexture, normalWorld, positionWorld, cameraPosition, agxToneMapping, sRGBTransferOETF, sRGBTransferEOTF, fog, instancedDynamicBufferAttribute, mx_noise_float, exp2 } from 'three/tsl';
+import { Discard, If, Loop, uniformArray, screenCoordinate, positionGeometry, texture, uniform, uv, vec2, vec3, vec4, float, fract, sin, cos, dot, Fn, floor, select, clamp, abs, min, max, smoothstep, mix, pow, positionLocal, normalize, length, exp, atan, asin, pmremTexture, normalWorld, positionWorld, cameraPosition, agxToneMapping, sRGBTransferOETF, sRGBTransferEOTF, fog, instancedDynamicBufferAttribute, mx_noise_float, exp2 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { PAL, TOK, lin as palLin, linOf } from './palette.js';
@@ -640,7 +640,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   function ceramic({ color = 'os', glaze = 0.6, wear = 0.3, rim = 0.35, hands = 0.35, env = 1, scale = 1, side = THREE.FrontSide } = {}) {
     const m = new THREE.MeshStandardNodeMaterial({ metalness: 0, side });
     m.color.setRGB(...colOf(color));
-    const p = positionLocal.mul(scale);
+    const p = positionGeometry.mul(scale);   // (the shape's own coordinates: positionLocal includes an InstancedMesh's instance matrix)
     const n1 = mx_noise_float(p.mul(2.3)), n2 = mx_noise_float(p.mul(13.0));
     const base = mix(float(0.62), float(0.2), float(glaze));
     m.roughnessNode = clamp(base.add(n1.mul(0.14 * wear)).add(n2.mul(0.07 * wear)), 0.14, 0.92);
@@ -653,8 +653,8 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   }
   function body({ color = 'cal-foc', faixa = 'faixa', faixaY = [0.95, 1.12], glaze = 0.45, wear = 0.35, rim = 0.4, hands = 0.4 } = {}) {
     const m = ceramic({ color, glaze, wear, rim, hands, scale: 1.6 });
-    const band = smoothstep(faixaY[0] - 0.015, faixaY[0] + 0.015, positionLocal.y).mul(float(1).sub(smoothstep(faixaY[1] - 0.015, faixaY[1] + 0.015, positionLocal.y)));
-    const n2 = mx_noise_float(positionLocal.mul(20.8)), hollow = smoothstep(0.25, 0.75, n2.mul(0.5).add(0.5)).mul(0.16 * wear);
+    const band = smoothstep(faixaY[0] - 0.015, faixaY[0] + 0.015, positionGeometry.y).mul(float(1).sub(smoothstep(faixaY[1] - 0.015, faixaY[1] + 0.015, positionGeometry.y)));
+    const n2 = mx_noise_float(positionGeometry.mul(20.8)), hollow = smoothstep(0.25, 0.75, n2.mul(0.5).add(0.5)).mul(0.16 * wear);
     m.colorNode = mix(vec3(...colOf(color)), vec3(...colOf(faixa)), band).mul(float(1).sub(hollow));
     m.userData.matter = 'body';
     return m;

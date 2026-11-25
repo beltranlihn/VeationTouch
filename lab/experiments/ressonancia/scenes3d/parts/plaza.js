@@ -838,7 +838,7 @@ export function create(ctx) {
     const dH = normalize(vec3(dir.x, 0, dir.z));
     let near = float(0);
     for (const w of room.walls) { const n = new THREE.Vector3(-w.normal.x, 0, -w.normal.z).normalize(); near = max(near, smoothstep(0.955, 0.995, dot(dH, vec3(n.x, 0, n.z)))); }
-    const behindTower = near.mul(smoothstep(6.0, 9.0, dist)).mul(uFest).mul(0.45);
+    const behindTower = near.mul(smoothstep(6.0, 9.0, dist)).mul(uFest).mul(0.65);   // AD#9: the architecture behind the tower −65 %
     col.assign(vec4(col.rgb.mul(float(1).sub(behindTower)), col.a));
     If(uPulseK.greaterThan(0.001), () => {                         // the wave of light round the room (crosses the seam: it is a direction)
       const a1 = dot(dH.xz, uPulse.xy), a2 = dot(dH.xz, uPulse.zw);
@@ -1268,14 +1268,14 @@ export function create(ctx) {
   const shafts = new THREE.Group(); shafts.name = 'plaza:shafts'; object.add(shafts);
   const uDust = uniform(0);
   {
-    const ND = 2000, dm = new THREE.SpriteNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    const ND = 4000, dm = new THREE.SpriteNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
     const { instanceIndex, hash: hsh } = TSL;
     const id = float(instanceIndex), tw = id.mod(4.0), r1 = hsh(id.mul(1.37)), r2 = hsh(id.mul(2.71).add(5.0)), r3 = hsh(id.mul(4.13).add(9.0));
     const T4 = [0, 1, 2, 3].map((i) => { const w = room.walls[i % room.walls.length]; return w.centre.clone().addScaledVector(w.normal, -2.3); });
     const tx = select(tw.lessThan(0.5), float(T4[0].x), select(tw.lessThan(1.5), float(T4[1].x), select(tw.lessThan(2.5), float(T4[2].x), float(T4[3].x))));
     const tz = select(tw.lessThan(0.5), float(T4[0].z), select(tw.lessThan(1.5), float(T4[1].z), select(tw.lessThan(2.5), float(T4[2].z), float(T4[3].z))));
     const fall = fract(uTime.mul(r1.mul(0.05).add(0.035)).add(r2));          // 0 at the top … 1 on the floor, ~20–30 s a fall
-    const ang = uTime.mul(0.4).add(r3.mul(6.283)), rad = fall.mul(1.4).add(0.15).mul(r2.mul(0.7).add(0.3));
+    const ang = uTime.mul(0.4).add(r3.mul(6.283)), rad = fall.mul(0.8).add(0.1).mul(r2.mul(0.7).add(0.3));   // AD#9: a denser column above each tower
     dm.positionNode = vec3(tx.add(cos(ang).mul(rad)), mix(float(6.2), float(0.05), fall), tz.add(sin(ang).mul(rad)));
     dm.scaleNode = vec2(0.025).mul(r3.mul(0.8).add(0.6));
     const tw2 = sin(uTime.mul(r1.mul(5.0).add(2.0)).add(r3.mul(40.0))).mul(0.5).add(0.5);
@@ -1316,7 +1316,7 @@ export function create(ctx) {
       _sf.copy(w.centre).addScaledVector(w.normal, -td); _sf.y = cross ? 3.2 : 0.6;                       // tronc: the beams cross over the tower
       _ss.copy(_sf).addScaledVector(w.right, side * (cross ? 5.0 : 3.0)).addScaledVector(w.normal, cross ? -4.0 : -1.0); _ss.y = cross ? 13.0 : 9.0;
       _sd.copy(_sf).sub(_ss).normalize();
-      spotP[i].set(_ss.x, _ss.y, _ss.z, (cross ? SPOT_K : SPOT_K * 1.4) * (crown ? 2.2 : 1));   // the beams read by their shafts (×2), the pools stay small spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
+      spotP[i].set(_ss.x, _ss.y, _ss.z, (cross ? SPOT_K * 1.6 : SPOT_K * 1.4) * (crown ? 1.4 : 1));   // the beams read by their shafts (×2), the pools stay small spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
       const len = _ss.distanceTo(_sf) * (cross ? 1.12 : 1.05), rad = len * Math.tan(AV);   // the shaft ends at the tower (past it, the cone came towards the eye: a veil)
       c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad, len, rad);
     }
@@ -1436,7 +1436,7 @@ export function create(ctx) {
       const pp = (crT - 4.0) / 3.0, w0 = room.walls[0], a0 = Math.atan2(-w0.normal.z, -w0.normal.x);
       if (blk === 'crown' && pp > 0 && pp < 1.15) { const ph = Math.min(1, pp) * Math.PI; uPulse.value.set(Math.cos(a0 + ph), Math.sin(a0 + ph), Math.cos(a0 - ph), Math.sin(a0 - ph)); uPulseK.value = crK * Math.sin(Math.min(1, pp / 1.15) * Math.PI) ; } else uPulseK.value = 0;
       dustK = crK * smooth01((crT - 4.0) / 1.5) * (1 - smooth01((crT - 15) / 4));
-      uWin.value *= 0.6; moon.intensity *= 0.6; hemi.intensity *= 0.6;   // the square dims ~40 %: the gold towers are the light
+      uWin.value *= 0.35; moon.intensity *= 0.35; hemi.intensity *= 0.35;   // the square dims ~65 % (AD#9): the gold towers are the light
     } else { crT = 0; dustK = 0; uPulseK.value = 0; for (const v of tlVec) v.w = 0; }
     uDust.value = dustK;   // CORONATION (AD#5): gold light bathes the tower, the facades and the haze
     if (festK > 0) {                                                  // the festival night: the square's own night, richer and deeper
@@ -1482,7 +1482,7 @@ export function create(ctx) {
       const on = ignite(tR - L.t0, i, time);
       const br = 1 - sm((S - lampD[i] + 0.06) / 0.22);                // it dies when its stone breaks, with a last flicker
       const fl = S > lampD[i] - 0.1 && br > 0.02 ? 0.6 + 0.4 * Math.sin(time * 41 + i) : 1;
-      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK) * (1 - 0.9 * blueProg) * (1 - 0.88 * pomK) * (1 - 0.55 * pinK) * (1 - 0.45 * crK);
+      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK) * (1 - 0.9 * blueProg) * (1 - 0.88 * pomK) * (1 - 0.55 * pinK) * (1 - 0.75 * crK);
       L.light.intensity = v * 26;
       lampVec[i].set(L.pos.x, L.pos.y, L.pos.z, v);
     }
