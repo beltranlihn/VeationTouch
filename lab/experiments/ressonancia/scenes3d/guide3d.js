@@ -97,6 +97,7 @@ const CONSIGNA_X = { brasa: -1.75, tronc: -2.0, baixada: -2.0 };   // ±2.7 hit 
 // where the consigna may stand on a wall (m from its centre), in order of preference: beside the chapter's hero, never on a target
 // (S.targets): each wall takes the candidate farthest from its targets (only while its words are not up: words never slide in view)
 const HERO_HALF = { tronc: 1.3, baixada: 1.3, pom: 0.8, wait: 1.25 };   // wait: the doorway arch at every wall's centre   // the tower stands at the centre of the castell's walls: the text keeps out of it
+const PILLAR = new Set(['call', 'crown', 'echo']);   // targets drawn as columns of light (0.6 → 2.2 m)
 const SPOTS = { brasa: [-1.75, -2.5, 1.9, 2.5], tronc: [-2.0, 2.0, -2.6, 2.6], baixada: [-2.0, 2.0, -2.6, 2.6], other: [0, -1.7, 1.7, -2.5, 2.5] };
 // the card: the numeral first (0.2 s ahead), the name (caps ≈ 0.31 m), the hairline drawn from the centre out, the value rising
 // from behind its baseline
@@ -319,7 +320,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
   const line = typo.slot({ placements: typo.onWalls(room, TEXT.line), renderOrder: 23, outDur: 0.5, plate: 0, halo: 0.3, spread: 2.4, flash: room.flash });
   // move a slot's words along each wall (only while nothing is up: words never slide in view)
   const lineBase = typo.onWalls(room, TEXT.line), rightOf = room.walls.map((w) => w.right.clone());
-  let lineY = TEXT.line, crownWall = -1; const cardBase = typo.onWalls(room, TEXT.card);
+  let lineY = TEXT.line, crownWall = -1, cardYield = -1; const cardBase = typo.onWalls(room, TEXT.card);
   const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { const xx = typeof x === 'number' ? x : x[w]; if (sl === line) lineCurX[w] = xx; P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], xx).setY(lineY); }); };
   // N7: the consigna TRAVELS with the Brasa's relay — on the devil's wall it follows the fire along the wall (eased, never past the
   // corners); the other walls keep their place. lineS0: where each wall starts along the perimeter (the score's s).
@@ -330,7 +331,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     const Wd = room.walls[w].width; let gap = 9;
     if (S.focus && S.focus.wall === w && typeof S.focus.s === 'number') gap = Math.abs(S.focus.s - lineS0[w] - Wd / 2 - x) - half - (b === 'pom' ? 1.6 : 0.9);   // the calling point (the pom's light bursts wide, the devil)
     for (const o of OBST) { if (o.wall !== w || (o.y1 ?? 3) < lineY - CAP * 1.3 - 0.05 || (o.y0 ?? 0) > lineY + CAP * 1.3) continue; gap = Math.min(gap, Math.abs((o.x || 0) - x) - half - (o.half || 0.5)); }
-    for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < lineY - CAP * 1.3 - 0.05) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
+    for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if (!PILLAR.has(g.kind) && (g.y || 1.2) + (g.r || 0.22) < lineY - CAP * 1.3 - 0.05) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }   // pillars stand 0.6–2.2 m: always in the band
     return gap;
   }
   // the words stand still; when something comes into them on the calling wall (sparks, a figure) and a clear spot exists, they leave
@@ -485,11 +486,14 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
       const w = a.wall, W = room.walls[w];
       achMask[w] = 1; achX[w] = clamp((typeof a.s === 'number' ? a.s - achS0[w] : W.width / 2) - W.width / 2, -W.width / 2 + 1, W.width / 2 - 1);
       achY[w] = clamp((a.y || 1.4) + 0.35, 1.2, 2.1);
+      // never on the consigna (Art Director 25-11: the layers treat each other as obstacles): above it when they would meet
+      if (Math.abs(achY[w] - lineY) < 0.4 && Math.abs(achX[w] - lineCurX[w]) < 0.4 + text.length * 0.2 * cap + 1.2) achY[w] = lineY + 0.48;
     } else {
       const on = c.place === 'structure' && walls ? walls : [...Array(NW).keys()];
       const n = typeof r.n === 'number' ? r.n : 0;
-      for (const w of on) { achMask[w] = 1; achX[w] = floor || c.place === 'structure' ? ACH_X : 0; achY[w] = floor ? 0.9 + clamp((n - 1) / 8, 0, 1) * 1.1 : c.place === 'structure' ? 1.95 : 1.95; }
+      for (const w of on) { achMask[w] = 1; achX[w] = floor || c.place === 'structure' ? ACH_X : 0; achY[w] = floor ? 0.9 + clamp((n - 1) / 8, 0, 1) * 1.1 : 2.32; }   // a room-wide word stands ABOVE the consigna band and where the card was
     }
+    cardYield = performance.now() / 1000 + 3.5;   // an achievement speaks: the chapter card (if still up) gives way
     achPend = { key: k + '|' + (++achN), items: [{ text, font: 'serif', size: cap / 0.667, y: 0, track: 0.02, color: ACH.lin.slice(), alpha: 1, edge: 0.5 }], mask: achMask.slice(), x: achX.slice(), y: achY.slice(), floor };
   }
   function stepAch(dt, S, events, time) {
@@ -587,7 +591,8 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     const g = on ? lines(S, acta, learnedNow, warn) : {};
     structureOnly = (b === 'tronc' || b === 'pom' || b === 'baixada') && S.structure > 0 && S.structure < NW;
     for (let w = 0; w < NW; w++) inS[w] = !!walls[w];
-    card.want(g.card ? 'c|' + g.card.join('|') : '', g.card ? cardItems(g.card) : null);
+    const cardNow = g.card && !(performance.now() / 1000 < cardYield && achShow);   // the card never shares the wall with an achievement word
+    card.want(cardNow ? 'c|' + g.card.join('|') : '', cardNow ? cardItems(g.card) : null);
     const L = g.line && (g.line[0] || g.line[1]) ? g.line : null;   // (an empty invitation with a label: the floor's / climber's name alone)
     if (L && !(b === 'brasa' && S.brasaStage === 'relay') && blocked(S, b, L[0], time)) lineNonce++;
     line.want(L ? 'l|' + lineNonce + '|' + (S.stage || '') + '|' + L.join('|') : '', L ? lineItems(L) : null);   // a consigna lives within its stage
