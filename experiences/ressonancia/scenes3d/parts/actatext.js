@@ -11,31 +11,21 @@
 //   · «N manos · S s de quietud» (mono) where the gloss was; the voice's last line, smaller, inside the ring; the credits.
 // Timeline on input.state.t (or input.t; 40 s). input.acta (score.acta()) gives the content. input.arrive gates; input.leave breaks all.
 // Study: params.castell / outcome / values / prints (stand-in prints) stand in.
-// STUDIO 25-11 (05-plan N8, §3.6): «Tres de siete» in words, capitals 0.46 m, centred at 2.05 m (was 2.46); the outcome's gloss and a
-// LINE OF STORY above it («Levantado por N manos» · «La colla ayudó en M pisos»), capitals 0.12 m; «Dejad vuestra mano» capitals
-// 0.18 m at 1.45 m (was 0.08 at 1.18), from 3 to 22 s (it dims to half once the first print lands); no backing plates; no mono.
-// The ink is the acta's (palette.js: dark ink when the acta is the lit lime wall, bone while it is dark).
 import { typo } from '../typo3d.js';
-import { chapter } from '../palette.js';
-// STUDIO 25-11, Art Director #13: no dials — the four values are a typographic record (one line of serif small caps under the
-// outcome: «FORÇA 35 · EQUILIBRI 12 · VALOR 8 · SENY 28», 60 % ink, a value of 0 not shown); the story lines at capitals 0.18 m;
-// the prints are GOLD HANDPRINTS at real size that STAY WHERE THEY WERE LEFT (no ring, no glide).
 
 const VALUES = [['forca', 'Força'], ['equilibri', 'Equilibri'], ['valor', 'Valor'], ['seny', 'Seny']];
 const OUTCOME = { descarregat: ['descarregat', 'levantado, coronado y bajado sin caer'], carregat: ['carregat', 'coronado, y después cayó'], intent: ['intent', 'cayó antes de la corona'] };
 const SENTENCE = ['Este ha sido vuestro castell.', 'Cuando los cuerpos resuenan juntos,', 'nace la cultura.'];   // the voice: v-cierre-final
 const CREDITS = ['Ressonància', 'Barcelona XR Lab × Alma Digital Studio', 'Con el apoyo de la Generalitat de Catalunya'];
 const INVITE = { es: 'Dejad vuestra mano', en: 'Leave your hand' };
-const ACTA = chapter('acta'), INK = ACTA.dark === false ? ACTA.lin.ink.slice() : [0.76, 0.73, 0.68], SOFT = INK;
-const NUM = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'];
-const words = (c) => { const t = String(c).replace(/\d+/g, (d) => NUM[+d] ?? d); return t.charAt(0).toUpperCase() + t.slice(1); };   // «3 de 7» → «Tres de siete»
+const INK = [0.76, 0.73, 0.68], SOFT = [0.76, 0.73, 0.68];
 const CHAPTER = [[1.0, 0.14, 0.014], [0.027, 0.65, 0.56], [0.55, 0.12, 0.04], [0.85, 0.89, 1.0], [0.92, 0.56, 0.1], [0.93, 0.47, 0.56]];
 const VALUE_COL = [CHAPTER[1], CHAPTER[2], CHAPTER[3], CHAPTER[5]];      // Força = Pinya, Equilibri = Tronc, Valor = Pom, Seny = the descent
-const Y = { castell: 1.89, ribbon: 1.5, gloss: 2.64, sentence: 2.2, credits: 2.2, invite: 1.1, values: 1.36 };   // castell: its name's caps centred at 2.05 m; outcome 1.62; values 1.36; invite 1.1
+const Y = { castell: 2.3, ribbon: 1.8, gloss: 1.66, sentence: 2.2, credits: 2.2, invite: 1.18 };
 // the ring of prints (wall-local metres): centre, two rings; the dials: x, y per value (two each side, inside the walls' free edge)
-const RING = { y: 2.05, rx: [1.95, 2.22], ry: [0.68, 0.87], cap: [40, 48] };
+const RING = { y: 2.25, rx: [1.95, 2.22], ry: [0.68, 0.87], cap: [40, 48] };
 const DIAL = { r: 0.19, pos: [[-2.58, 2.72], [-2.58, 1.72], [2.58, 2.72], [2.58, 1.72]] };   // ART r5: each value block ×1.6
-const PRINT_H = 0.24, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
+const PRINT_H = 0.13, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
 const env = (t, a, b, c, d) => (t < a || t > d ? 0 : t < b ? smooth((t - a) / (b - a)) : t > c ? 1 - smooth((t - c) / (d - c)) : 1);
@@ -56,16 +46,15 @@ export function create({ THREE, TSL, room, params = {} }) {
 
   // ---- the words
   const T = (y, opt = {}, x = 0) => { const t = typo.text({ placements: typo.onWalls(room, y, x), renderOrder: 12, ...opt }); object.add(t.object); return { t, prev: 0 }; };
-  const castellT = T(Y.castell, { plate: 0 }), glossT = T(Y.gloss, { plate: 0 }), statT = T(Y.gloss, { plate: 0 }), sentT = T(Y.sentence, { plate: 0, depth: 0.45 }), credT = T(Y.credits, { plate: 0 });
-  const inviteT = T(Y.invite, { plate: 0, flash });
-  const valuesT = T(Y.values, { plate: 0, halo: 0.2 });
+  const castellT = T(Y.castell, { plate: 0.5 }), glossT = T(Y.gloss, { plate: 0.35 }), statT = T(Y.invite, { plate: 0.3 }), sentT = T(Y.sentence, { plate: 0.55, depth: 0.45 }), credT = T(Y.credits, { plate: 0.35 });
+  const inviteT = T(Y.invite, { plate: 0.3, flash });
   const labelT = DIAL.pos.map(([x, y]) => T(y - DIAL.r - 0.37, { plate: 0, max: 16, flash }, x));
   const numT = DIAL.pos.map(([x, y]) => { const o = T(y - DIAL.r - 0.16, { plate: 0, max: 8 }, x); o.shown = -1; return o; });   // ART r5: the figure, in mono, ×2
   sentT.t.set([{ text: SENTENCE[0], font: 'italic', size: 0.13, y: 0.36, track: 0.015, alpha: 0.75, color: INK, rise: true },
     { text: SENTENCE[1], font: 'serif', size: 0.21, y: 0.07, track: 0.01, color: INK, delay: 0.6 }, { text: SENTENCE[2], font: 'italic', size: 0.21, y: -0.2, track: 0.01, color: INK, rise: true, delay: 0.9 }]);
   credT.t.set([{ text: CREDITS[0], font: 'serif', size: 0.2, y: 0.22, track: 0.04, color: INK }, { text: CREDITS[1], font: 'sans', size: 0.09, y: -0.04, track: 0.1, alpha: 0.75, color: SOFT }, { text: CREDITS[2], font: 'sans', size: 0.082, y: -0.22, track: 0.16, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
   const lang = params.lang === 'en' ? 'en' : 'es';
-  inviteT.t.set([{ text: INVITE[lang], font: 'serif', size: 0.18 / 0.7, y: 0, track: 0.015, alpha: 1, color: INK, rules: 0.32, reveal: 'blur' }]);   // the card's serif on its hairlines
+  inviteT.t.set([{ text: INVITE[lang], font: 'sans', size: 0.11, y: 0, track: 0.04, alpha: 0.8, color: INK, reveal: 'blur' }]);
   let labelKey = '';
 
   // ---- the chapters' ribbon under the castell
@@ -98,13 +87,12 @@ export function create({ THREE, TSL, room, params = {} }) {
     const A = attribute('pA', 'vec4'), B = attribute('pB', 'vec4'), N = attribute('pN', 'vec4'), D = attribute('pD', 'vec4');
     const ca = cos(B.w), sa = sin(B.w), q = positionGeometry.xy;
     const lx = q.x.mul(ca).sub(q.y.mul(sa)).mul(N.w), ly = q.x.mul(sa).add(q.y.mul(ca)).mul(N.w);
-    // 25-11 (AD #13): gold LEAF over the lit lime wall — premultiplied «over» (additive light vanished on a light wall)
-    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor, side: THREE.DoubleSide, fog: false });
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
     m.positionNode = A.xyz.add(B.xyz.mul(lx)).add(vec3(0, 1, 0).mul(ly));
     const vQ = varying(q), vK = varying(A.w), vD = varying(D), vN = varying(N.xyz), vA = varying(B.w), vW = varying(positionWorld);
     m.colorNode = Fn(() => {
       If(dot(cameraWorldMatrix.element(2).xyz, vN).lessThan(0.999), () => { Discard(); });
-      const c = vec3(0).toVar(), cov = float(0).toVar();
+      const c = vec3(0).toVar();
       If(vK.lessThan(0.5), () => {
         // a hand, in units of the half size (fingers along +y): palm + five capsules, smooth union; mirrored for a left hand
         const mir = select(vD.z.greaterThan(0.5), float(-1), float(1)), sd = vD.z.mul(17.0).fract();
@@ -128,9 +116,8 @@ export function create({ THREE, TSL, room, params = {} }) {
         const rim = float(1).sub(smoothstep(fw.mul(0.6), fw.mul(1.8), abs(d.add(fw.mul(0.8)))));
         const ridge = float(1).sub(rr.mul(0.45)).max(0.4);   // gold leaf: denser at the palm, thinner to the fingertips
         const wet = exp(rr.sub(front).div(0.06).pow(2).negate()).mul(step(vD.x, 0.99)).mul(fill);
-        const g = vec3(0.81, 0.43, 0.07);   // «or» #E8B04A (linear), saturated (AD #14)
-        cov.assign(fill.mul(0.95).max(rim).mul(reveal).min(1));   // solid leaf: the print reads at a glance (AD #14)
-        c.addAssign(g.mul(cov).add(vec3(1.0, 0.72, 0.3).mul(rim.mul(0.55).add(wet.mul(0.5)).add(fill.mul(0.12))).mul(reveal)));   // a slight glow
+        const g = vec3(1.0, 0.6, 0.22);
+        c.addAssign(g.mul(fill.mul(ridge).mul(0.17).add(rim.mul(0.75)).add(wet.mul(0.9))).mul(reveal));
         c.addAssign(vec3(1.0, 0.78, 0.45).mul(fill.mul(vD.y).mul(0.6)));
         const lamp = flash ? flash(vW) : float(0);
         c.addAssign(vec3(1.0, 0.82, 0.55).mul(rim.mul(lamp).mul(0.6)));
@@ -139,7 +126,7 @@ export function create({ THREE, TSL, room, params = {} }) {
         const r2 = dot(vQ, vQ);
         c.addAssign(vec3(0.95, 0.72, 0.4).mul(exp(r2.mul(-4.0))).mul(1.3));
       });
-      return vec4(c.mul(vD.w).mul(uPK), cov.mul(vD.w).mul(uPK));
+      return vec4(c.mul(vD.w).mul(uPK), 1);
     })();
     mats.push(m);
     var printMesh = new THREE.Mesh(piG, m); printMesh.frustumCulled = false; printMesh.renderOrder = 11; object.add(printMesh);
@@ -214,25 +201,20 @@ export function create({ THREE, TSL, room, params = {} }) {
   let contentKey = '';
   const values = new Float32Array(4);
   let handsN = 0;
-  function content(acta, nPrints, S) {
-    const castell = words(acta?.castell || params.castell || '3 de 7'), outcome = acta?.outcome || params.outcome || 'descarregat';
-    const hands = Math.max(acta?.hands ?? 0, nPrints), colla = (S && S.castell && S.castell.floorsColla) || 0;
+  function content(acta, nPrints) {
+    const castell = acta?.castell || params.castell || '3 de 7', outcome = acta?.outcome || params.outcome || 'descarregat';
+    const hands = Math.max(acta?.hands ?? 0, nPrints), still = acta?.stillS ?? 0;
     handsN = hands;
-    const key = castell + '|' + outcome + '|' + hands + '|' + colla;
+    const key = castell + '|' + outcome + '|' + hands + '|' + still;
     for (let k = 0; k < 4; k++) values[k] = clamp01(acta?.values?.[VALUES[k][0]] ?? params.values?.[k] ?? [0.82, 0.64, 0.71, 0.58][k]);
     if (key === contentKey) return;
     contentKey = key;
     const O = OUTCOME[outcome] || OUTCOME.descarregat;
-    castellT.t.set([{ text: castell, font: 'serif', size: 0.46 / 0.667, y: 0.16, track: 0.01, color: INK }, { text: O[0], font: 'italic', size: 0.2, y: -0.27, track: 0.02, alpha: 0.95, color: INK, rules: 0.45, rise: true, delay: 0.5 }]);
-    glossT.t.set([{ text: O[1].charAt(0).toUpperCase() + O[1].slice(1), font: 'italic', size: 0.18 / 0.7, y: 0, track: 0.015, alpha: 0.92, color: SOFT }]);
-    // the line of story: who raised it, and what the colla did (D2: the help is named)
-    const story = [hands > 0 ? `Levantado por ${hands} ${hands === 1 ? 'mano' : 'manos'}` : 'Levantado por vuestras manos'];
-    if (colla > 0) story.push(`La colla ayudó en ${colla} ${colla === 1 ? 'piso' : 'pisos'}`);
-    statT.t.set(story.map((text, i) => ({ text, font: 'italic', size: 0.18 / 0.7, y: story.length > 1 ? (i ? -0.16 : 0.16) : 0, track: 0.03, alpha: 0.9, color: SOFT, reveal: 'blur', delay: i * 0.3 })));
-    const rec = VALUES.map(([, name], q) => [name, Math.round(values[q] * 100)]).filter(([, v]) => v > 0).map(([name, v]) => `${name.toUpperCase()} ${v}`).join('  ·  ');
-    valuesT.t.set(rec ? [{ text: rec, font: 'serif', size: 0.14 / 0.7, y: 0, track: 0.06, alpha: 0.7, color: INK }] : []);
+    castellT.t.set([{ text: castell, font: 'serif', size: 0.66, y: 0.16, track: 0.01, color: INK }, { text: O[0], font: 'italic', size: 0.2, y: -0.38, track: 0.02, alpha: 0.9, color: INK, rules: 0.45, rise: true, delay: 0.5 }]);
+    glossT.t.set([{ text: O[1], font: 'sans', size: 0.082, y: 0, track: 0.16, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
+    statT.t.set([{ text: `${hands} ${hands === 1 ? 'mano' : 'manos'}${still ? ` · ${still} s de quietud` : ''}`, font: 'mono', size: 0.08, y: 0, track: 0.12, alpha: 0.6, color: SOFT, upper: true, reveal: 'blur' }]);
     const lk = values.join(',');
-    if (lk !== labelKey) { labelKey = lk; for (let k = 0; k < 4; k++) labelT[k].t.set([{ text: VALUES[k][1], font: 'sans', size: 0.13, y: 0, track: 0.14, alpha: 0.35 + 0.6 * values[k], color: INK, upper: true, reveal: 'blur' }]); }
+    if (lk !== labelKey) { labelKey = lk; for (let k = 0; k < 4; k++) labelT[k].t.set([{ text: VALUES[k][1], font: 'mono', size: 0.13, y: 0, track: 0.14, alpha: 0.35 + 0.6 * values[k], color: INK, upper: true, reveal: 'blur' }]); }
   }
   function set(o, v, k, dt = 1 / 60) {
     const U = o.t.U;
@@ -255,7 +237,6 @@ export function create({ THREE, TSL, room, params = {} }) {
     prints.push({ id, wall, x, y, a: 0, s: 1, born: t, form: 0, pop: 0, seed, mir: x < 0 ? 1 : 0, ring: 0, pref, tx: x, ty: y, ta: 0, landed: false, sweep: 0 });
   }
   function layoutRing() {
-    return;   // 25-11 (AD #13): the prints stay where they were left
     // per wall: the prints that have left the hand join the ring, sorted by where they came from, spaced evenly, rotated to fit
     for (let wi = 0; wi < NW; wi++) {
       const L = prints.filter((p) => p.wall === wi);
@@ -324,7 +305,7 @@ export function create({ THREE, TSL, room, params = {} }) {
       changed = true;
     }
     if (changed) layoutRing();
-    content(input.acta, prints.length, input.state);
+    content(input.acta, prints.length);
 
     // ---- prints: form (0.7 s), hold under the hand (0.9 s), glide to the ring, land (pop), rest; the ring re-spaces as it fills
     let n = 0;
@@ -345,7 +326,7 @@ export function create({ THREE, TSL, room, params = {} }) {
         const r = 1 - Math.exp(-dt * (p.landed ? 1.6 : 2.4));
         p.x += (p.tx - p.x) * r; p.y += (p.ty - p.y) * r;
         let da = p.ta - p.a; da = Math.atan2(Math.sin(da), Math.cos(da)); p.a += da * r;
-        p.s += (1 - p.s) * r;
+        p.s += (0.82 - p.s) * r;
         if (!p.landed && Math.hypot(p.tx - p.x, p.ty - p.y) < 0.03) { p.landed = true; p.pop = 1; if (firstLand < 0) firstLand = t; }
       } else if (age > 0.7) { p.y += dt * 0.02; }
       p.pop = Math.max(0, p.pop - dt / 0.8);
@@ -356,7 +337,7 @@ export function create({ THREE, TSL, room, params = {} }) {
     }
     // the dotted ring where the prints go (faint; a dot goes out under a landed print)
     for (let wi = 0; wi < NW; wi++) {
-      const dotA = 0;   // no ring of slots (the prints stay where they were left)
+      const dotA = 0.6 * (1 - 0.5 * clamp01(filled[wi] / 8));
       for (let i = 0; i < NSLOT; i++) { const [x, y] = slotDot(0, i / NSLOT); put(1, wi, x, y, 0, 0.02, 1, 0, 0, dotA); }
     }
     piG.instanceCount = n; for (const a of [PA, PB, PN, PD]) a.needsUpdate = true;
@@ -365,11 +346,10 @@ export function create({ THREE, TSL, room, params = {} }) {
     // ---- the words
     const landed = firstLand >= 0 && t > firstLand;
     set(castellT, env(t, 0.2, 2.6, 24, 24.6) * brk, k, dt);
-    set(glossT, env(t, 2.4, 4.2, 11, 11.6) * brk, k, dt);   // above the castell, then the line of story in its place (12–24 s)
-    const inv = (S && S.printOpen != null && S.block === 'acta' ? (S.printOpen ? env(t, 3.0, 4.0, 99, 100) : 0) : env(t, 3.0, 4.0, 21.4, 22)) * brk;   // while the score's print window is open (no dimming: words never half-leave)
+    set(glossT, env(t, 2.4, 4.2, 11, 11.6) * brk, k, dt);
+    const inv = Math.min(S && S.printOpen != null && S.block === 'acta' ? (S.printOpen ? env(t, 3.0, 4.0, 99, 100) : (t > 3.5 ? 0 : 0)) : env(t, 3.0, 4.0, 14.4, 15), landed ? 1 - smooth((t - firstLand) / 0.6) : 1) * brk;
     set(inviteT, inv, k, dt);
-    set(statT, env(t, 12, 13.5, 24, 24.6) * brk, k, dt);
-    set(valuesT, env(t, 12.5, 14, 31.8, 32.6) * brk, k, dt);   // the values: a typographic record under the outcome
+    set(statT, (handsN > 0 ? env(t, 12, 13.5, 24, 24.6) : 0) * brk, k, dt);
     set(sentT, env(t, 25, 28, 31.8, 32.6) * brk, k, dt);
     set(credT, env(t, 33.5, 35, 38.8, 39.6) * brk, k, dt);
     for (let i = 0; i < NW; i++) { const rb = ribbons[i]; rb.U.grow.value = clamp01((t - 1.6) / 1.8) * (1 - smooth((t - 13.2) / 0.6)) * brk; rb.U.a.value = k; rb.mesh.visible = rb.U.grow.value > 0.001 && k > 0.002; }
@@ -377,13 +357,13 @@ export function create({ THREE, TSL, room, params = {} }) {
     // ---- the dials: each comes in (bezel and ticks), then its needle swings to the value and settles (a little overshoot)
     let anyDial = 0;
     for (let q = 0; q < 4; q++) {
-      const s0 = 12 + q * 0.7, a = 0, U = dialU[q];   // AD #13: no dials
+      const s0 = 12 + q * 0.7, a = env(t, s0, s0 + 1.0, 31.8, 32.6) * brk * k, U = dialU[q];
       const f = clamp01((t - (s0 + 0.6)) / 2.4), sw = f >= 1 ? 1 : 1 - Math.exp(-f * 5) * Math.cos(f * 7.5);
       U.a.value = a; U.v.value = clamp01(values[q] * sw); U.lit.value = a * values[q];
-      set(labelT[q], 0, k, dt);
+      set(labelT[q], env(t, s0 + 0.4, s0 + 1.4, 31.8, 32.6) * brk, k * (0.55 + 0.45 * values[q]), dt);
       const N = numT[q], pct = Math.round(U.v.value * 100);
-      if (pct !== N.shown) { N.shown = pct; N.t.set([{ text: String(pct), font: 'sans', size: 0.22, y: 0, track: 0.02, color: INK, alpha: 0.85 }]); }
-      set(N, 0, k, dt);
+      if (pct !== N.shown) { N.shown = pct; N.t.set([{ text: String(pct), font: 'mono', size: 0.22, y: 0, track: 0.02, color: INK, alpha: 0.85 }]); }
+      set(N, (t > s0 + 0.6 ? 1 : 0) * env(t, s0, s0 + 0.01, 31.8, 32.6) * brk, k, dt);
       anyDial = Math.max(anyDial, a);
     }
     uDialA.value = anyDial * 0.9;
@@ -407,6 +387,6 @@ export function create({ THREE, TSL, room, params = {} }) {
     if (recipe) recipe.group.visible = anyDial > 0.002;
     if (typeof window !== 'undefined') window.__acta = { prints: prints.length, landed: prints.filter((p) => p.landed).length, firstLand, t };
   }
-  function dispose() { for (const m of mats) m.dispose(); for (const g of geos) g.dispose(); for (const o of [castellT, glossT, statT, sentT, credT, inviteT, valuesT, ...labelT, ...numT]) o.t.dispose(); }
+  function dispose() { for (const m of mats) m.dispose(); for (const g of geos) g.dispose(); for (const o of [castellT, glossT, statT, sentT, credT, inviteT, ...labelT, ...numT]) o.t.dispose(); }
   return { object, update, dispose };
 }

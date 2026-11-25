@@ -18,18 +18,6 @@
 // is a vertex-stage displacement and rotation (no CPU work per frame). Light: 16 point lights (the fanals), moon + hemisphere, no
 // shadows; the haze is an analytic single-scattering fog computed from the eye (the same for the four cameras, so no seam at the
 // corners): each lamp gets its volumetric halo for free. Wet floor: real specular + streaky fake reflections of every lamp.
-// STUDIO NIGHT 25-11 (VFX V8, plan 05 §2.7–2.8, D5b): THE LIT SQUARE. In Pinya and Tronc (input.state.block, or params.lit 0..1 with
-// params.litBlock) the same square turns to plaza light: lime facades (palette `cal-foc` / `porcellana`) under a low raking key with
-// REAL cast shadows (room.keyShadow: arcades and porches in shadow, the facades' shadows across the slabs), a cool sky fill, dry pale
-// slabs, the room's sky (room.sky) above and a thin air that grows with distance (never a veil on the foreground). No break while lit.
-// THE FESTIVAL NIGHT (VFX 25-11, Beltrán ~02:30 — overrides the lit day for Pinya and Tronc): the square at night, lit like a castell
-// night: four warm stage SPOTS from high on the sides, one per castell wall, aimed at the tower's foot (6.5 m beyond the wall) — warm
-// pools on the wet paving, spill on the facades, and their SHAFTS visible in the haze (additive cones); far facades sink into the
-// room's blue air, the fanals and the windows warm, deep shadows elsewhere. params.fest 0..1 (study) or block pinya / tronc.
-// BRASA (VFX 25-11): in block 'brasa' the square is the night of fire — the fanals almost out, the sky the room's smoky dark, and up to
-// NFI fires (part.setFires(list, posOf, kOf), fed by brasa3d's hand-lit fires) light the facades and slabs in flame colour, with their glow
-// in the air.
-import { lin as palLin } from '../palette.js';
 export function create(ctx) {
   const { THREE, TSL, room } = ctx;
   const P = ctx.params || {};
@@ -699,42 +687,16 @@ export function create(ctx) {
   const uMoonDir = uniform(new THREE.Vector3(0.55, 0.62, 0.56).normalize());
   const lampVec = Array.from({ length: NL }, () => new THREE.Vector4());
   const uLamps = uniformArray(lampVec, 'vec4');
-  // VFX perf 25-11: the per-pixel light loops run over COMPACTED arrays (only the lights that are on, brightest first) with a live count,
-  // so a dark lamp, an absent hand or a cold fire costs nothing (was: every loop over every slot, every pixel, four walls).
-  const lampVecC = Array.from({ length: NL }, () => new THREE.Vector4(0, -50, 0, 0)), uLampsC = uniformArray(lampVecC, 'vec4');
-  const uNL = uniform(0, 'int'), uNHL = uniform(0, 'int'), uNFI = uniform(0, 'int');
-  const LOOP = (n) => n;   // Loop(uniformInt, …) as festa / atmos do (the object form failed: «Uniform null»)
   const LC = vec3(1.0, 0.6, 0.3);
-  const NSP = 8, spotP = Array.from({ length: NSP }, () => new THREE.Vector4(0, -50, 0, 0)), spotD = Array.from({ length: NSP }, () => new THREE.Vector4(0, -1, 0, 0.95));
-  const uSpotP = uniformArray(spotP, 'vec4'), uSpotD = uniformArray(spotD, 'vec4'), uFest = uniform(0);
-  const uSpotC = uniform(new THREE.Vector3(...palLin('cal-fanal'))), SPC = uSpotC;   // the stage light: warm lime (tronc) · warmer fire-lime (pinya)
-  const uNSP = uniform(0, 'int');
-  // VFX 25-11 (free touch, D3): every hand on a wall opens a warm pool of lamp light 0.8 m behind it — on the paving (≥ 1 m), the near
-  // stone and in the air — growing in ~0.4 s, staying a few seconds after the hand goes. Not in the Brasa (there the hand lights fire).
-  const NHL = 6, hlVec = Array.from({ length: NHL }, () => new THREE.Vector4(0, -50, 0, 0)), uHL = uniformArray(hlVec, 'vec4');
-  const HLC = vec3(...palLin('cal-fanal')).mul(0.7).add(vec3(...palLin('fanal')).mul(0.3));
-  const NFI = 8, fireVec = Array.from({ length: NFI }, () => new THREE.Vector4(0, -50, 0, 0)), uFires = uniformArray(fireVec, 'vec4');
-  const FC = vec3(...palLin('flama')).mul(1.0).add(vec3(...palLin('brasa')).mul(0.4));   // the colour of the fire's light (palette tokens)
-  const uDawn = uniform(0);
-  const uNightK = uniform(0), uBlue = uniform(0), uArr = uniform(0), uPom = uniform(0), uShaftK = uniform(1), uPinya = uniform(0), uCrown = uniform(0);
-  const tlVec = Array.from({ length: 4 }, () => new THREE.Vector4(0, -50, 0, 0)), uTL = uniformArray(tlVec, 'vec4'), TLC = vec3(...palLin('or')).mul(1.1);
-  // AD#8 the crown as an event: uTLR = the gold pool's radius (m, grows from the tower's foot), uPulse = the two fronts of the light wave
-  // that runs round the four walls (horizontal unit directions from the eye, xz · xz), uPulseK its strength
-  const uTLR = uniform(1), uPulse = uniform(new THREE.Vector4(0, -1, 0, -1)), uPulseK = uniform(0);
-  const LOWHAZE = vec3(...palLin('terracota')).mul(0.16).add(vec3(...palLin('cal-foc')).mul(0.05));   // pinya: the warm smoke of the bonfires                                         // brasa: 1 = the room's dark sky instead of the moonlit one
-  // VFX V8: the lit square (0 = the night square … 1 = plaza light). Tones from palette.js (nobody writes a hex)
-  const uDay = uniform(0), uDayTone = uniform(new THREE.Vector3(...palLin('porcellana'))), uDayFloor = uniform(new THREE.Vector3(...palLin('pedra-llum'))), uDayAir = uniform(0.015);
-  const roomSky = room.sky ? room.sky : () => vec3(0.02, 0.025, 0.04);
 
   // ------------------------------------------------------------------------------------------------ TSL helpers
   const hash12 = (p) => { const q = fract(vec3(p.x, p.y, p.x).mul(0.1031)); const p3 = q.add(dot(q, q.yzx.add(33.33))); return fract(p3.x.add(p3.y).mul(p3.z)); };
   const hash13 = (p) => { const q = fract(p.mul(0.1031)); const p3 = q.add(dot(q, q.zyx.add(31.32))); return fract(p3.x.add(p3.y).mul(p3.z)); };
   const rotA = (v, k, a) => v.mul(cos(a)).add(cross(k, v).mul(sin(a))).add(k.mul(dot(k, v).mul(cos(a).oneMinus())));
   const aFrag = attribute('aFrag', 'vec4'), aInfo = attribute('aInfo', 'vec4'), aExt = attribute('aExt', 'vec4'), aCol = attribute('color', 'vec3');
-  // VFX 25-11: the break is staggered in depth — the nearest stone goes first, the far square after (and re-forms in the same order)
-  const fragDelay = (F) => F.w.mul(0.34).add(0.06).add(clamp(F.y.div(16), 0, 1).oneMinus().mul(0.2)).add(clamp(length(F.xz).sub(14.0).div(30.0), 0, 1).mul(0.22));
+  const fragDelay = (F) => F.w.mul(0.42).add(0.08).add(clamp(F.y.div(16), 0, 1).oneMinus().mul(0.25));
   const fragProg = (F) => clamp(uS.sub(fragDelay(F)).div(0.6), 0, 4);
-  const cpuDelay = (sd, cy) => sd * 0.34 + 0.06 + (1 - Math.min(1, Math.max(0, cy / 16))) * 0.2 + 0.11;   // (the lamps: mid-depth on average)
+  const cpuDelay = (sd, cy) => sd * 0.42 + 0.08 + (1 - Math.min(1, Math.max(0, cy / 16))) * 0.25;
 
   // the break, in the vertex stage: vibration, then each fragment drifts up and apart, turning; later most shrink away
   const shatterPos = (mirror) => Fn(() => {
@@ -750,9 +712,8 @@ export function create(ctx) {
     const axis = normalize(vec3(r1.sub(0.5), r2.sub(0.5), r3.sub(0.5)).add(vec3(0.0, 0.001, 0.0)));
     const ang = p.mul(r4.mul(1.3).add(0.25)).mul(sign(r5.sub(0.5)));
     const fadeAt = r2.mul(0.85).add(0.95);
-    // (AD 25-11: while the square RE-FORMS — uArr — no glass panes and no lingering glinters: nothing floats in the sky)
-    let sc = max(smoothstep(fadeAt.add(0.35), fadeAt, uS), step(0.93, r3).mul(smoothstep(2.6, 2.0, uS)).mul(float(1).sub(uArr)));
-    if (mirror) sc = sc.mul(float(1).sub(uArr)).mul(smoothstep(d.sub(0.02), d.add(0.12), uS)).mul(max(smoothstep(fadeAt.add(0.6), fadeAt.add(0.2), uS), step(0.7, r3).mul(smoothstep(2.6, 2.1, uS))));
+    let sc = max(smoothstep(fadeAt.add(0.35), fadeAt, uS), step(0.93, r3).mul(smoothstep(2.6, 2.0, uS)));
+    if (mirror) sc = sc.mul(smoothstep(d.sub(0.02), d.add(0.12), uS)).mul(max(smoothstep(fadeAt.add(0.6), fadeAt.add(0.2), uS), step(0.7, r3).mul(smoothstep(2.6, 2.1, uS))));
     const local = positionLocal.sub(c).mul(sc);
     const rotated = rotA(local, axis, ang);
     normalLocal.assign(rotA(normalLocal, axis, ang));
@@ -784,8 +745,8 @@ export function create(ctx) {
     const flo = vec3(0.005, 0.004, 0.0035).mul(uRev).mul(uDark);
     const c = mix(fac, skyCol(R, false), smoothstep(uHorizon.sub(0.05), uHorizon.add(0.05), R.y)).toVar();
     c.assign(mix(flo, c, smoothstep(-0.04, 0.04, R.y)));
-    Loop(LOOP(uNL), ({ i }) => {
-      const L = uLampsC.element(i);
+    Loop(NL, ({ i }) => {
+      const L = uLamps.element(i);
       const Dl = normalize(L.xyz.sub(Pw));
       const cd = dot(R, Dl);
       If(cd.greaterThan(0.9), () => { c.addAssign(LC.mul(L.w.mul(pow(cd, sharp).mul(40).add(pow(cd, 30).mul(0.08))))); });
@@ -794,19 +755,18 @@ export function create(ctx) {
   })();
   // analytic single scattering from the eye: moonlit haze plus every lamp's volumetric glow (the same for the four cameras)
   const fogOut = Fn(() => {
+    const col = output;
     const E = cameraPosition, Pw = positionWorld;
     const Vv = Pw.sub(E), dist = length(Vv), dir = Vv.div(dist);
     const Ls = min(dist, 90.0);
     const n = sin(Pw.x.mul(0.13).add(uTime.mul(0.07)).add(sin(Pw.z.mul(0.09).sub(uTime.mul(0.05))).mul(2.0))).mul(sin(Pw.z.mul(0.11).add(Pw.y.mul(0.2)).sub(uTime.mul(0.04)).add(sin(Pw.x.mul(0.07)).mul(1.7))));
     const sig = uFog.mul(n.mul(0.5).add(1.0));
-    const Tr = exp(sig.mul(Ls).negate()).toVar();
+    const Tr = exp(sig.mul(Ls).negate());
     const md = max(dot(dir, uMoonDir), 0);
-    // (festival / Brasa: the moonlit veil goes — the haze lives in the beams and the far blue, never a milky wall; AD 25-11)
-    const col = output.toVar();
-    const ins = vec3(0.012, 0.016, 0.026).mul(uSky).mul(md.mul(md).mul(2.5).add(0.8)).mul(Tr.oneMinus()).mul(float(1).sub(max(uFest, uNightK).mul(0.85))).toVar();
+    const ins = vec3(0.012, 0.016, 0.026).mul(uSky).mul(md.mul(md).mul(2.5).add(0.8)).mul(Tr.oneMinus()).toVar();
     If(uGlow.greaterThan(0.001), () => {
-      Loop(LOOP(uNL), ({ i }) => {
-        const L = uLampsC.element(i);
+      Loop(NL, ({ i }) => {
+        const L = uLamps.element(i);
         const rel = L.xyz.sub(E), s0 = dot(rel, dir);
         const h2 = dot(rel, rel).sub(s0.mul(s0));
         If(h2.lessThan(16.0).and(L.w.greaterThan(0.001)), () => {
@@ -816,58 +776,7 @@ export function create(ctx) {
         });
       });
     });
-    Loop(LOOP(uNHL), ({ i }) => {                                            // the hands' light in the haze
-      const L = uHL.element(i);
-      const rel = L.xyz.sub(E), s0 = dot(rel, dir), h2 = dot(rel, rel).sub(s0.mul(s0));
-      If(L.w.greaterThan(0.002).and(h2.lessThan(16.0)), () => {
-        const h = sqrt(max(h2, 0.02));
-        const integ = atan(Ls.sub(s0).div(h)).sub(atan(s0.negate().div(h))).div(h);
-        ins.addAssign(HLC.mul(L.w.mul(integ).mul(0.0022)));
-      });
-    });
-    Loop(LOOP(uNFI), ({ i }) => {                                            // the fires' glow in the smoke
-      const L = uFires.element(i);
-      const rel = L.xyz.sub(E), s0 = dot(rel, dir), h2 = dot(rel, rel).sub(s0.mul(s0));
-      If(L.w.greaterThan(0.002).and(h2.lessThan(36.0)), () => {
-        const h = sqrt(max(h2, 0.02));
-        const integ = atan(Ls.sub(s0).div(h)).sub(atan(s0.negate().div(h))).div(h);
-        ins.addAssign(FC.mul(L.w.mul(integ).mul(0.0035).mul(max(uNightK, uPinya))));
-      });
-    });
-    // AD#7: the gold comes FROM the tower (uTL: its light, spilling with falloff, its glow in the haze), never a global fog; behind the
-    // tower (Tronc and crown) the square is darkened ~45 % — a spot vignette — so the tower in its beam is the brightest thing
-    const dH = normalize(vec3(dir.x, 0, dir.z));
-    let near = float(0);
-    for (const w of room.walls) { const n = new THREE.Vector3(-w.normal.x, 0, -w.normal.z).normalize(); near = max(near, smoothstep(0.955, 0.995, dot(dH, vec3(n.x, 0, n.z)))); }
-    const behindTower = near.mul(smoothstep(6.0, 9.0, dist)).mul(uFest).mul(0.65);   // AD#9: the architecture behind the tower −65 %
-    col.assign(vec4(col.rgb.mul(float(1).sub(behindTower)), col.a));
-    If(uPulseK.greaterThan(0.001), () => {                         // the wave of light round the room (crosses the seam: it is a direction)
-      const a1 = dot(dH.xz, uPulse.xy), a2 = dot(dH.xz, uPulse.zw);
-      const band = exp(float(1).sub(a1).div(-0.0025)).add(exp(float(1).sub(a2).div(-0.0025)));
-      ins.addAssign(TLC.mul(band.mul(uPulseK).mul(0.55).mul(smoothstep(0.0, 1.0, Pw.y)).mul(float(1).sub(smoothstep(4.0, 9.0, Pw.y)))));
-    });
-    If(uCrown.greaterThan(0.01), () => {
-      Loop(4, ({ i }) => {
-        const L = uTL.element(i);
-        const rel = L.xyz.sub(E), s0 = dot(rel, dir), h2 = dot(rel, rel).sub(s0.mul(s0));
-        const h = sqrt(max(h2, 0.05));
-        const integ = atan(Ls.sub(s0).div(h)).sub(atan(s0.negate().div(h))).div(h);
-        ins.addAssign(TLC.mul(L.w.mul(integ).mul(0.006)));
-      });
-    });
-    // BAJADA (AD#12): the alba-rosa climbs the upper facades with the chapter (the floor stays cold)
-    ins.addAssign(vec3(...palLin('alba-rosa')).mul(smoothstep(2.0, 11.0, Pw.y)).mul(uDawn).mul(0.22));
-    // PINYA (AD#5): a low heavy warm haze that swallows the square up to ~2 m — above it only silhouettes and lit windows
-    If(uPinya.greaterThan(0.01), () => {
-      const low = smoothstep(2.6, 0.2, Pw.y), thick = float(1).sub(exp(max(dist.sub(4.0), 0).mul(-0.11)));
-      const hk = low.mul(thick).mul(uPinya).mul(0.92);
-      ins.assign(ins.mul(float(1).sub(hk)).add(LOWHAZE.mul(hk)));
-      Tr.assign(Tr.mul(float(1).sub(hk)));
-    });   // festival: the far square sinks into the room's blue air
-    // VFX V8: in the lit square the air is the room's sky in that direction, thin near the walls and growing with distance
-    const Td = exp(max(dist.sub(9.0), 0).mul(uDayAir).negate());
-    const dayC = col.rgb.mul(Td).add(roomSky(dir).mul(float(1).sub(Td)));
-    return vec4(mix(col.rgb.mul(Tr).add(ins), dayC, uDay), col.a);
+    return vec4(col.rgb.mul(Tr).add(ins), col.a);
   });
   // bump from a procedural height (Mikkelsen's surface gradient, screen-space derivatives)
   const bumpN = (h, scale) => {
@@ -891,46 +800,8 @@ export function create(ctx) {
     const shin = float(2).div(a2.mul(a2)).sub(2).min(700);
     const f0 = mix(vec3(0.04), albedo, metal);
     const kd = albedo.mul(float(1).sub(metal)).mul(1 / Math.PI);
-    If(uFest.greaterThan(0.001), () => {
-      Loop(LOOP(uNSP), ({ i }) => {                                   // VFX 25-11: the festival's stage spots (compacted)
-        const L = uSpotP.element(i), Dd = uSpotD.element(i);
-        const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv), Ld = Lv.mul(d2.inverseSqrt());
-        const along = dot(Pw.sub(L.xyz), Dd.xyz);
-        const cone = smoothstep(Dd.w, Dd.w.add(0.035), dot(Ld.negate(), Dd.xyz)).mul(smoothstep(22.0, 15.0, along));   // stops past the tower: no light ellipse on the facade behind
-        const ndl = max(dot(Nw, Ld), 0);
-        const H = normalize(Ld.add(Vw)), spec = f0.mul(pow(max(dot(Nw, H), 0), shin).mul(shin.add(8).mul(1 / (8 * Math.PI))));
-        acc.addAssign(SPC.mul(L.w.mul(uFest).mul(cone).div(d2.add(1.0))).mul(ndl).mul(kd.add(spec)));
-      });
-    });
-    If(uCrown.greaterThan(0.01), () => {
-      Loop(4, ({ i }) => {                                            // AD#7: the crowned tower's gold light on the floor and facades
-        const L = uTL.element(i), Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv), Ld = Lv.mul(d2.inverseSqrt()), ndl = max(dot(Nw, Ld), 0);
-        const Hh = normalize(Ld.add(Vw)), sp = f0.mul(pow(max(dot(Nw, Hh), 0), shin).mul(shin.add(8).mul(1 / (8 * Math.PI))));
-        const hd = length(Pw.xz.sub(L.xz)), pool = smoothstep(uTLR, uTLR.mul(0.55), hd);   // the pool spreads from the foot
-        acc.addAssign(TLC.mul(L.w.mul(40).div(d2.add(1.5))).mul(ndl).mul(kd.add(sp.mul(1.5))).mul(pool));
-      });
-    });
-    Loop(LOOP(uNHL), ({ i }) => {                                            // VFX 25-11: the hands' own light
-      const L = uHL.element(i);
-      const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv);
-      If(L.w.greaterThan(0.002).and(d2.lessThan(400.0)), () => {
-        const Ld = Lv.mul(d2.inverseSqrt()), ndl = max(dot(Nw, Ld), 0);
-        const H = normalize(Ld.add(Vw)), spec = f0.mul(pow(max(dot(Nw, H), 0), shin).mul(shin.add(8).mul(1 / (8 * Math.PI))));
-        acc.addAssign(HLC.mul(L.w.mul(14).div(d2.add(0.4))).mul(ndl).mul(kd.add(spec)).mul(smoothstep(400.0, 30.0, d2)));
-      });
-    });
-    Loop(LOOP(uNFI), ({ i }) => {                                            // VFX 25-11: the hand-lit fires of the Brasa, flickering
-      const L = uFires.element(i);
-      const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv);
-      If(L.w.greaterThan(0.002).and(d2.lessThan(900.0)), () => {
-        const Ld = Lv.mul(d2.inverseSqrt()), ndl = max(dot(Nw, Ld), 0);
-        const fl = sin(uTime.mul(11.0).add(L.x.mul(3.1))).mul(sin(uTime.mul(7.3).add(L.z.mul(2.3)))).mul(0.18).add(0.9);
-        const Hf = normalize(Ld.add(Vw)), specF = f0.mul(pow(max(dot(Nw, Hf), 0), shin).mul(shin.add(8).mul(1 / (8 * Math.PI))));   // embers mirrored in the wet stone
-        acc.addAssign(FC.mul(L.w.mul(26).mul(fl).div(d2.add(0.6))).mul(ndl).mul(kd.add(specF.mul(1.5))).mul(smoothstep(900.0, 60.0, d2)).mul(smoothstep(9.0, 1.5, Pw.y)));   // the facades fall to night upwards
-      });
-    });
-    Loop(LOOP(uNL), ({ i }) => {
-      const L = uLampsC.element(i);
+    Loop(NL, ({ i }) => {
+      const L = uLamps.element(i);
       const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv);
       If(d2.lessThan(LR2).and(L.w.greaterThan(0.001)), () => {
         const Ld = Lv.mul(d2.inverseSqrt());
@@ -969,10 +840,7 @@ export function create(ctx) {
   const silOut = Fn(() => {
     const N = normalize(normalWorld), V = normalize(cameraPosition.sub(positionWorld));
     const edge = pow(float(1).sub(abs(dot(N, V))), 4), toE = max(dot(N, uEast), 0);
-    // VFX 25-11: albergínia in the dawn air (aerial perspective towards the room's sky), never black cardboard; the warm rim stays
-    const dv = positionWorld.sub(cameraPosition), dd = length(dv), air = float(1).sub(exp(dd.mul(-0.022))).mul(0.85);
-    const base = mix(vec3(...palLin('albergínia', 0.55)), roomSky(dv.div(dd)), air);
-    return vec4(base.add(vec3(...palLin('alba-rosa')).mul(edge.mul(toE).mul(0.45))), 1);
+    return vec4(vec3(1.0, 0.55, 0.3).mul(edge.mul(toE).mul(0.35)), 1);
   });
   function finish(m, shatterKind) {
     if (shatterKind !== undefined) m.positionNode = shatterPos(shatterKind); m.fog = false; m.outputNode = mix(fogOut(), silOut(), uSil);
@@ -1015,12 +883,11 @@ export function create(ctx) {
     // under the moon the stone loses its sodium warmth (it is the lamps that make it warm): the lit-by-sky albedo goes cool grey at night,
     // the lamps' own light below still sees the warm stone
     const sCool = mix(sAlb, vec3(dot(sAlb, vec3(0.3, 0.55, 0.15))).mul(vec3(0.55, 0.8, 1.45)), uNight.mul(0.85));
-    const sDay = sAlb.div(max(dot(sAlb, vec3(0.3, 0.55, 0.15)), 0.02)).mul(0.24).mul(uDayTone);   // lime-washed: the stone's own variation, the chapter's tone
-    m.colorNode = mix(sCool, sDay, uDay.mul(float(1).sub(isMirror))); m.roughnessNode = sRough; m.metalnessNode = isMirror; m.normalNode = sN;
+    m.colorNode = sCool; m.roughnessNode = sRough; m.metalnessNode = isMirror; m.normalNode = sN;
     const R = reflectVector;
     const mirE = Fn(() => { const e = vec3(0).toVar(); If(isMirror.greaterThan(0.001), () => { e.assign(envRefl(R, Pw, 900).add(vec3(0.75, 0.82, 1.0).mul(pow(max(dot(R, uMoonDir), 0), 24).mul(1.6).mul(uRev))).mul(isMirror).mul(0.85)); }); return e; })();
     const sLamp = lampLight(sAlb, sRough, isMirror, sN, Pw);
-    m.emissiveNode = mirE.add(sLamp).add(nightOn(sAlb, sLamp).mul(float(1).sub(isMirror))).mul(float(1).sub(uDay.mul(0.8)));
+    m.emissiveNode = mirE.add(sLamp).add(nightOn(sAlb, sLamp).mul(float(1).sub(isMirror)));
     return finish(m, false);
   })();
 
@@ -1095,7 +962,7 @@ export function create(ctx) {
     const warm = aCol.mul(tvTint);
     const p = fragProg(aFrag);
     const alive = smoothstep(0.35, 0.0, p);
-    const winE = interior.mul(warm).mul(litR.mul(0.6).add(0.55)).mul(litOn).mul(life).mul(mix(0.7, 0.75, isShop)).mul(uWin);   // AD#12: no flat white shop windows (was 1.1–1.6)
+    const winE = interior.mul(warm).mul(litR.mul(0.6).add(0.55)).mul(litOn).mul(life).mul(mix(1.1, 1.6, isShop)).mul(uWin);
     const dimRoom = surf.mul(0.006).mul(uRev);                       // unlit rooms: almost black, a hint of depth
     // the rose: twelve petals, rings, deep blue and red with amber, faintly lit from inside
     const rq = vec2(uvm.x.sub(aExt.x), uvm.y.sub(aExt.y)), rr0 = length(rq).div(aExt.z), ra = atan(rq.y, rq.x);
@@ -1153,8 +1020,7 @@ export function create(ctx) {
     const height = smoothstep(0.035, 0.0, edge).mul(-0.0025).add(fu.mul(len).mul(tilt.x)).add(fv.mul(rowW).mul(tilt.y)).add(grain.mul(0.0018).mul(float(1).sub(wet)));
     const fRough = mix(float(0.62).add(grain.mul(0.12)).add(tex(texSlabR, fuv).r.sub(0.6).mul(0.35).mul(uDetail)).clamp(0.3, 1), float(0.07), wet);
     const fN = bumpN(height, 1.0);
-    const fDay = albedo.div(max(dot(albedo, vec3(0.3, 0.55, 0.15)), 0.01)).mul(0.16).mul(uDayFloor).mul(mix(1, 0.6, joint));
-    m.colorNode = mix(albedo, fDay, uDay); m.roughnessNode = mix(fRough, max(fRough, 0.55), uDay); m.metalnessNode = float(0); m.normalNode = fN;
+    m.colorNode = albedo; m.roughnessNode = fRough; m.metalnessNode = float(0); m.normalNode = fN;
     // fake reflections: what a puddle sees (facades, sky), and a long streak under every lamp
     const V = viewDir();
     const R = vec3(V.x, V.y.negate(), V.z);
@@ -1163,8 +1029,8 @@ export function create(ctx) {
     const refl = Fn(() => {
     const rf = mix(vec3(0.012, 0.009, 0.006).mul(uRev).mul(uDark), skyCol(R, false), smoothstep(uHorizon.sub(0.05), uHorizon.add(0.05), R.y)).toVar();
     const ripple = mx_noise_float(vec3(W.x.mul(2.0), uTime.mul(0.15), W.y.mul(2.0))).mul(0.012);
-    Loop(LOOP(uNL), ({ i }) => {
-      const L = uLampsC.element(i);
+    Loop(NL, ({ i }) => {
+      const L = uLamps.element(i);
       const Dl = normalize(L.xyz.sub(Pw));
       const ca = dot(Rh, normalize(Dl.xz));
       If(ca.greaterThan(0.998).and(L.w.greaterThan(0.001)), () => {
@@ -1176,26 +1042,13 @@ export function create(ctx) {
     });
       return rf;
     })();
-    m.emissiveNode = refl.mul(fr).mul(wet.mul(0.9).add(0.1)).mul(uFake.mul(0.5).add(0.5)).add(lampLight(albedo, fRough, float(0), fN, Pw)).mul(float(1).sub(uDay.mul(0.85)));
-    // VFX 25-11 (Brasa): embers glow in the JOINTS of the paving round every hand-lit fire (not confetti on top)
-    const ember = Fn(() => {
-      const e = float(0).toVar();
-      If(uNightK.greaterThan(0.01), () => {
-        Loop(LOOP(uNFI), ({ i }) => { const L = uFires.element(i); If(L.w.greaterThan(0.002), () => { const d = Pw.xz.sub(L.xz); e.addAssign(L.w.mul(exp(dot(d, d).mul(-0.7)))); }); });
-      });
-      const fl = mx_noise_float(vec3(W.x.mul(2.0), uTime.mul(0.6), W.y.mul(2.0))).mul(0.5).add(0.6);
-      const some = smoothstep(0.35, 0.75, mx_noise_float(vec3(W.x.mul(0.9), 2.3, W.y.mul(0.9))).mul(0.5).add(0.5));   // only some joints hold embers
-      return FC.mul(smoothstep(0.003, 0.009, edge).oneMinus()).mul(min(e, 1.2)).mul(fl).mul(some).mul(uNightK).mul(0.6);
-    })();
-    m.emissiveNode = m.emissiveNode.add(ember.mul(0.0));   // AD 25-11: glowing joints read as Tron — the embers live in the wet stone's reflection instead
+    m.emissiveNode = refl.mul(fr).mul(wet.mul(0.9).add(0.1)).mul(uFake.mul(0.5).add(0.5)).add(lampLight(albedo, fRough, float(0), fN, Pw));
     return finish(m);
   })();
 
   const skyMat = (() => {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false });
-    const dS = normalize(positionWorld.sub(cameraPosition));
-    const dawnSky = mix(vec3(...palLin('alba-rosa')).mul(0.75), vec3(...palLin('alba-blau')).mul(0.45), smoothstep(0.02, 0.55, dS.y));
-    m.colorNode = mix(mix(skyCol(dS), roomSky(dS), max(max(max(uDay, uNightK), max(uFest.mul(0.85), uBlue)), uPom)), dawnSky, uDawn);   // AD#12: the dawn climbs the sky over the bajada
+    m.colorNode = skyCol(normalize(positionWorld.sub(cameraPosition)));
     return finish(m);
   })();
 
@@ -1218,7 +1071,7 @@ export function create(ctx) {
     g.userData.r0 = g.boundingSphere.radius;
     geos.push(g);
     const mesh = new THREE.Mesh(g, mat);
-    mesh.matrixAutoUpdate = false; mesh.castShadow = true; mesh.receiveShadow = true;   // VFX V7: the lit square's key shadow
+    mesh.matrixAutoUpdate = false;
     object.add(mesh);
     return mesh;
   }
@@ -1228,7 +1081,7 @@ export function create(ctx) {
   }
   for (const k in B) B[k].length = 0;
   const floorGeo = new THREE.PlaneGeometry(160, 160); floorGeo.rotateX(-Math.PI / 2); geos.push(floorGeo);
-  const floor0 = new THREE.Mesh(floorGeo, floorMat); floor0.matrixAutoUpdate = false; floor0.receiveShadow = true; object.add(floor0);
+  const floor0 = new THREE.Mesh(floorGeo, floorMat); floor0.matrixAutoUpdate = false; object.add(floor0);
   const skyGeo = new THREE.SphereGeometry(300, 48, 24); geos.push(skyGeo);
   const sky = new THREE.Mesh(skyGeo, skyMat); sky.matrixAutoUpdate = false; sky.renderOrder = -10; sky.frustumCulled = false; object.add(sky);
 
@@ -1236,111 +1089,6 @@ export function create(ctx) {
   for (const L of lamps) { L.light.layers.set(31); object.add(L.light); }   // read by the atmos part; the renderer skips layer 31
   const moon = new THREE.DirectionalLight(new THREE.Color(0.58, 0.72, 1.0), 0);   // a cool moon against the sodium lamps
   moon.position.copy(uMoonDir.value).multiplyScalar(50); object.add(moon); object.add(moon.target);
-  // VFX V7/V8: the moon is also the lit square's key, with the room's one shadow map (updated once per frame, not ×4 walls)
-  const keyS = room.keyShadow ? room.keyShadow(moon, { extent: 34, far: 140, static: true }) : null;   // VFX perf: a static map
-  let shadowKey = '';
-  const moonDay = new THREE.Vector3(), moonNight = uMoonDir.value.clone(), _kc = new THREE.Color(), _md = new THREE.Vector3();
-  const LIT = { pinya: { dir: [-0.55, 0.42, -0.72], tone: 'cal-foc', floor: 'pedra-llum', key: 'cal-foc', k: 4.2, fill: 0.45, air: 0.01, lamps: 0.6 },
-                tronc: { dir: [0.45, 0.85, -0.35], tone: 'porcellana', floor: 'pedra-llum', key: 'porcellana', k: 5.0, fill: 0.5, air: 0.008, lamps: 0.12 } };
-  for (const c of Object.values(LIT)) { c.toneL = palLin(c.tone); c.floorL = palLin(c.floor); c.keyL = palLin(c.key); }
-  let crT = 0, dustK = 0, festaT = 0; const smooth01 = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
-  let dayK = 0, litCfg = LIT.tronc, nightK = 0, festK = 0, blueK = 0, blueProg = 0, pomK = 0, pinK = 0, crK = 0;
-  // the pinya's bonfires: two low fires on each side of each wall's crowd (5 m beyond the wall), on the paving
-  const pinFires = []; for (const w of room.walls) for (const sd of [-1.9, 1.9]) { const p = w.centre.clone().addScaledVector(w.normal, -4.6).addScaledVector(w.right, sd); p.y = -0.2; pinFires.push({ p, k: 0.55 + 0.1 * Math.abs(sd) / 1.9 }); }
-
-  const hl = Array.from({ length: NHL }, () => ({ stroke: null, k: 0, seen: false, last: -99, pos: new THREE.Vector3(0, -50, 0) }));
-  function stepHandLights(dt, time, hands, on) {
-    for (const H of hl) H.seen = false;
-    if (on) for (const h of hands || []) {
-      if (h.ended) continue;
-      let H = hl.find((x) => x.stroke === h.stroke && x.stroke !== null);
-      if (!H) { H = hl.find((x) => x.stroke === null) || hl.reduce((a, b) => (a.k < b.k ? a : b)); H.stroke = h.stroke; H.k = Math.min(H.k, 0.05); }
-      H.seen = true; H.last = time;
-      const n = h.normal || room.walls[h.wall]?.normal; _hp.copy(h.pos); if (n) _hp.addScaledVector(n, -0.8); _hp.y = Math.max(0.5, h.pos.y - 0.2);
-      if (H.pos.y < -10) H.pos.copy(_hp); else H.pos.lerp(_hp, 1 - Math.exp(-dt / 0.25));
-    }
-    for (let i = 0; i < NHL; i++) {
-      const H = hl[i], tgt = H.seen ? 1 : 0;
-      H.k += (tgt - H.k) * (1 - Math.exp(-dt / (H.seen ? 0.18 : 1.6)));   // in ~0.4 s, out over ~4 s
-      if (!H.seen && H.k < 0.01) { H.stroke = null; H.k = 0; }
-      hlVec[i].set(H.pos.x, H.pos.y, H.pos.z, H.k);
-    }
-    hl.sort((a, b) => b.k - a.k); let n = 0; for (let i = 0; i < NHL; i++) { hlVec[i].set(hl[i].pos.x, hl[i].pos.y, hl[i].pos.z, hl[i].k); if (hl[i].k > 0.01) n = i + 1; } uNHL.value = n;
-  }
-  const _hp = new THREE.Vector3(), _ord = Array.from({ length: NL }, (_, i) => i);
-  // the festival spots: per castell wall, from 13 m up and 5 m to one side (alternating), 3 m beyond the tower, aimed at its foot
-  const SPOT_K = 1100, SPOT_A = 15 * Math.PI / 180;   // (the pools: a stage pool, not a floodlit floor — AD m-tronc)
-  const shafts = new THREE.Group(); shafts.name = 'plaza:shafts'; object.add(shafts); const uShaftOn = uniform(0);
-  const uDust = uniform(0); let dustObj = null;
-  {
-    const ND = 4000, dm = new THREE.SpriteNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-    const { instanceIndex, hash: hsh } = TSL;
-    const id = float(instanceIndex), tw = id.mod(4.0), r1 = hsh(id.mul(1.37)), r2 = hsh(id.mul(2.71).add(5.0)), r3 = hsh(id.mul(4.13).add(9.0));
-    const T4 = [0, 1, 2, 3].map((i) => { const w = room.walls[i % room.walls.length]; return w.centre.clone().addScaledVector(w.normal, -2.3); });
-    const tx = select(tw.lessThan(0.5), float(T4[0].x), select(tw.lessThan(1.5), float(T4[1].x), select(tw.lessThan(2.5), float(T4[2].x), float(T4[3].x))));
-    const tz = select(tw.lessThan(0.5), float(T4[0].z), select(tw.lessThan(1.5), float(T4[1].z), select(tw.lessThan(2.5), float(T4[2].z), float(T4[3].z))));
-    const fall = fract(uTime.mul(r1.mul(0.05).add(0.035)).add(r2));          // 0 at the top … 1 on the floor, ~20–30 s a fall
-    const ang = uTime.mul(0.4).add(r3.mul(6.283)), rad = fall.mul(0.8).add(0.1).mul(r2.mul(0.7).add(0.3));   // AD#9: a denser column above each tower
-    dm.positionNode = vec3(tx.add(cos(ang).mul(rad)), mix(float(6.2), float(0.05), fall), tz.add(sin(ang).mul(rad)));
-    dm.scaleNode = vec2(0.025).mul(r3.mul(0.8).add(0.6));
-    const tw2 = sin(uTime.mul(r1.mul(5.0).add(2.0)).add(r3.mul(40.0))).mul(0.5).add(0.5);
-    dm.colorNode = Fn(() => { const q = length(uv().sub(0.5)).mul(2.0); return vec4(TLC.mul(exp(q.mul(q).mul(-5.0))).mul(tw2.mul(1.6).add(0.4)).mul(uDust).mul(2.5), 1); })();
-    const dust = new THREE.Sprite(dm); dust.count = ND; dust.frustumCulled = false; dust.renderOrder = 7; object.add(dust); dustObj = dust;
-  }
-  {
-    const coneG = new THREE.CylinderGeometry(0.15, 1, 1, 40, 1, true).translate(0, -0.5, 0);   // apex at 0, opening down to y = -1
-    for (let i = 0; i < NSP; i++) {
-      const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
-      // AD#11: a VOLUMETRIC gaussian beam, the same from any angle — the distance between the view ray and the beam's axis, against the
-      // beam's radius there (the old Fresnel core turned narrow cones into hard-edged bright slabs)
-      const bS = uniform(new THREE.Vector3()), bD = uniform(new THREE.Vector3(0, -1, 0)), bT = uniform(0.05), bL = uniform(10);
-      const E0 = cameraPosition, Vr = normalize(positionWorld.sub(E0)), w0 = E0.sub(bS);
-      const bb = dot(Vr, bD), dd = dot(Vr, w0), ee = dot(bD, w0), den = max(float(1).sub(bb.mul(bb)), 1e-4);
-      const sc = bb.mul(ee).sub(dd).div(den), tc = ee.sub(bb.mul(dd)).div(den);
-      const rr = length(E0.add(Vr.mul(sc)).sub(bS.add(bD.mul(tc)))), Rb = max(tc.mul(bT), 0.05);
-      const prof = exp(rr.div(Rb).pow(2).mul(-2.2)).mul(smoothstep(0.0, 1.5, tc)).mul(float(1).sub(smoothstep(bL.mul(0.8), bL, tc))).mul(mix(1.0, 0.5, clamp(tc.div(bL), 0, 1)));
-      const breathe = sin(uTime.mul(0.35).add(i * 1.7)).mul(0.12).add(0.88);
-      m.colorNode = SPC.mul(prof).mul(uFest).mul(0.05).mul(uShaftK).mul(uShaftOn).mul(breathe);
-      m.userData.beam = { bS, bD, bT, bL };
-      const cone = new THREE.Mesh(coneG, m); cone.renderOrder = 6; cone.frustumCulled = false;
-      shafts.add(cone);
-    }
-  }
-  // aim the spots at the towers' foot: tronc3d.towerD (2.3 m beyond the wall since M3), read when it is there
-  let spotTD = -1;
-  const _sf = new THREE.Vector3(), _ss = new THREE.Vector3(), _sd = new THREE.Vector3(), _yN = new THREE.Vector3(0, -1, 0);
-  // two looks (director 25-11: four stages in the same square must read different):
-  //   'tronc' — the tower in CROSSED spotlights: two narrow beams per wall from high left and right, crossing over the tower
-  //   'pinya' — the festival crowd: one broad warm wash per wall, lower and from the front side, a wide pool on the paving
-  let spotMode = '';
-  const _gold = new THREE.Vector3(...palLin('or')).multiplyScalar(1.15);
-  const PINYA_C = palLin('cal-foc').map((c, i) => c * 0.75 + palLin('fanal')[i] * 0.25), TRONC_C = palLin('cal-fanal');
-  function placeSpots(td, mode = 'tronc') {
-    const key = td + mode; if (key === spotTD) return; spotTD = key; spotMode = mode;
-    const crown = mode === 'crown' || mode === 'festa', light = mode === 'festa'; if (crown) mode = 'tronc';
-    const nw = room.walls.length, cross = mode === 'tronc', n = light ? Math.min(NSP, nw) : cross ? Math.min(NSP, nw * 2) : Math.min(NSP, nw);   // festa (perf): one spot per wall
-    const A = (cross ? 8 : 18) * Math.PI / 180, AV = (cross ? 3.2 : 8) * Math.PI / 180;   // the light cone · the VISIBLE shaft (a narrow core)
-    for (let i = 0; i < NSP; i++) {
-      const c = shafts.children[i];
-      if (i >= n) { spotP[i].w = 0; c.visible = false; continue; }
-      const w = room.walls[i % nw], side = cross ? (i < nw ? -1 : 1) : (i % 2 ? 1 : -1);
-      _sf.copy(w.centre).addScaledVector(w.normal, -td); _sf.y = cross ? 3.2 : 0.6;                       // tronc: the beams cross over the tower
-      _ss.copy(_sf).addScaledVector(w.right, side * (cross ? 5.0 : 3.0)).addScaledVector(w.normal, cross ? -4.0 : -1.0); _ss.y = cross ? 13.0 : 9.0;
-      _sd.copy(_sf).sub(_ss).normalize();
-      spotP[i].set(_ss.x, _ss.y, _ss.z, (cross ? SPOT_K * 1.6 : SPOT_K * 1.4) * (crown ? 1.4 : 1));   // the beams read by their shafts (×2), the pools stay small spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
-      const len = _ss.distanceTo(_sf) * (cross ? 1.12 : 1.05), rad = len * Math.tan(AV);   // the shaft ends at the tower (past it, the cone came towards the eye: a veil)
-      c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad * 2.5, len, rad * 2.5);   // the mesh only holds the volume
-      const bm = c.material.userData.beam; if (bm) { bm.bS.value.copy(_ss); bm.bD.value.copy(_sd); bm.bT.value = Math.tan(AV); bm.bL.value = len; }
-    }
-    uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C); uShaftK.value = cross ? 2.2 : 1.0;
-  }
-  placeSpots(2.3);
-  // VFX 25-11: the Brasa's fires light the square. setFires(list, posOf(item) → Vector3, kOf(item) → 0..~1.2); the first NFI count
-  function setFires(list, posOf, kOf) {
-    let n = 0;
-    for (let i = 0; i < NFI; i++) { const it = list && list[i]; if (it) { const p = posOf(it); fireVec[i].set(p.x, p.y + 0.5, p.z, Math.max(0, kOf(it))); if (fireVec[i].w > 0.003) n = i + 1; } else fireVec[i].w = 0; }
-    uNFI.value = n;
-  }
   const hemi = new THREE.HemisphereLight(new THREE.Color(0.35, 0.45, 0.75), new THREE.Color(0.25, 0.17, 0.1), 0);
   object.add(hemi);
 
@@ -1388,17 +1136,9 @@ export function create(ctx) {
     return bi;
   }
   function update(dt, input) {
-    let t = input.t ?? 0; const time = input.time ?? 0;
+    const t = input.t ?? 0, time = input.time ?? 0;
     const pr = input.params || P;
-    // VFX V8: lit in pinya / tronc (or params.lit), eased ≈ 1.5 s; while lit the square is whole and fully revealed
-    const blk = input.state?.block, cfg = LIT[blk] || null;
-    if (cfg) litCfg = cfg; else if (pr.litBlock && LIT[pr.litBlock]) litCfg = LIT[pr.litBlock];
-    const dayT = input.state ? 0 : Math.max(0, Math.min(1, +pr.lit || 0));   // Beltrán 25-11: no daylight in the work (the study can still show it)
-    const festT = (blk === 'tronc' || blk === 'crown' || blk === 'festa') ? 1 : input.state ? 0 : Math.max(0, Math.min(1, +pr.fest || 0));
-    festK += (festT - festK) * Math.min(1, dt * 1.2); if (Math.abs(festT - festK) < 1e-3) festK = festT;
-    dayK += (dayT - dayK) * Math.min(1, dt * 1.6); if (Math.abs(dayT - dayK) < 1e-3) dayK = dayT;
-    if (dayK > 0.001 || festK > 0.001 || blueK > 0.001 || pomK > 0.001 || pinK > 0.001 || crK > 0.001) t = Math.max(30, Math.min(t, 45));
-    const rv = +pr.reveal || 0, shv = blk === 'fall' && !(input.leave > 0) ? 0 : +pr.shatter || 0;   // the fall: the square stays (dark), only the tower falls   // the host drives the break / re-assembly at chapter changes (arrive 1 → 0, leave 0 → 1)
+    const rv = +pr.reveal || 0, shv = +pr.shatter || 0;
     const tR = rv > 0 ? 8 + 17 * Math.min(1, rv) : shv > 0 ? Math.max(t, 30) : t;
     const tS = shv > 0 ? 46 + 24 * Math.min(1, shv) : pr.noBreak ? Math.min(t, 45.99) : t;   // noBreak: the host breaks it into image tiles instead (T-034)
     const S = tS < 46 ? 0 : tS < 58 ? (tS - 46) / 12 : Math.min(2.6, 1 + ((tS - 58) / 12) * 1.25);
@@ -1408,7 +1148,7 @@ export function create(ctx) {
     uT.value = t; uTime.value = time; uS.value = S; uTR.value = tR; uRev.value = reveal; uDark.value = dark;
     uSky.value = reveal * (1 - 0.55 * sm((S - 0.7) / 1.5)) * (pr.sky ?? 1);
     uHorizon.value = 0.55 - 0.53 * sm((S - 0.25) / 0.8);
-    uFog.value = (pr.haze ?? 1) * 0.0065;   // AD#5: the square's own fog −60 % (the haze lives in the beams)
+    uFog.value = (pr.haze ?? 1) * 0.016;
     uGlow.value = pr.glow ?? 1;
     uLit.value = pr.windows ?? 0.45;
     uWet.value = pr.wet ?? 0.75;
@@ -1416,58 +1156,11 @@ export function create(ctx) {
     uMirror.value = pr.mirror ?? 0.45;
     uWin.value = (pr.windowGlow ?? 1);
     uStars.value = pr.stars ?? 1;
-    blueK += ((blk === 'baixada' && pr.blueHour !== false ? 1 : 0) - blueK) * Math.min(1, dt * 1.2);   // AD plan B: the blue hour, not a silhouette
-    const silK = blueK > 0.5 || blk === 'fall' ? 0 : Math.max(0, Math.min(1, pr.silhouette ?? 0));   // the fall happens in the night square (it breaks as the tower falls), not a silhouette uSil.value = silK; sky.visible = silK < 0.5; floor0.visible = silK < 0.5; object.position.y = -(pr.silDrop ?? 0) * silK;   // params.silDrop (m): the silhouette sinks so its rooftops sit low on the walls, the sky above
+    const silK = Math.max(0, Math.min(1, pr.silhouette ?? 0)); uSil.value = silK; sky.visible = silK < 0.5; floor0.visible = silK < 0.5; object.position.y = -(pr.silDrop ?? 0) * silK;   // params.silDrop (m): the silhouette sinks so its rooftops sit low on the walls, the sky above
     if (Array.isArray(pr.skyTint)) uSkyTint.value.fromArray(pr.skyTint); else uSkyTint.value.set(1, 1, 1);
-    const envK = Math.max(0.002, (pr.env ?? 1) * reveal * dark); for (const m of envMats) m.envMapIntensity = envK;   // never exactly 0 (a 0 → x change can rebuild the pipelines)
+    const envK = (pr.env ?? 1) * reveal * dark; for (const m of envMats) m.envMapIntensity = envK;
     const moonK = (pr.moon ?? 1) * reveal * dark;
-    moon.intensity = Math.max(1e-3, 0.32 * moonK * (pr.moonKey ?? 1)); hemi.intensity = Math.max(1e-3, 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1)));   // the moon's key also fills the shadows with a cool sky
-    if (keyS) { const k = `${moon.position.x.toFixed(2)},${moon.position.y.toFixed(2)},${moon.position.z.toFixed(2)},${uS.value.toFixed(3)},${object.position.y.toFixed(2)},${object.visible}`; if (k !== shadowKey) { shadowKey = k; keyS.dirty(); } }
-    uBlue.value = blueK;
-    uArr.value = (input.leave ?? 0) < 0.01 && (input.arrive ?? 1) < 0.999 ? 1 : 0;
-    pinK += (((blk === 'pinya' || (!input.state && pr.pinya)) ? 1 : 0) - pinK) * Math.min(1, dt * 1.2); uPinya.value = pinK;
-    festaT = blk === 'festa' ? festaT + dt : 0;   // festa = «after the coronation»: the gold still in the air, fading over ~20 s to a warm night
-    const crTgt = (blk === 'crown' || (!input.state && pr.crown)) ? 1 : blk === 'festa' ? 0.3 + 0.4 * (1 - smooth01(festaT / 20)) : 0;
-    crK += (crTgt - crK) * Math.min(1, dt * 0.9); uCrown.value = crK;
-    if (pinK > 0.01) { moon.intensity *= 1 - 0.7 * pinK; hemi.intensity *= 1 - 0.6 * pinK; uWin.value = Math.max(uWin.value, pinK); uStars.value *= 1 - 0.7 * pinK; }
-    if (pinK > 0.5 && !(nightK > 0.5)) setFires(pinFires, (F) => F.p, (F) => F.k * pinK * (0.85 + 0.15 * Math.sin(time * (2.1 + F.k) + F.k * 9)));   // the crowd's bonfires
-    else if (pinK > 0.01 && pinK <= 0.5 && !(nightK > 0.5)) setFires(null);
-    // POM (AD 25-11): the tower in the square at its darkest — lamps almost out, few windows, the room's deep sky, a faint haze
-    pomK += (((blk === 'pom' || blk === 'fall' || (!input.state && pr.pom)) ? 1 : 0) - pomK) * Math.min(1, dt * 1.2); uPom.value = pomK;   // the fall: the square at its darkest too
-    if (pomK > 0.01) { uWin.value *= 1 - 0.75 * pomK; uStars.value *= 1 - 0.5 * pomK; moon.intensity *= 1 - 0.6 * pomK; hemi.intensity *= 1 - 0.6 * pomK; uFog.value = Math.max(uFog.value, 0.008 * pomK); }
-    if (nightK > 0.01) { moon.color.setRGB(0.36, 0.35, 0.36); moon.intensity *= 1 - 0.6 * nightK; hemi.color.setRGB(0.2, 0.2, 0.24); hemi.intensity *= 1 - 0.5 * nightK; }   // Brasa (AD#5): only the fire gives colour
-    if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, Math.max(input.state?.progress ?? 0, (input.state?.t ?? 0) / 45)));   // AD#14: the lamps go out visibly over the chapter (by time too) object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 0.7 - 0.5 * pg; uStars.value *= 0.4 * (1 - pg);
-      hemi.color.setRGB(0.42, 0.55, 0.95); hemi.groundColor.setRGB(0.18, 0.14, 0.2); hemi.intensity = Math.max(hemi.intensity, 0.55 + 0.35 * pg); moon.color.setRGB(0.95, 0.7, 0.7); moon.intensity = Math.max(moon.intensity, 0.35 + 0.3 * pg); blueProg = pg; } else blueProg = 0;
-    uDawn.value = blueK * smooth01((blueProg - 0.1) / 0.85);   // the blue hour: a cool sky fill, a rose dawn key;   // the lamps go out as the tower comes down
-    uDay.value = dayK; uFest.value = festK; uShaftOn.value = festK > 0.002 && blk !== 'festa' ? 1 : 0; shafts.visible = room.quality !== 'low';   // always drawn (no first-show compile); off by uShaftOn; festa (perf): none
-    stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
-    if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'crown' ? 'crown' : blk === 'festa' ? 'festa' : 'tronc');
-    if (crK > 0.01) { uSpotC.value.lerp(_gold, crK); uShaftK.value = 2.2 + 1.2 * crK; uWin.value = Math.max(uWin.value, 0.9); crT += dt;
-      const climb = smooth01((crT - 0.4) / 3.6), spread = smooth01((crT - 1.5) / 7);   // the gold climbs the tower in ~3.6 s, then the pool spreads
-      for (let i = 0; i < 4; i++) { const w = room.walls[i % room.walls.length], td = +(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3; tlVec[i].set(w.centre.x - w.normal.x * td, 0.4 + 3.4 * climb, w.centre.z - w.normal.z * td, crK * (0.25 + 0.75 * climb)); }
-      uTLR.value = 1.2 + 9 * spread;
-      // the PULSE at the top: two fronts from wall 0's centre both ways round the room, ~3 s to meet opposite
-      const pp = (crT - 4.0) / 3.0, w0 = room.walls[0], a0 = Math.atan2(-w0.normal.z, -w0.normal.x);
-      if (blk === 'crown' && pp > 0 && pp < 1.15) { const ph = Math.min(1, pp) * Math.PI; uPulse.value.set(Math.cos(a0 + ph), Math.sin(a0 + ph), Math.cos(a0 - ph), Math.sin(a0 - ph)); uPulseK.value = crK * Math.sin(Math.min(1, pp / 1.15) * Math.PI) ; } else uPulseK.value = 0;
-      dustK = crK * smooth01((crT - 4.0) / 1.5) * (1 - smooth01((crT - 15) / 4));
-      uWin.value *= 0.35; moon.intensity *= 0.35; hemi.intensity *= 0.35;   // the square dims ~65 % (AD#9): the gold towers are the light
-    } else { crT = 0; dustK = 0; uPulseK.value = 0; for (const v of tlVec) v.w = 0; }
-    uDust.value = dustK; if (dustObj) { dustObj.visible = true; dustObj.count = dustK > 0.003 ? (blk === 'festa' ? 1500 : 4000) : 1; }   // always drawn (no first-show compile); 1 mote when off   // festa (perf): fewer motes; none when out   // CORONATION (AD#5): gold light bathes the tower, the facades and the haze
-    if (festK > 0) {                                                  // the festival night: the square's own night, richer and deeper
-      uWin.value = Math.max(uWin.value, festK * 0.9); uFog.value = Math.max(uFog.value, 0.0065); uWet.value = Math.max(uWet.value, 0.8);
-      uSky.value = Math.max(uSky.value, festK);   // (AD#6: no moon / sky / env boost — they were the milky veil; the night grade is the Pinya's)
-    }
-    nightK += (((blk === 'brasa' || (!input.state && pr.brasa)) ? 1 : 0) - nightK) * Math.min(1, dt * 1.5); uNightK.value = nightK;
-    if (nightK > 0) { uStars.value *= 0.3; uWin.value *= 1 - 0.5 * nightK; moon.intensity *= 1 - 0.4 * nightK; hemi.intensity *= 1 - 0.45 * nightK; for (const m of envMats) m.envMapIntensity *= 1 - 0.6 * nightK; }
-    if (dayK > 0) {
-      uDayTone.value.fromArray(litCfg.toneL); uDayFloor.value.fromArray(litCfg.floorL); uDayAir.value = litCfg.air;
-      moonDay.fromArray(litCfg.dir).normalize(); _md.copy(moonNight).lerp(moonDay, dayK).normalize(); moon.position.copy(_md).multiplyScalar(60);
-      const kc = litCfg.keyL, km = Math.max(kc[0], kc[1], kc[2], 1e-3); _kc.setRGB(kc[0] / km, kc[1] / km, kc[2] / km);
-      moon.color.setRGB(0.58, 0.72, 1.0).lerp(_kc, dayK); hemi.groundColor.setRGB(0.25, 0.17, 0.1).lerp(_kc, dayK * 0.5);
-      moon.intensity += (litCfg.k - moon.intensity) * dayK; hemi.intensity += (litCfg.fill - hemi.intensity) * dayK;
-      uWet.value *= 1 - 0.85 * dayK; uStars.value *= 1 - dayK; uWin.value *= 1 - 0.75 * dayK; uGlow.value *= 1 - 0.8 * dayK; uFog.value *= 1 - dayK;
-      for (const m of envMats) m.envMapIntensity = envK * (1 - 0.6 * dayK);
-    } else { moon.position.copy(moonNight).multiplyScalar(50); moon.color.setRGB(0.58, 0.72, 1.0); hemi.groundColor.setRGB(0.25, 0.17, 0.1); }
+    moon.intensity = 0.32 * moonK * (pr.moonKey ?? 1); hemi.intensity = 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1));   // the moon's key also fills the shadows with a cool sky
     uPool.value = pr.pool ?? 1; uDetail.value = pr.detail ?? 1; uNight.value = pr.night ?? 0; uReach.value = pr.reach ?? 1;
     // T-056: hands light lamps early; a new pass (the clock went back) restores the old schedule
     if (tR < prevT - 1) for (const L of lamps) L.t0 = L.t00;
@@ -1496,34 +1189,13 @@ export function create(ctx) {
       const on = ignite(tR - L.t0, i, time);
       const br = 1 - sm((S - lampD[i] + 0.06) / 0.22);                // it dies when its stone breaks, with a last flicker
       const fl = S > lampD[i] - 0.1 && br > 0.02 ? 0.6 + 0.4 * Math.sin(time * 41 + i) : 1;
-      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.55 * nightK) * (1 - blueK * smooth01((blueProg * 1.2 - ((i * 0.618) % 1) * 0.95) / 0.08)) * (1 - 0.35 * blueK) * (1 - 0.88 * pomK) * (1 - 0.55 * pinK) * (1 - 0.75 * crK) * (blk === 'festa' ? 0.7 : 1);
+      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK;
       L.light.intensity = v * 26;
       lampVec[i].set(L.pos.x, L.pos.y, L.pos.z, v);
     }
-    { let n = 0; const cap = room.quality === 'low' ? 4 : room.quality === 'medium' ? 8 : NL;
-      _ord.sort((a, b) => lampVec[b].w - lampVec[a].w);
-      for (const i of _ord) { if (n >= cap || lampVec[i].w < 0.01) break; lampVecC[n++].copy(lampVec[i]); }
-      uNL.value = n; }
   }
   function setParams() { /* parameters are read live in update() */ }
   function dispose() { for (const g of geos) g.dispose(); for (const m of [stoneMat, detailMat, glassMat, mirrorMat, floorMat, skyMat]) m.dispose(); }
   if (typeof window !== 'undefined') window.__plaza = { lamps: NL, verts, meshes: object.children.length, lit: () => lamps.filter((L) => L.t0 <= prevT).length, byHand: () => lampsLitByHand };   // lab checks only
-  // part.spots (for Modelado's lighting): pos[i] = (x, y, z, intensity), dir[i] = (x, y, z, cos of the cone), count(), on() 0..1, mode()
-  const spots = { pos: spotP, dir: spotD, count: () => uNSP.value, on: () => uFest.value, mode: () => spotMode, color: uSpotC.value };
-  // textObstacles() (Narrativa 25-11): the square's lamps as seen on the walls — [{ wall, x, half: 0.35, y0: 0, y1: 3 }] (x m from the wall's
-  // centre along it). The lamps do not move: computed once (the posts project where the eye's ray to them crosses the wall).
-  let _obst = null;
-  function textObstacles() {
-    if (_obst) return uSil.value > 0.5 ? [] : _obst;
-    _obst = [];
-    for (const L of lamps) {
-      const ex = L.pos.x - room.eye.x, ez = L.pos.z - room.eye.z; let best = -1, bt = Infinity, bx = 0;
-      room.walls.forEach((w, i) => { const den = -(ex * w.normal.x + ez * w.normal.z); if (den <= 1e-4) return; const dd = -((w.pa.x - room.eye.x) * w.normal.x + (w.pa.z - room.eye.z) * w.normal.z), t = dd / den;
-        const x = (room.eye.x + ex * t - w.centre.x) * w.right.x + (room.eye.z + ez * t - w.centre.z) * w.right.z;
-        if (t > 0 && t < bt && Math.abs(x) <= w.width / 2 + 0.01) { bt = t; best = i; bx = x; } });
-      if (best >= 0) _obst.push({ wall: best, x: bx, half: 0.35, y0: 0, y1: 3, kind: 'lamp' });
-    }
-    return _obst;
-  }
-  return { object, update, setParams, dispose, captureEnv, setFires, spots, textObstacles };
+  return { object, update, setParams, dispose, captureEnv };
 }

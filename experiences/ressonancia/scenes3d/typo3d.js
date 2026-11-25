@@ -14,7 +14,7 @@
 // transform, Felzenszwalb & Huttenlocher — the method of tiny-sdf), so they are crisp at any size on the 7196 × 912 room and can be
 // thinned or haloed in the shader. Each glyph is an instance of a 4 × 4 grid of tiles; the motion lives in the vertex shader:
 //   arrive (asm 0 → 1): tiles fly in from scattered offsets in front of the wall, turning, and lock into the letter, left to right
-//                       with a little chance; the tracking opens from tight to its final width; a little brighter in flight (ink only)
+//                       with a little chance; the tracking opens from tight to its final width; bright and iridescent in flight
 //   sweep:              a band of warm light crosses the words once they stand (and again, softly, every few seconds)
 //   leave (out 0 → 1):  the tiles break off, drift up and apart, turning, and thin out
 //   T-048 (ARTE-3 §3): item.reveal = 'blur' — no tiles: each WORD comes from out of focus to sharp, 60 ms after the previous one
@@ -137,7 +137,7 @@ function layout(items) {
     const width = pen * s, cx0 = it.x || 0;
     const left = it.align === 'left' ? cx0 : it.align === 'right' ? cx0 - width : cx0 - width / 2, lineC = left + width / 2;
     const base = (it.y || 0) - it.size * 0.34;                    // y = the centre of the caps (cap height ≈ 0.68 em)
-    const col = it.color || [1, 0.95, 0.88], blur = it.reveal !== 'tiles';   // Art Director 25-11: letters are ALWAYS intact — every word comes and goes by focus and opacity; the flying tiles only on request (reveal: 'tiles')
+    const col = it.color || [1, 0.95, 0.88], blur = it.reveal === 'blur';
     let prevSp = true;
     seq.forEach((ch, i) => {
       const isRule = ch === RULE, g = isRule ? glyphs.get('sans:' + RULE) : glyph(font, ch);
@@ -221,12 +221,12 @@ function makeMaterial(U, a, lag, flash) {
   const aa = max(fwidth(d).mul(0.75), float(0.004)).add(vBlur);
   const ink = smoothstep(vEdge.sub(aa), vEdge.add(aa), d).mul(step(0.0, vMask)).mul(float(1).sub(vBlur.mul(1.4)));   // out of focus: wider and fainter
   const halo = smoothstep(0.25, vEdge, d).mul(U.halo).mul(step(0.0, vMask));
-  // the sweep across the words as they stand and the tiles in flight only BRIGHTEN THE INK itself (director 25-11: no iridescence,
-  // no colour that is not the chapter's ink or the achievement's gold)
+  // the one luxury: a thin-film sweep across the words as they stand (and the iridescence of the tiles in flight)
   const sw = vOrd.sub(U.sweep), glow = exp(sw.mul(sw).mul(-260.0)).mul(U.sweepK);
+  const iri = vec3(0.5).add(vec3(0.5).mul(cos(vec3(0.0, 0.33, 0.67).add(vOrd.mul(0.8)).add(uTime.mul(0.12)).mul(6.2831853))));
   // T-048: «la mano es una linterna» — the words brighten a little near a hand (room.flash), never past the bloom threshold
   const lamp = flash ? flash(TSL.positionWorld).mul(0.22) : float(0);
-  const col = vCol.mul(lamp.add(1).add(glow.mul(0.25)).add(vFl.mul(0.35)));
+  const col = vCol.mul(lamp.add(1)).add(iri.mul(glow).mul(0.45)).add(iri.mul(vFl).mul(0.9));
   m.colorNode = col.mul(ink).mul(vVis).mul(a);
   m.opacityNode = max(ink, halo).mul(vVis).mul(a);
   return m;
@@ -313,9 +313,7 @@ function slot({ placements, outDur = 0.5, ...opt } = {}) {
     get up() { return st[0].asm * (1 - st[0].out) > 0.04 || st[1].asm * (1 - st[1].out) > 0.04; },
     // gate(i): may the new words start on placement i yet? (the host's tile wave has passed that wall). A wall held back starts
     // 0.3 s after its gate opens; the others are not delayed.
-    // mask(i): true / false or a number 0..1 (25-11: the wall that calls at 100 %, the others at 30 %); lead(i): seconds this
-    // placement starts after the first (25-11: the words enter first on the wall that calls)
-    step(dt, { gain = 1, hold = false, mask = null, gate = null, lead = null } = {}) {
+    step(dt, { gain = 1, hold = false, mask = null, gate = null } = {}) {
       const c = st[cur];
       if (c.key !== wantKey) {
         if (c.key && c.out < 1) c.out = Math.min(1, c.out + dt / outDur);
@@ -324,7 +322,7 @@ function slot({ placements, outDur = 0.5, ...opt } = {}) {
           cur = 1 - cur; const nx = st[cur];
           nx.key = wantKey; nx.asm = 0; nx.out = 0; nx.since = 0;
           if (wantKey) T[cur].set(wantItems);
-          lagS.fill(0); held.fill(0); if (lead) for (let w = 0; w < lagS.length; w++) lagS[w] = Math.max(0, +lead(w) || 0);
+          lagS.fill(0); held.fill(0);
         }
       }
       const n = st[cur];
@@ -338,7 +336,7 @@ function slot({ placements, outDur = 0.5, ...opt } = {}) {
       }
       T[cur].lags.set(lagS);
       gainNow += (gain - gainNow) * (1 - Math.exp(-dt * 2.5));
-      for (let w = 0; w < wallA.length; w++) wallA[w] += ((mask ? Number(mask(w)) || 0 : 1) - wallA[w]) * (1 - Math.exp(-dt * 3));
+      for (let w = 0; w < wallA.length; w++) wallA[w] += ((mask ? (mask(w) ? 1 : 0) : 1) - wallA[w]) * (1 - Math.exp(-dt * 3));
       for (let i = 0; i < 2; i++) {
         const s = st[i], t = T[i];
         t.U.asm.value = s.asm; t.U.out.value = i === cur ? s.out : Math.max(s.out, s.key ? 0 : 1);

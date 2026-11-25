@@ -16,7 +16,6 @@
 //     gold edge to dark. Sound: 'ceramic' 'floor' / 'break' (ENT › Ola 2).
 //   · the end: dust and shards thin out, and from duration − 3 s everything goes to black, slowly: ready for the acta.
 // Study (?part=fall3d): params outcome, duration, floors, walls, arrive, leave, light; the host's t is the fall's clock (Run the clock).
-import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 function rng(seed) { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -39,9 +38,7 @@ export function create(ctx) {
   let own = null;
   const ownP = { floors: 7, floorProgress: 0, cycle: 0, lean: 0, weak: 0, reward: false, walls: NW, rise: 1, arrive: 0, leave: 0, gain: 1, collapse: 'off', collapseDur: 10.5 };
   const ownIn = { time: 0, t: 0, dt: 0, progress: 0, hands: [], downs: [], ups: [], params: ownP, arrive: 0, leave: 0 };
-  // AD 25-11 (album: «the old plaster mannequins in a grey void»): no private tower any more — without the host's tower on screen the
-  // fall is a COLLAPSE OF DUST where the tower stood, in the night square. (The private tronc3d instance built the rejected bodies.)
-  if (P.ownTower === true) import('./tronc3d.js').then((m) => {
+  import('./tronc3d.js').then((m) => {
     const keep = typeof window !== 'undefined' ? window.__tronc3d : undefined;   // the host's debug handle stays the host's
     own = m.create({ THREE, TSL, room, params: ownP, parts: {} });
     if (typeof window !== 'undefined' && keep) window.__tronc3d = keep;
@@ -77,7 +74,6 @@ export function create(ctx) {
   for (let k = 0; k < NGEO; k++) for (let i = 0; i < PER; i++) shards.push({ mesh: meshes[k], geo: k, i, on: false, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), size: 0, small: false, heat: 0, rest: 0, land: -1e9, tw: 0, col: GLZ[0], seed: R() });
   let nextShard = 0;
   function spawn(p, v, size, small, tw, heat, col) {
-    if (P.shards !== true) return null;   // director 25-11: no solid shards (the tower dissolves into dust: tronc3d's fall); dust, light and embers only
     for (let n = 0; n < shards.length; n++) {
       const s = shards[(nextShard + n) % shards.length];
       if (s.on) continue;
@@ -171,7 +167,7 @@ export function create(ctx) {
   const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
   let fxN = 0, fxT = 0;
   function fxImpact(wall, u, strength, mat, kind) {
-    if (!fxBc || fxN >= 16 || !canEmit()) return; fxN++;
+    if (!fxBc || fxN >= 16) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
     try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
   }
@@ -186,7 +182,7 @@ export function create(ctx) {
 
   // ------------------------------------------------------------------------------------------------ the fall's state
   const inv = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpM = new THREE.Matrix4(), tmpS = new THREE.Vector3(), tmpC = new THREE.Color();
-  const towerBase0 = walls.map((w) => w.centre.clone().addScaledVector(w.normal, -(ctx.parts?.tronc3d?.towerD ?? TOWER_D)));   // world (x, z): the real tower (2.3 m since M3)
+  const towerBase0 = walls.map((w) => w.centre.clone().addScaledVector(w.normal, -TOWER_D));   // world (x, z)
   // the private towers are turned 32° round the room so that each stands beside the words, not behind them (biblia §4 quiet zones)
   const towerBaseOwn = towerBase0.map((b) => new THREE.Vector3(b.x * Math.cos(OWN_TURN) + b.z * Math.sin(OWN_TURN), 0, -b.x * Math.sin(OWN_TURN) + b.z * Math.cos(OWN_TURN)));
   let towerBase = towerBase0;
@@ -201,25 +197,23 @@ export function create(ctx) {
     for (const s of shards) s.on = false; for (const d of dust) d.on = false;
     const host = ctx.parts?.tronc3d, glass = ctx.parts?.baixada3d;
     const hostShown = !!(host && host.collapse && host.object && host.object.visible && host.object.parent);
-    glassFall = !intent && !!(glass && glass.object && glass.object.visible); towerBase = towerBase0; dustFall = false;
+    glassFall = !intent && !!(glass && glass.object && glass.object.visible); towerBase = towerBase0;
     if (glassFall) {                                   // carregat from the bajada: baixada3d's glass tower IS the castell and lets go
       src = host && host.levels ? host : null; srcOwn = false;   // on its own; the tronc tower it hid must stay hidden (no second tower)
       veilAt = 0;
     } else if (hostShown) {                                   // carregat (or any fall with the tower on screen): this tower falls
       src = host; srcOwn = false;
       if (!host.collapsing?.on) host.collapse({ mode: intent ? 'intent' : 'carregat', duration: dur });
-    } else if (P.ownTower === true) {                  // (old: the group's tower, assembled here — only on request)
+    } else {                                           // intent: the group's tower, assembled here
       src = own; srcOwn = true; towerBase = towerBaseOwn;
       framed = false;
-    } else {                                           // no tower on screen: a collapse of dust where it stood
-      src = null; srcOwn = false; dustFall = true; veilAt = 0;
     }
     void S;
   }
   // frame the private tower for its fall: tronc3d's room rise follows the forming floor; here it is scaled so that (intent) the stump
   // that stays (the top of the floor under the crack) sits at the foot of the walls, and the floors that fall come down through the
   // whole height of the walls; (carregat) the top of the tower at ~6.5 m. A reset (floors 9 → N) makes tronc3d jump to the new rise.
-  let framed = false, glassFall = false, veilAt = -1, dustFall = false;
+  let framed = false, glassFall = false, veilAt = -1;
   function frame(intent, n) {
     ownP.collapse = 'off'; ownP.rise = 1; ownP.floors = n; ownIn.time = 0; ownIn.arrive = 0;
     own.update(0.016, ownIn);
@@ -278,13 +272,6 @@ export function create(ctx) {
     object.updateMatrixWorld(); inv.copy(object.matrixWorld).invert();
 
     // ---- carregat from the bajada: the glass tower falls by itself (baixada3d); here the tronc stays hidden and a veil of dust rises
-    if (dustFall && t < 7 && time - veilAt > 0.08) {   // the dust collapse: puffs falling down the tower's height, then settling
-      veilAt = time;
-      for (let w = 0; w < NW; w++) {
-        const b = towerBase[w], a = R() * Math.PI * 2, rr = R() * 1.6, hgt = Math.max(0.2, 7 * (1 - t / 6)) * R();
-        tmpV.set(b.x + Math.cos(a) * rr, hgt, b.z + Math.sin(a) * rr).applyMatrix4(inv); puff(tmpV, 1, true);
-      }
-    }
     if (glassFall) {
       const host = ctx.parts?.tronc3d;
       if (host?.takeFloor && !ctx.parts?.baixada3d?.object?.visible) for (let i = 0; i <= 9; i++) host.takeFloor(i, { hide: true });   // once the bajada has given its floors back

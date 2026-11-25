@@ -26,8 +26,6 @@
 //   { type: 'fx', fx: 'impact', wall, u (0..1 along the wall), strength (0..1), mat ('ceramic'|'chrome'|'glass'), kind ('hit'|'floor'|'break'|'hook') }
 // (≤ 16 a second). How it is drawn: the mosaic is ONE mesh; a small float texture carries each piece's turn, lift, light and scale
 // (springs and waves on the CPU, the pose in the vertex stage). Its mirror image under a black gloss is the floor's reflection.
-import { lin as palLin } from '../palette.js';
-import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 import { createScore } from '../../score.js';
 
 export function create(ctx) {
@@ -50,13 +48,12 @@ export function create(ctx) {
   // the palette (linear): at rest bone, graphite, chrome; the glaze behind every piece — the colours of the chapters to come
   const BONE = [0.66, 0.63, 0.57], GRAPHITE = [0.022, 0.023, 0.026], GOLD = [0.86, 0.5, 0.09];   // bone #F1ECE2 (kept under the bloom), graphite #1A1B20, gold #F6C65B
   // the glaze behind the pieces, by FAMILIES — one per rosette, the colours of the chapters to come: [heart, first ring, outer ring, accent]
-  // VFX 25-11 (palette.js, D4b): the families from the palette of the work — no coral / turquoise / cobalt / lilac / aquamarine
   const FAMILY = [
-    [palLin('flama'), palLin('brasa'), palLin('carbó', 3), palLin('cal-fanal')],              // brasa: flame, ember, coal · lantern
-    [palLin('cal-foc'), palLin('terracota'), palLin('ombra'), palLin('faixa')],                // pinya: lime-fire, terracotta, shadow · sash
-    [palLin('porcellana', 0.85), palLin('pedra-llum'), palLin('tinta-ombra', 2), palLin('or')], // tronc: porcelain, stone, blue shadow · gold
-    [palLin('or-clar'), palLin('lluna', 0.8), palLin('nit-alta', 2), palLin('or')],             // pom: pale gold, moon, high night
-    [palLin('alba-rosa'), palLin('alba-blau'), palLin('albergínia', 1.5), palLin('or-clar')],   // dawn: rose, dawn blue, aubergine · pale gold
+    [[0.95, 0.14, 0.014], [0.7, 0.03, 0.01], [0.3, 0.012, 0.006], [0.95, 0.84, 0.55]],        // brasa: orange, red, dark red · spark
+    [[0.95, 0.15, 0.095], [0.027, 0.62, 0.53], [0.004, 0.115, 0.133], [0.86, 0.68, 0.55]],    // pinya: coral, turquoise, teal · bone
+    [[0.77, 0.37, 0.024], [0.015, 0.061, 0.43], [0.55, 0.12, 0.042], [0.86, 0.84, 0.78]],     // tronc: ochre, cobalt, terracotta · white
+    [[0.95, 0.6, 0.18], [0.82, 0.86, 0.96], [0.004, 0.012, 0.09], [0.95, 0.6, 0.18]],         // pom: gold, white, deep blue
+    [[0.92, 0.56, 0.36], [0.9, 0.45, 0.54], [0.46, 0.36, 0.78], [0.26, 0.72, 0.62]],          // dawn: peach, rose, lilac · aquamarine
   ];
   const GLAZE = FAMILY.map((f) => f[1]);
 
@@ -197,12 +194,12 @@ export function create(ctx) {
       Nn.crossVectors(Tu, Tv).normalize(); if (Nn.x * P0.x + Nn.z * P0.z > 0) Nn.negate();      // towards the public
       // what it is: kind at rest (0 bone, 1 mirror, 2 graphite) and its glaze
       const u = rnd(), vein = Math.abs(Math.sin(cu * 0.31 + 1.7 * Math.sin(cy * 0.55 + cu * 0.07)));
-      let kind = s.mother ? 0 : (u < 0.2 ? 2 : 0);   // AD#12: no mirror mothers (the chrome gems); a thin mirror vein only
+      let kind = s.mother ? (u < 0.4 ? 1 : 0) : (vein < 0.06 ? 1 : u < 0.07 ? 1 : u < 0.2 ? 2 : 0);
       // its rosette: the nearest mother piece; its glaze: the rosette's family, in rings round the heart
       let ros = 0, rd = 1e9; mothers.forEach((M, k) => { const d = Math.hypot(wrapU(cu - M.cu), cy - M.y); if (d < rd) { rd = d; ros = k; } });
       const fam = FAMILY[mothers[ros].fam], bandN = Math.floor(rd / 0.62 + rnd() * 0.3);
       let col = s.mother ? fam[0] : rnd() < 0.08 ? fam[3] : bandN % 3 === 0 ? fam[1] : bandN % 3 === 1 ? fam[2] : fam[0];
-      if (loose) { col = rnd() < 0.5 ? BONE : GRAPHITE; kind = 0; }
+      if (loose) { col = rnd() < 0.5 ? BONE : GRAPHITE; kind = rnd() < 0.3 ? 1 : 0; }
       const tone = rr(0.78, 1.12), id = cells.length, idRnd = rnd();
       const inAx = rr(-0.7, 0.7);                                                        // the axis of its turn: in the surface, near the vertical
       ax.copy(Tv).normalize().multiplyScalar(Math.cos(inAx)).addScaledVector(e1.copy(Tu).normalize(), Math.sin(inAx)).normalize();
@@ -393,14 +390,14 @@ export function create(ctx) {
     s.out.copy(w.normal).multiplyScalar(-1).addScaledVector(w.right, rr(-0.6, 0.6)).normalize();
     band.push(s);
   }
-  const motherKind = () => 0;   // AD#12: a resting mosaic — bone / graphite only (no chrome or glass gems)
+  const motherKind = () => { const u = rnd(); return u < 0.5 ? 1 : u < 0.85 ? 0 : 2; };
   for (const w of walls) {                    // one mobile at each side of the wall: the middle (the threshold, the guide's words ±1.6 m, the button) stays clear
     const half = w.width / 2;
     for (const side of [-1, 1]) {
       const cx = side * rr(2.62, Math.max(2.64, half - 0.62)), d0 = rr(0.45, 0.8);
       hanging(w, cx, rr(2.3, 2.9), d0, rr(0.6, 0.85), motherKind(), true);                                    // the mother piece, high
-      if (false) hanging(w, clamp(cx + side * rr(0.3, 0.6), -half + 0.35, half - 0.35), rr(1.5, 1.95), d0 - rr(0.1, 0.25), rr(0.38, 0.52), motherKind(), true);
-      const n = 0;   // AD#12: fewer moving parts
+      if (rnd() < 0.75) hanging(w, clamp(cx + side * rr(0.3, 0.6), -half + 0.35, half - 0.35), rr(1.5, 1.95), d0 - rr(0.1, 0.25), rr(0.38, 0.52), motherKind(), true);
+      const n = Math.round(rr(2, 3.4));
       for (let i = 0; i < n; i++) {
         const x = clamp(cx + gauss() * 0.45, -half + 0.2, half - 0.2), y = rr(0.75, 1.5);
         if (Math.abs(x) < 1.9) continue;
@@ -420,15 +417,14 @@ export function create(ctx) {
   for (const [R, y, n, dir, ph] of [[12.5, 1.9, 24, 1, 0.4], [16.5, 5.0, 22, -1, 2.1], [21, 8.5, 22, 1, 4.0]]) for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + rr(-0.08, 0.08);
     if (Math.sin(a * 3 + ph) < -0.2) continue;
-    if (rnd() < 0.5) continue;   // AD#12: half the far arcs, ceramic only
-    const s = shard('mid', 0, rr(0.7, 1.9));
+    const s = shard('mid', rnd() < 0.6 ? 1 : rnd() < 0.2 ? 2 : 0, rr(0.7, 1.9));
     Object.assign(s, { R: R + rr(-0.8, 0.8), y: y + rr(-0.8, 0.8), a, dir, axis: new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).normalize(), spin: rr(0.05, 0.2), ph: rr(0, 6.28), arriveAt: rr(0, 0.6) });
     if (s.kind === 0) { s.base = rnd() < 0.6 ? BONE : GRAPHITE; s.color = [...s.base]; }
     mid.push(s);
   }
 
   // ---- materials and meshes of the loose shards
-  const mirrorM = new THREE.MeshPhysicalNodeMaterial({ color: 0x3a3836, metalness: 0.15, roughness: 0.55, envMap: env, envMapIntensity: 0.35 });   // AD#14: no chrome — a dark glazed stoneware back   // a soft mirror: the lighthouse leaves a sheen on it, not a burnt core
+  const mirrorM = new THREE.MeshPhysicalNodeMaterial({ color: 0xf2f3f6, metalness: 1, roughness: 0.14, envMap: env, envMapIntensity: 1.0 });   // a soft mirror: the lighthouse leaves a sheen on it, not a burnt core
   function glazeMat(attr, glowU) {
     const m = new THREE.MeshPhysicalNodeMaterial({ color: 0xffffff, roughness: 0.36, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, normalMap: crackle, normalScale: new THREE.Vector2(0.5, 0.5), envMap: env, envMapIntensity: 1.0 });
     m.colorNode = vec3(instancedBufferAttribute(attr));
@@ -569,7 +565,7 @@ export function create(ctx) {
     return loc;
   }
   function fx(kind, p, strength, mat) {
-    if (!bc || fxCount >= 16 || !canEmit()) return;
+    if (!bc || fxCount >= 16) return;
     fxCount++; fxSent++; locate(p);
     fxMsg.wall = loc.wall; fxMsg.u = loc.u; fxMsg.strength = clamp(strength, 0, 1); fxMsg.mat = MAT_NAME[mat] || 'ceramic'; fxMsg.kind = kind;
     try { bc.postMessage(fxMsg); } catch { /* closed: play on */ }
@@ -944,7 +940,7 @@ export function create(ctx) {
       } else { threadPos[o] = threadPos[o + 3] = s.p.x; threadPos[o + 1] = threadPos[o + 4] = 50; threadPos[o + 2] = threadPos[o + 5] = s.p.z; }
     }
     threadGeo.attributes.position.needsUpdate = true;
-    threadMat.opacity = 0.0;   // AD#12: no vertical threads
+    threadMat.opacity = 0.12 * arrive * (1 - leave);   // T-053 (ARTE r5): the threads at 40 %
 
     // ---- chips
     for (let i = 0; i < CHIPS; i++) {

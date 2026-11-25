@@ -240,14 +240,12 @@ export function create({ THREE, TSL, room, params }) {
     c.addAssign(vec3(uAir).mul(low.mul(0.8).add(0.45)).add(COOL.mul(mie.mul(0.0018).mul(U.moon))).mul(U.haze));
     // the lamps in the air: closed form of the 1/d² glow along the eye ray, up to just past the lamp
     const lh = vec3(0).toVar();
-    If(U.haze.mul(U.lampGain).greaterThan(0.002), () => {   // VFX perf: no loop where the haze is off (pinya, acta, wait)
-      Loop(U.nL, ({ i }) => {
-        const L = uLP.element(i), Lr = L.xyz.sub(U.eye);
-        const tc = dot(Lr, dir), h = sqrt(max(dot(Lr, Lr).sub(tc.mul(tc)), 0.04));
-        const I = atan(float(1.5).div(h)).sub(atan(tw.sub(tc).div(h))).div(h);
-        lh.addAssign(uLC.element(i).xyz.mul(L.w.mul(max(I, 0.0))));
-      });
-      });
+    Loop(U.nL, ({ i }) => {
+      const L = uLP.element(i), Lr = L.xyz.sub(U.eye);
+      const tc = dot(Lr, dir), h = sqrt(max(dot(Lr, Lr).sub(tc.mul(tc)), 0.04));
+      const I = atan(float(1.5).div(h)).sub(atan(tw.sub(tc).div(h))).div(h);
+      lh.addAssign(uLC.element(i).xyz.mul(L.w.mul(max(I, 0.0))));
+    });
     c.addAssign(lh.mul(U.haze.mul(U.lampGain).mul(0.0009)));
     // the horizon line
     const dy = y.sub(U.lineY), dx = abs(wrapS(vS.sub(X0)));
@@ -307,10 +305,9 @@ export function create({ THREE, TSL, room, params }) {
     // choreography
     const lt = Number(P.lineT) || 0;
     U.lvl.value = ss(1.0, 8.0, t) * (1 + 0.25 * ss(47, 55, t));
-    const bn = room.background?.name; U.moon.value *= (bn === 'tronc' || bn === 'pinya' || bn === 'pom' || bn === 'brasa') ? 0.15 : 1;   // AD 25-11: no milky moon veil in the night chapters   // AD 25-11: no milky moon veil in the night chapters
-    U.amount.value = Math.max(0, Number(P.dust ?? 1)) * (room.quality === 'low' ? 0.35 : room.quality === 'medium' ? 0.6 : 1) * (bn === 'pom' ? 0.2 : bn === 'tronc' ? 0.35 : bn === 'intro' ? 0.5 : 1);   // VFX perf 25-11; pom / tronc: a few motes, not snow
+    U.amount.value = Math.max(0, Number(P.dust ?? 1));
     U.haze.value = ss(0.5, 7.0, t) * Math.max(0, Number(P.haze ?? 1));
-    U.moon.value = Number(P.moon ?? 1); U.bokeh.value = Number(P.bokeh ?? 1) * ((room.background?.name === 'pom') ? 0.15 : room.background?.name === 'intro' ? 0.35 : 1);   // AD#11: no white flare-like discs in the Pom U.stir.value = Number(P.stir ?? 1);
+    U.moon.value = Number(P.moon ?? 1); U.bokeh.value = Number(P.bokeh ?? 1); U.stir.value = Number(P.stir ?? 1);
     if (Array.isArray(P.warm)) uWarm.value.fromArray(P.warm);
     if (Array.isArray(P.cool)) uCool.value.fromArray(P.cool);
     if (Array.isArray(P.air)) uAir.value.fromArray(P.air);
@@ -324,7 +321,6 @@ export function create({ THREE, TSL, room, params }) {
     U.line.value = lineOn * (1 - 0.2 * ss(24, 34, t)) * (1 - 0.8 * ss(46, 53, t)) * lineB;
     U.head.value = (lt > 0 ? (lt < 1 ? 1 : 0) : ss(8.0, 9.0, t) * (1 - ss(22.2, 25.5, t))) * lineB;
     U.flash.value = (lt > 0 ? 0 : ss(21.3, 22.1, t) * (1 - ss(22.1, 26.0, t))) * lineB;
-    if (room.background?.name === 'pom') { U.head.value = 0; U.flash.value = 0; U.line.value *= 0.3; }   // AD#14: no white sparkle in the Pom
 
     // hands
     let nh = 0;

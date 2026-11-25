@@ -3,7 +3,7 @@
 - **Status:** prototype
 - **Kind:** sound
 - **Author:** Vicente
-- **Updated:** 2026-11-25
+- **Updated:** 2026-11-24
 
 ## Concept
 The sound of `ressonancia`: the whole ten-minute work of `ressonancia/GUION.md`, block by block, redesigned (v3) as a
@@ -125,59 +125,6 @@ A file that fails to load logs a warning and the piece goes on without it (a mis
 - In the lab: `?sound=ressonancia-sound&soundParams={"lang":"es"}` on a visual page. Tested on the review page: the 26 Spanish
   files load, none in English, no warnings. Nobody has listened to them yet.
 
-## One sound: key and tempo of every chapter (studio night 25-11, 05-plan §2.9, D6b)
-Measured, not assumed: every stem / bed decoded with ffmpeg (mono, 22.05 kHz) and analysed offline (numpy/scipy): a chroma of the
-whole take (STFT 8192, 55 Hz–2 kHz, energy folded to pitch classes) correlated with the Krumhansl key profiles, the same per 9.6 s
-window (does the key hold?), the tuning offset (all within ±3 cents of A440), the pulse by onset-flux autocorrelation (60–180 BPM)
-and a phase fit for the first beat; f0 of the pitched samples by FFT peak. **Where the analysis contradicts the prompt, the
-analysis wins** (director, 25-11).
-
-| Chapter | File(s) | Prompt said | Analysis (chroma, strongest classes) | KEYS (sound.js) |
-|---|---|---|---|---|
-| wait / intro | m-intro | "on D" | D major, every window D (D 24 % · A 13 % · E · F#) | D, major penta, no pulse (110 BPM weak 0.34) |
-| brasa | m-brasa | drone on D | D drone with C# / G# colour (D 19 · C# 14 · G# 10 · C 9); last windows lean C# | D, {D F G A} (no C, no third clash), no pulse |
-| pinya | st-pinya-bass+other | D minor, 50 BPM heart | **A minor** (A 34 · E 14 · G 12 · C 12) | **A**, minor penta, no pulse |
-| tronc | st-tronc-bass+other | D minor, 100 BPM | D (D 22 · A 15, third neutral) ; **100.00 BPM**, first beat 0.046 s (drums) | D, minor penta, 100 BPM, grid0 0.045 |
-| pom | m-pom | glass "around D and A" | **C# + G#** open fifth (G# 46 · C# 35, the rest < 3 %) | **C#**, major penta, no pulse |
-| crown | m-crown | D major chord | **C major** (C 20 · G 15 · D 9 · B 9) | **C**, major penta (the bloom chord in C) |
-| festa | st-festa-bass+other | D major, 100 BPM | **B♭ major** (B♭ 17 · C 12 · D 11 · F 11 · E♭ 10 · G 9), every window B♭; **100.00 BPM**, beat 0.041 s | **B♭**, major penta, 100 BPM, grid0 0.045 |
-| baixada | m-baixada | D major | D major (D 42 · A 22 · E 11) | D, major penta |
-| acta | m-acta | D major | D major (A 28 · D 22 · G 14 · F# 9) | D, major penta |
-
-Samples with pitch: `s-timbal` f0 67.3 Hz (C2 + 49 cents — the old «tuned to D» rate 1.06 was 50 cents flat; now `timbalRate()` =
-the wanted pitch / 67.3), `s-bells` D#5 621 Hz (rate 0.947 → D5, kept), `s-gralla` G#4 (415 Hz, kept), `s-ceramic` G6 1604 Hz
-(rate from 1605, kept). `s-clay`, `s-tabals`, `sfx-tile` have no clear pitch: treated as unpitched.
-
-**How the generative layer obeys (S2):** the code is still WRITTEN in D; `tune(m)` sounds it in the chapter's key — transposed by
-root − 62 and snapped to the nearest pitch of the chapter's scale. Every pitched primitive passes through it (`modal`, `fmHit`,
-`voiceNote`, the gralla's grains, the risers, the tuned samples); the pads of fixed chapters are built in their key (festa's glass
-pad in B♭, the pom's haze, city and thread in C#, the crown's bloom in C). The crown is sounded in C from the instant it fires
-(still in the pom block), and the crown block uses B♭ once the festa's stems come in. At a chapter change the hand voices of the
-old key are released (0.12 s) before the new key's notes. With a pulse (tronc, festa) a target's activation note and the festa's
-wave land on the take's next 16th (≤ 0.15 s); the charge's click (no pitch) sounds at once. Unpitched effects sit −6 dB round
-2.2 kHz (the voice's band).
-**Hands (S3):** ≤ 8 hand voices (the oldest yields); a new hand takes the degree its place asks for unless that degree rang in
-the last 1.2 s, then the free degree farthest from those ringing (two octaves) — 15 hands make a chord. While the voice speaks the
-music is ×0.42 and the whole generative layer ×0.55 (one ConstantSource drives a gain on every generative path).
-
-## The voice by the cue table (studio night 25-11, N2–N4)
-- `cues.js` (identical copy of `ressonancia/cues.js`) is THE script: one entry per event of the score (voice, where, energy, text,
-  place, kind, repeat / cooldown). `sound.js` says the voice, `guide3d.js` writes the text.
-- 44 new Spanish lines (`audio/es/`, same voice Mía Evans, `eleven_v4`, 0.5 / 0.8, `mp3_44100_128`, `language_code: es`), made by
-  `lab/estudio/tools/gen-voice.mjs`, every one checked with `scribe_v1` (`stt` and `request_ids` in `voice-lines-es.json`). Three
-  wordings changed because the TTS / STT got them wrong (approved): «El fuego prende» (not «Ha prendido» = «aprendido»), «La torre
-  está en pie» («tronc» came out «tronco»), «Volved al muro. La pinya os necesita» («castell» came out «castillo»); «quatre» and
-  «acotxador» are spelled «cuatre» / «acochador» for the TTS. They exist only in Spanish (with the English selector they are not
-  requested).
-- Where: a line that points at a place sounds on that wall (`wallInput`, 100 %) and at 25 % in the room; narration on the room.
-  Measured in `/sound/ressonancia-sound` (rehearsal control `{type:'ctl', say:'<cue>', wall}`): a wall line peaks −8 dBFS on its
-  wall and −23 on the others; a room line −11 on all four.
-- Rules: a task or a card cuts the line before; an achievement waits ≤ 1.5 s for its turn or stays text only; a hint is dropped if
-  someone speaks; a line is said once a pass unless its cue repeats (floors, the colla) with its cooldown. Follow-ups: the
-  structure's name after «El círculo se ha cerrado», «El castell está coronado» after «¡Coronado!», «Levantad la vuestra» 0.6 s
-  after «Ella levanta la mano» (not if already crowned). Lab: `?cuelog` in the page URL collects every cue in `window.__cueLog`.
-- Intro: 70 s tonight (director, 25-11); the 45 s clock (`INTRO_AT`) takes over by itself when `TIMES.intro` ≤ 50.
-
 ## Physical impacts from the visual (`fx:impact`)
 The visual parts post their physical events on the same `BroadcastChannel('ressonancia')`:
 `{ type: 'fx', fx: 'impact', wall, u (0..1 along the wall), strength (0..1), mat, kind }`. `impact()` gives each matter its timbre,
@@ -277,34 +224,6 @@ the brightness comes from the synth bloom), the grains of the gralla (could soun
 artefacts, whether the pulse and the take really coincide in the room (computed, not heard), the real app (does the
 BroadcastChannel reach the output window? does a hidden audio window throttle the 25 ms timer?), a suspended context or a missing
 BroadcastChannel in practice (handled in code only), and the real 4.1 routing (today's map shares channels and has no sub).
-
-### Numerical checks of the night (25-11; nobody could listen — Beltrán and the director must)
-- **Voice per wall** (`/sound/ressonancia-sound`, rehearsal `say`): wall line −8 dBFS on its wall, −23 on the others; room line −11
-  on all four; floor of the wait −30.
-- **Pass at ×12 with 4 virtual hands, `?cuelog`** (87 cues reached in ~70 s): every block's title, the relay, the colla (brasa,
-  tronc, festa, baixada), the call and «Posad la mano» after 8 s, wallfull / next / pack / close / the structure's name, floors
-  2…7 on the busiest wall, the tower, handoff, arrived 0/1, breath, silence, l'aleta, ¡Coronado!, the festa's card, echo («Lanzad
-  una onda» → «Devolvedla» on the arrival wall), call, bloom, the baixada's line, the acta's print / outcome / final. At ×12 the
-  lines overlap, so many achievements were (correctly) left as text only; at ×1 they have room. Peak on a wall before the limiter:
-  −6 dBFS. No console errors.
-- **Mix with 15 virtual hands** (master chroma 60 Hz–4 kHz, 9 s per chapter; a flat noise floor alone scores ~58 % in a 7-note key,
-  so read these as «tonal energy mostly in key»): festa 87 % in B♭ (B♭ 50 % of the energy), pinya 72 % in A minor, baixada 72 %
-  in D, pom 69 % in C# (G# 28 %), tronc 66 % in D, brasa 54 % (its own bed carries C# / G#: by design of m-brasa). Wall peaks
-  −7 … −14 dBFS before the limiter (target ≤ −3). Not measured: the voice-over-rest ratio in 1–4 kHz while it speaks, and the
-  attack-to-grid timing — to be listened in the room.
-
-- **Later the same night (full ×1 passes wait → acta, sound page, cue log):** lines of one moment (< 1.5 s apart) queue one after the
-  other instead of cutting (the colla + the call, «Aguanta» + «Ahora allí»); a narration is never cut in its last 4 s (v-pom-1 by
-  «Quietos»); a follow-up stays in its block; the brasa's «Eso es. La plaza despierta.» only in the brasa (the festa's waves are text);
-  «Shhh. Quietos.» ≥ 30 s apart; the score's hints are silent; a **nudge** «Dejad la mano sobre la luz.» after 22 s without progress
-  nor voice in a block that asks for hands (not in free / reward stages); «La colla os ayuda» once per block; the baixada's free coda
-  has its own line («Lo habéis bajado. La plaza es vuestra.», v-baixada-free).
-- **The brasa's bed slides** (m-brasa, per 6 s window and by register): D (+A, F#) for its first ~27 s, C# (+G#) after it (bass:
-  C# 53 %, D 36 % over the loop). The brasa's generative layer and the drone follow the bed's playhead (`bedPos('brasa')`, D → C#,
-  scale {1, 2, 4, 5}). Re-measured with 15 hands: 65 % (D part) / 69 % (C# part) in key. The tronc's creak resonance moved 420 → 440 Hz
-  (it rang G#).
-- Re-measure of all chapters after these changes (15 hands, master chroma, flat noise ≈ 58 %): festa 88 %, baixada 73 %, tronc 67 %,
-  pinya 66 %, brasa 64 %, pom 63 % (the pom's thread is a continuous glide D5 → D6 by design). Wall peaks −8 … −19 dBFS.
 
 ## Requests to the studio
 See `ressonancia/NOTES.md`: audio samples (an exception to "no samples"), a channel between a visual piece and its sound piece.

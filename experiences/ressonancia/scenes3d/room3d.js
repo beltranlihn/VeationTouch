@@ -23,16 +23,10 @@
 // centre. So hands touch the world exactly where they touch the wall; the universe opens behind.
 // Rendering: the four views go into one HDR render target (the strip, as the room expects it), then one post pass (bloom, tone
 // mapping, grain) to the canvas. WebGPU when available, WebGL2 otherwise (three.js picks it). Nothing is allocated per frame.
-//   STUDIO NIGHT 25-11 (VFX, plan 05 §2.4/§2.7/§2.8): palette.js is the only source of colour (room.PAL, room.PALETTE, ENV_PRESETS read
-//   it); the post is AgX + a grade per chapter (room.setGrade) + a projector-safe shoulder + a continuous vertical darkening; the air
-//   is a RADIAL fog coloured by the sky in each direction (room.setAir); the one matter (room.matter.ceramic / .body) and contact
-//   shadows (room.contactShadows). setBackground(block) — which the host calls on every block change — also sets the block's grade and
-//   air, so nothing else has to call them. See PARTS.md «What the room gives since the studio night».
 import * as THREE from 'three/webgpu';
-import { Discard, If, Loop, uniformArray, screenCoordinate, positionGeometry, texture, uniform, uv, vec2, vec3, vec4, float, fract, sin, cos, dot, Fn, floor, select, clamp, abs, min, max, smoothstep, mix, pow, positionLocal, normalize, length, exp, atan, asin, pmremTexture, normalWorld, positionWorld, cameraPosition, agxToneMapping, sRGBTransferOETF, sRGBTransferEOTF, fog, instancedDynamicBufferAttribute, mx_noise_float, exp2 } from 'three/tsl';
+import { texture, uniform, uv, vec2, vec3, vec4, float, fract, sin, cos, dot, Fn, floor, select, clamp, abs, min, max, smoothstep, mix, pow, positionLocal, normalize, length, exp, atan, asin, pmremTexture, normalWorld, positionWorld, cameraPosition } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { PAL, TOK, lin as palLin, linOf } from './palette.js';
 
 export async function createRoom3D(vt, canvas, opt = {}) {
   const W = vt.size.width, H = vt.size.height;
@@ -40,9 +34,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   renderer.setPixelRatio(1);
   renderer.setSize(W, H, false);
   await renderer.init();
-  // the tone mapping is done in the post node (AgX + the chapter's grade + the projector's shoulder): the pipeline only converts the
-  // colour space. renderer.toneMappingExposure stays the OPERATOR's exposure (the hosts write it): it is read every frame.
-  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = opt.exposure ?? 1;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.autoClear = false;
@@ -98,8 +90,6 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // `renderScale` (0.5–1) renders the 3D at a fraction of the strip and the post pass scales it up (the quality knob);
   // `samples` is MSAA on the strip (4 is costly at room size). `aa: 'taa'` swaps MSAA for a temporal AA (below).
   const RS = Math.min(1, Math.max(0.4, opt.renderScale ?? 1)), RW = Math.round(W * RS), RH = Math.round(H * RS);
-  // VFX perf 25-11: the room's quality for the parts' own knobs (the hosts pass renderScale 1 / 0.8 / 0.6 for high / medium / low)
-  const QUALITY = opt.quality || (RS >= 0.99 ? 'high' : RS >= 0.75 ? 'medium' : 'low');
   const TAA = opt.aa === 'taa';
   const hdr = (samples, depth = true) => { const rt = new THREE.RenderTarget(RW, RH, { type: THREE.HalfFloatType, depthBuffer: depth, samples }); rt.texture.wrapS = THREE.RepeatWrapping; return rt; };   // the seam is not a seam
   const strip = hdr(TAA ? 0 : opt.samples ?? 0);
@@ -120,24 +110,22 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // Parts opt in: material.envMap = room.envMap (+ envMapIntensity), or room.useEnvironment(k) for the whole scene (ask the director).
   let envMap = null, pmrem = null, envRT = null;
   const ENV = { name: 'generated', pending: null, cfg: null, loaded: { night: false, sky: false }, failed: {}, bakes: 0 };
-  // a token's hue (max channel = k), from palette.js: nobody writes a hex here
-  const hueOf = (token, k = 1) => { const c = palLin(token), m = Math.max(c[0], c[1], c[2], 1e-4); return [c[0] / m * k, c[1] / m * k, c[2] / m * k]; };
-  // per block, after the palette of the work (plan 05 §2.7; was the art bible's colour script with turquoise / coral / violet): a cooler
-  // light zone above and a warmer one below, so glaze and chrome read as matter; the light chapters (pinya, tronc, crown, festa, baixada,
-  // acta) brighter. `hdri` weights: g = generated, night, sky. The host calls room.setEnvironment(block).
+  const hueOf = (hex, k = 1) => { const c = new THREE.Color(hex), m = Math.max(c.r, c.g, c.b, 1e-4); return [c.r / m * k, c.g / m * k, c.b / m * k]; };
+  // per block, after the art bible's colour script (notas/ARTE.md §2, column «cielo del entorno»): always a cold light zone above and a
+  // warm one below, so chrome reads as metal. `hdri` weights: g = generated, night, sky. The host calls room.setEnvironment(block).
   const ENV_PRESETS = {
     generated: { g: 1, night: 0, sky: 0, sat: 1, tint: [1, 1, 1], top: [1, 1, 1], bottom: [1, 1, 1], gain: 1, panels: true },
-    wait:    { g: 0, night: 1, sky: 0, sat: 0.15, tint: hueOf('pedra-nit'), top: [1, 1, 1], bottom: hueOf('fanal', 0.5), gain: 0.9, panels: false },
-    intro:   { g: 0.5, night: 1, sky: 0, sat: 0.5, tint: hueOf('blau-plaça'), top: [1, 1, 1], bottom: hueOf('fanal', 0.9), gain: 1.1, panels: true },
-    brasa:   { g: 0, night: 0.35, sky: 1, sat: 0.2, tint: [1, 1, 1], top: hueOf('lluna', 0.7), bottom: hueOf('brasa', 0.3), gain: 0.9, panels: false },
-    pinya:   { g: 0.3, night: 1, sky: 0, sat: 0.4, tint: hueOf('blau-plaça'), top: [1, 1, 1], bottom: hueOf('cal-foc', 0.8), gain: 1.0, panels: true },
-    tronc:   { g: 0.3, night: 1, sky: 0, sat: 0.4, tint: hueOf('blau-hora'), top: [1, 1, 1], bottom: hueOf('porcellana', 0.8), gain: 1.1, panels: true },
-    pom:     { g: 0.3, night: 1, sky: 0, sat: 0.5, tint: [1, 1, 1], top: hueOf('blau-hora', 0.9), bottom: hueOf('or-clar', 0.6), gain: 1.1, panels: false },
-    crown:   { g: 0.3, night: 1, sky: 0, sat: 0.4, tint: hueOf('blau-plaça'), top: [1, 1, 1], bottom: hueOf('or-clar', 0.9), gain: 1.0, panels: true },
-    festa:   { g: 0.3, night: 1, sky: 0, sat: 0.4, tint: hueOf('blau-plaça'), top: [1, 1, 1], bottom: hueOf('or-clar', 0.9), gain: 1.0, panels: true },
-    baixada: { g: 0, night: 0, sky: 1, sat: 0.5, tint: [1, 1, 1], top: hueOf('alba-blau', 0.95), bottom: hueOf('alba-rosa', 1), gain: 1.4, panels: false },
-    fall:    { g: 0, night: 0.5, sky: 0.6, sat: 0.3, tint: [1, 1, 1], top: hueOf('cendra', 0.6), bottom: hueOf('brasa', 0.4), gain: 0.8, panels: false },
-    acta:    { g: 0, night: 0.3, sky: 0.8, sat: 0.1, tint: hueOf('cal'), top: [1, 1, 1], bottom: hueOf('cal', 0.8), gain: 1.2, panels: false },
+    wait:    { g: 0, night: 1, sky: 0, sat: 0.15, tint: hueOf('#AEB8C8'), top: [1, 1, 1], bottom: hueOf('#FF6B2E', 0.5), gain: 0.9, panels: false },
+    intro:   { g: 0.5, night: 1, sky: 0, sat: 0.6, tint: hueOf('#6E86C8'), top: [1, 1, 1], bottom: hueOf('#FFB25A', 0.9), gain: 1.1, panels: true },
+    brasa:   { g: 0, night: 0.35, sky: 1, sat: 0.2, tint: [1, 1, 1], top: hueOf('#9FB4D8', 0.7), bottom: hueOf('#FF6A1F', 0.3), gain: 0.9, panels: false },
+    pinya:   { g: 0, night: 1, sky: 0.25, sat: 0.3, tint: [1, 1, 1], top: hueOf('#2ED3C6', 0.8), bottom: hueOf('#FF6F59', 0.55), gain: 1.0, panels: false },
+    tronc:   { g: 0, night: 1, sky: 0.2, sat: 0.4, tint: [1, 1, 1], top: hueOf('#2BB8B0', 0.75), bottom: hueOf('#B8562C', 0.8), gain: 1.1, panels: true },
+    pom:     { g: 0.3, night: 1, sky: 0, sat: 0.5, tint: [1, 1, 1], top: hueOf('#5A78D8', 0.9), bottom: hueOf('#FFD27A', 0.7), gain: 1.1, panels: false },
+    crown:   { g: 0, night: 0.6, sky: 0.8, sat: 0.35, tint: [1, 1, 1], top: hueOf('#FFF0C8', 0.8), bottom: hueOf('#B9A3FF', 0.55), gain: 0.8, panels: true },
+    festa:   { g: 0, night: 0.6, sky: 0.8, sat: 0.35, tint: [1, 1, 1], top: hueOf('#FFF0C8', 0.9), bottom: hueOf('#B9A3FF', 0.6), gain: 0.9, panels: true },
+    baixada: { g: 0, night: 0, sky: 1, sat: 0.5, tint: [1, 1, 1], top: hueOf('#B9A3E8', 0.9), bottom: hueOf('#FFD0A8', 1), gain: 1.3, panels: false },
+    fall:    { g: 0, night: 0.5, sky: 0.6, sat: 0.3, tint: [1, 1, 1], top: hueOf('#B9A3E8', 0.6), bottom: hueOf('#FF6A1F', 0.4), gain: 0.8, panels: false },
+    acta:    { g: 0, night: 1, sky: 0, sat: 0.1, tint: hueOf('#F2EEE6'), top: [1, 1, 1], bottom: [0.6, 0.6, 0.6], gain: 0.7, panels: false },
   };
   const EU = { g: uniform(1), night: uniform(0), sky: uniform(0), sat: uniform(1), gain: uniform(1), rot: uniform(0),
     tint: uniform(new THREE.Vector3(1, 1, 1)), top: uniform(new THREE.Vector3(1, 1, 1)), bottom: uniform(new THREE.Vector3(1, 1, 1)) };
@@ -225,8 +213,8 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   const tIn = texture(strip.texture), tOut = texture(stripOut.texture);
   const WHv = vec2(W, H), NB = vec2(Math.max(4, Math.round(W / 236)), Math.max(1, Math.round(H / 228)));
   const h21 = (c, s) => fract(sin(dot(c, vec2(127.1, 311.7)).add(s)).mul(43758.5453));
-  const lin = (token) => vec3(...palLin(token));
-  const PA = lin('lluna'), PB = lin('cal-fanal'), PC = lin('or');   // the light in the cracks: moon, lantern lime, gold (palette.js; was cyan / pink)
+  const lin = (hex) => { const c = new THREE.Color(hex); return vec3(c.r, c.g, c.b); };
+  const PA = lin('#8FE3FF'), PB = lin('#F2A6C8'), PC = lin('#F6D47A');
   const pal3 = (x) => { const t = fract(x).mul(3); return mix(mix(mix(PA, PB, clamp(t, 0, 1)), PC, clamp(t.sub(1), 0, 1)), PA, clamp(t.sub(2), 0, 1)); };
   const luma = (c) => dot(c, vec3(0.3, 0.55, 0.15));
   const safe = (c) => clamp(c, vec3(0), vec3(64));                 // a part's stray Inf must not turn into NaN here (Inf × 0)
@@ -276,7 +264,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     // with the host's accents (setTiles({ accentFrom, accentTo })) the light goes from the outgoing chapter's colour to the incoming one's, the film only as a shimmer on it
     const accent = mix(tiles.accentFrom, tiles.accentTo, smoothstep(0.3, 0.7, lp));
     const film = mix(film0, accent.mul(film0.mul(0.7).add(0.5)), tiles.accentK).toVar();
-    const glowC = mix(film, gIn.div(luma(gIn).add(0.25)).mul(0.9), 0.45).mul(tiles.glow).mul(0.35).toVar();   // AD#13: no haloed edges
+    const glowC = mix(film, gIn.div(luma(gIn).add(0.25)).mul(0.9), 0.45).mul(tiles.glow).toVar();
     // --- the slab's face: its image, lit as it turns, a mirror of the room's environment, a glint, a bevel with a thin film
     const eT = float(1).sub(qf.y).mul(S.y), eB = qf.y.mul(S.y), eL = qf.x.mul(S.x), eR = float(1).sub(qf.x).mul(S.x);
     const rim = float(1).sub(smoothstep(0.6, 2.4, min(min(eL, eR), min(eT, eB))));
@@ -288,7 +276,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     const Rl = Vl.sub(nv.mul(dot(Vl, nv).mul(2)));
     const Rw = perWall(cx, 'right').mul(Rl.x).add(vec3(0, 1, 0).mul(Rl.y)).add(perWall(cx, 'back').mul(Rl.z));
     const envC = envMap ? safe(pmremTexture(envMap, Rw, float(0.14)).rgb) : mix(vec3(0.22, 0.1, 0.04), vec3(0.3, 0.4, 0.55), smoothstep(-0.3, 0.5, Rw.y));
-        const mir = zf.mul(sA.mul(sA).mul(2.0).add(select(hc.greaterThan(0.7), float(0.14), float(0.03)))).mul(tiles.mirror).mul(0.5);   // half the slabs are mirrors all the way; all of them while they turn
+        const mir = zf.mul(sA.mul(sA).mul(2.0).add(select(hc.greaterThan(0.7), float(0.14), float(0.03)))).mul(tiles.mirror);   // half the slabs are mirrors all the way; all of them while they turn
     const sweep = fl.mul(1.6).sub(0.3), gl = select(vert, qf.x, qf.y).sub(sweep).div(0.07);
     const glint = exp(gl.mul(gl).negate()).mul(min(sA.mul(sA).mul(40), 1)).mul(0.6).mul(tiles.mirror);
     const face = tile.mul(zf.mul(0.6).mul(float(1).sub(smoothstep(0.1, 0.6, luma(tile)))).add(1)).mul(lam).mul(float(1).sub(mir.mul(0.4))).mul(float(1).sub(lintel)).mul(float(1).sub(shadeBot.mul(zf).mul(0.5)))
@@ -310,7 +298,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     const col = select(inF, face, select(inB, hole, side)).toVar();
     // --- pixel sorting where the front passes: bands 4 or 14 px wide, 0.3–1.2 m long, the image's own colours sorted bright → dark
     const cen0 = c0.add(0.5).div(NB), l0 = clamp(tiles.mix.sub(timeAt(cen0, float(0.5))).div(WD), 0, 1);
-    const fr = sin(l0.mul(Math.PI)).mul(tiles.streaks).mul(0.0);   // AD#13: no pixel-sort streaks (the vertical white bars read as a video glitch)
+    const fr = sin(l0.mul(Math.PI)).mul(tiles.streaks);
     const cidB = floor(pp.x.div(14)), wide = h21(vec2(cidB, 3.5), sd).greaterThan(0.6);
     const cid = select(wide, cidB.add(7000), floor(pp.x.div(4)));
     const Lc = h21(vec2(cid, 1.5), sd).mul(230).add(80), oc = h21(vec2(cid, 2.5), sd).mul(Lc);
@@ -364,37 +352,10 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   for (const rt of [bl._renderTargetBright, ...(bl._renderTargetsHorizontal || []), ...(bl._renderTargetsVertical || [])]) if (rt) rt.texture.wrapS = THREE.RepeatWrapping;
   const grainAmt = uniform(opt.grain ?? 1.5 / 255), time = uniform(0);
   const grain = Fn(() => { const p = uv().mul(vec2(W, H)).add(time.mul(61.7)); return fract(sin(dot(p, vec2(12.9898, 78.233))).mul(43758.5453)).sub(0.5).mul(grainAmt); });
-  // ---- the studio chain (plan 05 V2, §2.8): HDR → exposure (chapter EV × the operator's exposure) → saturation → split tone (shadows
-  // towards the chapter's shadow hue, lights towards its light hue) → AgX → in display space: a gentle contrast, the continuous vertical
-  // darkening (top and bottom of the strip, the same on the four walls: never a vignette per wall, which would frame the corners), a
-  // projector-safe shoulder (nothing above `ceil`: p99 ≤ 0.85, burnt ≤ 1 %), the lift (the blackest black is the chapter's shadow
-  // token, never #000) and a dither that is strongest in the blacks (the projector bands there). Every value eases (≈ 1.2 s).
-  const v3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
-  const G = { ev: uniform(0), sat: uniform(1), contrast: uniform(1), lo: uniform(v3([1, 1, 1])), loK: uniform(0), hi: uniform(v3([1, 1, 1])), hiK: uniform(0),
-    lift: uniform(v3([0, 0, 0])), liftK: uniform(0), ceil: uniform(0.9), vTop: uniform(0.2), vBot: uniform(0.15), bloom: uniform(1), opExp: uniform(1),
-    accent: uniform(v3([1, 0.7, 0.3])), shadow: uniform(v3([0.01, 0.01, 0.02])) };
-  const lumN = (c) => dot(c, vec3(0.2126, 0.7152, 0.0722));
-  const graded = Fn(() => {
-    const c = src.rgb.add(bl.rgb.mul(G.bloom)).mul(G.opExp).mul(exp2(G.ev)).toVar();
-    const l = lumN(c);
-    c.assign(max(mix(vec3(l), c, G.sat), vec3(0)));
-    const w = l.div(l.add(0.25));                                                  // 0 in the shadows → 1 in the lights
-    c.assign(c.mul(mix(vec3(1), G.lo, G.loK.mul(float(1).sub(w)))).mul(mix(vec3(1), G.hi, G.hiK.mul(w))));
-    const d = sRGBTransferOETF(agxToneMapping(c, float(1))).toVar();             // display values 0..1
-    d.assign(clamp(d.sub(0.42).mul(G.contrast).add(0.42), 0, 1));
-    const y = uv().y;                                                              // the strip's height (the same on the four walls)
-    const yUp = select(float(renderer.coordinateSystem === THREE.WebGPUCoordinateSystem ? 1 : 0).greaterThan(0.5), float(1).sub(y), y);
-    d.mulAssign(float(1).sub(G.vTop.mul(pow(smoothstep(0.6, 1.0, yUp), 1.6))).sub(G.vBot.mul(smoothstep(0.16, 0.0, yUp))));
-    // the shoulder: by the brightest channel (no hue shift), from 0.72 up, never above ceil
-    const m = max(max(d.x, d.y), max(d.z, 1e-4)), k0 = float(0.72), span = max(G.ceil.sub(k0), 0.02);
-    const mm = select(m.greaterThan(k0), k0.add(span.mul(float(1).sub(exp(m.sub(k0).div(span).negate())))), m);
-    d.mulAssign(mm.div(m));
-    d.addAssign(G.lift.mul(float(1).sub(d)).mul(G.liftK));
-    const ld = lumN(d);
-    d.addAssign(vec3(grain().mul(float(1.6).sub(clamp(ld.mul(1.8), 0, 1)))));   // dither: ×1.6 in the blacks, ×0.6 in the lights
-    return sRGBTransferEOTF(clamp(d, 0, 1));                                       // the pipeline encodes to sRGB again
-  });
-  pipeline.outputNode = vec4(graded(), float(1));
+  // the finish (T-037): film grain that follows the light — a third of it in the blacks (it still breaks banding, the projector's black
+  // stays black), all of it in the mid-tones. NO vignette: per wall it would draw four frames round the public and break the corners.
+  const lit = src.rgb.add(bl.rgb);
+  pipeline.outputNode = vec4(lit.add(vec3(grain().mul(clamp(dot(lit, vec3(0.3, 0.55, 0.15)).mul(1.6), 0, 1).mul(0.67).add(0.33)))), float(1));
 
   // ---- hands on the walls, in world coordinates
   const hs = [];
@@ -425,147 +386,41 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   //
   // ---- the palette of the system per block (notas/ARTE.md §2): `bottom` / `top` = the background's deep gradient (the «Fondo» column,
   // lifted a little towards the chapter's colour above), `accent` = the chapter's accent for the fine graphics and the hands' light.
-  // STUDIO NIGHT: from palette.js (PAL[block].sky / .accent): `bottom`, `horizon`, `top` = the sky seen from the eye (linear), `accent` =
-  // the chapter's accent (the hand's answer), `light` (a target at rest), `shadow`, `ink`, `ach` (gold). Same shape as before + more.
-  const PALETTE = Object.fromEntries(Object.entries(PAL).map(([k, p]) => [k, { bottom: p.lin.sky.bottom, horizon: p.lin.sky.horizon, top: p.lin.sky.top,
-    accent: p.lin.accent, light: p.lin.light, shadow: p.lin.shadow, ink: p.lin.ink, ach: p.lin.ach, luma: p.luma }]));
-  // ---- the grade and the air of each chapter (plan 05 §2.8: the light curve). ev = exposure in stops over the operator's; sat; lo / hi =
-  // split tone (token hue, amount); lift = the blacks' colour (token, amount); ceil = the shoulder's top (display); vTop / vBot = the
-  // vertical darkening; bloom = × the host's bloom; sky = × the background; air = the radial fog (see setAir); key = the light's
-  // direction in the air (a lobe of the light's colour in the fog towards it), { dir: [x, y, z], token, k }.
-  const GRADE = {
-    wait:    { ev: 0.35, sat: 0.9, contrast: 1.0, lo: 'tinta', loK: 0.3, hi: 'os', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.0072, height: 0.22, heightK: 0.5, start: 3.6, max: 0.7 } },
-    intro:   { ev: 0.5, sat: 0.95, contrast: 1.0, lo: 'blau-plaça', loK: 0.3, hi: 'cal-fanal', hiK: 0.15, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.012, height: 0.25, heightK: 0.5, start: 3.6, max: 0.75, key: { dir: [0, 0.05, -1], token: 'fanal', k: 0.25 } } },
-    brasa:   { ev: 0.35, sat: 0.85, contrast: 1.06, lo: 'tinta', loK: 0.25, hi: 'flama', hiK: 0.06, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.35, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.012, height: 0.22, heightK: 0.6, start: 4.5, max: 0.7 } },   // smoke: dark, the fires light it (no colour veil)
-    pinya:   { ev: 0.3, sat: 0.95, contrast: 1.08, lo: 'blau-plaça', loK: 0.4, hi: 'cal-foc', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.016, height: 0.18, heightK: 0.55, start: 6, max: 0.82 } },   // Beltrán 25-11: the festival night, spots through haze
-    tronc:   { ev: 0.3, sat: 0.95, contrast: 1.08, lo: 'blau-plaça', loK: 0.4, hi: 'porcellana', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 0.5, sky: 1,
-      air: { density: 0.016, height: 0.16, heightK: 0.5, start: 6, max: 0.82 } },
-    pom:     { ev: 0.45, sat: 0.85, contrast: 1.02, lo: 'nit-alta', loK: 0.35, hi: 'lluna', hiK: 0.1, lift: 'nit-alta', liftK: 0.35, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.0112, height: 0.2, heightK: 0.5, start: 3.6, max: 0.75 } },
-    crown:   { ev: 0.4, sat: 0.95, contrast: 1.12, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.88, vTop: 0.15, vBot: 0.15, bloom: 1, sky: 1,
-      air: { density: 0.008, height: 0.12, heightK: 0.3, start: 6, max: 0.6 } },   // a gold burst inside the night
-    festa:   { ev: 0.35, sat: 0.95, contrast: 1.05, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.88, vTop: 0.2, vBot: 0.15, bloom: 1, sky: 1,
-      air: { density: 0.008, height: 0.12, heightK: 0.3, start: 6, max: 0.6 } },
-    baixada: { ev: 0.55, sat: 0.92, contrast: 1.02, lo: 'albergínia', loK: 0.3, hi: 'alba-rosa', hiK: 0.12, lift: 'albergínia', liftK: 0.35, ceil: 0.88, vTop: 0.15, vBot: 0.15, bloom: 0.7, sky: 1,
-      air: { density: 0.014, height: 0.14, heightK: 0.4, start: 3.6, max: 0.8, key: { dir: [1, 0.08, 0], token: 'alba-rosa', k: 0.35 } } },
-    fall:    { ev: 0.35, sat: 0.75, contrast: 1.02, lo: 'tinta', loK: 0.3, hi: 'cendra', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.016, height: 0.2, heightK: 0.5, start: 3.6, max: 0.8 } },
-    acta:    { ev: 0.35, sat: 1.25, contrast: 1.05, lo: 'ombra', loK: 0.12, hi: 'cal-fanal', hiK: 0.22, lift: 'ombra', liftK: 0.25, ceil: 0.88, vTop: 0.1, vBot: 0.0, bloom: 0.7, sky: 1,
-      air: { density: 0.008, height: 0.15, heightK: 0.4, start: 3.6, max: 0.7, key: { dir: [0.6, 0.3, -1], token: 'cal', k: 0.2 } } },
+  const linA = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
+  const PALETTE = {
+    wait:    { bottom: linA('#050506'), top: linA('#0F1016'), accent: linA('#FF6B2E') },
+    intro:   { bottom: linA('#0B1430'), top: linA('#1B2A52'), accent: linA('#FFB25A') },
+    brasa:   { bottom: linA('#0A0504'), top: linA('#1C0B07'), accent: linA('#FF6A1F') },
+    pinya:   { bottom: linA('#03090B'), top: linA('#082028'), accent: linA('#2ED3C6') },
+    tronc:   { bottom: linA('#07080C'), top: linA('#1A222C'), accent: linA('#E3A32B') },
+    pom:     { bottom: linA('#020308'), top: linA('#0A1230'), accent: linA('#EEF2FF') },
+    crown:   { bottom: linA('#060504'), top: linA('#1A1409'), accent: linA('#F6C65B') },
+    festa:   { bottom: linA('#060504'), top: linA('#1A1409'), accent: linA('#F6C65B') },
+    baixada: { bottom: linA('#141020'), top: linA('#2A2140'), accent: linA('#F7B7C6') },
+    fall:    { bottom: linA('#070508'), top: linA('#161020'), accent: linA('#B9A3E8') },
+    acta:    { bottom: linA('#050506'), top: linA('#0E0F14'), accent: linA('#F2EEE6') },
   };
   // ---- the background: a sphere round the eye (r 320 m, inside the far plane), drawn first, without depth: whatever a part draws covers
-  // it; where nothing is drawn the wall shows the chapter's sky. Three stops (bottom · a horizon band at the eye's height · top), eased
-  // (~1.5 s) on every change. The SAME function colours the air (setAir): far things melt into the sky — aerial perspective, no outline.
-  const P0 = PALETTE.wait;
-  const bg = { bottom: uniform(v3(P0.bottom)), horizon: uniform(v3(P0.horizon)), top: uniform(v3(P0.top)), gain: uniform(opt.background ?? 1), sky: uniform(1),
-    to: { bottom: [...P0.bottom], horizon: [...P0.horizon], top: [...P0.top], sky: 1 }, name: 'wait' };
-  const actaK = uniform(0);
-  const skyAt = (d) => {                         // d: a unit direction from the eye
-    const y = d.y, up = pow(smoothstep(0.0, 0.55, y), 0.8), dn = smoothstep(0.0, -0.4, y);
-    const base = mix(mix(bg.horizon, bg.top, up), bg.bottom, dn).mul(bg.gain).mul(bg.sky);
-    // ACTA (AD#13): lime in a raking morning light — a soft sweep of light across each wall from one side, a fine plaster grain, and a
-    // clean ombra plinth below the floor line
-    const az = atan(d.z, d.x), rake = sin(az.mul(4.0).add(0.6)).mul(0.5).add(0.5), grain = fract(sin(dot(floor(d.xy.mul(900.0)), vec2(12.9898, 78.233))).mul(43758.5453)).sub(0.5).mul(0.025);
-    const plinth = float(0);   // (a direction-based plinth curves on the flat walls and read as a burn: off)
-    const acta = base.mul(rake.mul(0.35).add(0.75).add(grain)).mul(float(1).sub(plinth)).add(vec3(...palLin('ombra')).mul(plinth));
-    return mix(base, acta, actaK);
-  };
+  // it; where nothing is drawn the wall shows the block's deep colour instead of #000. Eased (~1.5 s) on every change.
+  const bg = { bottom: uniform(new THREE.Vector3(...PALETTE.wait.bottom)), top: uniform(new THREE.Vector3(...PALETTE.wait.top)), gain: uniform(opt.background ?? 1),
+    to: { bottom: [...PALETTE.wait.bottom], top: [...PALETTE.wait.top] }, name: 'wait' };
   const bgMat = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false });
-  bgMat.colorNode = Fn(() => skyAt(normalize(positionLocal)))();
-  const bgMesh = new THREE.Mesh(new THREE.SphereGeometry(320, 48, 24), bgMat);
+  bgMat.colorNode = Fn(() => { const y = normalize(positionLocal).y; return mix(bg.bottom, bg.top, smoothstep(-0.2, 0.75, y)).mul(bg.gain); })();
+  const bgMesh = new THREE.Mesh(new THREE.SphereGeometry(320, 32, 16), bgMat);
   bgMesh.name = 'room:background'; bgMesh.renderOrder = -1000; bgMesh.frustumCulled = false; bgMesh.position.copy(eye);
   scene.add(bgMesh);
-  // setBackground('pinya') | setBackground({ bottom, horizon, top } (linear)) | setBackground('tronc', { top: […] }) · { gain } (0 = black)
-  // A block name ALSO sets that block's grade and air (the host calls this on every block change); { grade: false } leaves them.
+  // setBackground('pinya') | setBackground({ bottom: [r,g,b], top: [r,g,b] } (linear)) | setBackground('tronc', { top: […] }) · { gain } (0 = black)
   function setBackground(what = 'wait', over = null) {
     const base = typeof what === 'string' ? PALETTE[what] || PALETTE.wait : what;
     const c = { ...base, ...(over || {}) };
-    if (c.bottom) bg.to.bottom = [...c.bottom]; if (c.top) bg.to.top = [...c.top]; bg.to.horizon = [...(c.horizon || c.top || bg.to.horizon)];
-    if (c.gain != null) bg.gain.value = c.gain;
+    if (c.bottom) bg.to.bottom = [...c.bottom]; if (c.top) bg.to.top = [...c.top]; if (c.gain != null) bg.gain.value = c.gain;
     bg.name = typeof what === 'string' ? what : 'custom';
-    if (typeof what === 'string' && c.grade !== false) { setGrade(what, { now: c.now }); setAir(what); airSweep(scene); porx.to = PORX_ON.has(what) ? 1 : 0; porx.lit.value = what === 'crown' || what === 'festa' ? 1 : 0; actaK.value = what === 'acta' ? 1 : 0; field.to = FIELD_ON.has(what) ? 1 : 0; }
-    if (c.now) for (const key of ['bottom', 'horizon', 'top']) bg[key].value.fromArray(bg.to[key]);
+    if (c.now) { bg.bottom.value.fromArray(bg.to.bottom); bg.top.value.fromArray(bg.to.top); }
   }
   function stepBackground(dt) {
     const k = 1 - Math.exp(-dt * 2.2);
-    for (const key of ['bottom', 'horizon', 'top']) { const v = bg[key].value, t = bg.to[key]; v.x += (t[0] - v.x) * k; v.y += (t[1] - v.y) * k; v.z += (t[2] - v.z) * k; }
-    bg.sky.value += (bg.to.sky - bg.sky.value) * k;
+    for (const key of ['bottom', 'top']) { const v = bg[key].value, t = bg.to[key]; v.x += (t[0] - v.x) * k; v.y += (t[1] - v.y) * k; v.z += (t[2] - v.z) * k; }
   }
-
-  // ---- setGrade(block | { ev, sat, contrast, lo, loK, hi, hiK, lift, liftK, ceil, vTop, vBot, bloom, sky }, { now }) — the chapter's grade
-  // (tokens by name). Eased ≈ 1.2 s (the mean luma never changes faster than ×2 per second). room.grade = the current targets.
-  const gTo = {}; let gradeName = 'wait';
-  const hueV = (t) => { const c = typeof t === 'string' ? palLin(t) : t, m = Math.max(c[0], c[1], c[2], 1e-4); return [c[0] / m, c[1] / m, c[2] / m]; };
-  function setGrade(what = 'wait', o = {}) {
-    const g = typeof what === 'string' ? { ...(GRADE[what] || GRADE.wait) } : { ...GRADE[gradeName], ...what };
-    if (typeof what === 'string') gradeName = GRADE[what] ? what : 'wait';
-    for (const k of ['ev', 'sat', 'contrast', 'loK', 'hiK', 'liftK', 'ceil', 'vTop', 'vBot', 'bloom']) if (g[k] != null) gTo[k] = g[k];
-    if (g.lo) gTo.lo = hueV(g.lo); if (g.hi) gTo.hi = hueV(g.hi);
-    if (g.lift) gTo.lift = typeof g.lift === 'string' ? palLin(g.lift) : g.lift;
-    if (g.sky != null) bg.to.sky = g.sky;
-    const p = PALETTE[gradeName]; gTo.accent = p.accent; gTo.shadow = p.shadow;
-    if (o.now) stepGrade(1e3);
-  }
-  function stepGrade(dt) {
-    const k = 1 - Math.exp(-dt * 1.6);
-    for (const [key, t] of Object.entries(gTo)) {
-      const U = G[key]; if (!U) continue;
-      if (Array.isArray(t)) { const v = U.value; v.x += (t[0] - v.x) * k; v.y += (t[1] - v.y) * k; v.z += (t[2] - v.z) * k; } else U.value += (t - U.value) * k;
-    }
-    G.opExp.value = renderer.toneMappingExposure ?? 1;
-  }
-
-  // ---- the air (plan 05 V1; 04 §2.2): a RADIAL fog — distance from the eye, not the view depth (which differs ~14 % between the two
-  // walls of a corner: a seam). Exponential with a height falloff (denser near the floor), starting at the wall planes (nothing in the
-  // room is fogged), capped below 1 (silhouettes never vanish), breathing ±8 %. Its colour is the SKY in that direction (skyAt), plus a
-  // lobe of the key light's colour towards the light. On every material with `fog` (the default); additive glows are exempted
-  // automatically (airSweep: fog on an additive material would ADD the sky's colour as a slab).
-  //   room.setAir({ density, height (1/m falloff), heightK (0..1 how much the height matters), start (m), max, key: { dir, token, k } })
-  //   room.setAir('brasa') → that chapter's air (setBackground does this) · room.setAir({ density: 0 }) → no air
-  const A = { density: uniform(0.02), height: uniform(0.2), heightK: uniform(0.5), start: uniform(3.6), max: uniform(0.7),
-    keyDir: uniform(new THREE.Vector3(0, 0, -1)), keyCol: uniform(new THREE.Vector3(0, 0, 0)) };
-  const aTo = { density: 0.02, height: 0.2, heightK: 0.5, start: 3.6, max: 0.7, keyCol: [0, 0, 0] };
-  const eyeU = uniform(eye);
-  const airFactor = Fn(() => {
-    const rel = positionWorld.sub(eyeU), dist = length(rel);
-    const breathe = sin(time.mul(0.21)).mul(0.08).add(1);
-    const base = float(1).sub(exp(max(dist.sub(A.start), 0).mul(A.density).mul(breathe).negate()));
-    const hf = mix(float(1), exp(max(positionWorld.y, 0).mul(A.height).negate()).mul(1.6).min(1.4), A.heightK);
-    return clamp(base.mul(hf), 0, A.max);
-  });
-  const airColor = Fn(() => {
-    const d = normalize(positionWorld.sub(eyeU));
-    const lobe = pow(max(dot(d, normalize(A.keyDir)), 0), 6);
-    return skyAt(d).add(A.keyCol.mul(lobe));
-  });
-  scene.fogNode = fog(airColor(), airFactor());
-  function setAir(what = {}) {
-    const a = typeof what === 'string' ? (GRADE[what] || GRADE.wait).air : what;
-    for (const k of ['density', 'height', 'heightK', 'start', 'max']) if (a[k] != null) aTo[k] = a[k];
-    if (a.key) { if (a.key.dir) A.keyDir.value.fromArray(a.key.dir); const c = typeof a.key.token === 'string' ? palLin(a.key.token, a.key.k ?? 0.3) : (a.key.color || [0, 0, 0]); aTo.keyCol = c; }
-    else if (typeof what === 'string') aTo.keyCol = [0, 0, 0];
-  }
-  function stepAir(dt) {
-    const k = 1 - Math.exp(-dt * 1.2);
-    for (const key of ['density', 'height', 'heightK', 'start', 'max']) A[key].value += (aTo[key] - A[key].value) * k;
-    const v = A.keyCol.value, t = aTo.keyCol; v.x += (t[0] - v.x) * k; v.y += (t[1] - v.y) * k; v.z += (t[2] - v.z) * k;
-  }
-  // additive (and multiply / subtractive) materials never take the air; a material can opt out with userData.air = false (or fog = false)
-  const swept = new WeakSet();
-  function airSweep(root) {
-    root.traverse((o) => {
-      const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
-      for (const m of ms) {
-        if (swept.has(m)) continue; swept.add(m);
-        if (m.fog && (m.blending === THREE.AdditiveBlending || m.blending === THREE.MultiplyBlending || m.blending === THREE.SubtractiveBlending || m.userData?.air === false)) { m.fog = false; m.needsUpdate = true; }
-      }
-    });
-  }
-  { const add0 = scene.add.bind(scene); scene.add = (...objs) => { for (const o of objs) if (o?.traverse) airSweep(o); return add0(...objs); }; }
 
   // ---- «la mano es una linterna» (refs/saltmere gradient-border-flashlight): up to FL_N hands as soft lights, world positions ON the wall
   // planes, radius FL_R. room.flash(positionNode) → TSL float (1 at a hand, ~0.07 at FL_R, ~0 beyond; summed, ≤ 1.5): distance in 3D,
@@ -636,289 +491,12 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     h.mesh.position.copy(at).addScaledVector(_hd, behind); h.mesh.lookAt(eye.x, h.mesh.position.y, eye.z);
   }
 
-  // ---- THE ONE MATTER (D4, plan 05 V3): glazed ceramic / trencadís — a standard material (cheap ×4 walls) with a roughness that varies
-  // over the surface (a specular that changes as the light moves reads as matter; never below 0.14: no sparkle in projection), a darker
-  // glaze in the worn hollows, the room's environment, a fine cold rim (the figure–ground separation) and the hands' light in the
-  // chapter's accent («la mano es una linterna»). Colours are palette tokens (or linear [r, g, b]); instance colours multiply.
-  //   const m = room.matter.ceramic({ color: 'porcellana', glaze: 0.7, wear: 0.3 });
-  //   const b = room.matter.body({ color: 'cal-foc', faixa: 'faixa', faixaY: [0.95, 1.12] });   // y in the body's own metres (feet at 0)
-  const colOf = (c) => (typeof c === 'string' ? palLin(c) : Array.isArray(c) ? c : c?.isColor ? [c.r, c.g, c.b] : [0.8, 0.78, 0.74]);
-  const RIM = palLin('lluna');
-  function ceramic({ color = 'os', glaze = 0.6, wear = 0.3, rim = 0.35, hands = 0.35, env = 1, scale = 1, side = THREE.FrontSide } = {}) {
-    const m = new THREE.MeshStandardNodeMaterial({ metalness: 0, side });
-    m.color.setRGB(...colOf(color));
-    const p = positionGeometry.mul(scale);   // (the shape's own coordinates: positionLocal includes an InstancedMesh's instance matrix)
-    const n1 = mx_noise_float(p.mul(2.3)), n2 = mx_noise_float(p.mul(13.0));
-    const base = mix(float(0.62), float(0.2), float(glaze));
-    m.roughnessNode = clamp(base.add(n1.mul(0.14 * wear)).add(n2.mul(0.07 * wear)), 0.14, 0.92);
-    const hollow = smoothstep(0.25, 0.75, n2.mul(0.5).add(0.5)).mul(0.16 * wear);
-    m.colorNode = vec3(...colOf(color)).mul(float(1).sub(hollow));
-    if (envMap) { m.envMap = envMap; m.envMapIntensity = (0.25 + glaze * 0.55) * env; }
-    m.emissiveNode = rimNode(RIM, rim, 3.5).add(G.accent.mul(flash(positionWorld)).mul(hands * 0.35));
-    m.userData.matter = 'ceramic';
-    return m;
-  }
-  function body({ color = 'cal-foc', faixa = 'faixa', faixaY = [0.95, 1.12], glaze = 0.45, wear = 0.35, rim = 0.4, hands = 0.4 } = {}) {
-    const m = ceramic({ color, glaze, wear, rim, hands, scale: 1.6 });
-    const band = smoothstep(faixaY[0] - 0.015, faixaY[0] + 0.015, positionGeometry.y).mul(float(1).sub(smoothstep(faixaY[1] - 0.015, faixaY[1] + 0.015, positionGeometry.y)));
-    const n2 = mx_noise_float(positionGeometry.mul(20.8)), hollow = smoothstep(0.25, 0.75, n2.mul(0.5).add(0.5)).mul(0.16 * wear);
-    m.colorNode = mix(vec3(...colOf(color)), vec3(...colOf(faixa)), band).mul(float(1).sub(hollow));
-    m.userData.matter = 'body';
-    return m;
-  }
-  const matter = { ceramic, body };
-
-  // ---- THE PRINT OF THE HANDS (plan 05 V6; 01 §2.6, Sequins): a persistent mask painted by the hands round the room. One small float
-  // target over perimeter × height (1800 × 228: ~1.5 cm a texel; it wraps at the P3|P4 seam), ping-pong, one quad pass a frame:
-  //   R = the print (each hand seals a disc of 25 cm, reaches 1 in ~0.3 s; decays with τ 26 s: still visible a minute later)
-  //   G = the touch now (τ 0.6 s).
-  // room.heat        TextureNode (u = perimeter s / PER, v = height / H; RepeatWrapping in u)
-  // room.heatAt(s, y) TSL vec2 (R, G) at perimeter s (m, continuous round the room) and height y (m)
-  // room.heatAtWorld(p) TSL vec2 at a WORLD point (the wall point seen in its direction from the eye: anything behind a wall reads the
-  //                   print of the wall in front of it)
-  // room.stamp(s, y, radius = 0.25, k = 1) a scripted print (≤ 16 a frame) · room.wallS(wallIndex, u) → s (m) · room.PER
-  const HW = 1800, HH = 228, PERIM = walls.reduce((a, w) => a + w.width, 0), HMAX = Math.max(...walls.map((w) => w.height));
-  const wCum = []; { let a = 0; for (const w of walls) { wCum.push(a); a += w.width; } }
-  const wallS = (wi, u) => wCum[wi] + u * walls[wi].width;
-  const hrt = () => { const rt = new THREE.RenderTarget(HW, HH, { type: THREE.HalfFloatType, depthBuffer: false }); rt.texture.wrapS = THREE.RepeatWrapping; rt.texture.minFilter = rt.texture.magFilter = THREE.LinearFilter; return rt; };
-  let heatA = hrt(), heatB = hrt();
-  const heatPrev = texture(heatA.texture), heatTex = texture(heatB.texture);
-  const HS_N = 32, hsVec = Array.from({ length: HS_N }, () => new THREE.Vector4(0, 0, 0.25, 0)), uHS = uniformArray(hsVec, 'vec4');
-  const hDecay = uniform(1), hDecayG = uniform(1), hDt = uniform(0);
-  const heatMat = new THREE.NodeMaterial(); heatMat.depthTest = false; heatMat.depthWrite = false;
-  heatMat.fragmentNode = Fn(() => {
-    const p = uv(), prev = heatPrev.sample(p);
-    const sx = p.x.mul(PERIM), sy = p.y.mul(HMAX), add = float(0).toVar();
-    Loop(HS_N, ({ i }) => {
-      const S = uHS.element(i);
-      If(S.w.greaterThan(0.0001), () => {
-        const dx = sx.sub(S.x), du = dx.sub(floor(dx.div(PERIM).add(0.5)).mul(PERIM)), dv = sy.sub(S.y);
-        const r2 = du.mul(du).add(dv.mul(dv)).div(S.z.mul(S.z));
-        add.addAssign(exp(r2.mul(-2.2)).mul(S.w));
-      });
-    });
-    const R = min(prev.x.mul(hDecay).add(add.mul(hDt).mul(3.5)), 1.0), Gc = min(prev.y.mul(hDecayG).add(add.mul(hDt).mul(6.0)), 1.0);
-    return vec4(R, Gc, 0, 1);
-  })();
-  const heatQuad = new THREE.QuadMesh(heatMat);
-  let hsN = 0;
-  function stamp(sm, y, radius = 0.25, k = 1) { if (hsN >= 16) return; hsVec[16 + hsN].set(((sm % PERIM) + PERIM) % PERIM, y, radius, k / Math.max(hDt.value, 1 / 120)); hsN++; }
-  function stepHeat(dt) {
-    let n = 0;
-    for (const h of out) { if (n >= 16) break; if (h.ended) continue; hsVec[n].set(wallS(h.wall, h.u), h.v * walls[h.wall].height, 0.25, 1); n++; }
-    for (let i = n; i < 16; i++) hsVec[i].w = 0;
-    for (let i = 16 + hsN; i < HS_N; i++) hsVec[i].w = 0;
-    hDt.value = Math.min(dt, 0.1); hDecay.value = Math.exp(-dt / 26); hDecayG.value = Math.exp(-dt / 0.6);
-    const sw = heatA; heatA = heatB; heatB = sw;                    // read last frame's, write the new one
-    heatPrev.value = heatA.texture;
-    renderer.setRenderTarget(heatB); heatQuad.render(renderer);
-    heatTex.value = heatB.texture; hsN = 0;
-  }
-  const heatAt = (sNode, yNode) => heatTex.sample(vec2(sNode.div(PERIM), yNode.div(HMAX))).xy;
-  const heatAtWorld = (p) => {                                       // the wall in front of the world point, seen from the eye
-    const d = vec3(p.x.sub(eye.x), 0, p.z.sub(eye.z)), dl = max(length(d), 1e-4), dir = d.div(dl);
-    const best = float(1e6).toVar(), sOut = float(0).toVar(), yOut = float(0).toVar();
-    walls.forEach((w, i) => {
-      const nx = w.normal.x, nz = w.normal.z, den = dir.x.mul(-nx).add(dir.z.mul(-nz));
-      const dist = -((w.pa.x - eye.x) * nx + (w.pa.z - eye.z) * nz);
-      const t = float(dist).div(max(den, 1e-4));
-      const hx = dir.x.mul(t).add(eye.x - w.pa.x), hz = dir.z.mul(t).add(eye.z - w.pa.z), along = hx.mul(w.right.x).add(hz.mul(w.right.z));
-      const ok = den.greaterThan(1e-4).and(t.lessThan(best)).and(along.greaterThanEqual(-0.01)).and(along.lessThanEqual(w.width + 0.01));
-      If(ok, () => { best.assign(t); sOut.assign(along.add(wCum[i])); yOut.assign(float(eye.y).add(p.y.sub(eye.y).mul(t.div(dl)))); });
-    });
-    return heatAt(sOut, yOut);
-  };
-
-  // ---- THE PORXADA (plan 05 V5; 04 §1.4, layer 0): a Catalan porch round the room — a square stone column (0.42 m) standing just
-  // behind EACH CORNER of the room (behind both walls: it hides the corner's fold and gives a known human scale) and a lintel along each
-  // wall whose underside is seen as a dark band at the top of the image (above 3.45 m: never in the 0.6–2.0 m band). Almost black (the
-  // chapter's shadow token), the one matter, lit by whatever light the world has and by the hands. We look at the square THROUGH it.
-  // Present in intro, brasa, pinya, tronc, baixada (setBackground sets it); room.setPorxada(0..1) overrides. It comes and goes by a
-  // dissolve of fragments (screen-door), the work's language. In the scene root: the same frame in both worlds of a transition.
-  const PORX_ON = new Set(['intro', 'brasa', 'pinya', 'tronc', 'pom', 'crown', 'festa', 'baixada']);   // (pinya is the abstract field: no porch)
-  const porx = { k: uniform(0), to: 0, group: new THREE.Group(), lit: uniform(0) };
-  porx.group.name = 'room:porxada';
-  {
-    const pm = ceramic({ color: [0.012, 0.011, 0.013], glaze: 0.2, wear: 0.6, rim: 0.05, hands: 0.06, env: 0.12 });   // (a hand near a corner lit the column into a vertical glare)
-    pm.userData.air = false; pm.fog = false;                       // layer 0: crisp and almost black, never hazed
-    const baseCol = pm.colorNode;
-    pm.colorNode = Fn(() => {
-      const h = fract(sin(dot(floor(screenCoordinate.xy.div(3)), vec2(12.9898, 78.233))).mul(43758.5453));
-      If(h.greaterThan(porx.k), () => { Discard(); });
-      return baseCol.mul(G.shadow.mul(6.0).add(0.4)).mul(mix(float(1), float(11), porx.lit));   // the chapter's shadow tone, very dark; lit bronze stone in the gold chapters
-    })();
-    const colG = new THREE.BoxGeometry(0.42, 6.0, 0.42).translate(0, 3.0, 0);
-    for (let i = 0; i < walls.length; i++) {
-      const w = walls[i], wp = walls[(i + walls.length - 1) % walls.length];
-      const back = w.normal.clone().add(wp.normal).multiplyScalar(-0.5);           // into the world, away from both walls
-      const c = new THREE.Mesh(colG, pm); c.position.copy(w.pa).addScaledVector(back, 0.62); c.position.y = 0;
-      c.lookAt(c.position.x + back.x, 0, c.position.z + back.z); porx.group.add(c);
-      // the springers: a short beam from each corner (1.1 m), underside at 3.72 m, just behind the wall — never a full-width band
-      for (const [end, sgn] of [[w.pa, 1], [w.pb, -1]]) {
-        const L = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.5, 0.3).translate(0, 0.25, 0), pm);
-        L.position.copy(end).addScaledVector(w.right, sgn * 0.45).addScaledVector(w.normal, -0.28); L.position.y = 3.72;
-        L.lookAt(L.position.x - w.normal.x, 3.72, L.position.z - w.normal.z); porx.group.add(L);
-      }
-    }
-    porx.group.visible = false; scene.add(porx.group);
-  }
-  function setPorxada(k = 1) { porx.to = Math.max(0, Math.min(1, k)); }
-
-  const texCache = new Map(), texLoader = new THREE.TextureLoader();
-  const ccTex = (name, map, srgb) => {
-    const key = name + map; if (texCache.has(key)) return texCache.get(key);
-    const t = texLoader.load(new URL(`./assets/cc0/${name}/${name}_${map}_1k.jpg`, import.meta.url).href);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-    t.anisotropy = renderer.getMaxAnisotropy ? Math.min(16, renderer.getMaxAnisotropy() || 8) : 8;
-    texCache.set(key, t); return t;
-  };
-
-  // ---- THE FIELD (director 25-11: Pinya is an ABSTRACT world — «a gathering of light in the night»): a dark polished ground that goes on
-  // to a low warm glow on the horizon far away, haze in layers (the room's air), and where hands have been (room.heat: the people
-  // who came to the wall) warm pools of light lie on the ground just behind the wall, staying ~a minute. Palette pinya (cal-foc,
-  // terracota, ombra; faixa). No plaza, no porch. Shown by setBackground for FIELD_ON; it dissolves in / out like the porch.
-  const FIELD_ON = new Set([]);   // AD#5: Pinya went back to the night square (the field stays available: room.field.set(1))
-  const field = { k: uniform(0), to: 0, group: new THREE.Group() };
-  field.group.name = 'room:field';
-  {
-    const dith = () => fract(sin(dot(floor(screenCoordinate.xy.div(2)), vec2(12.9898, 78.233))).mul(43758.5453));
-    // the ground: dark, glossy, reflecting the room's environment; the pools are emissive
-    const gm = new THREE.MeshStandardNodeMaterial({ metalness: 0, roughness: 0.22 });
-    const OMB = vec3(...palLin('ombra')), CALF = vec3(...palLin('cal-foc')), TERR = vec3(...palLin('terracota')), FAIX = vec3(...palLin('faixa'));
-    // wet dark stone (AD 25-11): the slab texture in world metres, darkened; puddles glossier
-    const fUV = positionWorld.xz.div(2.4), slab = texture(ccTex('large_sandstone_blocks', 'diff', true), fUV).rgb;
-    gm.colorNode = Fn(() => { If(dith().greaterThan(field.k), () => { Discard(); }); return slab.mul(OMB.mul(0.5).add(0.02)).mul(0.55); })();
-    gm.normalMap = ccTex('large_sandstone_blocks', 'nor_gl', false);
-    const pw = positionWorld;
-    gm.roughnessNode = clamp(mx_noise_float(vec3(pw.x.mul(0.25), 1.3, pw.z.mul(0.25))).mul(0.12).add(0.24), 0.14, 0.5);
-    if (envMap) { gm.envMap = envMap; gm.envMapIntensity = 0.12; }   // (the env's coloured panels read as pastel blobs on the wet floor)
-    gm.emissiveNode = Fn(() => {
-      // the pool behind each place where hands were: the print at hand height along that direction, lying 0.3–2.2 m behind the wall
-      const d = vec3(pw.x.sub(eye.x), 0, pw.z.sub(eye.z)), dist = length(d);
-      const hp = heatAtWorld(vec3(pw.x, eye.y, pw.z));                   // the wall straight in front of this ground point, at eye height
-      const hb = heatAtWorld(vec3(pw.x, eye.y - 0.45, pw.z));
-      const H = max(hp.x, hb.x).mul(0.8).add(max(hp.y, hb.y).mul(0.6));
-      // how far behind the wall: the wall distance in this direction ≈ the nearest wall plane (rectangle room)
-      let wd = float(1e3);
-      for (const w of walls) { const den = d.x.mul(-w.normal.x).add(d.z.mul(-w.normal.z)).div(max(dist, 1e-3)); const dd = -((w.pa.x - eye.x) * w.normal.x + (w.pa.z - eye.z) * w.normal.z); wd = min(wd, select(den.greaterThan(0.05), float(dd).div(den), float(1e3))); }
-      const behind = dist.sub(wd), band = exp(behind.sub(0.9).div(0.55).pow(2).negate());
-      const flick = mx_noise_float(vec3(pw.x.mul(1.3), time.mul(0.4), pw.z.mul(1.3))).mul(0.15).add(0.9);
-      return mix(TERR, CALF, clamp(H.mul(0.5), 0, 1)).mul(H.mul(band).mul(flick).mul(0.9));
-    })();
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(70, 120).rotateX(-Math.PI / 2), gm); ground.position.y = 0.002; ground.receiveShadow = true;
-    field.group.add(ground);
-    // the low warm glow on the horizon, far away: an open cylinder at 46 m, additive, brighter at the ground line, breathing, uneven round
-    const hm = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, fog: false });
-    hm.colorNode = Fn(() => {
-      const y = positionLocal.y, a = atan(positionLocal.z, positionLocal.x);
-      const uneven = mx_noise_float(vec3(cos(a).mul(2.2), sin(a).mul(2.2), time.mul(0.03))).mul(0.5).add(0.6);
-      const v = exp(y.div(-1.6)).mul(smoothstep(-0.2, 0.3, y));
-      return mix(TERR, CALF, exp(y.div(-0.5))).mul(v).mul(uneven).mul(0.0).mul(field.k);   // AD 25-11: no glowing band
-    })();
-    const glow = new THREE.Mesh(new THREE.CylinderGeometry(46, 46, 9, 96, 1, true).translate(0, 4.5, 0), hm); glow.renderOrder = -500; glow.frustumCulled = false;
-    field.group.add(glow);
-    // the far square, only suggested: facades as sparse warm points at 26–42 m, dissolving into the haze (the room's air)
-    {
-      const NPT = 9000, pos = new Float32Array(NPT * 3); let s0 = 99173; const rn = () => { s0 = (s0 * 1664525 + 1013904223) >>> 0; return s0 / 4294967296; };
-      for (let i = 0; i < NPT; i++) {
-        const a = rn() * Math.PI * 2, rad = 26 + rn() * 16, blockA = Math.floor(a / 0.21), hgt = 5 + ((blockA * 7919) % 4);
-        let y = rn() * hgt; const wy = (y % 3.2) / 3.2, wa = (a * rad % 2.4) / 2.4;
-        if (rn() < 0.55) y = Math.floor(y / 3.2) * 3.2 + 1.2 + (rn() - 0.5) * 0.9;            // windows' rows
-        if (rn() < 0.12) y = hgt;                                                             // roof lines
-        pos.set([Math.cos(a) * rad, Math.max(0, y), Math.sin(a) * rad], i * 3); void wy; void wa;
-      }
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      const pmat = new THREE.PointsNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-      pmat.colorNode = CALF.mul(0.16).mul(field.k).mul(exp(length(positionWorld.sub(eyeU)).sub(26.0).mul(-0.06)));
-      const pts = new THREE.Points(g, pmat); pts.frustumCulled = false; field.group.add(pts);
-    }
-    field.group.position.set(eye.x, 0, eye.z);
-    field.group.visible = false; scene.add(field.group);
-  }
-  function stepField(dt) {
-    const v = field.k.value + (field.to - field.k.value) * (1 - Math.exp(-dt * 1.1));
-    field.k.value = Math.abs(v - field.to) < 0.003 ? field.to : v; field.group.visible = field.k.value > 0.003;
-  }
-
-  function stepPorx(dt) {
-    const v = porx.k.value + (porx.to - porx.k.value) * (1 - Math.exp(-dt * 1.2));
-    porx.k.value = Math.abs(v - porx.to) < 0.003 ? porx.to : v; porx.group.visible = true;   // always drawn (dithered out at 0): compiled from the start, no first-show hitch
-  }
-
-  // ---- THE GROUND THAT GOES ON (plan 05 V4; 04 §1.5): a floor at y = 0 at REAL scale, so the room's floor seems to continue into the image.
-  // CC0 maps of assets/cc0 in world-space UV (one texture tile = `metres`), max anisotropy (the texture gradient IS the floor's depth cue),
-  // tinted by a palette token, wet patches (roughness down to `wetRough`), receives the key shadow, takes the air. A disc of `radius` m.
-  //   const g = room.ground({ tile: 'old_mosaic_floor', metres: 1.6, color: 'pedra-llum', wet: 0.3 }); part.object.add(g.mesh);
-  function ground({ tile = 'old_mosaic_floor', metres = 1.6, color = 'pedra-llum', tint = 0.7, wet = 0.25, wetRough = 0.12, radius = 80, y = 0 } = {}) {
-    const mat = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
-    const tuv = positionWorld.xz.div(metres);
-    const dif = texture(ccTex(tile, 'diff', true), tuv).rgb, rgh = texture(ccTex(tile, 'rough', false), tuv).r;
-    const tc = vec3(...colOf(color)), dl = dot(dif, vec3(0.2126, 0.7152, 0.0722));
-    mat.colorNode = mix(dif, dif.div(max(dl, 0.02)).mul(0.5).mul(tc).mul(dl.add(0.25)), float(tint));   // the map's detail, the chapter's tone
-    const wz = smoothstep(0.15, 0.55, mx_noise_float(vec3(positionWorld.x.mul(0.35), 0.7, positionWorld.z.mul(0.35)))).mul(wet);
-    mat.roughnessNode = mix(clamp(rgh.mul(0.6).add(0.35), 0.3, 1), float(wetRough), wz);
-    mat.normalMap = ccTex(tile, 'nor_gl', false); mat.normalScale = new THREE.Vector2(1, 1);
-    if (envMap) { mat.envMap = envMap; mat.envMapIntensity = 0.6; }
-    const mesh = new THREE.Mesh(new THREE.CircleGeometry(radius, 96).rotateX(-Math.PI / 2), mat);
-    mesh.position.y = y; mesh.receiveShadow = true; mesh.name = 'room:ground';
-    return { mesh, material: mat };
-  }
-
-  // ---- THE KEY SHADOW (plan 05 V7; 04 §2.3, §1.8): ONE light with a real shadow map per world — what gives the light worlds their depth
-  // (dark defined shadow over light ground). three's ShadowNode re-renders the map for EVERY camera of a frame (four walls = ×4): here the
-  // map is rendered once per frame (autoUpdate off, needsUpdate before the first wall). PCF soft, 2048², an orthographic box round the eye.
-  //   room.keyShadow(directionalLight, { extent: 30, size: 2048, radius: 4, bias, normalBias }) → { light, off() }
-  //   Casters / receivers opt in: mesh.castShadow = mesh.receiveShadow = true (keep casters few: the square, the tower, the crowd).
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  const keyLights = new Set();
-  // { static: true }: the map is rendered only when .dirty() is called (static casters: the square) — the part calls it when its light or
-  // its geometry moves. Quality (room.quality): high 2048², medium 1024², low no shadow (returns a stub).
-  function keyShadow(light, { extent = 30, size = 2048, radius = 4, near = 1, far = 160, bias = -0.0005, normalBias = 0.04, static: stat = false } = {}) {
-    if (!light?.shadow) return null;
-    if (QUALITY === 'low') return { light, off() {}, dirty() {} };
-    if (QUALITY === 'medium') size = Math.min(size, 1024);
-    light.castShadow = true; light.shadow.mapSize.set(size, size); light.userData.shadowStatic = stat; light.userData.shadowDirty = true;
-    const c = light.shadow.camera; if (c.isOrthographicCamera) { c.left = -extent; c.right = extent; c.top = extent; c.bottom = -extent; }
-    c.near = near; c.far = far; c.updateProjectionMatrix();
-    light.shadow.bias = bias; light.shadow.normalBias = normalBias; light.shadow.radius = radius;
-    light.shadow.autoUpdate = false; light.shadow.needsUpdate = true;
-    keyLights.add(light);
-    return { light, off() { keyLights.delete(light); }, dirty() { light.userData.shadowDirty = true; } };
-  }
-  // (a static map is rendered when dirty even at intensity 0: its depth materials compile during the host's warm-up, not when the light rises)
-  function shadowsOnce() { for (const L of keyLights) if (L.userData.shadowStatic ? L.userData.shadowDirty : L.intensity > 0) { L.shadow.needsUpdate = true; L.userData.shadowDirty = false; } }
-
-  // ---- contact shadows (plan 05 V3; 04 §2.3): what makes a thing STAND. One InstancedMesh of soft discs flat on the floor (+4 mm), in the
-  // chapter's shadow colour (never black), no air. set(i, x, z, radius, k) — k 0..1 (0.5–0.7 under a figure); clear(i); the mesh goes
-  // in the part's own object. Radius ≈ 0.6 × the figure's width.
-  //   const cs = room.contactShadows(64); part.object.add(cs.mesh); cs.set(0, x, z, 0.35, 0.6);
-  const csGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
-  function contactShadows(maxN = 64, { color = null, y = 0.004 } = {}) {
-    const kA = new THREE.InstancedBufferAttribute(new Float32Array(maxN), 1); kA.setUsage(THREE.DynamicDrawUsage);
-    const geo = csGeo.clone(); geo.setAttribute('csK', kA);
-    const mat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    const q = uv().sub(0.5).mul(2), r2 = dot(q, q);
-    const col = color ? vec3(...colOf(color)) : G.shadow;
-    mat.colorNode = col;
-    mat.opacityNode = exp(r2.mul(-3.6)).sub(exp(float(-3.6))).max(0).mul(instancedDynamicBufferAttribute(kA)).mul(0.9);
-    const mesh = new THREE.InstancedMesh(geo, mat, maxN); mesh.name = 'room:contactShadows'; mesh.frustumCulled = false; mesh.renderOrder = -5;
-    const o = new THREE.Object3D();
-    for (let i = 0; i < maxN; i++) { o.position.set(0, -50, 0); o.scale.setScalar(0); o.updateMatrix(); mesh.setMatrixAt(i, o.matrix); }
-    let dirty = false;
-    return { mesh, count: maxN,
-      set(i, x, z, r = 0.35, k = 0.6) { if (i < 0 || i >= maxN) return; o.position.set(x, y, z); o.rotation.set(0, 0, 0); o.scale.set(r * 2, 1, r * 2); o.updateMatrix(); mesh.setMatrixAt(i, o.matrix); kA.array[i] = k; mesh.instanceMatrix.needsUpdate = true; kA.needsUpdate = true; dirty = true; },
-      clear(i) { if (i < 0 || i >= maxN) return; kA.array[i] = 0; kA.needsUpdate = true; },
-      setK(i, k) { if (i < 0 || i >= maxN) return; kA.array[i] = k; kA.needsUpdate = true; },
-      get dirty() { return dirty; } };
-  }
-
   // ---- the overlay: a second, small scene drawn over the final image of every wall, after the tile composition (so the tiles never
   // break it): the host's guiding thread (T-028). No depth: draw it additive or with depthTest off.
   const overlay = new THREE.Scene();
   let overlayCount = 0;
 
-  let t = 0, swept0 = false, heatErr = false;
-  setGrade('wait', { now: true }); setAir('wait'); for (const k of ['density', 'height', 'heightK', 'start', 'max']) A[k].value = aTo[k];
+  let t = 0;
   // WebGL2: a whole-target clear after rendering into another target only cleared the last viewport used (the tile passes accumulated
   // additive layers into white); there each wall's viewport is cleared on its own, scissored. WebGPU clears the whole target once.
   const GL2 = backend === 'webgl2';
@@ -948,14 +526,12 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // with 'in' before the incoming one (show / hide each world's objects); it is not called otherwise.
   function render(dt = 1 / 60, pass = null) {
     t += dt; time.value = t % 1000; tiles.time.value = t % 1000;
-    stepFlash(dt); stepBackground(dt); stepGrade(dt); stepAir(dt); stepPorx(dt); stepField(dt); frameNo++;
-    try { stepHeat(dt); } catch (err) { if (!heatErr) { heatErr = true; console.info('room3d: the hands\' print is off (' + err.message + ')'); } }
-    if (!swept0) { swept0 = true; airSweep(scene); }   // whatever was added before the room existed or without scene.add
+    stepFlash(dt); stepBackground(dt); frameNo++;
     if (ENV.pending) bakeEnvironment();
     jitter();
     const tl = tiles.on && !!pass;
-    if (tl) { pass('out'); shadowsOnce(); clearTo(stripOut); views(stripOut, scene, true); pass('in'); }
-    shadowsOnce(); clearTo(strip); views(strip, scene, true);
+    if (tl) { pass('out'); clearTo(stripOut); views(stripOut, scene, true); pass('in'); }
+    clearTo(strip); views(strip, scene, true);
     let img = strip;
     if (tl) { renderer.setRenderTarget(comp); compQuad.render(renderer); img = comp; }
     overlayCount = overlay.children.length;
@@ -989,5 +565,5 @@ export async function createRoom3D(vt, canvas, opt = {}) {
 
   return { THREE, renderer, scene, overlay, clearColor, walls, eye, hands, wallPoint, render, setBloom,
     // T-048 (SIS): the shared system — see PARTS.md «What the room gives since T-048»
-    quality: QUALITY, PALETTE, PAL, GRADE, setBackground, background: bg, setGrade, grade: gTo, gradeU: G, setAir, air: A, airSweep, sky: skyAt, matter, contactShadows, keyShadow, ground, setPorxada, porxada: porx, field: { set: (k) => { field.to = Math.max(0, Math.min(1, k)); }, uniforms: field }, heat: heatTex, heatAt, heatAtWorld, stamp, wallS, PER: PERIM, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
+    PALETTE, setBackground, background: bg, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
 }

@@ -270,33 +270,3 @@ cuando llega (±0,7 s) rebota doblada (más ancha, más brillante, una octava ar
 devuelve. Desde los 48 s **la llamada** de la Brasa, en los cuatro muros, cuatro veces, cada una mayor; en la última la sala **florece
 siempre**, más grande y más larga cuanto más a la vez golpearon y más ecos devolvieron. Pruebas: sin devolver, 1 eco por casualidad y
 la sala devuelve uno; devolviendo a la llegada, 18–24 ecos; florece siempre (0,25 sin unísono ni ecos, 0,75 con unísono, 1,0 con todo).
-
-## 12. Posar y sostener: la interacción por dianas (25-11, dirección D3b y D8; manda sobre §4 y §11 donde se contradigan)
-
-**El patrón único.** Lo que hace avanzar la obra ya no es golpear ni acertar un tempo: aparecen **dianas** de 44 cm (`targets.js`) al
-alcance (centro entre 0,9 y 1,4 m, salvo las escaleras); se posa la mano 0,5 s (la diana **se carga**: anillo que se llena y nota al
-instante), se sostiene 0,5 s más (**activa**) y se cumple; después se enciende la siguiente. Si el sensor pierde la mano, la carga se
-conserva 0,8 s y luego baja en 3 s; el sostener sólo perdona cortes de 0,35 s, así que **un toque rápido nunca cumple una diana**.
-Siempre hay al menos una libre en cada muro y una a ≤ 1,2 m de cada persona (manos a < 1,6 m = una persona); nunca nace bajo una mano
-quieta (hay que ir a ella); si alguien ocupa la tuya, nace otra al lado; como mucho 16 vivas. Con 1–2 personas, pocas y cerca, y a
-veces de dos en dos (las dos manos: oferta, no requisito); con 15, muchas por los cuatro muros. Tocar libremente sigue respondiendo.
-
-**La colla ayuda, y se dice.** Cuando el reloj tiene que empujar, la partitura lo nombra (`S.assistOn`, `assist:on:<bloque>`) y lo
-conseguido así cuenta como de la colla (`by: 'colla'`); el acta lo distingue. Cada bloque tiene dos finales (`S.result`).
-
-| Bloque | Qué se hace | Solo (1–2) | Grupo (8–15) | Final A / B |
-|---|---|---|---|---|
-| Brasa · chispa | dianas de fuego: sostener una prende el fuego de ese muro | 1 fuego y al relevo | hasta 4 fuegos | — |
-| Brasa · relevo | cadena: el diable descansa en la diana cabeza; quien la sostiene recibe el fuego y la siguiente nace a 0,8–2,5 m (hacia la próxima persona, también tras la esquina) | ≥ 8 m de sala, ~15–20 s | varias cadenas a la vez | la colla lo acaba a los 30 s |
-| Brasa · 3 llamadas | dianas en los cuatro muros; la ola sale cuando `need` están sostenidas **a la vez** (35 → 50 → 65 % del grupo, de 1 a 6) | need 1 | need hasta 6 | A `encesa` (3 propias) / B `ajudada` (la colla completa a los 14 s) |
-| Pinya | dianas-palma 15 s (la figura carga su peso); después juntarse hacia el centro del muro (la ventana crece con la multitud hasta 4,5 m) | pilar; torre si llena dos muros, uno tras otro | los muros pedidos son los que tienen manos ahora | A sin ayuda / B con la colla (desde 40 s, sólo si faltan muros) |
-| Tronc | escaleras a los dos lados (0,9 → 1,25 → 1,6 m; la de niño 0,7 → 1,05 → 1,4); cada escalera completa sube la torre; la torre se inclina hacia el lado que va por delante; el temblor se salva con dianas al pie (0,6–0,9 m) | 1 escalera por piso, ≤ 1 piso cada 6 s → 9 pisos | `ceil(0,5·n/1,6)` escaleras por piso | A 6–9 pisos propios / B la colla da pisos sólo hasta 5 |
-| Pom | sin dianas: relevo de manos quietas (cada relevo +12 % de golpe), aliento (la racha necesita el 20 % de las manos), silencio (tolera un 15 % moviéndose y a quien llega) | relevo entre sus dos manos | relevos cada 1,5–4 s | A ≤ 1 resbalón / B más |
-| L'aleta | levantar la mano; además, una diana de corona por encima de cada mano (la de un niño, ≤ 1,4 m) y una por muro a 1,35 m | quórum 60 % | quórum 40 % desde 12 manos, en 3 s | A `ample` / B `justa` (a los 12 s) |
-| Ressonància | anillos (cada diana sostenida suma resonancia) → eco: la onda cruza y enciende una diana en el muro de llegada que espera 8 s («Devolvedla») → 4 llamadas | el eco llega a su propio muro | hasta 4 frentes | florecimiento 3 = A |
-| Bajada | escaleras hacia abajo (1,5 → 0,6 m; la de niño 1,3 → 0,7): cada una baja dos pisos; cruje sólo si la sala suelta a media escalera | | | A `net` / B `cruixit`, `ajudada` (sólo el reloj) o `carregat` |
-
-**Matriz (simulador `lab/estudio/tools/score-sim.mjs --table`, 25-11).** Quien posa y sostiene consigue el final A en todos los bloques
-con 1, 2, 4, 8 y 15 personas (8,3–8,8 min, la misma duración con 4 que con 15). Quien sólo mira acaba con la colla en Brasa, Tronc,
-Festa y Bajada. Quien sólo golpea no hace avanzar Brasa, Tronc, Festa ni Bajada. La Pinya y el Pom no usan dianas: juntarse y quedarse
-quieto son sus gestos.

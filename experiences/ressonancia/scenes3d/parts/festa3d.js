@@ -29,8 +29,6 @@
 // arrive: night shards drift in from the dark, burst into gold, their particles fly onto the plate; the plate opens cell by cell.
 // leave: the field freezes (0–0.15), then the sand and gold shards fall slowly like rain; the plate goes dark cell by cell.
 // Read-only: part.resonance (what is shown, 0..1), part.bloom (0..1).
-import { lin as palLin } from '../palette.js';
-import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 const MAXH = 16, MAXI = 16, MAXM = 4, MAXS = 32;
 const NP_GPU = 600000, NP_GL = 300000, NSH = 2400;
 
@@ -39,7 +37,7 @@ const smoother = (v) => { const s = clamp01(v); return s * s * s * (s * (s * 6 -
 const ss = (a, b, v) => smoother((v - a) / (b - a));
 function rng(seed) { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
-export function create({ THREE, TSL, room, params, parts }) {
+export function create({ THREE, TSL, room, params }) {
   const P = params || {};
   const num = (k, d) => { const v = Number(P[k]); return Number.isFinite(v) ? v : d; };
   const {
@@ -86,9 +84,9 @@ export function create({ THREE, TSL, room, params, parts }) {
   // ---- sound (wave 2): physical impacts to the sound piece (ressonancia-sound › impact()) on the work's BroadcastChannel; ≤ 16 a second
   let fxBc = null; try { fxBc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { fxBc = null; }
   const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
-  let fxN = 0, fxT = 0, growT = 0, simSkip = false, simDt = 0;
+  let fxN = 0, fxT = 0;
   function fxImpact(wall, u, strength, mat, kind) {                // wall: room.walls index · u: 0..1 along it · strength: 0..1
-    if (!fxBc || fxN >= 16 || !canEmit()) return; fxN++;
+    if (!fxBc || fxN >= 16) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
     try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
   }
@@ -119,7 +117,7 @@ export function create({ THREE, TSL, room, params, parts }) {
     rain: uniform(0), hold: uniform(0), respawn: uniform(0), nFr: uniform(0, 'int'), callT: uniform(-99), callGap: uniform(0.8), callOn: uniform(0), bSize: uniform(1), turn: uniform(0), rise: uniform(0), farK: uniform(1), quiet: uniform(0.3),
     cw: uniform(0), mr: uniform(0.5), frieze: uniform(0), swellA: uniform(1), envLift: uniform(0), lvl: uniform(1), qmax: uniform(0.1), veil: uniform(0.15),
     // arrive / leave
-    grow: uniform(30), arrive: uniform(1), leave: uniform(0), freeze: uniform(0), sandAmt: uniform(1), sandGlow: uniform(1),
+    arrive: uniform(1), leave: uniform(0), freeze: uniform(0), sandAmt: uniform(1), sandGlow: uniform(1),
   };
   const FR = []; for (let i = 0; i < 12; i++) FR.push(new THREE.Vector4());   // echo fronts: (s0 from-wall centre, distance run (m), gen, alpha)
   const uFR = uniformArray(FR, 'vec4');
@@ -327,15 +325,6 @@ export function create({ THREE, TSL, room, params, parts }) {
       col.addAssign(chromeC.mul(float(1).sub(shade.mul(0.6))).mul(U.chrome).mul(U.lvl).mul(U.gain));
     }
     col.addAssign(gold.mul(smoothstep(0.25, 1.0, lvl)).mul(0.07).mul(U.bloom));
-    // AD 25-11: the golden veins GROW FROM THE TOWER — from the foot of each wall's castell (its centre, at the floor) outwards and up,
-    // a gold edge on the growing front; beyond it the plate is still night
-    {
-      const rr = length(vec2(dc, y.mul(1.15)));
-      const grownM = smoothstep(U.grow, U.grow.sub(1.4), rr);
-      col.mulAssign(grownM.mul(0.94).add(0.06));
-      const edgeF = exp(rr.sub(U.grow).div(0.3).pow(2).negate()).mul(smoothstep(0.0, 1.0, U.grow)).mul(float(1).sub(smoothstep(9.0, 12.0, U.grow)));
-      col.addAssign(GOLD2.mul(edgeF).mul(lvl.mul(0.6).add(0.12)).mul(0.5));
-    }
     // light climbs with the resonance
     col.mulAssign(smoothstep(U.ceil.add(1.3), U.ceil.sub(0.9), y).mul(0.88).add(0.12).mul(smoothstep(0.0, 0.2, y)));
     // bands: graded runs, gold / pearl / a rare iridescent hue
@@ -618,38 +607,6 @@ export function create({ THREE, TSL, room, params, parts }) {
   sm.colorNode = Fn(() => { const r = length(uv().sub(0.5)).mul(2.0); return vec4(vCol.mul(exp(r.mul(r).mul(-4.5))), 1); })();
   const sand = new THREE.Sprite(sm); sand.count = NP; sand.frustumCulled = false; sand.renderOrder = 2;
   object.add(sand);
-  // ---- AD#8: FESTA IN THE SQUARE — when the host shows the plaza with this part, the plate world goes and the same wave field draws
-  // GOLD RIPPLES ON THE WET PAVING: each wall's field (perimeter s × height y) is laid on the floor behind that wall (distance back ×
-  // 0.5 → field height), contour lines of the wave in gold with a soft glow, fading with distance; additive over the plaza's floor.
-  const floorLayer = new THREE.Group(); floorLayer.name = 'festa:floor'; object.add(floorLayer); floorLayer.visible = false;
-  {
-    const P_OR = vec3(...palLin('or')), P_ORC = vec3(...palLin('or-clar'));
-    const fm = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-    const vSD = varying(attribute('aSD', 'vec2'));
-    fm.colorNode = Fn(() => {
-      const s = wrapS(vSD.x), d = vSD.y, q = fieldUV(s, clamp(d.mul(0.5).add(0.15), 0.0, HG));
-      const D = field.sample(q), h = D.x;
-      // AD#10: soft concentric rings that expand and fade (only the gentle part of the wave; its steep crests read as hard zigzags)
-      const fr = fract(h.mul(5.0)).sub(0.5), gentle = smoothstep(0.012, 0.08, abs(h)).mul(float(1).sub(smoothstep(0.3, 0.7, abs(h))));
-      const lines = exp(fr.mul(fr).div(-0.03)).mul(gentle).mul(0.6);
-      const glow = gentle.mul(0.12);
-      const fade = smoothstep(0.0, 0.4, d).mul(float(1).sub(smoothstep(6.0, 11.0, d)));
-      return vec4(mix(P_OR, P_ORC, lines).mul(lines.mul(0.9).add(glow)).mul(fade).mul(U.arrive).mul(float(1).sub(U.leave)), 1);
-    })();
-    const _p = new THREE.Vector3();
-    walls.forEach((w, wi) => {
-      const nu = Math.max(30, Math.round(w.width / 0.12)), nd = 60, pos = [], sd = [], idx = [];
-      for (let j = 0; j <= nd; j++) for (let i = 0; i <= nu; i++) { const u = i / nu, d = 11 * (j / nd) ** 1.3; room.wallPoint(wi, u, 0, _p).addScaledVector(w.normal, -d); pos.push(_p.x, 0.012, _p.z); sd.push(cum[wi] + u * w.width, d); }
-      for (let j = 0; j < nd; j++) for (let i = 0; i < nu; i++) { const a = j * (nu + 1) + i; idx.push(a, a + 1, a + nu + 2, a, a + nu + 2, a + nu + 1); }
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('aSD', new THREE.Float32BufferAttribute(sd, 2)); g.setIndex(idx);
-      const m = new THREE.Mesh(g, fm); m.frustumCulled = false; m.renderOrder = 3; floorLayer.add(m);
-    });
-  }
-  let inPlazaF = null;
-  function setInPlazaF(on) {
-    if (on === inPlazaF) return; inPlazaF = on; floorLayer.visible = on;
-    object.traverse((o) => { if (o === object || o === floorLayer || o.parent === floorLayer) return; if (o.isMesh || o.isSprite || o.isPoints) o.visible = !on; });
-  }
 
   // ------------------------------------------------------------------ shards: night mirrors (arrival), gold (leaving)
   const shardG = new THREE.BufferGeometry();
@@ -733,7 +690,7 @@ export function create({ THREE, TSL, room, params, parts }) {
     })();
   }
   const pcMesh = new THREE.Mesh(pcGeo, pcMat); pcMesh.frustumCulled = false; pcMesh.renderOrder = 5;
-  object.add(pcMesh); pcMesh.visible = false;   // AD#5: the grey floating beads go
+  object.add(pcMesh);
   // the hoop of each wall's big sphere (Tronc's): a thin ring of gold that turns with it
   const hpA = new Float32Array(NW * 4), hpQ = new Float32Array(NW * 4);
   const hoopGeo = (() => {
@@ -754,7 +711,7 @@ export function create({ THREE, TSL, room, params, parts }) {
     })();
   }
   const hoopMesh = new THREE.Mesh(hoopGeo, hoopMat); hoopMesh.frustumCulled = false; hoopMesh.renderOrder = 5;
-  object.add(hoopMesh); hoopMesh.visible = false;
+  object.add(hoopMesh);
   const pcs = new Array(NPC);
   {
     // the hierarchy (ARTE, 24-11): per wall ONE sphere Ø 0.6 m (with its hoop), two of Ø 0.3 m and ten beads; homes clear of the quiet zones
@@ -858,7 +815,7 @@ export function create({ THREE, TSL, room, params, parts }) {
     for (let w = 0; w < NW; w++) { const j = w * 3 * 4, o = w * 4; hpA[o] = pcA[j]; hpA[o + 1] = pcA[j + 1]; hpA[o + 2] = pcA[j + 2]; hpA[o + 3] = pcA[j + 3] * (pcS[j + 3] > 0.02 ? 1 : 0); hpQ[o] = pcQ[j]; hpQ[o + 1] = pcQ[j + 1]; hpQ[o + 2] = pcQ[j + 2]; hpQ[o + 3] = pcQ[j + 3]; }
     for (let w = 0; w < halos.length; w++) {         // T-053: the soft halo behind each wall's hero sphere (≤ 0.16: it sits beside the button's zone)
       const j = w * 3 * 4; _hp.set(pcA[j], pcA[j + 1], pcA[j + 2]); room.placeHalo(halos[w], _hp, 1.1);
-      halos[w].set({ intensity: 0.16 * pcS[j + 3] * (1 - smoother(leave / 0.5)) }); halos[w].mesh.visible = !inPlazaF && pcS[j + 3] > 0.01;
+      halos[w].set({ intensity: 0.16 * pcS[j + 3] * (1 - smoother(leave / 0.5)) }); halos[w].mesh.visible = pcS[j + 3] > 0.01;
     }
     hoopGeo.getAttribute('aHA').needsUpdate = true; hoopGeo.getAttribute('aHQ').needsUpdate = true;
     for (const k of ['aPA', 'aPS']) pcGeo.getAttribute(k).needsUpdate = true;
@@ -1128,20 +1085,17 @@ export function create({ THREE, TSL, room, params, parts }) {
     U.still.value = Math.min(1, 0.7 + 0.3 * Ve);
     U.rmsK.value = clamp01(Math.max(bloomEnv * 1.5, (Ve - 0.5) * 2));
     U.derA.value = 1 - Math.exp(-dt / Math.max(0.004, num('smooth', 0.12) * Ve));
-    // perf (festa in the square, few hands): the wave sim at half rate (two frames' time in one step)
-    simSkip = inPlazaF && nh <= 2 && U.nI.value === 0 ? !simSkip : false; simDt += dt;   // never skip a frame with a new impulse (a hand landing)
-    const dtS = simSkip ? 0 : simDt; if (!simSkip) simDt = 0;
-    const sub = Math.max(1, Math.ceil(c * dtS / (0.5 * DX))), dts = dtS / sub * (1 - freeze);
+    const sub = Math.max(1, Math.ceil(c * dt / (0.5 * DX))), dts = dt / sub * (1 - freeze);
     U.dt.value = dts; U.eavg.value = 1 - Math.exp(-dts / 0.35);
     const r = room.renderer;
     if (!cleared) { cleared = true; }
-    if (!simSkip) for (let i = 0; i < sub; i++) {
+    for (let i = 0; i < sub; i++) {
       U.tau.value = i * dts; U.kick.value = i === 0 ? 1 : 0;
       simTex.value = sim[sc].texture; r.setRenderTarget(sim[1 - sc]); simQuad.render(r); sc = 1 - sc;
     }
     U.kick.value = 0; U.lineK.value = 0;
-    if (!simSkip) { derTex.value = sim[sc].texture; r.setRenderTarget(derB); derQuad.render(r);
-    r.setRenderTarget(der); copyQuad.render(r); }
+    derTex.value = sim[sc].texture; r.setRenderTarget(derB); derQuad.render(r);
+    r.setRenderTarget(der); copyQuad.render(r);
     r.setRenderTarget(null);
 
     // ---- look
@@ -1156,10 +1110,6 @@ export function create({ THREE, TSL, room, params, parts }) {
     U.nHU.value = nh;
     U.cw.value = inCrown ? 0.7 * U.crownOn.value : 0;   // T-053: the crown's env — warm below, the garlands softer: luminous and clean
     U.arrive.value = arrive; U.leave.value = leave; U.freeze.value = freeze;
-    setInPlazaF(!!parts?.plaza?.object?.visible && P.inPlaza !== false);   // AD#8: festa in the square (the floor of gold ripples)
-    // the growth from the tower: restarts when the part comes in, ~16 s to fill the walls (faster with the resonance)
-    if (arrive < 0.05) growT = 0; else growT += dt * (1 + 1.5 * Math.min(1, U.Ve.value + (U.bloom.value || 0)));
-    U.grow.value = (P.growFrom ?? true) === false ? 30 : 0.5 + 12.5 * smoother(growT / 16);
     U.sandAmt.value = Math.min(1, Math.max(0, num('sand', 1)));
     U.sandGlow.value = Math.max(0, num('sandGlow', 1)) * 1.8 * (1 + 0.5 * bloomEnv) * (GL ? 1.4 : 1) * U.duck.value * (inCrown ? 0.2 + 0.8 * U.rain.value : 0.75);   // T-053: the resting sand is dust, not a speckle over everything
     { const qk = Math.max(0, num('quiet', 1));
@@ -1167,26 +1117,11 @@ export function create({ THREE, TSL, room, params, parts }) {
       U.swellA.value = Math.max(0, num('swell', 1)) * (0.85 + 0.35 * Ve) * (inCrown ? 1 - 0.75 * U.crownOn.value : 1);   // T-053: the crown's mirror is calm (no murky blotches)
       U.envLift.value = 0.035 * Math.sin(time * 0.21) * (0.4 + 0.6 * Ve);                 // the room floats: the reflected fiesta bobs slowly
       U.lvl.value = (0.8 + 0.2 * Ve) * (inCrown ? 1 - U.crownOn.value * (0.42 - 0.3 * U.fill.value) : 1); }   // T-053: the crown opens luminous (was 0.2 of the metal at its start)
-    if (!inPlazaF) r.compute(sandCompute);   // perf (festa in the square): the sand is hidden there — 600 k particles not simulated
+    r.compute(sandCompute);
   }
 
-  // textObstacles() (director 25-11): what stands in the text's band, for the host's text placer: [{ wall, x, half, y0, y1 }]
-  // (wall index, metres from the wall's centre along it, half-width m, heights m from the floor). Allocation-light (a few per call).
-  const _to = [], _tp = new THREE.Vector3();
-  function wallOf(p) {
-    const ex = p.x - room.eye.x, ez = p.z - room.eye.z; let best = -1, bt = Infinity, bx = 0;
-    room.walls.forEach((w, i) => { const den = -(ex * w.normal.x + ez * w.normal.z); if (den <= 1e-4) return; const d = -((w.pa.x - room.eye.x) * w.normal.x + (w.pa.z - room.eye.z) * w.normal.z); const t = d / den;
-      const hx = room.eye.x + ex * t - w.centre.x, hz = room.eye.z + ez * t - w.centre.z, x = hx * w.right.x + hz * w.right.z;
-      if (t > 0 && t < bt && Math.abs(x) <= w.width / 2 + 0.01) { bt = t; best = i; bx = x; } });
-    return best < 0 ? null : { wall: best, x: bx };
-  }
-  function textObstacles() {   // the echo fronts (full height: they cross 1.4–2.1 m), where they are on the walls
-    _to.length = 0;
-    for (const v of FR) { if (v.w < 0.05) continue; for (const sg of [-1, 1]) { let s = (v.x + sg * v.y) % PER; if (s < 0) s += PER; let wi = 0; while (wi < NW - 1 && s >= cum[wi + 1]) wi++; _to.push({ wall: wi, x: s - cum[wi] - walls[wi].width / 2, half: 0.5, y0: 0, y1: walls[wi].height, kind: 'front' }); } }
-    return _to;
-  }
   return {
-    object, textObstacles,
+    object,
     update,
     get resonance() { return Rs; },
     get bloom() { return bloomEnv; },

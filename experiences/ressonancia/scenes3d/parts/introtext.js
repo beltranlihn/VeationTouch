@@ -4,7 +4,6 @@
 // Timeline on input.t (the intro, 70 s): 53–64 the motto, one wall after another, 2 s apart (Fuerza · Equilibrio · Valor · Seny, the
 // Catalan under each); 63.8–79 «Ressonància» on every wall (the host sends t = 76 → 79 as it leaves). No «put your hands on the wall» here: nothing
 // counts until the Brasa (analysis #7), and the Brasa says it.
-// 25-11: the Catalan word in the card's italic on its hairlines (the work's one type system), no plates.
 import { typo } from '../typo3d.js';
 
 const MOTTO = [['Fuerza', 'força'], ['Equilibrio', 'equilibri'], ['Valor', 'valor'], ['Seny', 'seny']];
@@ -15,16 +14,13 @@ export function create({ THREE, room }) {
   const object = new THREE.Group(); object.name = 'introtext';
   const walls = typo.onWalls(room, 2.0);
   const motto = room.walls.map((w, i) => {
-    const t = typo.text({ placements: [walls[i]], renderOrder: 10, plate: 0, spread: 2.2, depth: 0.4 });
+    const t = typo.text({ placements: [walls[i]], renderOrder: 10, plate: 0.35, spread: 2.2, depth: 0.4 });
     const [es, ca] = MOTTO[i % MOTTO.length];
-    const items = [{ text: es, font: 'serif', size: 0.5, y: 0.1, track: 0.01, color: INK }];
-    if (ca.toLowerCase() !== es.toLowerCase()) items.push({ text: ca, font: 'italic', size: 0.17, y: -0.3, track: 0.02, alpha: 0.85, color: SOFT, rules: 0.4, rise: true });   // «Valor / valor», «Seny / seny»: once
-    else items.push({ text: ' ', font: 'italic', size: 0.17, y: -0.3, alpha: 0.85, color: SOFT, rules: 0.4 });   // AD #14: a short hairline under every word
-    t.set(items);
+    t.set([{ text: es, font: 'serif', size: 0.5, y: 0.1, track: 0.01, color: INK }, { text: ca, font: 'sans', size: 0.085, y: -0.3, track: 0.4, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
     t.alpha[0] = 1; object.add(t.object);
     return t;
   });
-  const title = typo.text({ placements: typo.onWalls(room, 2.05), renderOrder: 10, plate: 0, spread: 2.0, depth: 0.45 });
+  const title = typo.text({ placements: typo.onWalls(room, 2.05), renderOrder: 10, plate: 0.4, spread: 2.0, depth: 0.45 });
   title.set([{ text: 'Ressonància', font: 'serif', size: 0.68, y: 0.14, track: 0.02, color: INK }]);
   title.alpha.fill(1); object.add(title.object);
   // a word's life on the intro's clock: assemble from s (35 ms a letter, 0.9 s each), stand, break from e; the sweep crosses once it stands

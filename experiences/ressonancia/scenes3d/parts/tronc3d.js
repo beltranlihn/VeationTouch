@@ -19,9 +19,7 @@
 // giveFloor(i, tower), levels(), impacts, rise. Sound: impacts → 'fx:impact' on the work's BroadcastChannel (notas/ENT.md).
 // Outside its own block (baixada, fall) only the floors are drawn (the decor fades in ~1 s).
 
-import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 import { sculpture, NAMES, NL } from './tronc3d/sculpt.js';
-import { createBodies } from '../bodykit.js';
 
 const TAU = Math.PI * 2;
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -51,11 +49,6 @@ export function create(ctx) {
   const object = new THREE.Group(); object.name = 'tronc3d';
   const world = new THREE.Group(); object.add(world);              // the room's rise moves this group (the towers)
   const lone = () => !!ctx.parts && Object.keys(ctx.parts).length === 0;   // fall3d's private tower (parts: {}): floors only
-  // 25-11 framing (director): the castell at HUMAN scale, close — its pinya on the floor of the square, the floor line low on the wall,
-  // the forming floor in the reach band (1.0–2.0 m on the wall); the room rises with it (M6). fall3d's private tower keeps the old frame.
-  const OLD = lone() || P.towerScale === 2.5;
-  const SC = P.towerScale ?? (OLD ? 2.5 : 1.0), TOWER_D = P.towerD ?? (OLD ? 6.5 : 1.25);   // 25-11 (AD): the baixos almost life-size, the floor line ≈ 0.45 m on the wall
-  const FORM_Y = OLD ? 4.3 : 1.35, FORM_Y0 = OLD ? 4.3 : 1.45;
 
   // -------------------------------------------------------------------------------------------- shared uniforms
   const uTime = uniform(0), uGain = uniform(1), uDecor = uniform(1), uAway = uniform(0), uLeave = uniform(0);
@@ -288,8 +281,7 @@ export function create(ctx) {
     return m;
   })());
   sky.renderOrder = -10; sky.frustumCulled = false;
-  sky.position.copy(room.eye);   // 25-11 (VFX): no own dome any more — the room's sky (setBackground / palette) shows through
-  if (!room.sky) object.add(sky);
+  sky.position.copy(room.eye); object.add(sky);
   // the shared halo (SIS, T-048): one soft disc behind each tower's top (falls back to the sky's own halo)
   if (room.makeHalo && room.placeHalo) for (const t of towers) { t.halo = room.makeHalo({ color: [1, 0.86, 0.7], radius: 6.5, intensity: 0.12 }); object.add(t.halo.mesh); }
 
@@ -388,7 +380,7 @@ export function create(ctx) {
   let fxN = 0, fxT = 0;
   function impact(wall, u, force, mat, kind) {
     if (impacts.length < impactPool.length) { const o = impactPool[impacts.length]; o.wall = wall; o.u = u; o.force = force; impacts.push(o); }
-    if (!mat || !fxBc || fxN >= 16 || lone() || !canEmit()) return; fxN++;
+    if (!mat || !fxBc || fxN >= 16 || lone()) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = clamp01(u); fxMsg.strength = clamp01(force); fxMsg.mat = mat; fxMsg.kind = kind;
     try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
   }
@@ -452,145 +444,6 @@ export function create(ctx) {
   // -------------------------------------------------------------------------------------------- per-frame state
   const _v = new THREE.Vector3(), _e = new THREE.Euler();
   let time = 0, rise = 0, riseV = 0, floorsPrev = -1, reward = 0, pull = 0, decor = 1, wasIn = true, snapNext = false;
-
-  // -------------------------------------------------------------------------------------------- THE BODIES (STUDIO NIGHT 25-11, plan 05 M3/M4)
-  // The castell is made of the body kit (../bodykit.js): the same solid ceramic castellers as the Pinya, in porcelain, standing on the
-  // floor of the square with their shadows. The sculpture (sculpt.js) still runs underneath for everything else — its grains (the
-  // forming floor, the hands' dissolve, the shed of a lean), its levels (rise, rulers, levels() for fall3d / baixada3d) and its collapse
-  // (fall3d: while the castell falls the porcelain sculpture is shown, it is what breaks) — but its solid meshes are not drawn.
-  // Layout in castell metres (× SC in the tower's frame, like the sculpture): a pinya of three rings + a folre, a tronc of three per tier,
-  // the dosos, the acotxador, the enxaneta. Mode (setMode): build (Tronc) · top (Pom: the same castell) · crowned (the enxaneta's arm up) · down.
-  // two layouts of the same castell (same bodies, same order): the forced perspective (Tronc, crown, bajada: the whole castell inside the
-  // wall) and full scale (the Pom: the climbers go up a real trunk and the room rises with them — setFocusY)
-  function makeLayout(PERSP) {
-    const CAST = [], CLV = [], TRUNK = [];      // CLV: the bodies' own levels (y0, y1 in castell metres), for levels() in the human-scale mode
-    const r3 = rng(4401);
-    // 25-11 (Art Director): the lower floors life-size in the foreground, the tower growing to ~3.4 m on the wall by COMPRESSING the
-    // upper floors (a forced perspective: each tier ×PERSP), never shrinking the whole tower; no room-rise in this mode
-    const tier = [1.05, 1.02, 1.02, 1.02, 1.02, 1.02].map((v, L) => v * Math.pow(PERSP, L));
-    let feet = 0;
-    for (let L = 0; L < 6; L++) {
-      const s = tier[L], R0 = 0.33 * Math.max(0.55, s);
-      TRUNK[L + 1] = { y: feet, r: R0 + 0.18 * s, h: 1.342 * s };
-      // each casteller a little different (yaw, size, build, how much they carry): no repeated beads
-      for (let j = 0; j < 3; j++) { const a = Math.PI / 2 + (j * TAU) / 3, jy = (r3() - 0.5) * 0.3, js = 1 + (r3() - 0.5) * 0.16;   // height ±8 %
-        CAST.push({ lv: L + 1, x: Math.cos(a) * R0, z: Math.sin(a) * R0, y: feet, yaw: Math.atan2(Math.cos(a), Math.sin(a)) + jy, pose: 'lock', pose2: 'carry', mixV: 0.1 + r3() * 0.3, s: s * js, build: (L + j) % 2 }); }
-      feet += 1.342 * s + 0.03;
-    }
-    const pd = Math.pow(PERSP, 6), pa = Math.pow(PERSP, 7), pe = Math.pow(PERSP, 8);
-    // the pom de dalt is not compressed below a readable size (AD: the enxaneta's raised arm reads at the top, ≤ 3.4 m)
-    const sD = OLD ? 0.8 : Math.max(0.8 * pd, 0.18), sA = OLD ? 0.66 : Math.max(0.66 * pa, 0.16), sE = OLD ? 0.62 : Math.max(0.62 * pe, 0.18);
-    for (const sg of [-1, 1]) CAST.push({ lv: 7, x: sg * 0.17 * Math.max(0.5, sD / 0.8), z: 0, y: feet, yaw: Math.atan2(-sg, 0), pose: 'lock', s: sD, build: 1 });
-    const dsY = feet + 1.286 * sD + 0.03 * sD;
-    CAST.push({ lv: 8, x: 0, z: -0.06 * sA, y: dsY, yaw: 0, pose: 'carry', s: sA, build: 2 });
-    CAST.push({ lv: 9, x: 0, z: -0.02 * sE, y: OLD ? Math.max(dsY + 0.42, 9.8) : dsY + 0.62 * sA, yaw: 0, pose: 'stand', pose2: 'raise', s: sE, build: 2, enx: true });
-    TRUNK[7] = { y: feet, r: 0.3 * sD / 0.8, h: 1.286 * sD }; TRUNK[8] = { y: dsY, r: 0.2 * sA / 0.66, h: 1.36 * sA }; TRUNK[9] = { y: dsY + 0.62 * sA, r: 0.15 * sE / 0.62, h: 1.7 * sE };
-    for (const c of CAST) { const L = CLV[c.lv] || (CLV[c.lv] = { y0: 1e9, y1: -1e9 }); L.y0 = Math.min(L.y0, c.y); L.y1 = Math.max(L.y1, c.y + 1.7 * c.s); }
-    const ringN = OLD ? [10, 16, 22] : [9];       // human scale: one ring, no folre — the trunk must read above it (AD)      // two tight rings (+ the folre): the splat budget goes to the tower
-    for (let i = 0; i < ringN.length; i++) {
-      const rad = (OLD ? 0.73 : 0.95) + i * 0.44 + 0.1, off = 0.31 + i * 0.17;
-      for (let j = 0; j < ringN[i]; j++) {
-        const a = off + ((j + (r3() - 0.5) * 0.2) * TAU) / ringN[i], s = 0.94 + r3() * 0.1, rr = rad + (r3() - 0.5) * 0.05;
-        CAST.push({ lv: 0, x: Math.cos(a) * rr, z: Math.sin(a) * rr, y: 0, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), pose: 'carry', s, build: r3() < 0.5 ? 0 : 1, ring: i });
-        if (i === 0 && OLD) { const rf = rr - 0.04; CAST.push({ lv: 0, x: Math.cos(a) * rf, z: Math.sin(a) * rf, y: 1.313 * s + 0.03, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), pose: 'carry', s: 0.95, build: 0, folre: true }); }
-      }
-    }
-    return { CAST, CLV, TRUNK };
-  }
-  const LAY = { persp: makeLayout(OLD ? 1 : 0.58), full: makeLayout(0.85) };   // the Pom: 15 % compressed (no scale jump from the Tronc)   // ×0.58: the whole 9-floor castell fits ≤ 3.4 m on the wall
-  let { CAST, CLV, TRUNK } = LAY.persp;
-  const bodies = P.bodies !== false;   // also fall3d's private tower: no path ever shows the plaster sculpture again   // fall3d's private tower (parts: {}) falls as the sculpture: no bodies there
-  const kit = bodies ? createBodies({ THREE, TSL, room, max: Math.min(400, CAST.length * Math.min(NW, 4)), lods: [1, 2], spots: ctx.parts?.plaza?.spots || null }) : null;   // the square's stage spots light the bodies in their beams
-  if (kit) {
-    world.add(kit.object);
-    const fx = kit.tok('faixa'), pl = kit.tok('pedra-llum'), soft = fx.map((v, i) => v * 0.68 + pl[i] * 0.32);   // the faixa a little chalked by the light
-    kit.setColors({ shirt: 'porcellana', skin: ['pedra-llum', 1.02], trousers: ['pedra-llum', 0.82], faixa: soft, hair: ['tinta-ombra', 1.6], crack: 'pedra-llum', shadow: 'tinta-ombra' });
-    kit.uniforms.crack.value = 0.55;
-    kit.setSplat({ contact: 1, backAO: 1 });   // one clean warm tone: the half a desaturated terracota (no «veined meat»)   // the one warm ramp (AD); dark gaps where the floors meet
-  }
-  let lightMode = '', breathK = 0, crownT = 0, crownK = 0, fallT = 0;
-  let castMode = 'build', focusY = null;
-  // the look per mode (AD #10): the Tronc / crown / bajada warm (cal-foc ramp); the Pom an almost cold silhouette in lluna — only the
-  // Pom's gold light (Interacción) is warm there
-  const WARM = kit ? { lit: kit.tok('cal-fanal').map((v, i) => v * 0.72 + kit.tok('fanal')[i] * 0.28), half: kit.tok('terracota').map((v, i) => v * 0.45 + kit.tok('cal-foc')[i] * 0.25), amb: ['ombra', 0.8], key: 1.25, spot: 0.0006 } : null;   // warm enough to survive the plaza's grade (no ash grey)   // warm, one tone (no red, no grey)
-  const COLD = { lit: ['lluna', 0.5], half: ['lluna', 0.34], amb: ['tinta', 0.9], key: 1, spot: 0.0003 };   // an almost-silhouette: lluna grey-blue, low contrast
-  let lookKey = 1.25;
-  function setLook(look) { const L = look === 'pom' ? COLD : WARM; if (kit && L) { kit.setSplat(L); lookKey = L.key; } }
-  if (kit) kit.setSplat(WARM);
-  function setMode(m) {
-    const was = castMode; castMode = m || 'build'; if (castMode !== 'top') focusY = null; setLook(castMode === 'top' ? 'pom' : 'warm');
-    if (castMode !== was && (castMode === 'top' || was === 'top') && !OLD) snapNext = true;   // into / out of the Pom: the framing at once (under the tiles)
-    if (castMode === 'fall' && was !== 'fall') fallT = 0;   // the Pom's framing at once (under the tile transition), not climbing 12 s
-    ({ CAST, CLV, TRUNK } = castMode === 'top' && !OLD ? LAY.full : LAY.persp);   // the Pom climbs a full-scale trunk (no floating children over a bush)
-  }
-  // setFocusY(y): y in metres above the plaza floor (the tower unrisen, e.g. trunk(f).yRest): the world lowers (≤ 0.30 m/s) so that
-  // height sits at the eye's level, in the reach band; null gives the ground back
-  function setFocusY(y) { focusY = y == null ? null : +y; }
-  const _bp = new THREE.Vector3();
-  function placeBodies(dt, inTronc, floorsNow, withScore, scoreFloors, blockNow) {
-    const lightLod = castMode === 'crowned' && blockNow === 'festa';   // perf: in the festa the crowned towers are background — far detail (≈ −45 % splats)
-    if (!kit) return;
-    for (const t of towers) for (const s of t.st) s.takenT = s.taken ? (s.takenT || 0) + dt : 0;
-    for (const t of towers) t.st.forEach((s, lv) => { s.downT = castMode === 'down' && scoreFloors != null && lv > scoreFloors && lv > 0 ? (s.downT || 0) + dt : 0; });
-    for (const t of towers) { if (t.lvAcc) { t.lvPos = t.lvAcc.map((a) => (a[2] ? { x: a[0] / a[2], z: a[1] / a[2], y: a[3] } : null)); for (const a of t.lvAcc) { a[0] = a[1] = a[2] = 0; a[3] = 1e9; } } }
-    crownT = castMode === 'crowned' ? crownT + dt : 0;   // the crown: gold rises from the foot to the enxaneta, floor by floor
-    // THE FALL (setMode('fall'), or fall3d's collapse() on this tower): the same castell comes down — floors dissolve into falling dust from the
-    // top (0.45 s apart, 0.8 s each, ≈ 4 s), the pinya stays, kneeling under it; no plaster sculpture any more
-    const falling = castMode === 'fall' || col.on;
-    fallT = falling ? fallT + dt : 0;
-    // against the luminous gold air the tower must be a dark-and-gold sculpture: denser, a dark rim, the shadow side to bronze
-    { const cw = castMode === 'crowned' ? 1 : 0; crownK += (cw - crownK) * Math.min(1, dt * 1.5); kit.setSplat({ darkRim: 0.9 * crownK, opacity: 1 + 0.5 * crownK }); }
-    const lm = withScore ? 'scene' : 'self'; if (lm !== lightMode) { lightMode = lm; kit.setLighting(lm); }
-    let n = 0;
-    const crowned = castMode === 'crowned';
-    for (const t of towers) {
-      const visT = t.on && t.g.visible, ringOnly = !visT && inTronc && !OLD && !col.on;   // a wall without a tower shows its pinya ring
-      const phi = Math.atan2(t.w.normal.x, t.w.normal.z), cp = Math.cos(phi), sp = Math.sin(phi), th = visT ? t.theta : 0, ct = Math.cos(th), st = Math.sin(th);
-      if (!visT) t.g.position.copy(t.w.centre).addScaledVector(t.w.normal, -TOWER_D).setY(0);
-      for (const c of CAST) {
-        const i = n++; if (i >= kit.count) break;
-        if (!visT && !(ringOnly && c.lv === 0) && !(falling && t.on)) { kit.hide(i); continue; }
-        const S = t.st[c.lv];
-        if (castMode === 'top' && c.lv >= 7) { kit.hide(i); continue; }      // the Pom draws its climbers (Interacción); crowned: shown again
-        // the bajada (Art Director): a floor taken by baixada3d does not vanish — its bodies dissolve into light (≈ 2.5 s)
-        const tk = S.taken ? (S.takenT || 0) : 0;
-        // the bajada: the floors still up stay as figures inside the dust (half dissolved) until the score brings them down; a floor that
-        // has come down dissolves into light in ~1.5 s
-        const down = castMode === 'down' && !OLD, upNow = scoreFloors == null || c.lv <= scoreFloors;
-        const shown = falling ? (c.lv === 0 || (c.lv <= Math.max(floorsNow, keepFloors) && fallT < (9 - c.lv) * 0.45 + 3.2))
-          : (c.lv === 0 || (down ? S.shown !== false && (upNow || (S.downT || 0) < 1.5) : S.shown && (!S.taken || tk < 4.5) && (S.solid > 0.001 || S.forming || S.goneT >= 0 || S.taken)));
-        if (!shown || (!falling && S.goneT >= 1.6)) { kit.hide(i); continue; }
-        // a floor that forms climbs into place with the lift; one that slips drops and goes
-        // particles: a forming floor ASSEMBLES from streams (with the lift), a slipping one falls as dust; no body moves as a block
-        let dy = 0, form = 1, fmode = 'gather';
-        if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, S.lift * 0.8 + S.solid * 0.6); dy = -(1 - form) * 0.15; }   // the next floor gathers only as the hands lift it   // the next floor hovers half-formed until the hands lift it
-        if (S.goneT >= 0) { form = Math.max(0, 1 - S.goneT / 1.4); fmode = 'dust'; }
-        if (falling) {
-          if (c.lv > 0) { const k = Math.min(1, Math.max(0, (fallT - (9 - c.lv) * 0.45) / 0.8)); form = 1 - k; fmode = 'dust'; }
-          else form = 1;
-        } else if (down) { if (S.taken) { form = upNow ? Math.max(0.8, 1 - tk / 2.5) : Math.max(0, 0.8 - (S.downT || 0) / 1.5 * 0.8); fmode = 'light'; } else if (!upNow) { form = Math.max(0, 1 - (S.downT || 0) / 1.5); fmode = 'light'; } }
-        else if (S.taken) { form = tk < 3.5 ? Math.max(0.5, 1 - tk / 2.5) : Math.max(0, 0.5 - (tk - 3.5) * 0.5); fmode = 'light'; }   // half dissolved, the figure still there, then gone
-        // (the pinya stays whole: a form < 1 left particles hanging below the bodies — the «stalactites»)
-        const sw = c.lv > 0 && !OLD ? Math.sin(time * 0.45 + t.tw * 1.7) * 0.012 * Math.min(1, c.y / 3) : 0;   // the trunk sways, 1–2 cm, slowly
-        // each wall's castell turned a little round its axis (no four identical clones)
-        const ra = t.tw * 0.83, cr = Math.cos(ra), sr = Math.sin(ra), cx = c.x * cr - c.z * sr, cz = c.x * sr + c.z * cr;
-        const lx = (cx + sw) * SC, ly = (c.y + dy) * SC, lz = cz * SC;
-        const tx = lx * ct - ly * st, ty = lx * st + ly * ct;                       // the lean (tower frame, about its z)
-        _bp.set(t.g.position.x + cp * tx + sp * lz, ty, t.g.position.z - sp * tx + cp * lz);
-        // the pinya opens towards the room: nobody of it stands in front of (or on) the wall plane — the audience is its front
-        if (c.lv === 0 && (_bp.x - t.w.centre.x) * t.w.normal.x + (_bp.z - t.w.centre.z) * t.w.normal.z > -0.3) { kit.hide(i); continue; }
-        const away = uAway.value;
-        // arrive / leave: the particles gather / scatter (form below), no block movement
-        const pose2 = c.enx ? (crowned ? 'raise' : 'stand') : c.pose;
-        // what is drawn is what trunk() / levels() report (the Pom's climbers sit on it)
-        if (c.lv > 0) { const A = t.lvAcc || (t.lvAcc = Array.from({ length: 10 }, () => [0, 0, 0, 1e9])); const a = A[c.lv]; a[0] += _bp.x; a[1] += _bp.z; a[2]++; a[3] = Math.min(a[3], _bp.y); }
-        kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw - ra, pose: c.pose, pose2: c.enx ? pose2 : (c.pose2 || c.pose), mix: c.enx ? (crowned ? 1 : 0) : (c.lv > 0 && S.forming && S.solid < 0.5 ? 1 : (c.mixV || 0)),
-          form: form * (1 - uAway.value), fmode, lod: c.lv >= 1 && !lightLod ? 'mid' : 'far', scale: c.s * SC,   /* the trunk in mid detail (9k splats): it must read as bodies */ build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - 0.4 - c.lv * 0.36) / 0.5)) * (c.enx ? 1.6 : 1) : S.flash * 0.35,   /* the gold RISES floor by floor from the foot (0.4–4 s, with VFX's light), the enxaneta last and brightest */ tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
-      }
-    }
-    for (let i = n; i < kit.count; i++) kit.hide(i);
-    kit.update(dt);
-  }
   let beat = 0, liftHold = 0, liftOn = false, liftP = 0, standDrop = 0, wobPrev = false, wobWall = -1;
   const wob = { on: false, t: 0, side: 1, lv: -1, close: 0 }, slip = { lv: -1, t: 0 };
   const plazaPrev = new Float32Array(NW), plazaCool = new Float32Array(NW);
@@ -639,11 +492,7 @@ export function create(ctx) {
     { const want = inTronc && pr.decor !== false && !(!S && lone()) ? 1 : 0; decor += (want - decor) * ease(4, dt); if (Math.abs(want - decor) < 0.004) decor = want; uDecor.value = decor; }
     if (S && inTronc && !wasIn && col.on) restore();
     if (col.on) { floors = col.floors; prog = 0; rewarding = false; }
-    else if (!inTronc) {
-      // a late entry (a jump to the Pom, a join after the Tronc): the castell stands at the group's height at once (≥ 5 floors)
-      if ((castMode === 'top' || castMode === 'crowned') && keepFloors < 5) keepFloors = Math.min(9, Math.max(5, (S && S.castell && S.castell.floors) || 0));
-      floors = keepFloors; prog = 0; rewarding = false;
-    }
+    else if (!inTronc) { floors = keepFloors; prog = 0; rewarding = false; }
     else keepFloors = floors;
     if (col.on) col.t += dt;
     const arrive = clamp01(S ? (input.arrive ?? 1) : (input.arrive ?? pr.arrive ?? 1));
@@ -673,28 +522,14 @@ export function create(ctx) {
     }
 
     // ---- the rise: the room climbs with the forming floor (lift: the forming floor sits at the hands); reward: drawn back, all of it
-    const fl = Math.min(NL - 1, floors + 1), riseOn = OLD ? (pr.rise ?? 1) : 0;   // human scale: the tower is framed by its forced perspective, the room does not rise
+    const fl = Math.min(NL - 1, floors + 1), riseOn = pr.rise ?? 1;
     let target = (LV[fl].yc * SC - (liftOn ? FORM_Y : FORM_Y0)) * riseOn;
     pull += ((rewarding || (leave > 0 && pull > 0.01) ? 1 : 0) - pull) * ease(0.6, dt);
     if (pull > 0.001) target += (TOWER_H * SC * 0.5 - 1.2 - target) * smooth(0, 1, pull);
-    target = Math.max(0, target);                     // 25-11 (director): the world only goes DOWN (the room rises); never up, never floating
-    if (castMode === 'top' && !OLD && !col.on) {
-      // the Pom (AD #14 + director): the trunk's top (the dosos' feet) sits at 2.0 m on the wall, the base leaves through the bottom edge; the
-      // climbers go up a trunk that is wholly inside the wall (setFocusY no longer moves it)
-      const top = (TRUNK[7]?.y || 5.9) * SC, dW = Math.max(0.5, -_v.copy(walls[0].centre).sub(room.eye).dot(walls[0].normal)), d = dW + TOWER_D;
-      target = Math.max(0.75, top - (room.eye.y + (2.0 - room.eye.y) * d / dW));   // the dosos' feet at 2.0 m on the wall: the pom de dalt (≈ 1.5 m of children) stays ≤ 3.4 m
-    } else if (!OLD && (castMode === 'fall' || ((castMode === 'crowned' || castMode === 'down') && !col.on))) {
-      target = 0;   // after the Pom: the Tronc's framing again (forced perspective, base on the ground)
-    } else if (focusY != null && !OLD && !col.on) {
-      target = Math.max(0, focusY - (room.eye.y || 1.6));
-      if (target > 0.01) target = Math.max(target, 0.75);      // never a base hanging mid-wall: lowered at all, it leaves through the bottom edge
-    }   // Pom: the climbed floor in the reach band (setFocusY)
-    else if (!inTronc || col.on) target = rise;
-    // entering / reset: the room starts on the ground and eases (≤ 0.30 m/s) to its height — a snap only when asked (fall3d) or at 0
-    if (snapNext || ((reset || floorsPrev < 0 || (inTronc && !wasIn)) && target < 0.01)) { rise = target; riseV = 0; snapNext = false; }
-    else if (floorsPrev < 0 || (inTronc && !wasIn)) { rise = Math.max(0, Math.min(rise, target)); riseV = 0; }
+    if (!inTronc || col.on) target = rise;
+    if (reset || floorsPrev < 0 || (inTronc && !wasIn) || snapNext) { rise = target; riseV = 0; snapNext = false; }
     wasIn = inTronc;
-    { const vmax = 0.30, acc = 0.3, want = Math.max(-vmax, Math.min(vmax, (target - rise) * 0.7)); riseV += Math.max(-acc * dt, Math.min(acc * dt, want - riseV)); rise += riseV * dt; }
+    { const vmax = 0.35, acc = 0.3, want = Math.max(-vmax, Math.min(vmax, (target - rise) * 0.7)); riseV += Math.max(-acc * dt, Math.min(acc * dt, want - riseV)); rise += riseV * dt; }
     world.position.y = -rise;
 
     // ---- hands per wall
@@ -704,7 +539,7 @@ export function create(ctx) {
     const evL = input.events || [], liftE = inTronc && evL.includes && evL.includes('lift');
 
     // ---- per tower
-    const showT = (i) => (!OLD ? true : structure ? !!structure[i] : i < nw);   // 25-11 (AD): the castell on every wall, same hierarchy
+    const showT = (i) => (structure ? !!structure[i] : i < nw);
     for (const t of towers) {
       t.on = showT(t.tw);
       const U = t.U;
@@ -738,7 +573,7 @@ export function create(ctx) {
         if (s.goneT >= 4.2 && col.on) s.shown = false;
         U.floor.array[lv].set(s.solid, s.forming, s.goneT, s.flash);
         const vis = s.shown && !s.taken && built && !!t.solid[lv];
-        if (t.solid[lv]) { t.solid[lv].visible = vis && s.solid > 0.001 && s.goneT < 0 && !kit; t.grain[lv].visible = vis && (!kit || (OLD && ((s.forming && s.solid < 1) || s.goneT >= 0 || t.U.lean.value.y > 0.05))); }
+        if (t.solid[lv]) { t.solid[lv].visible = vis && s.solid > 0.001 && s.goneT < 0; t.grain[lv].visible = vis; }
       }
       // the lean: a damped spring towards lean·7°, weak trembles it
       let lean = S ? (S.lean?.[t.tw] || 0) : (pr.lean ?? 0) * (t.tw % 2 ? -1 : 1);
@@ -836,7 +671,7 @@ export function create(ctx) {
         plazaPrev[wi] = rv;
       }
       const kk = b.U.k.value + (kWant - b.U.k.value) * ease(3, dt);
-      b.U.k.value = kk * decor; b.g.visible = kk * decor > 0.01 && P.band === true;   // 25-11: the band of light read as a UI line
+      b.U.k.value = kk * decor; b.g.visible = kk * decor > 0.01;
       b.U.flash.value *= Math.exp(-dt * 3); b.U.hk.value *= Math.exp(-dt * 2.5);
       b.g.position.copy(w.centre).addScaledVector(w.normal, -0.03).addScaledVector(b.ax, b.ox).setY(b.y);
       _e.set(0, Math.atan2(w.normal.x, w.normal.z), -b.tilt, 'YXZ'); b.g.quaternion.setFromEuler(_e);
@@ -852,7 +687,7 @@ export function create(ctx) {
       labK[lv].value = Math.max(0, labE[lv]) * decor * (1 - uAway.value) * (inTronc ? 1 : 0);
     }
     for (let wi = 0; wi < NW; wi++) {
-      const r = rulers[wi], t = towers[wi], k = decor * (1 - uAway.value), on = t.on && k > 0.02 && built && P.ruler === true;   // 25-11: no ruler (read as UI)
+      const r = rulers[wi], t = towers[wi], k = decor * (1 - uAway.value), on = t.on && k > 0.02 && built;
       r.g.visible = on; if (!on) continue;
       const dW = Math.max(0.5, -_v.copy(t.w.centre).sub(room.eye).dot(t.w.normal)), dT = dW + t.dist, sc = dT / dW;
       r.g.scale.setScalar(sc); r.g.position.set(RULER_X * sc, 0, 0.6);
@@ -884,11 +719,6 @@ export function create(ctx) {
     }
     dAttr.needsUpdate = true;
     floorsPrev = floors;
-    if (kit) {   // the Pom's silence: the particles breathe (≈ 0.15 Hz, size and light)
-      const sil = S && S.pomStage === 'silence' ? 1 : 0; breathK += (sil - breathK) * Math.min(1, dt * 0.8);
-      const b = Math.sin(time * 0.94) * breathK; kit.setSplat({ size: 1 + 0.07 * b, key: lookKey * (1 + 0.12 * b) });
-    }
-    placeBodies(dt, inTronc, floors, !!S, S ? S.floors : null, S ? S.block : '');
   }
   function nearestTower(wi, showT) {
     let best = -1, bd = 1e9; for (let j = 0; j < NW; j++) { if (!showT(j)) continue; let d = Math.abs((PER[j] + walls[j].width / 2) - (PER[wi] + walls[wi].width / 2)); d = Math.min(d, perim - d); if (d < bd) { bd = d; best = j; } }
@@ -927,39 +757,9 @@ export function create(ctx) {
   function levels() {
     world.updateMatrixWorld(true);
     const y0 = world.matrixWorld.elements[13];
-    const lvOf = (L, i) => (!OLD && CLV[i] ? { yc: (CLV[i].y0 + CLV[i].y1) / 2, h: CLV[i].y1 - CLV[i].y0 } : L);
-    return towers.filter((t) => t.on).map((t) => ({ tower: t.tw, built: t.built, foot: { x: t.g.position.x, z: t.g.position.z }, floors: LV.map((L0, i) => { const L = lvOf(L0, i); return { i, name: NAMES[i].toLowerCase(), y: y0 + L.yc * SC, h: L.h * SC, taken: !!t.st[i].taken, gone: !!t.st[i].gone }; }) }));
+    return towers.filter((t) => t.on).map((t) => ({ tower: t.tw, built: t.built, floors: LV.map((L, i) => ({ i, name: NAMES[i].toLowerCase(), y: y0 + L.yc * SC, h: L.h * SC, taken: !!t.st[i].taken, gone: !!t.st[i].gone })) }));
   }
 
-  // trunk(floor, tower?) → { x, z, y, r, h, tower } in WORLD metres: the axis of the tower at that floor (y = its feet, r = the radius of
-  // the bodies' ring, h = its height); for climbers (Pom). Without `tower`: the first tower on screen. null when there is none.
-  function trunk(floor, tower = -1) {
-    const t = tower >= 0 ? towers[tower] : towers.find((q) => q.on);
-    const L = TRUNK[Math.max(1, Math.min(9, floor | 0))]; if (!t || !L) return null;
-    world.updateMatrixWorld(true);
-    const y0 = world.matrixWorld.elements[13], th = t.theta || 0;
-    const phi = Math.atan2(t.w.normal.x, t.w.normal.z), d = -Math.sin(th) * L.y * SC;   // the lean shifts the axis along the tower's x
-    const fl = Math.max(1, Math.min(9, floor | 0)), D = t.lvPos && t.lvPos[fl];        // as drawn (the bodies' mean, their feet) when it is on screen
-    if (D) return { x: D.x, z: D.z, y: D.y + y0, yRest: D.y, r: L.r * SC, h: L.h * SC, tower: t.tw };
-    return { x: t.g.position.x + Math.cos(phi) * d, z: t.g.position.z - Math.sin(phi) * d, y: y0 + L.y * SC * Math.cos(th), yRest: L.y * SC, r: L.r * SC, h: L.h * SC, tower: t.tw };
-  }
-  // textObstacles() → [{ wall, x, half, y0, y1 }] (wall coordinates, m): the tower (or the pinya ring) on each wall, up to its visible top
-  const OB = [], _ob = new THREE.Vector3();
-  function textObstacles() {
-    OB.length = 0;
-    if (!kit || col.on) return OB;
-    world.updateMatrixWorld(true);
-    const y0w = world.matrixWorld.elements[13];
-    for (const t of towers) {
-      const ring = !(t.on && t.g.visible); if (ring && (OLD || keepFloors < 0)) continue;
-      const dW = Math.max(0.5, -_ob.copy(t.w.centre).sub(room.eye).dot(t.w.normal)), k = dW / (dW + TOWER_D);
-      let top = 1.75;
-      if (!ring) for (let lv = 9; lv >= 1; lv--) if (CLV[lv] && t.st[lv].shown && !t.st[lv].taken) { top = CLV[lv].y1 * SC; break; }
-      const Y = top + y0w, onWall = room.eye.y + (Y - room.eye.y) * k;
-      OB.push({ wall: t.tw, x: 0, half: 1.15 * k + 0.2, y0: 0, y1: Math.min(t.w.height || 3.75, Math.max(0.5, onWall)) });
-    }
-    return OB;
-  }
   function setParams(p) { if (p && p !== P) Object.assign(P, p); }
   function dispose() {
     try { fxBc?.close(); } catch { /* closed */ }
@@ -971,7 +771,7 @@ export function create(ctx) {
     labGeo.dispose(); tickGeo.dispose(); lineGeo.dispose();
   }
   const api = {
-    object, update, setParams, dispose, impacts, setMode, setLook, setFocusY, kit, towerD: TOWER_D, scale: SC, trunk, textObstacles,
+    object, update, setParams, dispose, impacts,
     get rise() { return rise; },
     collapse, restore, takeFloor, giveFloor, levels,
     get collapsing() { return { on: col.on, t: col.t, mode: col.mode, duration: col.dur }; },

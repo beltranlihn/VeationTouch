@@ -10,10 +10,8 @@
 // Sizes are in METRES (vt.walls), hands by STROKE, distances wrap round the room. No assets, no libraries.
 import { connectExperience } from '/experiences/runtime.js';
 import { createDirector } from './director.js';
-import { setSink, canEmit } from './scenes3d/emit.js';
 
 const vt = await connectExperience();
-setSink(vt);                                                       // P0: the viewer instance (vt.sink 'viewer') renders and listens, never posts
 const canvas = document.getElementById('c');
 canvas.width = vt.size.width; canvas.height = vt.size.height;
 const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
@@ -46,7 +44,7 @@ if (bc) bc.onmessage = (ev) => {
   link.events.push(...(events || [])); link.at = performance.now(); link.ts = m.ts; link.pace = m.pace || 1; link.beat = s.beat;
 };
 const following = () => performance.now() - link.at < 700;
-const tell = (o) => { if (!canEmit()) return; try { bc?.postMessage({ type: 'ctl', ...o }); } catch { /* a closed channel: carry on alone */ } };
+const tell = (o) => { try { bc?.postMessage({ type: 'ctl', ...o }); } catch { /* a closed channel: carry on alone */ } };
 
 // ------------------------------------------------------------------------------------------------ shaders
 const HEAD = '#version 300 es\nprecision highp float; precision highp int;\n';

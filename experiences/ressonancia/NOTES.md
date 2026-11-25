@@ -54,9 +54,6 @@ dalt; plus, at Vicente's request, **ElevenLabs sound effects and voice-over** as
 - Not done: baixada and the three endings by eye, the acta's layout, LiDAR feel (L), body scale (B), a hand pinned on the P3 → P4
   edge, the real engine (`lab-engine.mjs`), wall height 3.5 m, the solo path timed by hand.
 - Known: text uses the system font stack (Geist if installed); the tower floors are one tile row each (0.16 m).
-- Human base meshes: Quaternius Universal Base Characters (CC0), quaternius.com — `scenes3d/assets/models/human/` (geometry and
-  skin only, `LICENSE-quaternius-CC0.txt`). The figures of the 3D work are particles sampled in volume from them (`scenes3d/bodykit.js`,
-  `scenes3d/bodykit-gltf.js`).
 
 ## Requests to the studio
 - **Audio samples.** Confirm an exception to "no samples" for this work (ElevenLabs sound effects and voice-over as audio files inside

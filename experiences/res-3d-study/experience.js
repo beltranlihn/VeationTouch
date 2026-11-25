@@ -6,11 +6,9 @@ import { connectExperience } from '/experiences/runtime.js';
 import * as THREE from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { createRoom3D } from '../ressonancia/scenes3d/room3d.js';
-import { setSink } from '../ressonancia/scenes3d/emit.js';
 
 const name = (new URLSearchParams(location.search).get('part') || 'plaza').replace(/[^a-z0-9_-]/gi, '');
 const vt = await connectExperience();
-setSink(vt);                                                       // the parts post impacts to the sound only from the room instance, never from the viewer
 const canvas = document.getElementById('c');
 canvas.width = vt.size.width; canvas.height = vt.size.height;
 const extra = await fetch(new URL(`./parts/${name}.json`, import.meta.url)).then((r) => (r.ok ? r.json() : [])).catch(() => []);

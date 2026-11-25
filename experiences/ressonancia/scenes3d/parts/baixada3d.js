@@ -22,11 +22,6 @@
 // arrive, leave, rain, gain, floorH.
 // Sound (wave 2, ENT's snippet): a caught shard 'glass'/'hit', a shard that shatters 'glass'/'floor', a flower that opens 'petal'/'bloom'.
 
-// STUDIO NIGHT 25-11 (VFX, plan 05 §5.6 bajada, §2.7): the dawn in the palette of the work — `alba-rosa` at the horizon, `alba-blau` up to
-// the zenith (a LIGHT sky that fills the wall, no night-violet zenith), `crema` where the sun is about to rise; the glass in rose, dawn
-// blue and bone only (no aqua / mint / lilac); the quiet zones barely dim the light sky (dark ink reads on it).
-import { lin as palLin } from '../palette.js';
-import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 export function create(ctx) {
   const { THREE, TSL, room } = ctx;
   const P = ctx.params || {};
@@ -47,12 +42,11 @@ export function create(ctx) {
   const plines = (x, per, fw, px) => { const d = abs(fract(x.div(per).add(0.5)).sub(0.5)).mul(per); return mix(lineAA(d, fw, px), min(fw.mul(px + 1).div(per), 0.5).mul(0.3), smoothstep(per * 0.06, per * 0.25, fw)); };
 
   // -------------------------------------------------------------------------------------------- palette (ARTE §2, row «Bajada»; linear)
-  // VFX 25-11: from palette.js (bajada: alba-rosa · alba-blau · albergínia, pale gold); the old names kept so the code reads the same
   const C = {
-    top: palLin('alba-blau', 0.62), horizon: palLin('alba-rosa'), rose: palLin('alba-rosa'), lilac: palLin('alba-blau'),
-    aqua: palLin('alba-blau', 0.85), peach: palLin('or-clar', 0.9), sun: palLin('crema'), mint: palLin('os'), pearl: palLin('os'),
+    top: [0.023, 0.015, 0.051], horizon: [0.62, 0.34, 0.30], rose: [0.93, 0.47, 0.56], lilac: [0.485, 0.366, 0.807],
+    aqua: [0.275, 0.745, 0.644], peach: [1.0, 0.63, 0.39], sun: [1.0, 0.92, 0.75], mint: [0.55, 0.9, 0.7], pearl: [0.92, 0.88, 0.95],
   };
-  const FLOORCOL = [C.rose, C.lilac, C.pearl, C.rose, C.lilac, C.pearl, C.rose, C.lilac, C.pearl];   // floor 0 (base) … 8 (top)
+  const FLOORCOL = [C.peach, C.rose, C.lilac, C.aqua, C.rose, C.peach, C.lilac, C.aqua, C.rose];   // floor 0 (base) … 8 (top)
   const v3 = (c) => vec3(c[0], c[1], c[2]);
 
   // -------------------------------------------------------------------------------------------- uniforms, groups
@@ -94,11 +88,11 @@ export function create(ctx) {
     const y = dir.y, az = atan(dir.z, dir.x);
     const sAz = max(dot(normalize(dir.xz.add(vec2(0.0001, 0))), normalize(uSun.xz)), -1.0), east = pow(sAz.mul(0.5).add(0.5), 3.0);
     const yy = max(y, 0.0);
-    const lil = v3(C.lilac).mul(0.62), ros = v3(C.rose).mul(0.72), warm = v3(C.sun);   // VFX 25-11: palette (was lilac / coral)
+    const lil = vec3(0.485, 0.366, 0.807).mul(0.34), ros = vec3(0.896, 0.485, 0.434).mul(0.5), warm = vec3(1.0, 0.92, 0.745);
     const sky0 = mix(mix(v3(C.top), lil, smoothstep(0.5, 0.14, yy)), ros, smoothstep(0.16, 0.0, yy));
-    const glowE = warm.mul(pow(east, 2.0)).mul(exp(yy.div(0.07).negate()).mul(0.7).add(exp(yy.div(0.22).negate()).mul(0.18)));
+    const glowE = warm.mul(pow(east, 2.0)).mul(exp(yy.div(0.07).negate()).mul(0.38).add(exp(yy.div(0.22).negate()).mul(0.1)));
     // ARTE round 4: a LUMINOUS EAST WALL (P1) in peach #FFD0A8, rising well up the sky, the sun's glow concentrated low at its azimuth
-    const peachE = vec3(1.0, 0.63, 0.39).mul(pow(east, 1.5)).mul(exp(yy.div(0.28).negate()).mul(0.45));
+    const peachE = vec3(1.0, 0.63, 0.39).mul(pow(east, 1.5)).mul(exp(yy.div(0.28).negate()).mul(0.26));
     const sunG = vec3(1.0, 0.85, 0.62).mul(pow(max(dot(dir, uSun), 0.0), 60).mul(0.22));
     const sky = sky0.add(glowE).add(peachE).add(sunG);
     const cn = (q) => mx_noise_float(vec3(az.mul(2.4), q.mul(13.0), uTime.mul(0.008)));
@@ -118,9 +112,9 @@ export function create(ctx) {
     const R = normalize(vec3(dir.x.add(rip.x), ny, dir.z.add(rip.y)));
     const fres = pow(float(1).sub(ny), 5).mul(0.9).add(0.06);
     const refl = skyCol(R).mul(fres);
-    const slab = vec3(...palLin('albergínia', 0.5)).mul(float(1).sub(fres));
+    const slab = vec3(0.05, 0.035, 0.06).mul(float(1).sub(fres));
     const mist = smoothstep(90.0, 420.0, t).mul(0.7);                              // mist only low, far, on the water
-    const mistC = mix(v3(C.rose).mul(0.55), v3(C.sun).mul(0.6), pow(max(dot(normalize(dir.xz.add(vec2(0.0001, 0))), normalize(uSun.xz)), 0), 3));
+    const mistC = mix(vec3(0.896, 0.485, 0.434).mul(0.42), vec3(1.0, 0.92, 0.745).mul(0.6), pow(max(dot(normalize(dir.xz.add(vec2(0.0001, 0))), normalize(uSun.xz)), 0), 3));
     return mix(slab.add(refl), mistC, mist);
   });
   const domeCol = Fn(([dir]) => mix(groundCol(dir), skyCol(dir), smoothstep(-0.003, 0.003, dir.y)));
@@ -130,7 +124,7 @@ export function create(ctx) {
       const dir = normalize(positionWorld.sub(cameraPosition));
       const h = hash13(floor(dir.mul(9.0)).add(vec3(3.1, 7.7, 1.3)));
       const a = smoothstep(h.mul(0.75), h.mul(0.75).add(0.12), uDomeIn);
-      return vec4(domeCol(dir).mul(uWorld.mul(0.85).add(0.15)).mul(uGain).mul(colDim(0.12)), a);   // VFX 25-11: a light sky: the quiet zone barely dims it
+      return vec4(domeCol(dir).mul(uWorld.mul(0.85).add(0.15)).mul(uGain).mul(colDim(0.75)), a);
     })();
     m.fog = false; mats.push(m);
     var dome = new THREE.Mesh(new THREE.SphereGeometry(330, 64, 32), m); geos.push(dome.geometry);
@@ -184,11 +178,9 @@ export function create(ctx) {
       const win = step(abs(f.x.sub(0.5)), 0.12).mul(step(abs(f.y.sub(0.55)), 0.17)).mul(step(0.95, hash12(cl.add(vSZ.xy)))).mul(step(an.y, 0.5)).mul(step(2.5, vY)).mul(vT.x.oneMinus());
       const sil = vec3(0.012, 0.008, 0.02).add(vec3(1.0, 0.62, 0.42).mul(toSun.mul(0.05)));
       // pure black silhouettes (director, 24-11): no lit faces, rims or windows; only the far town sinks into the low sky
-      // VFX 25-11: albergínia silhouettes in LAYERS — the square (18–28 m) deep (~0.08), the old town beyond sinking into the dawn mist;
-      // a thin warm rim where a face looks at the sun
-      const col = vec3(...palLin('albergínia', 0.32)).add(rim.mul(vec3(...palLin('alba-rosa'))).mul(0.35)).add(sil.mul(0.0)).add(win.mul(0.0));
-      const dist = length(positionWorld.sub(cameraPosition)), f2 = exp(dist.sub(20.0).max(0).mul(-0.016));
-      return vec4(mix(skyCol(vec3(V.x, 0.03, V.z)).mul(0.8), col, f2.mul(0.92).add(0.08)).mul(uWorld).mul(uGain).mul(colDim(0.75)), 1);
+      const col = vec3(0).add(sil.mul(0.0)).add(rim.mul(0.0)).add(win.mul(0.0));
+      const dist = length(positionWorld.sub(cameraPosition)), f2 = exp(dist.mul(-0.004));     // only the far town fades into the low sky
+      return vec4(mix(skyCol(vec3(V.x, 0.02, V.z)).mul(0.45), col, f2.mul(0.8).add(0.2)).mul(uWorld).mul(uGain).mul(colDim(0.75)), 1);
     })();
     m.fog = false; mats.push(m);
     var greenhouses = new THREE.Mesh(g, m); greenhouses.frustumCulled = false; world.add(greenhouses);
@@ -247,10 +239,7 @@ export function create(ctx) {
       // T-053 (ARTE r5): no burnt white — luminance ceiling 0.7, and 0.3 behind the text / button (the quiet zones)
       const c1 = col.mul(uGain).mul(float(1).sub(uDrain.mul(F4.y).mul(0.7))).mul(q), lum = dot(c1, vec3(0.2126, 0.7152, 0.0722));
       const c2 = c1.mul(min(float(1), mix(float(0.7), float(0.3), qz).div(lum.add(1e-4))));
-      // VFX 25-11: glass DUST that catches the first sun — a speck of warm light, brighter as it turns to the sun
-      const catchS = pow(max(dot(R, sunH), 0.0), 10.0).mul(2.2).add(0.28);
-      const dust = v3(C.sun).mul(catchS).add(tint.mul(F4.x.mul(1.3))).mul(q);
-      return vec4(dust.add(ACC.mul(FL(positionWorld)).mul(0.4)), K.w.mul(0.9).mul(q.mul(0.5).add(0.5)));
+      return vec4(c2.add(ACC.mul(FL(positionWorld)).mul(edge).mul(0.4)), K.w.mul(float(0.8).add(edge.mul(0.1)).add(F4.x.mul(0.2))).min(1).mul(q.mul(0.5).add(0.5)));
     })();
     m.fog = false; mats.push(m);
     const mesh = new THREE.InstancedMesh(g, m, NSH); mesh.frustumCulled = false; mesh.renderOrder = 6;
@@ -270,7 +259,6 @@ export function create(ctx) {
     r: new Float32Array(NSH), g: new Float32Array(NSH), b: new Float32Array(NSH), t: new Float32Array(NSH), fl: new Float32Array(NSH), tw: new Int8Array(NSH), f: new Int8Array(NSH),
     ra: new Float32Array(NSH), ry: new Float32Array(NSH), rr: new Float32Array(NSH), hx: new Float32Array(NSH), hy: new Float32Array(NSH), hz: new Float32Array(NSH),
   };
-  let blueNow = false;   // the blue hour (plan B): the glass is dust
   let rs = 777; const rnd = () => { rs = (rs * 1664525 + 1013904223) >>> 0; return rs / 4294967296; };
   let nextFree = 0;
   function alloc() {
@@ -283,7 +271,7 @@ export function create(ctx) {
     if (alpha <= 0.003) { shard.mesh.setMatrixAt(i, _zero); shard.sCa[i * 4 + 3] = 0; return; }
     _ax.set(S_.ax[i], S_.ay[i], S_.az[i]); if (_ax.lengthSq() < 1e-6) _ax.set(0, 1, 0); _ax.normalize();
     _qt.setFromAxisAngle(_ax, S_.an[i]); _ps.set(S_.x[i], S_.y[i], S_.z[i]);
-    const sd = S_.sd[i], s = S_.s[i] * (blueNow ? 0.1 : 0.24); _sc.set(s * (0.6 + 0.5 * ((sd * 7.31) % 1)), s * (0.5 + 0.6 * ((sd * 13.7) % 1)), 1);
+    const sd = S_.sd[i], s = S_.s[i]; _sc.set(s * (0.6 + 0.5 * ((sd * 7.31) % 1)), s * (0.5 + 0.6 * ((sd * 13.7) % 1)), 1);
     _m4.compose(_ps, _qt, _sc); shard.mesh.setMatrixAt(i, _m4);
     shard.sCa[i * 4] = S_.r[i]; shard.sCa[i * 4 + 1] = S_.g[i]; shard.sCa[i * 4 + 2] = S_.b[i]; shard.sCa[i * 4 + 3] = alpha;
     shard.sFa[i * 4] = S_.fl[i]; shard.sFa[i * 4 + 1] = S_.st[i] === 1 || S_.st[i] === 2 ? 1 : 0.3; shard.sFa[i * 4 + 2] = S_.sd[i];
@@ -403,10 +391,7 @@ export function create(ctx) {
         const ring = exp(r.sub(age.mul(1.6).add(0.15).min(0.9)).div(0.035).pow(2).negate()).mul(exp(age.mul(-2.0)));
         const kd = vD.z, qy = select(vQ.y.lessThan(0), vQ.y.div(kd.mul(3.0).add(1)), vQ.y), r2h = vQ.x.mul(vQ.x).add(qy.mul(qy));   // T-047: stretched down by the descent
         const halo = exp(r2h.mul(-30)).mul(held.mul(0.22).add(kd.mul(0.3)));
-        // AD#12: no ring (it read as UI) — dawn dust lifting from the hand: a soft warm glow that drifts up a little as it ages
-        const up = vQ.y.sub(age.mul(0.35).min(0.5)), r2u = vQ.x.mul(vQ.x).mul(1.6).add(up.mul(up));
-        const dust = exp(r2u.mul(-9.0)).mul(exp(age.mul(-0.6))).mul(0.32).add(halo.mul(0.5));
-        out.assign(vec4(v3(C.sun).mul(0.55).add(v3(C.rose).mul(0.35)), dust.min(0.35)));   void ring;
+        out.assign(vec4(v3(C.sun), ring.mul(0.6).add(halo).min(1)));
       }).ElseIf(vK.lessThan(1.5), () => {
         // a GLASS flower (ARTE round 2): a rosette of 6–9 shards — each petal a long irregular kite of clear glass with a bright rim, a
         // little turned from its neighbours, the caught shard's tint on 1 in 3, a cluster of small bright chips at the heart; it opens with `grow`
@@ -435,11 +420,11 @@ export function create(ctx) {
         const core = exp(y.sub(zig).div(0.018).pow(2).negate()), rims = exp(abs(y).sub(0.045).div(0.006).pow(2).negate()).mul(0.6), fill = step(abs(y), 0.045).mul(0.18);
         const cracks = step(0.82, fract(vQ.x.mul(9.0).add(sin(vQ.x.mul(23.0))))).mul(step(abs(y), 0.05)).mul(crk);
         const tint = mix(v3(C.sun), mix(v3(C.rose), v3(C.aqua), vD.z), 0.45);
-        out.assign(vec4(0));   // AD#12: THE BAND is obsolete (the descent is driven by the bajada's targets) and read as UI
+        out.assign(vec4(tint.mul(core.mul(1.2).add(rims).add(fill)).add(v3(C.sun).mul(cracks.mul(1.5))), core.add(rims).add(fill).add(cracks).mul(ends).mul(vD.y).min(1)));
       }).Else(() => {
         // the CATCH: a flash ring that opens fast and a soft core, in the floor's colour (vD.xyz), age vD.w (0..1)
         const a = vD.w, ring = exp(r.sub(a.mul(0.9).add(0.1)).div(0.05).pow(2).negate()).mul(float(1).sub(a)), core = exp(r.mul(r).mul(-30)).mul(float(1).sub(a).pow(2));
-        out.assign(vec4(mix(vD.xyz, v3(C.sun), 0.25).mul(1.1), core.mul(0.45).min(1).mul(colDim(0.55))));   // AD#12: a soft core only (no flash ring)   void ring;
+        out.assign(vec4(mix(vD.xyz, v3(C.sun), 0.25).mul(1.1), ring.mul(0.85).add(core.mul(0.35)).min(1).mul(colDim(0.55))));   // capped inside the quiet zones
       });
       return vec4(out.xyz.mul(uGain), out.w.mul(uWorld.mul(0.7).add(0.3)));
     })();
@@ -465,7 +450,7 @@ export function create(ctx) {
   const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
   let fxN = 0, fxT = 0;
   function fxImpact(wall, u, strength, mat, kind) {
-    if (!fxBc || fxN >= 16 || !canEmit()) return; fxN++;
+    if (!fxBc || fxN >= 16) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
     try { fxBc.postMessage(fxMsg); } catch { /* closed: play on */ }
   }
@@ -565,10 +550,7 @@ export function create(ctx) {
     // ---- arrive / leave, light
     uWorld.value = sm((arrive - 0.3) / 0.6) * (1 - sm((leave - 0.05) / 0.5));
     uDomeIn.value = clamp01((arrive - 0.1) / 0.6) * (1 - sm((leave - 0.55) / 0.4));
-    // AD 25-11, plan B (pre-approved): THE BLUE HOUR — when the host shows the square with the bajada, the square itself is the world (night,
-    // the horizon turning alba-rosa, its lamps going out: plaza.js) and this part keeps only the tower's dust and the flowers
-    const blue = (pr.blueHour ?? true) !== false && !!ctx.parts?.plaza?.object?.visible; blueNow = blue;
-    dome.visible = !blue && uDomeIn.value > 0.001; greenhouses.visible = !blue && uWorld.value > 0.02 && (pr.town ?? true) !== false;   // `town` off: the host's square (plaza.js silhouette) draws it instead
+    dome.visible = uDomeIn.value > 0.001; greenhouses.visible = uWorld.value > 0.02 && (pr.town ?? true) !== false;   // `town` off: the host's square (plaza.js silhouette) draws it instead
     uGain.value = pr.gain ?? 1;
     // ---- hands
     const hands = input.hands || [];

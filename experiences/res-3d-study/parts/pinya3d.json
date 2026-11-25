@@ -1,10 +1,14 @@
 [
-  { "key": "fill", "label": "Pinya: fill (all walls)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.6 },
+  { "key": "fill", "label": "Pinya: fill (all walls)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
   { "key": "closed", "label": "Pinya: circle closed", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
+  { "key": "dry", "label": "Pinya: tesserae (reward)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
   { "key": "arrive", "label": "Pinya: arrive", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 1 },
   { "key": "leave", "label": "Pinya: leave", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
-  { "key": "density", "label": "Pinya: crowd density", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 1 },
-  { "key": "depth", "label": "Pinya: castell foot behind the wall", "type": "number", "min": 3, "max": 9, "step": 0.1, "default": 3.0, "unit": "m" },
-  { "key": "pack", "label": "Pinya: pack stage (figures slide in)", "type": "bool", "default": false },
-  { "key": "floor", "label": "Pinya: study floor", "type": "bool", "default": true }
+  { "key": "glow", "label": "Pinya: coral heat", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "light", "label": "Pinya: light on the points", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "breath", "label": "Pinya: breath", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+  { "key": "density", "label": "Pinya: point density", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 1 },
+  { "key": "move", "label": "Pinya: room movement", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 1 },
+  { "key": "fibres", "label": "Pinya: fibres reach the hands", "type": "bool", "default": true },
+  { "key": "cubes", "label": "Pinya: data cubes fall", "type": "bool", "default": true }
 ]

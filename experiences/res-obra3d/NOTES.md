@@ -75,33 +75,17 @@ Hands only. Parameters: `jump` (rehearsal: go to a block), `pace` (score speed, 
 `quality` (low / medium / high: render scale 0.6 / 0.8 / 1, MSAA 0 / 0 / 4, castell particle density 0.4 / 0.6 / 1; default high =
 the room's RTX 6000 Ada), `renderer` (auto / WebGL2).
 Lab only: `?parts=a,b` loads only those parts; `?q3=low|medium|high` overrides the quality (review page).
-`?fine=1` (lab mode only) draws the guide's instrument graphics (wall-edge rulers, «+», dotted grid, mono labels «II · PINYA», «P4»,
-«1,25 m»): lab metadata, never projected in the room (studio, 2026-11-24). The Tronc's floor-name ruler is part of the sculpture and stays.
 **Room thresholds (T-052, live):** `tuning` (lab = the score's TIMES / sala = a tolerant start for the real S2E) and 37 `t.<block>.<field>`
 params (`../ressonancia/tuning.js`): applied to the score at once, no reload, and sent to the sound piece as `ctl { times }` (needs the
 small sound.js patch in `lab/estudio/notas/TUN.md`; until then they only rule while this page runs its own score). A param moved by
 hand beats the preset. `mode` (auto / room / lab, read at load): in the room the lab URL switches (`?q3 ?tiles ?eye ?aa ?parts`) are
 ignored; auto = room when the app opens the page (`?run=1`). Room test guide: `lab/PRUEBA-SALA.md`.
-**Manifest limit:** the app keeps only the first 64 params (`engine/experiences.js` › `slice(0, 64)`). Since 2026-11-25 (I8) the `t.*`
-entries are generated from `../ressonancia/tuning.js › manifestParams()` (8 host params + `tuning` + 46 thresholds = 55); regenerate
-them after every change of TUNE and run `node lab/tools/check-syntax.mjs` (it flags > 64). A param missing from the manifest reads as
-NaN in `overrides()` → the preset / the score's own TIMES.
 
 ## Audio
 None here: `ressonancia-sound` leads the score when it runs (BroadcastChannel `ressonancia`, a LOCAL WORKAROUND as in res-obra); without
 it this page runs its own score.
 
 ## Status and tests
-- **Jump during the light-set warm-up (studio, 2026-11-24, Windows dev PC).** The T-057 background warm-up (`warmSetsLater`) runs
-  ~10 s after the loop starts. A jump in that window (Go to right after Play, or a lab script) made a part render for the first time
-  while the async compile was building its bindings: console `TypeError: Failed to execute 'writeBuffer' on 'GPUQueue'` (three.js
-  `updateBinding`) and a ~2.3 s freeze (Pom; the freeze also happens with warmSets off: cold light sets). Now the score (and the
-  sound) jump at once, but the PICTURE holds the block it shows until the warm-up ends (`VB` in `frame()`; console says so); if
-  the page starts in a block other than the wait (a Go to stored in the profile), the warm-up is skipped. Measured: jump to Pom
-  0.1 s after load → no error, Pom shown at ~11 s, worst frame after it 42 ms; after the warm-up, jumps cost ≤ 120 ms (Pom 117,
-  Brasa 22, festa 30). Lab scripts: `await __obra.warm.done` before jumping. **Still open:** the warm-up's first step blocks the
-  main thread ~3.3 s about 0.5 s after the wait appears (none with warmSets off) — harmless before the audience arrives; decide in
-  the room (`warmSets` stays on).
 - `review.html`: the 3D work alone with the virtual audience (`../res-obra/autopilot.js`), two-row view from the canvas stream, timeline,
   the harness volume fader; `?people=`, `&from=`, `&q3=`, `&params={"pace":4}`.
 - Smoke (2026-11-23, M1 Max, WebGPU, quality low, hidden Electron window): every block reached by jumps in two runs with no console
@@ -110,11 +94,10 @@ it this page runs its own score.
 
 ## Requests to the studio
 - Same as res-obra: a channel between a visual piece and its sound piece (the BroadcastChannel is a lab workaround).
-- **Two instances publish twice** (analysis §5 #26) — **fixed in the lab (studio, 2026-11-24)**. In the app the page runs twice (the room
-  instance and the viewer). Only the room instance publishes now: `ressonancia/scenes3d/emit.js` (`setSink(vt)` in each host,
-  `canEmit()` = `vt.sink !== 'viewer'`) guards the 8 parts' `fx:impact` and the hosts' `ctl` (res-obra3d, ressonancia, res-3d-study).
-  The viewer still renders and still follows the sound's `state`. Checked in the harness: with the sink forced to 'viewer', 0 fx /
-  0 ctl posted and the page still followed a posted state. In the medium term the official visual ↔ sound channel removes the need.
+- **Two instances publish twice** (analysis §5 #26). In the app the page runs twice (the room instance and the viewer); both post
+  `fx:impact` and `ctl` on the BroadcastChannel (8 parts and `experience.js`), so the sound hears every impact and every jump twice.
+  Proposed lab patch, for the studio to decide: only the room instance publishes (`vt.sink !== 'viewer'`). In the medium term the
+  official visual ↔ sound channel above removes the need.
 - **A common stroke id for the visual and the sound piece** (§5 #27). `experiences/runtime.js` gives each piece its own stroke ids, so
   the two pieces cannot tell that they are hearing / seeing the same hand. Request: one `stroke` shared by both pieces (or the sound
   piece receives the same ids as the visual one).
