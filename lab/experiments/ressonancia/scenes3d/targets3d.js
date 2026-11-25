@@ -123,7 +123,8 @@ export function createTargets3D({ THREE, TSL, room }) {
     blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });   // premultiplied «over»: rgb adds light, alpha darkens
   {
     const S = S_(), y = yUnit(), V = TSL.normalize(TSL.cameraPosition.sub(TSL.positionWorld)), ndv = abs(TSL.dot(TSL.normalize(TSL.normalWorld), V));
-    const ends = smoothstep(0.0, 0.1, y).mul(smoothstep(1.0, 0.85, y));
+    const lick = mx_noise_float(vec3(positionGeometry.x.mul(4.0), y.mul(3.0).sub(uTime.mul(1.8)), positionGeometry.z.mul(4.0))).mul(0.3);
+    const ends = smoothstep(0.0, 0.04, y).mul(smoothstep(float(0.95).add(lick.mul(0.3)), float(0.35).add(lick), y));   // the top licks and fades out
     const body = TSL.pow(ndv, 1.4).mul(ends);                                            // soft: bright on its axis, gone at the edges and ends
     const rim = smoothstep(0.45, 0.12, ndv).mul(ends);                                   // its silhouette band (only drawn dark on light chapters)
     const level = mix(S.x, float(1.2), step(0.5, S.z)), fill = smoothstep(level.add(0.03), level.sub(0.05), y);
@@ -131,13 +132,14 @@ export function createTargets3D({ THREE, TSL, room }) {
     const flick = mx_noise_float(vec3(positionGeometry.x.mul(3.0), y.mul(7.0).sub(uTime.mul(2.6)), uTime.mul(0.7))).mul(0.5).add(0.75);   // fire: it licks upward
     const fireK = FIREK, wobble = mix(shimmer, flick, fireK);
     // fire (Brasa): flama licking up from the brazier, brighter; light (crown / echo): the chapter's tone, soft. Gold rises inside both
-    const base = mix(LIGHT.mul(0.16), vec3(...lin('flama')).mul(float(0.3).mul(TSL.pow(float(1).sub(y), 0.7))), FIREK);
+    // fire: brightest where it is born in the bowl (a hot core), thinning upward
+    const base = mix(LIGHT.mul(0.16), vec3(...lin('flama')).mul(float(0.55).mul(TSL.pow(float(1).sub(y), 0.5))).add(vec3(...lin('brasa')).mul(smoothstep(0.3, 0.0, y).mul(0.5))), FIREK);
     const glow = base.add(GOLD.mul(fill.mul(float(0.3).add(S.y.mul(0.4))))).add(GOLD.mul(FLARE.mul(0.3).add(S.y.mul(step(0.5, S.z)).mul(0.15))));
     const bronzeA = rim.mul(0.4).mul(LIGHTK);
     columnMat.colorNode = TSL.min(glow.mul(body).mul(wobble), vec3(0.6)).add(vec3(...lin('bronze')).mul(bronzeA).mul(0.5)).mul(float(1).sub(S.w));
     columnMat.opacityNode = bronzeA.add(body.mul(0.05)).mul(float(1).sub(S.w));
   }
-  const column = skin(new THREE.CylinderGeometry(0.5, 0.5, 1, 24, 1, true), columnMat, 'column'); column.mesh.castShadow = false; column.mesh.receiveShadow = false;
+  const column = skin(new THREE.CylinderGeometry(0.16, 0.5, 1, 24, 10, true), columnMat, 'column');   // tapering: wide at the base, narrow at the top column.mesh.castShadow = false; column.mesh.receiveShadow = false;
 
   // plaque: a stone slab on the wall; the print glows into it in gold (an oval at its heart) with the charge, and stays when done
   const plaqueMat = ceramic({ color: 'pedra-llum', glaze: 0.3, wear: 0.7, rim: 0.2, hands: 0.3 });   // warm stone (the fallback too: never a grey square)
@@ -156,12 +158,14 @@ export function createTargets3D({ THREE, TSL, room }) {
   const M4 = new THREE.Matrix4(), P3 = new THREE.Vector3(), SC = new THREE.Vector3();
   const basis = room.walls.map((w) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, new THREE.Vector3(0, 1, 0), w.normal)));
   const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
-  function put(sk, p, cx, cy, cz, sx, sy, sz) {     // one instance of a skin for this slot, in the target's wall frame (x, y, z = into the room)
+  // one instance of a skin for this slot, in the target's wall frame (x, y, z = into the room). A composite object (brazier + its
+  // fire column, block + corbel) grows / shrinks about ONE anchor height, so its pieces never come apart while it assembles or goes
+  function put(sk, p, cx, cy, cz, sx, sy, sz, anchor = cy) {
     const i = sk.used++; if (i >= MAXT) return;
     const w = room.walls[p.wall];
     const k = Math.max(0.001, sm(p.asm) * (1 - 0.85 * sm(p.burst)) * (1 + 0.05 * p.grow));
     const b = sm(p.burst), rise = p.rise * p.hold;
-    P3.copy(w.centre).addScaledVector(w.right, p.dx + cx + p.to[0] * b).setY(cy + rise + p.to[1] * b - (1 - sm(p.asm)) * 0.25).addScaledVector(w.normal, cz + p.to[2] * b);
+    P3.copy(w.centre).addScaledVector(w.right, p.dx + cx * k + p.to[0] * b).setY(anchor + (cy - anchor) * k + rise + p.to[1] * b - (1 - sm(p.asm)) * 0.25).addScaledVector(w.normal, cz + p.to[2] * b);
     M4.compose(P3, basis[p.wall], SC.set(sx * k, sy * k, sz * k)); sk.mesh.setMatrixAt(i, M4);
     sk.aS.setXYZW(i, p.charge, p.hold, p.gold, p.burst); sk.aG.setXYZW(i, p.grow, p.asm, rise, 0);
   }
@@ -206,25 +210,25 @@ export function createTargets3D({ THREE, TSL, room }) {
       if (p.skin === 'ashlar') {                       // the block just behind the wall plane, on its plinth from the ground
         const bw = Math.min(0.45, W * 0.8), bh = Math.min(0.32, H * 0.8), D = 0.26;   // ~45 cm: the block, not the hit area (that stays the score's w × h)
         put(ashlar, p, 0, p.y, -D / 2 - 0.01, bw, bh, D);
-        put(plinth, p, 0, p.y - bh / 2 - 0.03, -D / 2 - 0.01, bw * 1.15, 0.06, D * 1.1);   // its corbel
+        put(plinth, p, 0, p.y - bh / 2 - 0.03, -D / 2 - 0.01, bw * 1.15, 0.06, D * 1.1, p.y);   // its corbel
       } else if (p.skin === 'brazier') {               // a bowl of w, on a stand from the ground; the flame above it
         const bw = Math.min(0.5, Math.max(0.36, W)), bh = bw * 0.42, bowlY = p.y;
         put(bowl, p, 0, bowlY, -bw / 2 - 0.02, bw, bh, bw);
-        const sb = bowlY - bh / 2; if (sb > 0.05) put(stand, p, 0, sb / 2, -bw / 2 - 0.02, 0.08, sb, 0.08);
+        const sb = bowlY - bh / 2; if (sb > 0.05) put(stand, p, 0, sb / 2, -bw / 2 - 0.02, 0.08, sb, 0.08, 0);
         const fh = 0.18 + 0.55 * p.charge + 0.35 * p.hold;
-        put(flame, p, 0, bowlY + bh / 2 + fh / 2 - 0.04, -bw / 2 - 0.02, bw * 0.7, fh, 1);
+        put(flame, p, 0, bowlY + bh / 2 + fh / 2 - 0.04, -bw / 2 - 0.02, bw * 0.7, fh, 1, bowlY);
         if (cs && csN < cs.count) { P3.copy(w.centre).addScaledVector(w.right, p.dx).addScaledVector(w.normal, -bw / 2); cs.set(csN++, P3.x, P3.z, 0.2, 0.5 * sm(p.asm)); }
-        put(glowPool, p, 0, 0.01, -bw / 2 - 0.02, 1.4, 1, 1.4);           // the ember's warmth on the ground
+        put(glowPool, p, 0, 0.01, -bw / 2 - 0.02, 1.4, 1, 1.4, 0);           // the ember's warmth on the ground
       } else if (p.skin === 'column') {                // a column of w × h (its own extent), half sunk in the wall
         // it RISES FROM THE FLOOR (never floating) to the top of the score's extent; in Brasa a brazier at its foot feeds the fire
         const top = p.y + H / 2, cw = Math.min(0.5, W) * 0.75;
         if (blockNow === 'brasa') {
-          const bw = 0.42, bh = bw * 0.42, bowlY = Math.max(0.55, p.y - H / 2);
-          put(bowl, p, 0, bowlY, -bw / 2 - 0.02, bw, bh, bw);
-          put(stand, p, 0, (bowlY - bh / 2) / 2, -bw / 2 - 0.02, 0.08, bowlY - bh / 2, 0.08);
-          put(glowPool, p, 0, 0.01, -bw / 2 - 0.02, 1.4, 1, 1.4);
-          const fb = bowlY + bh * 0.3; put(column, p, 0, (fb + top) / 2, -bw / 2 - 0.02, cw, top - fb, cw);
-        } else put(column, p, 0, top / 2, -0.04, cw, top, cw);
+          const bw = 0.56, bh = bw * 0.42, bowlY = 1.0;   // a wide bowl at hand height; the fire is born in it
+          put(bowl, p, 0, bowlY, -bw / 2 - 0.02, bw, bh, bw, bowlY);
+          put(stand, p, 0, (bowlY - bh / 2) / 2, -bw / 2 - 0.02, 0.08, bowlY - bh / 2, 0.08, 0);
+          put(glowPool, p, 0, 0.01, -bw / 2 - 0.02, 1.4, 1, 1.4, 0);
+          const fb = bowlY - bh * 0.35, ft = Math.max(top, 2.2); put(column, p, 0, (fb + ft) / 2, -bw / 2 - 0.02, bw * 0.75, ft - fb, bw * 0.75, bowlY);   // from inside the bowl
+        } else put(column, p, 0, top / 2, -0.04, cw, top, cw, 0);
       } else if (p.kind === 'palm') {                  // the Pinya: warm light on the wall where the palm will meet the hand
         // AD #8: nothing here — the figure's own palm (pinya3d) is the target and glows itself; no ring over the wall
       } else {                                          // a plaque on the wall (the acta's print)
