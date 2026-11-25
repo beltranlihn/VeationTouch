@@ -37,7 +37,7 @@ export const TIMES = {                       // seconds
   brasa: { min: 45, target: 60, max: 75, reward: 7, spark: 12, gap: 0.8, pause: 3.2, lead: 1.0, callMax: 14, fracs: [0.35, 0.5, 0.65], relayMax: 30, relayMin: 8 },   // 25-11: spark → relay (chain) → 3 calls (together; fracs of the group, callMax s before the colla)
   pinya: { min: 50, target: 75, max: 94, reward: 8, fill: 10, hold: 3, palm: 15, pack: [0.55, 0.9], net: 40, nearFull: 1.8, nearZero: 3 },   // nearFull/nearZero: at least half the wall (25-11, A5)
   tronc: { min: 85, target: 115, max: 145, reward: 6, period: 2.4, phrase: 4.8, wobble: 7, foot: 0.95, footY: [0.62, 0.68], help: 0.5,   // 25-11: ladders (rungs; a child's kidRungs), needK × n / 1.6 ladders a floor,
-    rungs: [0.95, 1.25, 1.55], kidRungs: [0.75, 1.05, 1.3], every: 6, colla: 16, needK: 0.5 },                                            // ≥ every s between floors, the colla after colla s (to 5)
+    rungs: [0.95, 1.25, 1.55], kidRungs: [0.75, 1.05, 1.3], every: 6, colla: 16, needK: 0.5, keepOut: [{ dx0: -1.0, dx1: 1.0 }] },   // keepOut: the tower stands at each wall's centre — its targets ≥ 1 m to either side (AD #7)                                            // ≥ every s between floors, the colla after colla s (to 5)
   pom: { min: 70, target: 90, max: 112, reward: 1.5, climb: [38, 16, 10], rest: 7, empty: 20, still: 0.15, stillSpeed: 0.3,   // still: a hand moved less than this (m) in 1 s (filtered); stillSpeed: unused since 24-11, kept for compatibility
     relay: { every: 4, fly: 1.5, ready: 1, falter: 1.2, cost: 0.04, gone: 1, thread: 24, hop: 0.12, base: 0.55, one: 1.0 },   // 25-11 (B4): she climbs at base (one hand: one) and every handoff lifts her hop at once; hops every clamp(16 / still hands, 1.5, every) s
     breath: { slow: 0.7, more: 0.35, many: 4 }, gust: 0.35, gustGap: 1.5, breakGap: 1.2, breakCost: 0.08, breaksMax: 3, arriving: 1.5 },   // A11/A12: a gust needs ≥ 20 % of the hands; the silence tolerates 15 % moving (max 4) and the hands arriving (< arriving s)
@@ -601,7 +601,7 @@ export function createScore(nWalls, opt = {}) {
         S.beat = beatT / B.period;
         phraseClock += dt; if (phraseClock >= B.phrase) phraseClock -= B.phrase;
         const f = phraseClock / B.phrase; S.phraseT = f; S.phrase = f < 0.25 ? 'gather' : f < 0.75 ? 'rise' : 'lock';
-        if (!offered) { offer({ mode: 'ladder', kind: 'rung', shape: 'rect', w: 0.6, h: 0.4, sides: true, rungs: B.rungs, kidRungs: B.kidRungs }); offered = true; lastFloorAt = S.t; ladderAcc = 0; }
+        if (!offered) { offer({ mode: 'ladder', kind: 'rung', shape: 'rect', w: 0.6, h: 0.4, sides: true, rungs: B.rungs, kidRungs: B.kidRungs, keepOut: B.keepOut }); offered = true; lastFloorAt = S.t; ladderAcc = 0; }
         // the rungs climbed show on each wall (S.liftK: the highest rung reached on the wall, 0..1)
         for (let w = 0; w < W; w++) { let k = 0; for (const t of TG.list) if (t.wall === w && t.mode === 'ladder' && t.rung >= 0) k = Math.max(k, (t.rung + (t.state === 'done' ? 1 : t.charge)) / B.rungs.length); S.liftK[w] += (k - S.liftK[w]) * (1 - Math.exp(-dt * 4)); S.lifters[w] = 0; S.bases[w] = 0; }
         if (S.wobble > 0) {                                   // the tower trembles: hands to its foot, or it slips
@@ -630,7 +630,7 @@ export function createScore(nWalls, opt = {}) {
               if (!wobbles) firstWobbleAt = S.t; wobbles++; S.wobble = 0.001; wobbleT = 0; steadyT = 0;
               let bw = sw[0] ?? 0, bc = -1; for (const w of sw) if (S.count[w] > bc) { bc = S.count[w]; bw = w; } S.wobbleWall = bw;   // A8: the tower wall with most hands
               const handsW = S.count[bw] || 0, walls = S.count[bw] ? sw : sw.length ? sw : [bw];
-              offer({ mode: 'field', kind: 'foot', shape: 'rect', w: 0.8, h: 0.4, walls, y: B.footY, goal: clamp(Math.ceil(0.25 * handsW), 1, 4) }); offered = true;
+              offer({ mode: 'field', kind: 'foot', shape: 'rect', w: 0.8, h: 0.4, walls, y: B.footY, keepOut: B.keepOut, goal: clamp(Math.ceil(0.25 * handsW), 1, 4) }); offered = true;
               emit('wobble');
             }
           }

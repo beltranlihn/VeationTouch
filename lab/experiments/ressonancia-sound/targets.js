@@ -11,6 +11,7 @@
 //   const TG = createTargets({ lengths, heights, masks, seed, emit });
 //   TG.offer({ mode, goal, need, walls, y: [0.9, 1.4], r: 0.22, shape, w, h, y0, y1, charge: 0.5, hold: 0.5, grace: 0.8, pairs, kind, rungs, sides, chains, life, max });
 //     shape: 'disc' (r; the default) | 'rect' (a block w × h centred at y; each ≥ 0.4 m) | 'pillar' (w wide from y0 to y1; y is its middle).
+//     keepOut: [{ wall?, dx0, dx1, y0?, y1? }] — boxes (dx from the wall's centre) no target of the stage overlaps (the Tronc keeps its tower clear).
 //     A hand is inside within +0.10 m of the shape. Targets keep ≥ 0.36 m between their edges (0.18 when a crowded person needs one).
 //   TG.place({ wall, dx, y, kind, life, chain, dir, shape, w, h, y0, y1 });   // one explicit target (the echo's arrival, the wait's ring…), any mode
 //   TG.clear();                                      // no targets (a stage without them)
@@ -83,6 +84,7 @@ export function createTargets(opt = {}) {
     if (Math.abs(dx) + hx > LEN[w] / 2 - (TG.corner - TG.r) + 1e-6) return false;   // ≥ 0.5 m from a corner (a disc's centre; any shape's edge ≥ 0.28 m)
     if (y - hy < 0.05 || y + hy > HGT[w] - 0.05) return false;
     for (const m of MASK[w]) if (dx + hx > m.dx0 && dx - hx < m.dx1 && y + hy > m.y0 && y - hy < m.y1) return false;
+    if (spec && spec.keepOut) for (const m of spec.keepOut) if ((m.wall == null || m.wall === w) && dx + hx > m.dx0 && dx - hx < m.dx1 && y + hy > (m.y0 ?? -9) && y - hy < (m.y1 ?? 99)) return false;   // a stage's own keep-out (e.g. the tower)
     const s = sOf(w, dx), apart = spec && spec.apart > 0 ? spec.apart : TG.apart, minGap = apart - 2 * TG.r, pairGap = TG.pair[0] - 2 * TG.r;
     if (!opt.underHands) for (const h of handNear) if (sh.shape === 'disc' ? Math.hypot(cd(h.s, s), h.y - y) < r + TG.catch + 0.1 : Math.abs(cd(h.s, s)) < hx + TG.catch + 0.1 && Math.abs(h.y - y) < hy + TG.catch + 0.1) return false;   // never born under a resting hand: a hand has to come to it
     for (const t of list) {
