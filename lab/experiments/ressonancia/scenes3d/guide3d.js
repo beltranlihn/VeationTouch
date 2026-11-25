@@ -117,7 +117,7 @@ const inWords = (c) => { const t = String(c).replace(/\d+/g, (d) => NUM_ES[+d] ?
 // Art Director 25-11: per chapter — the brasa above the fire figure and its sparks (1.8 m); the tower's chapters lower and larger,
 // beside the castell; the Pom low and quiet beside the tower in the dark
 const LINE_Y = { brasa: 1.8, pinya: 2.02, tronc: 1.58, baixada: 1.58, pom: 1.45 };   // pinya: clear above the crowd's heads (1.6–1.75 m), Art Director 25-11
-const LINE_CAP = { tronc: 0.22, baixada: 0.22 };
+const LINE_CAP = { tronc: 0.22, baixada: 0.22, wait: 0.26 };   // the wait's invitation larger (Art Director 25-11)
 const splitLine = (t) => { const mid = t.length / 2; let k = -1, d = 1e9; for (let i = 0; i < t.length; i++) if (t[i] === ' ' && Math.abs(i - mid) < d) { d = Math.abs(i - mid); k = i; } return [t.slice(0, k), t.slice(k + 1)]; };
 const longest = (t) => (WRAP && t && t.length > 14 && t.indexOf(' ') > 0 ? Math.max(...splitLine(t).map((x) => x.length)) : (t || '').length);
 const lineItems = (L) => {
@@ -497,7 +497,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
       for (const w of on) { achMask[w] = 1; achX[w] = floor || c.place === 'structure' ? ACH_X : 0; achY[w] = floor ? 0.9 + clamp((n - 1) / 8, 0, 1) * 1.1 : 2.32; }   // a room-wide word stands ABOVE the consigna band and where the card was
     }
     cardYield = performance.now() / 1000 + 3.5;   // an achievement speaks: the chapter card (if still up) gives way
-    achPend = { key: k + '|' + (++achN), items: [{ text, font: 'serif', size: cap / 0.667, y: 0, track: 0.02, color: ACH.lin.slice(), alpha: 1, edge: 0.5 }], mask: achMask.slice(), x: achX.slice(), y: achY.slice(), floor };
+    achPend = { key: k + '|' + (++achN), items: [{ text, font: 'serif', size: cap / 0.7, y: 0, track: 0.015, color: ACH.lin.slice(), alpha: 1, rules: 0.32 }]   /* the card's serif on its hairlines, in gold */, mask: achMask.slice(), x: achX.slice(), y: achY.slice(), floor };
   }
   function stepAch(dt, S, events, time) {
     if (events) for (const e of events) if (e.startsWith('ach:') || e.startsWith('assist:on:') || e === 'relay:assist') achieve(S, e, time);
@@ -652,7 +652,8 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     // all, l'aleta, the wait's invitation or a warning)
     let fw = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // no calling wall: the wall with the most hands
     if (fw < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fw = w; } }); }
-    const allCall = !!warn || (b === 'brasa' && S.brasaStage === 'call') || (b === 'festa' && S.festaStage === 'call') || (b === 'wait' && (S.reveal ?? 1) < 1);
+    if (fw < 0) fw = 0;   // nobody on a wall: P4 carries the words in full, the others an echo (Art Director 25-11)
+    const allCall = !!warn || (b === 'brasa' && S.brasaStage === 'call') || (b === 'festa' && S.festaStage === 'call') || false;
     const focusOn = fw >= 0 && !allCall;
     // never two copies across a corner (the P3→P4 seam included): when the calling wall's words stand within 2.6 m of a corner,
     // the neighbour across that corner carries no echo
