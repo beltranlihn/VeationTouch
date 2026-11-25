@@ -328,7 +328,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     for (let w = 0; w < NW; w++) {
       const Wd = room.walls[w].width; let best = cand[0], bs = -1e9;
       // Art Director 25-11: the consigna stands ABOVE the targets it refers to (their centre on this wall), when they live under its band
-      let sx = 0, sn = 0; for (const g of T) { if (g.wall !== w || (g.y || 1.2) + (g.r || 0.22) >= 1.45) continue; sx += typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; sn++; }
+      let sx = 0, sn = 0; for (const g of T) { if (g.wall !== w || (g.y || 1.2) + (g.r || 0.22) >= lineY - CAP * 1.3 - 0.05) continue; sx += typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; sn++; }
       const near = sn ? [clamp(sx / sn, -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25)] : [];
       const all = near.length ? near.concat(cand) : cand;
       for (let k = 0; k < all.length; k++) {
