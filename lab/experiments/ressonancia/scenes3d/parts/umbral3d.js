@@ -336,6 +336,7 @@ export function create(ctx) {
 
   const { Fn, attribute, uniform, varying, textureLoad, ivec2, int, float, vec3, vec4, modelWorldMatrix, normalize, mix, step, sin, cos, cross, dot, floor, mod, exp, abs, smoothstep, max, positionLocal, normalLocal, positionWorld, instancedBufferAttribute, fract } = TSL;
   const uBed = uniform(1), uPush = uniform(0), uDoor = uniform(1), PUSH = 1.4;
+  const GROUT_BONE = float(0);   // studio 25-11 (Beltrán: «todavía se ve el fondo lechoso por detrás»): the whole bed is the night (1 = bone joints at rest, as before)
   const HAND_POOL = 0, HAND_LIGHT = 0;   // studio 25-11 (Beltrán: «quita la luz que genera la mano y las partículas»): pool and light off (Vicente's light was 2.0); motion only
   const uHandP = Array.from({ length: 6 }, () => uniform(new THREE.Vector4(0, -9, 0, 0)));   // studio 25-11: the hands' points on the mosaic (w = strength)   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
   // THE THRESHOLDS: at the centre of every wall the mosaic opens in a tall arch (Gaudí's: straight jambs, a pointed round head) — cut
@@ -434,7 +435,7 @@ export function create(ctx) {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });   // unlit: the joint is in the pieces' shade anyway (and it is cheap)
     m.positionNode = positionLocal.add(normalize(vec3(positionLocal.x, 0, positionLocal.z)).mul(uPush.negate()));
     const pw = positionWorld, hsh = fract(sin(dot(floor(pw.xz.mul(3.0)).add(floor(pw.y.mul(3.0))), vec3(12.9898, 78.233, 37.719).xy)).mul(43758.5453));
-    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return mix(vec3(0.765, 0.606, 0.418), vec3(0.014, 0.026, 0.080), max(TSL.texture(maskTex, TSL.uv()).r.mul(1.6).min(1), smoothstep(0.98, 0.6, uBed))); })();   // studio 25-11: while the mosaic assembles (or goes) the bed is night, never sand   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
+    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return mix(vec3(0.014, 0.026, 0.080), vec3(0.765, 0.606, 0.418), GROUT_BONE.mul(float(1).sub(max(TSL.texture(maskTex, TSL.uv()).r.mul(1.6).min(1), smoothstep(0.98, 0.6, uBed))))); })();   // studio 25-11: while the mosaic assembles (or goes) the bed is night, never sand   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; return mesh;
   })();
   hero.add(groutMesh);
