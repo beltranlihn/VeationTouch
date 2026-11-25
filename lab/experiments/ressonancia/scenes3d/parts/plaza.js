@@ -1240,7 +1240,7 @@ export function create(ctx) {
       const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
       const Vv = normalize(cameraPosition.sub(positionWorld)), Nn = normalize(normalWorld);
       const along = clamp(positionLocal.y.negate(), 0, 1);                      // 0 at the lamp … 1 at the far end
-      const core = pow(abs(dot(Nn, Vv)), 4.0);   // a defined beam: bright core, quick fall-off to the rim                                    // bright through the middle, soft at the rim
+      const core = pow(abs(dot(Nn, Vv)), 3.0);   // a defined beam: bright core, quick fall-off to the rim                                    // bright through the middle, soft at the rim
       const breathe = sin(uTime.mul(0.35).add(i * 1.7)).mul(0.12).add(0.88);
       m.colorNode = SPC.mul(core.mul(smoothstep(0.0, 0.08, along)).mul(float(1).sub(smoothstep(0.75, 1.0, along))).mul(mix(1.0, 0.45, along))).mul(uFest).mul(0.03).mul(uShaftK).mul(breathe);
       const cone = new THREE.Mesh(coneG, m); cone.renderOrder = 6; cone.frustumCulled = false;
@@ -1260,7 +1260,7 @@ export function create(ctx) {
     const key = td + mode; if (key === spotTD) return; spotTD = key; spotMode = mode;
     const crown = mode === 'crown'; if (crown) mode = 'tronc';
     const nw = room.walls.length, cross = mode === 'tronc', n = cross ? Math.min(NSP, nw * 2) : Math.min(NSP, nw);
-    const A = (cross ? 8 : 18) * Math.PI / 180;
+    const A = (cross ? 8 : 18) * Math.PI / 180, AV = (cross ? 3.2 : 8) * Math.PI / 180;   // the light cone · the VISIBLE shaft (a narrow core)
     for (let i = 0; i < NSP; i++) {
       const c = shafts.children[i];
       if (i >= n) { spotP[i].w = 0; c.visible = false; continue; }
@@ -1269,10 +1269,10 @@ export function create(ctx) {
       _ss.copy(_sf).addScaledVector(w.right, side * (cross ? 5.0 : 3.0)).addScaledVector(w.normal, cross ? -4.0 : -1.0); _ss.y = cross ? 13.0 : 9.0;
       _sd.copy(_sf).sub(_ss).normalize();
       spotP[i].set(_ss.x, _ss.y, _ss.z, (cross ? SPOT_K : SPOT_K * 1.4) * (crown ? 2.2 : 1));   // the beams read by their shafts (×2), the pools stay small spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
-      const len = _ss.distanceTo(_sf) * (cross ? 1.9 : 1.15), rad = len * Math.tan(A);
+      const len = _ss.distanceTo(_sf) * (cross ? 1.9 : 1.15), rad = len * Math.tan(AV);
       c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad, len, rad);
     }
-    uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C); uShaftK.value = cross ? 3.0 : 1.0;
+    uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C); uShaftK.value = cross ? 2.2 : 1.0;
   }
   placeSpots(2.3);
   // VFX 25-11: the Brasa's fires light the square. setFires(list, posOf(item) → Vector3, kOf(item) → 0..~1.2); the first NFI count
@@ -1378,7 +1378,7 @@ export function create(ctx) {
     uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low';
     stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
     if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'crown' ? 'crown' : 'tronc');
-    if (crK > 0.01) { uSpotC.value.lerp(_gold, crK); uShaftK.value = 3 + 1.5 * crK; uWin.value = Math.max(uWin.value, 0.9); hemi.color.setRGB(1.0, 0.8, 0.5); hemi.groundColor.setRGB(0.5, 0.35, 0.15); hemi.intensity = Math.max(hemi.intensity, 1.4 * crK); moon.color.setRGB(1.0, 0.82, 0.5); moon.intensity = Math.max(moon.intensity, 1.6 * crK); }   // CORONATION (AD#5): gold light bathes the tower, the facades and the haze
+    if (crK > 0.01) { uSpotC.value.lerp(_gold, crK); uShaftK.value = 2.2 + 1.2 * crK; uWin.value = Math.max(uWin.value, 0.9); hemi.color.setRGB(1.0, 0.8, 0.5); hemi.groundColor.setRGB(0.5, 0.35, 0.15); hemi.intensity = Math.max(hemi.intensity, 1.4 * crK); moon.color.setRGB(1.0, 0.82, 0.5); moon.intensity = Math.max(moon.intensity, 1.6 * crK); }   // CORONATION (AD#5): gold light bathes the tower, the facades and the haze
     if (festK > 0) {                                                  // the festival night: the square's own night, richer and deeper
       uWin.value = Math.max(uWin.value, festK * 0.9); uFog.value = Math.max(uFog.value, 0.0065); uWet.value = Math.max(uWet.value, 0.8);
       uSky.value = Math.max(uSky.value, festK);   // (AD#6: no moon / sky / env boost — they were the milky veil; the night grade is the Pinya's)
