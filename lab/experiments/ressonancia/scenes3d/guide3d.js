@@ -339,6 +339,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
         if (hh && Math.abs(x) < hh) x = clamp((x < 0 || (x === 0 && k % 2 === 0) ? -1 : 1) * hh, -Wd / 2 + half + 0.45, Wd / 2 - half - 0.45);
         let gap = 9;
         if (S.focus && S.focus.wall === w && typeof S.focus.s === 'number') gap = Math.abs(S.focus.s - lineS0[w] - Wd / 2 - x) - half - (b === 'pom' ? 1.6 : 0.9);   // the pom's light bursts wide   // the calling point (the pom's light, the devil): beside it, never on it
+        for (const o of OBST) { if (o.wall !== w || (o.y1 ?? 3) < lineY - CAP * 1.3 - 0.05 || (o.y0 ?? 0) > lineY + CAP * 1.3) continue; gap = Math.min(gap, Math.abs((o.x || 0) - x) - half - (o.half || 0.5)); }
         for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < lineY - CAP * 1.3 - 0.05) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
         const sc = Math.min(gap, 0.4) - k * 0.05 + (near.length && k === 0 ? 0.3 : 0);   // clear of every target that reaches the text's band; above its own targets first
         if (sc > bs) { bs = sc; best = x; }
@@ -493,7 +494,11 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
   // is INT/RND-F's (T-028); until it exists (or when it does not answer a number) every wall is open at once.
   // ASSUMED contract (to confirm against PARTS.md when it lands): tileFront(w) >= 1 once the front has passed wall w.
   const waveGate = (w) => { if (typeof room.tileFront !== 'function') return true; const f = room.tileFront(w); return !(typeof f === 'number') || f >= 1; };
-  function update(dt, { state: S, hands = [], time = 0, on = true, acta = null, hold = false, pace = 1, events = null }) {
+  // obstacles (optional, from the host): [{ wall, x (m from the wall's centre), half (m), y0, y1 (m from the floor) }] — the parts'
+  // heroes this frame (bodies, tower, particle bursts): the consigna treats them like targets (Art Director 25-11)
+  let OBST = [];
+  function update(dt, { state: S, hands = [], time = 0, on = true, acta = null, hold = false, pace = 1, events = null, obstacles = null }) {
+    OBST = Array.isArray(obstacles) ? obstacles : [];
     // warnings (#19): the score's state.warn ('fall' | 'abandon') or its events 'warn:fall' / 'warn:abandon' (if the host passes events)
     if (events) for (const e of events) if (e === 'warn:fall' || e === 'warn:abandon') { warnKind = e.slice(5); warnUntil = time + 4; }
     const warn = S.warn || (time < warnUntil ? warnKind : '');
