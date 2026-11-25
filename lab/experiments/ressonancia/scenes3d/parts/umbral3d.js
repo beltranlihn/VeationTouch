@@ -434,7 +434,7 @@ export function create(ctx) {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });   // unlit: the joint is in the pieces' shade anyway (and it is cheap)
     m.positionNode = positionLocal.add(normalize(vec3(positionLocal.x, 0, positionLocal.z)).mul(uPush.negate()));
     const pw = positionWorld, hsh = fract(sin(dot(floor(pw.xz.mul(3.0)).add(floor(pw.y.mul(3.0))), vec3(12.9898, 78.233, 37.719).xy)).mul(43758.5453));
-    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return mix(vec3(0.765, 0.606, 0.418), vec3(0.014, 0.026, 0.080), TSL.texture(maskTex, TSL.uv()).r.mul(1.6).min(1)); })();   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
+    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return mix(vec3(0.765, 0.606, 0.418), vec3(0.014, 0.026, 0.080), max(TSL.texture(maskTex, TSL.uv()).r.mul(1.6).min(1), smoothstep(0.98, 0.6, uBed))); })();   // studio 25-11: while the mosaic assembles (or goes) the bed is night, never sand   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; return mesh;
   })();
   hero.add(groutMesh);
@@ -691,18 +691,23 @@ export function create(ctx) {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
     m.colorNode = Fn(() => {
       const d = normalize(positionLocal), y = d.y;
-      // studio 25-11 (Beltrán): NIGHT behind the portals — deep blue at the zenith, a dusky blue at the horizon with a last warm band,
-      // a soft moon and sparse stars (the mosaic, lit by its own lamps, stays light ceramic in front of it)
-      const up = mix(vec3(0.030, 0.045, 0.110), vec3(0.006, 0.010, 0.032), smoothstep(0.02, 0.7, y));
-      const c = mix(vec3(0.010, 0.012, 0.024), up, smoothstep(-0.12, 0.02, y)).add(vec3(0.16, 0.07, 0.03).mul(exp(y.mul(y).div(-0.0025))).mul(0.5));
-      const moon = exp(dot(d, vec3(-0.35, 0.42, 0.84).normalize()).sub(1).mul(900)).mul(1.4).add(exp(dot(d, vec3(-0.35, 0.42, 0.84).normalize()).sub(1).mul(40)).mul(0.03));
-      const cell = floor(d.mul(420)), hs = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))).mul(43758.5453));
-      const star = step(0.9985, hs).mul(smoothstep(0.04, 0.3, y)).mul(fract(hs.mul(97.3)).mul(0.6).add(0.2));
-      return c.add(vec3(0.85, 0.88, 1.0).mul(moon.add(star))).mul(uFar);
+      // studio 25-11 (Beltrán: «detrás del portal, un azul plano con unas motas de polvo»): one flat night blue, nothing else
+      return vec3(0.012, 0.022, 0.066);
     })();
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(150, 48, 24), m); mesh.renderOrder = -900; mesh.frustumCulled = false; return mesh;
   })();
   world.add(skyMesh);
+  // studio 25-11: a few motes of dust in the night behind the portals, drifting slowly (one draw, no compute)
+  const uDustT = uniform(0), uDustK = uniform(0), DUST_N = 900, dustP = new Float32Array(DUST_N * 4);
+  for (let i = 0; i < DUST_N; i++) { const a = rr(0, Math.PI * 2), r = rr(6.5, 16), y = rr(-0.6, 5.5); dustP.set([Math.cos(a) * r, y, Math.sin(a) * r, rnd()], i * 4); }
+  {
+    const dAttr = new THREE.InstancedBufferAttribute(dustP, 4), ip = TSL.instancedBufferAttribute(dAttr);
+    const dm = new THREE.SpriteNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, fog: false });
+    dm.positionNode = ip.xyz.add(vec3(sin(uDustT.mul(0.11).add(ip.w.mul(40))).mul(0.6), sin(uDustT.mul(0.07).add(ip.w.mul(17))).mul(0.45), cos(uDustT.mul(0.09).add(ip.w.mul(29))).mul(0.6)));
+    dm.scaleNode = TSL.vec2(0.07, 0.07).mul(ip.w.mul(0.9).add(0.5));
+    dm.colorNode = Fn(() => { const r = TSL.length(TSL.uv().sub(0.5)).mul(2), gs = exp(r.mul(r).mul(-4.5)); return vec4(vec3(0.62, 0.66, 0.82).mul(gs).mul(ip.w.mul(0.5).add(0.25)).mul(uDustK), 1); })();
+    const dust = new THREE.Sprite(dm); dust.count = DUST_N; dust.frustumCulled = false; dust.renderOrder = -800; world.add(dust);
+  }
   const HAZE = vec3(0.022, 0.030, 0.070);   // studio 25-11: a night haze (was the sand noon's #EFDCC3)
   // dunes and terraces: rings of soft ridges, lit on their crests, hazier with distance
   function ridgeRing(R, h0, amp, seedK, hazeK) {
@@ -1264,8 +1269,8 @@ export function create(ctx) {
 
     // ---- the far world and the light come and go with the part
     const farK = arrive * (1 - leave);
-    for (const h of hazes) h.visible = farK > 0.01; skyMesh.visible = farK > 0.01;   // (the room's own background is the same sand: PALETTE.wait)
-    floorMesh.visible = farK > 0.005; uHeroRot.value = heroRot;
+    for (const h of hazes) h.visible = false; skyMesh.visible = true;   // studio 25-11: no dunes, vaults or haze; the flat night always (the room's sand background never shows)
+    floorMesh.visible = false; uHeroRot.value = heroRot; uDustT.value = time; uDustK.value = farK;
     hemi.intensity = KEYS.fill * farK; key.intensity = KEYS.key * farK; beam.intensity = 0; beam2.intensity = KEYS.spot * farK;   // T-058: no lighthouse (kept as lights at 0: the set of lights must not change)
     for (const l of rims) { l.position.set(Math.cos(l.userData.a) * 12.5, 1.2, Math.sin(l.userData.a) * 12.5); l.intensity = 0; }
     if (arches) { arcState.arrive = arrive; arcState.leave = leave; arcState.push = pushV; arcState.reveal = revealV; arcState.start = startV; arcState.time = time; arcState.hands = hands; try { arches.update(dt, arcState); } catch (err) { if (!arcErr) { arcErr = true; console.info('umbral3d: arches.update skipped (' + err.message + ')'); } } }
