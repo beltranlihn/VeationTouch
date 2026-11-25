@@ -176,7 +176,7 @@ function readHands() {
 let fallSet = ['atmos'];
 // 05-plan M4 (Modelado): the SAME castell persists from the Tronc to the coronation — tronc3d stays on in pom / crown / festa, in the
 // mode of each block (setMode below, on every block change). Only once tronc3d has setMode: before that, nothing changes here.
-const CASTELL_MODE = { tronc: 'build', pom: 'top', crown: 'crowned', festa: 'crowned', baixada: 'down' };
+const CASTELL_MODE = { tronc: 'build', pom: 'top', crown: 'crowned', festa: 'crowned', baixada: 'down', fall: 'fall' };   // fall (7b53caa): the same body tower collapses into dust
 const castellKept = () => (typeof parts.tronc3d?.part.setMode === 'function' ? ['tronc3d'] : []);
 // 05-plan V5 (VFX): layer 0, the porxada (columns at the corners, lintels), in intro, Brasa, Pinya, Tronc and the bajada — when it exists
 const PORX = new Set(['intro', 'brasa', 'pinya', 'tronc', 'baixada']);
@@ -453,7 +453,10 @@ function frame(dt) {
     room.setBackground?.(VB);                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
     if ((VB === 'wait' || VB === 'intro') && parts.baixada3d?.part.releaseTronc) { try { parts.baixada3d.part.releaseTronc(); } catch (err) { console.info('res-obra3d: releaseTronc skipped (' + err.message + ')'); } }   // 3D-PO: a new pass gives the tower's floors back to tronc3d
     if (VB === 'fall') {
-      fallSet = ['atmos']; for (const n of ['plaza', 'castell', 'tronc3d']) if (parts[n] && (parts[n].state === 'on' || parts[n].state === 'in')) fallSet.push(n);   // tronc3d: fall3d (3D-PI) calls its collapse()
+      // 25-11 (director, option a): the fall happens IN the square (its darkest mood, VFX) with the SAME tower (tronc3d 'fall'), and
+      // fall3d's dust; from the pom or the bajada the plaza and the tower stay on (no break)
+      fallSet = ['plaza', 'tronc3d'].filter((n) => has(n));
+      if (!has('tronc3d')) for (const n of ['castell']) if (parts[n] && (parts[n].state === 'on' || parts[n].state === 'in')) fallSet.push(n);   // the old stand-in only without tronc3d   // tronc3d: fall3d (3D-PI) calls its collapse()
       const F = parts.fall3d, C = parts.castell;
       if (F) {
         // fall3d IS the castell from this frame on (it reads castell.js' own towers, at the build they have now): it takes over at
