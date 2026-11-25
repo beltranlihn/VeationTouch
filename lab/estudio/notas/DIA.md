@@ -53,3 +53,15 @@ Sin compute ni texturas: WebGPU y WebGL2 iguales.
 - Verlo montado con el agua, la foguera y la plaza de BRA (aquí el fondo es negro y el agua es un espejo plano).
 - Profundidad virtual: la fija BRA (`slot.d`); la especificación pide 1,5–2,5 m.
 - Las vetas de lava del cuerpo y la densidad de agujas son los dos mandos de «limpio» si ART lo ve cargado.
+
+## Ronda de pulido T-064b (25-11, tras el CASI de ART) — respaldo `brasa3d/diables.T064b.js.bak`
+1. **Sin pelaje**: agujas 3 000 → 1 800 (−40 %), 2–3 cm, **peinadas hacia abajo** a lo largo del cuerpo (tangente de bajada + eje del
+   miembro hacia abajo, casi pegadas a la superficie), pocas en la ropa; cada una un poco más brillante.
+2. **Vetas**: la mitad de densidad (ruido ×3,2 → ×2,3) y de **1 px** a cualquier distancia (`fwidth`); ninguna en la ropa.
+3. **Ropa**: capucha honda con volumen (r 15,5 cm, pico 20 cm arriba y 15 cm atrás) y **faldón hasta media espinilla** (r 15 → 25 cm,
+   bajo abierto), tela con pliegues, ribete de brasa en el bajo (sólo por fuera: el reflejo no ve un disco).
+4. **Carretillas**: Ø 8 cm, `#FFE9B0`, cinco radios que giran 3,5 vueltas/s, ≤ 1,5 HDR (antes 2,6 entera: bola de bloom).
+   **Figura más luminosa** (~×1,5): carbón ×1,5, luz de su propio fuego ×1,7, filo ×1,5, lenguas ×1,35; cuerpo opaco (opacidad 1).
+- Visto también montado en la escena de BRA (`res-3d-study?part=brasa3d&group=4`, sólo lectura): se leen figuras con capucha y faldón
+  con la forca, sobre la plaza. `"errors":[]` en WebGPU y WebGL2 (cerca, baile, relevo, ciclo, 14 diables); `npm run check` verde.
+  `album3/d1-diable-close.png` y `d2-diables-run.png` recapturados.

@@ -130,7 +130,7 @@ export function createArches(ctx, opt = {}) {
       const p = prof[i]; p.no = -tz; p.nz = to;
       let ao = 1;
       if (p.bu === undefined) p.bu = -1;
-      if ((!FRONTAL && p.reg >= 1) || (p.o < oi(p.z) + 0.004 && p.z > 0.01 && p.z < DEPTH - 0.04)) ao = 0.62 + 0.38 * smooth(0.02, DEPTH - 0.06, p.z);   // deep in the intrados (−38 %: #EADBC4 → ≈ #C9AE8E)
+      if ((!FRONTAL && p.reg >= 1) || (p.o < oi(p.z) + 0.004 && p.z > 0.01 && p.z < DEPTH - 0.04)) ao = 0.65 + 0.35 * smooth(0.02, DEPTH - 0.06, p.z);   // deep in the intrados (T-066: −35 %, ART; the luminance floor keeps it ≥ #8A6F58)
       ao *= 1 - 0.32 * Math.exp(-Math.hypot(p.o - D.o, p.z - D.z) / 0.03);                                                     // the step's corner
       if (p.z < 0.004 && p.no < 0.5) ao *= 0.75;                                                                                // the back (unseen)
       if (p.no > 0.7 && p.z < STEP_Z - 0.02) ao *= 0.88;                                                                         // the outer side
@@ -322,8 +322,8 @@ export function createArches(ctx, opt = {}) {
   const smat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
   smat.positionNode = grow(TSL.positionLocal);
   { const r = attribute('aRect', 'vec4'), dq = max(abs(r.xy).sub(r.zw), 0), d = length(dq);
-    smat.colorNode = FLOOR_C;
-    smat.opacityNode = exp(d.div(0.15).pow(2).negate()).mul(0.62).mul(uVis); }   // 30 cm of soft shade round the foot
+    smat.colorNode = vec3(0.535, 0.339, 0.2);                                      // T-066 (ART): #C9AE8E ON SCREEN (ACES-inverted, unlit, like the sand floor)
+    smat.opacityNode = exp(d.div(0.15).pow(2).negate()).mul(0.9).mul(uVis); }    // 30 cm of soft shade round the foot
   const shadow = new THREE.Mesh(sgeo, smat); shadow.frustumCulled = false; shadow.renderOrder = 2;
 
   const object = new THREE.Group(); object.name = 'umbral3d.arches';

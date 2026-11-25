@@ -14,3 +14,12 @@
   9×13 cm aparentes (20×30 era más alto que una planta); sin profundidad de campo (no hay post). El velo de zona tranquila atenúa la
   foguera (está detrás del botón). El icono de mano (crema, 2 px) es de guide3d.
 - Pendiente: capturas f1–f3 hechas en la página de estudio (no en la obra); QA de fps.
+
+## T-063b (pulido, 25-11)
+- Foguera rehecha como relieve de 10 láminas apiladas en profundidad (5 cm), canto de 2,5 cm, lenguas en S; granate detrás → crema delante.
+  A 0,9 m tras el muro y 1,5 m a la derecha del centro (fuera del eje del botón); ≈ 1,15–1,2 m en el muro, ápice ≈ 1,6 m.
+  El islote va detrás de ella (no la tapa); la veta (#FF7A1A, núcleo #FFD27A, 6–12 cm) sigue por el agua hasta el anillo.
+- Bandas naranjas del agua al 50 % (`waterGlow`), curvas de nivel más finas y tenues, cantos del islote ≤ 0,6 (fuera del bloom), tejados sin dientes.
+- Bug corregido: el «hundimiento» (`sink`) quedaba fijo en 0,5 (la obra lo leía de brasa3d.json); ahora 0,2 y vuelve a depender del nivel.
+- El polvo/estrellas que aún se ve en el bloque brasa es de atmos.js (300 000 motas), no de brasa3d.
+- f1–f3 capturadas desde la obra completa (index.html, jump brasa). `"errors":[]` en la obra y en el estudio WebGL2; `npm run check` 90/90.

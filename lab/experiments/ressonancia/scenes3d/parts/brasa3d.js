@@ -303,19 +303,31 @@ export function create({ THREE, TSL, room, params }) {
       const cosT = max(dot(Nn, V), 0.0), F = float(0.78).add(pow(float(1).sub(cosT), 5.0).mul(0.22));
       const Pl = vec3(xz.x, 0.0, xz.y);
       const farK = float(1).sub(smoothstep(3.0, 4.5, abs(d.sub(6.0))).mul(0.5));   // far from the fire: near-black metal with silver edges
-      const liquid = envFire(Pl, R, false).mul(farK).add(skyEnv(R).mul(mix(float(0.5), float(1), farK))).mul(F).mul(CHROME).mul(U.refl).mul(float(1).sub(U.earth.mul(0.55))).toVar();
+      const liquid = envFire(Pl, R, false).mul(farK).mul(float(Number(P.waterGlow ?? 0.5))).add(skyEnv(R).mul(mix(float(0.5), float(1), farK))).mul(F).mul(CHROME).mul(U.refl).mul(float(1).sub(U.earth.mul(0.55))).toVar();
       // T-063 (ARTE-BRASA §a §d, ref 06): fine contour lines on the water, 8 % ember at rest; hands, the relay's feet and the call
       // run light along them (fog.pulseT); waves through the heat field. 1–1.5 px (fwidth), faded where they would crowd.
       if (T63.cont) If(d.lessThan(13.0).and(d.greaterThan(0.6)), () => {
         const lvl = mx_noise_float(vec3(xz.x.mul(0.15), 1.7, xz.y.mul(0.15))).add(mx_noise_float(vec3(xz.x.mul(0.41), 5.3, xz.y.mul(0.41))).mul(0.3)).mul(6.0);
         const dl = abs(fract(lvl.add(0.5)).sub(0.5)), fw = fwidth(lvl);
-        const line = float(1).sub(smoothstep(fw.mul(0.55), fw.mul(1.25), dl)).mul(smoothstep(0.4, 0.18, fw));
+        const line = float(1).sub(smoothstep(fw.mul(0.4), fw.mul(1.0), dl)).mul(smoothstep(0.4, 0.18, fw));
         const pu = fog ? fog.pulseT(xz) : float(0);
-        const k = float(0.08).add(pu).add(hs.r.mul(4 * 0.12)).add(hs.g.mul(4 * 0.25)).mul(smoothstep(0.6, 1.4, d)).mul(smoothstep(13.0, 9.0, d));
+        const k = float(0.08).add(pu.mul(0.6)).add(hs.r.mul(4 * 0.05)).add(hs.g.mul(4 * 0.18)).mul(smoothstep(0.6, 1.4, d)).mul(smoothstep(13.0, 9.0, d));
         liquid.addAssign(mix(CONT0, CONT1, min(pu, 1.0)).mul(line).mul(k).mul(float(1).sub(U.wait)).mul(float(Number(P.contours ?? 1))));
       });
       const island = band.mul(pud).mul(smoothstep(0.32, 0.64, coal)).mul(float(1).sub(U.wait)).add(U.wait.mul(band));
-      const outC = mix(liquid, col, max(island, float(1).sub(U.chrome)));
+      const outC = mix(liquid, col, max(island, float(1).sub(U.chrome))).toVar();
+      // T-063b: the lava vein runs on from each islet across the water to the ember ring (6–12 cm, #FF7A1A, a #FFD27A core)
+      if (fog) If(d.lessThan(4.8), () => {
+        for (let i = 0; i < Math.min(4, walls.length); i++) {
+          const sg = fog.uVS.element(i), a2 = sg.xy, ab = sg.zw.sub(sg.xy);
+          const tt = clamp(dot(xz.sub(a2), ab).div(max(dot(ab, ab), 1e-4)), 0, 1);
+          const mean = sin(tt.mul(9.0).add(i * 1.7)).mul(0.07), w = float(0.04).add(tt.mul(0.03));
+          const q = length(xz.sub(a2.add(ab.mul(tt))).add(vec2(ab.y, ab.x.negate()).normalize().mul(mean)));
+          const inV = smoothstep(w, w.mul(0.45), q), coreV = smoothstep(w.mul(0.45), w.mul(0.1), q);
+          const lv = min(fog.uST.element(i).w, 1.6);
+          outC.addAssign(mix(vec3(1.0, 0.195, 0.01), vec3(1.0, 0.64, 0.2), coreV.mul(0.6)).mul(inV).mul(lv).mul(0.9).mul(float(1).sub(U.wait)));
+        }
+      });
       return outC.mul(float(1).sub(smoothstep(0.55, 1.0, U.leave)));
     })();
     m.fog = false;
@@ -1426,7 +1438,7 @@ export function create({ THREE, TSL, room, params }) {
     fxT += dt; if (fxT > 1) { fxT = 0; fxN = 0; }
     U.seed.value = (frame * 2654435761) >>> 0;
     // ---- the room sinks into the liquid as the ring wakes (the world rises; ≤ 3 cm/s, soft accelerations); none in the wait
-    const liftT = Math.max(0, Number(P.sink ?? 0.5)) * smoother(Math.min(1, level * 1.15)) * (1 - waitK);
+    const liftT = Math.max(0, Number(P.sink ?? 0.2)) * smoother(Math.min(1, level * 1.15)) * (1 - waitK);   // T-063b: sink 0.5 → 0.2 (the foguera keeps its height on the wall)
     if (frame <= 2 || (!S && time < 4)) { lift = liftT; liftV = 0; }
     else { const want = Math.max(-0.03, Math.min(0.03, (liftT - lift) * 0.6)); liftV += (want - liftV) * (1 - Math.exp(-dt / 0.9)); lift += liftV * dt; }
     world.position.y = lift; U.lift.value = lift;

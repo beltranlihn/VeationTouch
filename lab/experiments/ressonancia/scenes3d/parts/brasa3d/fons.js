@@ -64,8 +64,7 @@ export function createFons({ THREE, TSL, room, U, world, ringPoint, heatSample, 
   const street = (xc, wi) => select(abs(xc.sub(select(fract(wi.mul(0.5)).greaterThan(0.25), float(-2.2), float(2.2)))).lessThan(0.23), float(1), float(0));
   const solid2 = (X, xc, Y, wi) => {
     const top = corn2(X, xc);
-    const parapet = step(fract(X.div(0.09)), 0.5).mul(0.018).mul(plain(xc, 1.7));
-    return step(Y, top.add(parapet)).mul(float(1).sub(street(xc, wi)));
+    return step(Y, top).mul(float(1).sub(street(xc, wi)));   // T-063b: no parapet teeth
   };
   const solid3 = (X, xc, Y) => {
     const b = floor(X.div(1.1).add(0.55)), hb = hash(b.add(7.0)), dx = fract(X.div(1.1).add(0.55)).sub(0.5).mul(1.1);
@@ -77,7 +76,7 @@ export function createFons({ THREE, TSL, room, U, world, ringPoint, heatSample, 
     return max(step(Y, roof), chim);
   };
   const solid4 = (X, xc, Y, wi) => {
-    const roofs = float(2.47).add(sin(X.mul(2.1)).mul(0.03)).add(step(0.5, fract(X.div(0.83))).mul(0.04));
+    const roofs = float(2.47).add(sin(X.mul(2.1)).mul(0.03)).add(sin(X.mul(0.9).add(1.3)).mul(0.02));   // T-063b: a smooth roof line
     const isT = select(abs(wi.sub(towerWall)).lessThan(0.5), float(1), float(0));
     const tx = xc.sub(2.35), aw = abs(tx);
     const shaft = step(aw, 0.11).mul(step(Y, 2.72));
