@@ -1238,7 +1238,7 @@ export function create(ctx) {
   const LIT = { pinya: { dir: [-0.55, 0.42, -0.72], tone: 'cal-foc', floor: 'pedra-llum', key: 'cal-foc', k: 4.2, fill: 0.45, air: 0.01, lamps: 0.6 },
                 tronc: { dir: [0.45, 0.85, -0.35], tone: 'porcellana', floor: 'pedra-llum', key: 'porcellana', k: 5.0, fill: 0.5, air: 0.008, lamps: 0.12 } };
   for (const c of Object.values(LIT)) { c.toneL = palLin(c.tone); c.floorL = palLin(c.floor); c.keyL = palLin(c.key); }
-  let crT = 0, dustK = 0; const smooth01 = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+  let crT = 0, dustK = 0, festaT = 0; const smooth01 = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
   let dayK = 0, litCfg = LIT.tronc, nightK = 0, festK = 0, blueK = 0, blueProg = 0, pomK = 0, pinK = 0, crK = 0;
   // the pinya's bonfires: two low fires on each side of each wall's crowd (5 m beyond the wall), on the paving
   const pinFires = []; for (const w of room.walls) for (const sd of [-1.9, 1.9]) { const p = w.centre.clone().addScaledVector(w.normal, -4.6).addScaledVector(w.right, sd); p.y = -0.2; pinFires.push({ p, k: 0.55 + 0.1 * Math.abs(sd) / 1.9 }); }
@@ -1382,7 +1382,7 @@ export function create(ctx) {
     const blk = input.state?.block, cfg = LIT[blk] || null;
     if (cfg) litCfg = cfg; else if (pr.litBlock && LIT[pr.litBlock]) litCfg = LIT[pr.litBlock];
     const dayT = input.state ? 0 : Math.max(0, Math.min(1, +pr.lit || 0));   // Beltrán 25-11: no daylight in the work (the study can still show it)
-    const festT = (blk === 'tronc' || blk === 'crown') ? 1 : input.state ? 0 : Math.max(0, Math.min(1, +pr.fest || 0));
+    const festT = (blk === 'tronc' || blk === 'crown' || blk === 'festa') ? 1 : input.state ? 0 : Math.max(0, Math.min(1, +pr.fest || 0));
     festK += (festT - festK) * Math.min(1, dt * 1.2); if (Math.abs(festT - festK) < 1e-3) festK = festT;
     dayK += (dayT - dayK) * Math.min(1, dt * 1.6); if (Math.abs(dayT - dayK) < 1e-3) dayK = dayT;
     if (dayK > 0.001 || festK > 0.001 || blueK > 0.001 || pomK > 0.001 || pinK > 0.001 || crK > 0.001) t = Math.max(30, Math.min(t, 45));
@@ -1414,7 +1414,9 @@ export function create(ctx) {
     uBlue.value = blueK;
     uArr.value = (input.leave ?? 0) < 0.01 && (input.arrive ?? 1) < 0.999 ? 1 : 0;
     pinK += (((blk === 'pinya' || (!input.state && pr.pinya)) ? 1 : 0) - pinK) * Math.min(1, dt * 1.2); uPinya.value = pinK;
-    crK += (((blk === 'crown' || (!input.state && pr.crown)) ? 1 : 0) - crK) * Math.min(1, dt * 0.9); uCrown.value = crK;
+    festaT = blk === 'festa' ? festaT + dt : 0;   // festa = «after the coronation»: the gold still in the air, fading over ~20 s to a warm night
+    const crTgt = (blk === 'crown' || (!input.state && pr.crown)) ? 1 : blk === 'festa' ? 0.3 + 0.4 * (1 - smooth01(festaT / 20)) : 0;
+    crK += (crTgt - crK) * Math.min(1, dt * 0.9); uCrown.value = crK;
     if (pinK > 0.01) { moon.intensity *= 1 - 0.7 * pinK; hemi.intensity *= 1 - 0.6 * pinK; uWin.value = Math.max(uWin.value, pinK); uStars.value *= 1 - 0.7 * pinK; }
     if (pinK > 0.5 && !(nightK > 0.5)) setFires(pinFires, (F) => F.p, (F) => F.k * pinK * (0.85 + 0.15 * Math.sin(time * (2.1 + F.k) + F.k * 9)));   // the crowd's bonfires
     else if (pinK > 0.01 && pinK <= 0.5 && !(nightK > 0.5)) setFires(null);
@@ -1425,14 +1427,14 @@ export function create(ctx) {
     if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, input.state?.progress ?? 0)); object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 1 - 0.6 * pg; uStars.value *= 0.4 * (1 - pg); blueProg = pg; } else blueProg = 0;   // the lamps go out as the tower comes down
     uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low';
     stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
-    if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'crown' ? 'crown' : 'tronc');
+    if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'crown' || blk === 'festa' ? 'crown' : 'tronc');
     if (crK > 0.01) { uSpotC.value.lerp(_gold, crK); uShaftK.value = 2.2 + 1.2 * crK; uWin.value = Math.max(uWin.value, 0.9); crT += dt;
       const climb = smooth01((crT - 0.4) / 3.6), spread = smooth01((crT - 1.5) / 7);   // the gold climbs the tower in ~3.6 s, then the pool spreads
       for (let i = 0; i < 4; i++) { const w = room.walls[i % room.walls.length], td = +(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3; tlVec[i].set(w.centre.x - w.normal.x * td, 0.4 + 3.4 * climb, w.centre.z - w.normal.z * td, crK * (0.25 + 0.75 * climb)); }
       uTLR.value = 1.2 + 9 * spread;
       // the PULSE at the top: two fronts from wall 0's centre both ways round the room, ~3 s to meet opposite
       const pp = (crT - 4.0) / 3.0, w0 = room.walls[0], a0 = Math.atan2(-w0.normal.z, -w0.normal.x);
-      if (pp > 0 && pp < 1.15) { const ph = Math.min(1, pp) * Math.PI; uPulse.value.set(Math.cos(a0 + ph), Math.sin(a0 + ph), Math.cos(a0 - ph), Math.sin(a0 - ph)); uPulseK.value = crK * Math.sin(Math.min(1, pp / 1.15) * Math.PI) ; } else uPulseK.value = 0;
+      if (blk === 'crown' && pp > 0 && pp < 1.15) { const ph = Math.min(1, pp) * Math.PI; uPulse.value.set(Math.cos(a0 + ph), Math.sin(a0 + ph), Math.cos(a0 - ph), Math.sin(a0 - ph)); uPulseK.value = crK * Math.sin(Math.min(1, pp / 1.15) * Math.PI) ; } else uPulseK.value = 0;
       dustK = crK * smooth01((crT - 4.0) / 1.5) * (1 - smooth01((crT - 15) / 4));
       uWin.value *= 0.6; moon.intensity *= 0.6; hemi.intensity *= 0.6;   // the square dims ~40 %: the gold towers are the light
     } else { crT = 0; dustK = 0; uPulseK.value = 0; for (const v of tlVec) v.w = 0; }
@@ -1494,5 +1496,20 @@ export function create(ctx) {
   if (typeof window !== 'undefined') window.__plaza = { lamps: NL, verts, meshes: object.children.length, lit: () => lamps.filter((L) => L.t0 <= prevT).length, byHand: () => lampsLitByHand };   // lab checks only
   // part.spots (for Modelado's lighting): pos[i] = (x, y, z, intensity), dir[i] = (x, y, z, cos of the cone), count(), on() 0..1, mode()
   const spots = { pos: spotP, dir: spotD, count: () => uNSP.value, on: () => uFest.value, mode: () => spotMode, color: uSpotC.value };
-  return { object, update, setParams, dispose, captureEnv, setFires, spots };
+  // textObstacles() (Narrativa 25-11): the square's lamps as seen on the walls — [{ wall, x, half: 0.35, y0: 0, y1: 3 }] (x m from the wall's
+  // centre along it). The lamps do not move: computed once (the posts project where the eye's ray to them crosses the wall).
+  let _obst = null;
+  function textObstacles() {
+    if (_obst) return uSil.value > 0.5 ? [] : _obst;
+    _obst = [];
+    for (const L of lamps) {
+      const ex = L.pos.x - room.eye.x, ez = L.pos.z - room.eye.z; let best = -1, bt = Infinity, bx = 0;
+      room.walls.forEach((w, i) => { const den = -(ex * w.normal.x + ez * w.normal.z); if (den <= 1e-4) return; const dd = -((w.pa.x - room.eye.x) * w.normal.x + (w.pa.z - room.eye.z) * w.normal.z), t = dd / den;
+        const x = (room.eye.x + ex * t - w.centre.x) * w.right.x + (room.eye.z + ez * t - w.centre.z) * w.right.z;
+        if (t > 0 && t < bt && Math.abs(x) <= w.width / 2 + 0.01) { bt = t; best = i; bx = x; } });
+      if (best >= 0) _obst.push({ wall: best, x: bx, half: 0.35, y0: 0, y1: 3, kind: 'lamp' });
+    }
+    return _obst;
+  }
+  return { object, update, setParams, dispose, captureEnv, setFires, spots, textObstacles };
 }
