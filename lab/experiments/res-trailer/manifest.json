@@ -1,0 +1,17 @@
+{
+  "id": "res-trailer",
+  "name": "Ressonància — trailer",
+  "description": "A 3-minute interactive presentation of Ressonància: the entrance mosaic breaks into the night square with the title and the written trailer, the correfoc with the work's data, and the golden resonance with the closing line, credits and logos; then back to the entrance. Hands keep every universe's own response.",
+  "entry": "index.html",
+  "params": [
+    {"key": "lang", "label": "Language", "type": "select", "default": "es", "options": [["es", "Español"], ["en", "English"]]},
+    {"key": "trailer.preroll", "label": "Entrance mosaic before the trailer (s)", "type": "number", "min": 3, "max": 60, "step": 1, "default": 12, "unit": "s"},
+    {"key": "jump", "label": "Hold a block (rehearsal)", "type": "select", "default": "none", "options": [["none", "— (the trailer runs)"], ["wait", "Entrance"], ["intro", "The square: title"], ["brasa", "Correfoc: data"], ["festa", "Resonance: credits"]]},
+    {"key": "guide", "label": "Hand targets and instructions", "type": "bool", "default": false},
+    {"key": "bloom", "label": "Bloom", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 0.6},
+    {"key": "exposure", "label": "Exposure", "type": "number", "min": 0.2, "max": 3, "step": 0.05, "default": 1},
+    {"key": "quality", "label": "Quality", "type": "select", "default": "high", "options": [["low", "Low (laptop: 60 % resolution, fewer particles)"], ["medium", "Medium (80 %)"], ["high", "High (the room: 100 %, antialiased)"]]},
+    {"key": "renderer", "label": "Renderer", "type": "select", "default": "auto", "options": [["auto", "Automatic (WebGPU when available)"], ["webgl2", "WebGL2"]]},
+    {"key": "mode", "label": "Mode (room ignores lab URL switches; reload)", "type": "select", "default": "auto", "options": [["auto", "Auto (room inside the app)"], ["room", "Room"], ["lab", "Lab"]]}
+  ]
+}
