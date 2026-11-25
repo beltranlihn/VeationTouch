@@ -326,7 +326,7 @@ export function create(ctx) {
 
   const { Fn, attribute, uniform, varying, textureLoad, ivec2, int, float, vec3, vec4, modelWorldMatrix, normalize, mix, step, sin, cos, cross, dot, floor, mod, exp, abs, smoothstep, max, positionLocal, normalLocal, positionWorld, instancedBufferAttribute, fract } = TSL;
   const uBed = uniform(1), uPush = uniform(0), uDoor = uniform(1), PUSH = 1.4;
-  const HAND_POOL = 0, HAND_LIGHT = 0.5;   // studio 25-11 (Beltrán: «baja la luz que emite la mano, trabajemos por movimiento»): pool off (was 0.55), light 0.5 (was 3.6; Vicente's 2.0)
+  const HAND_POOL = 0, HAND_LIGHT = 0;   // studio 25-11 (Beltrán: «quita la luz que genera la mano y las partículas»): pool and light off (Vicente's light was 2.0); motion only
   const uHandP = Array.from({ length: 6 }, () => uniform(new THREE.Vector4(0, -9, 0, 0)));   // studio 25-11: the hands' points on the mosaic (w = strength)   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
   // THE THRESHOLDS: at the centre of every wall the mosaic opens in a tall arch (Gaudí's: straight jambs, a pointed round head) — cut
   // where the wall LOOKS, not in the mosaic: the serpentine turns and its pieces fold away as they reach the door and grow back past it.
@@ -803,14 +803,14 @@ export function create(ctx) {
     chipAttr.needsUpdate = true;
   }
   // a loose piece (states: 1 falling, 2 at rest, 3 at rest in chips, 4 / 5 going home — 5: its chips gather first); true when it is home
-  const LOOSE_DROP = 0.55;
+  const LOOSE_DROP = 0.55, BREAK_CHIPS = false;
   function stepLoose(s, dt) {
     if (s.state === 1) {
       const hh = s.sc.z * 0.1 + 0.008 - LOOSE_DROP;   // studio 25-11 (Beltrán): they fall ~0.5 m below what the camera sees, so they never pile up on screen
       if (integrateFree(s.p, s.v, s.q, s.w, dt, s, hh)) {
         const iv = -s.v.y;
         s.p.y = hh;
-        if (iv > 4.3 && rnd() < 0.62) { fx('break', s.p, clamp(iv / 7, 0.5, 1), s.kind); breakTile(s, iv); }
+        if (BREAK_CHIPS && iv > 4.3 && rnd() < 0.62) { fx('break', s.p, clamp(iv / 7, 0.5, 1), s.kind); breakTile(s, iv); }   // studio 25-11: no chips (particles) — a fallen tile just goes
         else {
           if (iv > 0.5) fx('floor', s.p, clamp(iv / 6, 0.08, 1), s.kind);
           if (!s.landed) { s.landed = true; s.flat.setFromUnitVectors(_v.set(0, 0, 1), rnd() < 0.7 ? UP : _v2.set(0, -1, 0)).premultiply(_q.setFromAxisAngle(UP, rr(0, 6.28))); }
@@ -1093,7 +1093,7 @@ export function create(ctx) {
             const R2 = 0.14 + 0.22 * Math.min(1, rub[i] / 1.5);
             if (painted && !gone[i] && !c.mother && time - paintAt[i] > 1.2 && hsp[k] > 0.08 && dd < R2 && goneN < 260 && rnd() < dt * (4 + 8 * rub[i])) letGo(i, 0.9);
             if (!painted) paintAt[i] = time;
-            if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { glow[i] = Math.max(glow[i], 1.0 * (1 - dd / 0.3)); vphi[i] += 5; }
+            if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { vphi[i] += 5; }   /* studio 25-11: no glow under a landing hand (was glow 1.0), motion only */
           }
         }
         if (n >= 2 && time - resT[i] > 3) { resT[i] = time; glow[i] = 1.1; vphi[i] += 6 * (c.r2 < 0.5 ? -1 : 1); crossings++; }   // two fronts meet here
@@ -1133,7 +1133,7 @@ export function create(ctx) {
     const vis0 = arrive * (1 - smooth(0, 0.6, leave));
     for (const b of bodies) {
       if (b.cell < 0) { meshes[b.mesh].setMatrixAt(b.idx, _m.makeScale(0, 0, 0)); continue; }
-      if (stepLoose(b, dt)) { const i = b.cell; b.cell = -1; gone[i] = 0; goneN--; glow[i] = 0.8; vphi[i] += 6; colT[i] = time; /* studio 25-11: it comes back reset, at rest (was painted again) */ meshes[b.mesh].setMatrixAt(b.idx, _m.makeScale(0, 0, 0)); continue; }
+      if (stepLoose(b, dt)) { const i = b.cell; b.cell = -1; gone[i] = 0; goneN--; vphi[i] += 6; colT[i] = time; /* studio 25-11: it comes back reset, at rest (was painted again) */ meshes[b.mesh].setMatrixAt(b.idx, _m.makeScale(0, 0, 0)); continue; }
       let vis = vis0; if (b.state === 3) vis = 0; if (b.state === 5) vis *= smooth(0.6, 1.4, b.timer);
       _s.copy(b.sc).multiplyScalar(vis);
       meshes[b.mesh].setMatrixAt(b.idx, _m.compose(b.p, b.q, _s));

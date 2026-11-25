@@ -311,7 +311,7 @@ export function createArches(ctx, opt = {}) {
   const glint = max(dot(TSL.normalWorld, kDir), 0).pow(14).mul(0.55).add(0.1).mul(isGold);
   const rimMask = step(reg, 0.5).mul(step(DEPTH - 0.09, PZ));
   const flash = room?.flash ? room.flash(TSL.positionWorld) : float(0);
-  mat.emissiveNode = albedo.mul(0.045).add(lin('#FFE6B0').mul(glint)).add(tess.mul(sheen)).add(lin('#FFE2B8').mul(flash.mul(rimMask).mul(0.09))).mul(uVis);
+  mat.emissiveNode = albedo.mul(0.045).add(lin('#FFE6B0').mul(glint)).add(tess.mul(sheen)).add(lin('#FFE2B8').mul(flash.mul(rimMask).mul(0)))   /* studio 25-11 (Beltrán): no hand light on the rims (was 0.09) */.mul(uVis);
   const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false;
 
   // contact shadows
