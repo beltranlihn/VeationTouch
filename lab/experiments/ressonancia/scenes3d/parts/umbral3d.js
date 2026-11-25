@@ -521,7 +521,10 @@ export function create(ctx) {
   // studio 25-11 (Beltrán: «el movimiento constante del mural debe ser un curl noise, ahora se ve como una ola de izquierda a derecha»): the idle
   // life is a CURL field on the GPU — every piece drifts in its own plane along the curl of a slow noise potential (divergence-free: eddies,
   // no direction of travel) and leans with the potential itself. Two layers drifting against each other, so the eddies form and dissolve.
-  const IDLE_CURL = true, uIdleT = uniform(0), IDLE_F = 0.75, IDLE_AMP = 0.011, IDLE_TILT = 0.085, IDLE_LIFT = 0.004;
+  // lab measuring switches (studio 26-11, OPTIMIZAR-60FPS; nothing changes without them): ?pflat = the stones' face with no per-pixel
+  // detail (noise, stone texture), ?pnohero = no mosaic, ?pnoidle = no curl motion
+  const PQ = (() => { try { return new URLSearchParams(location.search); } catch { return new URLSearchParams(); } })();
+  const IDLE_CURL = !PQ.has('pnoidle'), uIdleT = uniform(0), IDLE_F = 0.75, IDLE_AMP = 0.011, IDLE_TILT = 0.085, IDLE_LIFT = 0.004;
   const IDLE_WAVES = [];                                                                // [kx, ky, kz (1/m), ω (rad/s), phase, amplitude]: 6 directions, slow, no net drift
   { let sd = 91; const rq = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
     for (let i = 0; i < 6; i++) { const th = (i / 6) * Math.PI + rq() * 0.4, el = (rq() - 0.5) * 1.2, f = IDLE_F * (0.7 + rq() * 0.9), sgn = i % 2 ? -1 : 1;
@@ -536,6 +539,12 @@ export function create(ctx) {
   const texLoad = (f) => { const t = new THREE.TextureLoader().load(new URL(f, import.meta.url).href); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.wrapS = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
   const texOn = STONES && MOSAIC_TEX === 'image' ? texLoad('./umbral3d/mosaic-on.jpg') : null, texOff = STONES && MOSAIC_TEX === 'image' ? texLoad('./umbral3d/mosaic-off.jpg') : null;   // (only when used)   // studio 25-11: how much stone texture (0 = the plain glaze)
   const stoneTex = new THREE.TextureLoader().load(new URL('./umbral3d/stone-detail.png', import.meta.url).href);
+  // studio 26-11 (OPTIMIZAR-60FPS, measured: the four per-pixel 3D noises were ~60 % of the mosaic's GPU time): the same detail BAKED
+  // in a tileable texture read in the stone's own plane (umbral3d/tools/stone_noise.py: grain, veins, mottle at the same frequencies).
+  // ?pnoise3d (lab) = the computed noises, to compare.
+  const NOISE3D = PQ.has('pnoise3d');
+  const noiseTex = new THREE.TextureLoader().load(new URL('./umbral3d/stone-noise.png', import.meta.url).href);
+  noiseTex.wrapS = noiseTex.wrapT = THREE.RepeatWrapping; noiseTex.colorSpace = THREE.NoColorSpace; noiseTex.anisotropy = 4;
   stoneTex.wrapS = stoneTex.wrapT = THREE.RepeatWrapping; stoneTex.colorSpace = THREE.NoColorSpace; stoneTex.anisotropy = 4;   // studio 25-11: the hands' points on the mosaic (w = strength)   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
   // THE THRESHOLDS: at the centre of every wall the mosaic opens in a tall arch (Gaudí's: straight jambs, a pointed round head) — cut
   // where the wall LOOKS, not in the mosaic: the serpentine turns and its pieces fold away as they reach the door and grow back past it.
@@ -634,13 +643,16 @@ export function create(ctx) {
     const vNp = varying(ld(2).xyz), th2 = normalize(vec3(vNp.z, 0, vNp.x.negate()).add(vec3(1e-5, 0, 0))), tv2 = cross(vNp, th2);
     const sUV = TSL.vec2(dot(gp, th2), dot(gp, tv2)).mul(STONE_SCALE).add(TSL.vec2(ld(0).w.mul(17.3), ld(0).w.mul(9.1)));
     const stone = TSL.texture(stoneTex, sUV);
-    const grain = TSL.mx_noise_float(gp.mul(260)).mul(0.6).add(TSL.mx_noise_float(gp.mul(70)).mul(0.4));   // ≈ 4 mm and 1.5 cm grain
+    const FLAT = PQ.has('pflat');
+    const nz = TSL.texture(noiseTex, sUV.add(TSL.vec2(0.37, 0.61)));                     // the baked detail (R grain, G veins, B mottle)
+    const grain = FLAT ? float(0) : !NOISE3D ? nz.x.mul(2).sub(1) : TSL.mx_noise_float(gp.mul(260)).mul(0.6).add(TSL.mx_noise_float(gp.mul(70)).mul(0.4));   // ≈ 4 mm and 1.5 cm grain
     col = col.mul(grain.mul(ORGANIC ? 0.14 : 0.09).add(1)).mul(side.mul(ORGANIC ? -0.14 : 0.06).add(0.97));   // ORGANIC: the split sides a little darker, rougher
     const faceK = ORGANIC ? float(1) : float(1).sub(side);
-    col = col.mul(mix(float(1), stone.z.mul(0.55).add(0.73).mul(stone.w.mul(0.4).add(0.6)).mul(stone.y.sub(0.5).mul(0.9).add(1)), faceK.mul(STONE_K)));   // mottling × crackle × relief
-    const vein = TSL.mx_noise_float(gp.mul(vec3(38, 38, 38)).add(vec3(r, r.mul(2.3), 0))), vl = smoothstep(0.06, 0.0, abs(vein)).mul(0.16);   // studio 25-11: stone veins
+    if (!FLAT) col = col.mul(mix(float(1), stone.z.mul(0.55).add(0.73).mul(stone.w.mul(0.4).add(0.6)).mul(stone.y.sub(0.5).mul(0.9).add(1)), faceK.mul(STONE_K)));   // mottling × crackle × relief
+    if (!FLAT && !NOISE3D) col = col.mul(float(1).sub(nz.y.mul(0.16))).mul(mix(float(0.9), float(1.04), nz.z));
+    if (!FLAT && NOISE3D) { const vein = TSL.mx_noise_float(gp.mul(vec3(38, 38, 38)).add(vec3(r, r.mul(2.3), 0))), vl = smoothstep(0.06, 0.0, abs(vein)).mul(0.16);   // studio 25-11: stone veins
     const mott = smoothstep(-0.25, 0.55, TSL.mx_noise_float(gp.mul(11).add(vec3(r.mul(7), 0, 0))));                                       // and a second tone within the piece
-    col = col.mul(float(1).sub(vl)).mul(mix(float(0.9), float(1.04), mott));
+    col = col.mul(float(1).sub(vl)).mul(mix(float(0.9), float(1.04), mott)); }
     m.colorNode = col;
     const fill = col.mul(0.28);                                                             // studio 25-11: the light the environment gave, as a flat fill (matte, cheap)
     const glazed = UNPAINTED ? top.mul(kc) : top.mul(kc).add(back.mul(float(1).sub(kc)));                          // the side showing the glaze
@@ -651,7 +663,46 @@ export function create(ctx) {
       .add(vec3(1.0, 0.72, 0.42).mul(col).mul(pool.min(1.4).mul(HAND_POOL))).add(fill).add(vec3(1.0, 0.55, 0.22).mul(vEdge).mul(REVEAL_GLOW));   // studio 25-11: the reveal glows warm at the opening (ref «correfoc»)
     return m;
   }
-  const heroMesh = new THREE.Mesh(heroGeo, heroMaterial()); heroMesh.frustumCulled = false; hero.add(heroMesh);
+  // studio 26-11 (OPTIMIZAR-60FPS, measured: the mosaic was ~70 % of the GPU time, drawn whole by each of the four wall cameras):
+  // the mosaic in SECTORS round the room, each one on the layers of the walls whose view can reach it (room.WALL_LAYER0 + wall), so
+  // every camera draws about a quarter of it. The image is the same: a wall's frustum is bounded by vertical planes through the eye and
+  // its edges, so a sector outside that wedge (plus a margin for the pieces' motion) can never show on it. The shell does not turn.
+  const heroMat = heroMaterial(), heroMesh = new THREE.Group(); hero.add(heroMesh); if (PQ.has('pnohero')) heroMesh.visible = false;
+  const heroParts = [];
+  {
+    const SECT = 48, MARGIN = 0.16, TAU = Math.PI * 2;                                   // 7.5° sectors; 0.16 rad ≈ 0.7 m at 4.6 m: wind, lift, a falling piece's first moment
+    const P = heroGeo.attributes.position.array, N = heroGeo.attributes.normal.array, I = heroGeo.attributes.aInf.array, UVa = heroGeo.attributes.aUV.array;
+    const azOf = (x, z) => Math.atan2(z - eye.z, x - eye.x);
+    const secOfCell = new Int16Array(cells.length);
+    cells.forEach((c, i) => { secOfCell[i] = Math.floor((((azOf(c.c.x, c.c.z) / TAU) % 1 + 1) % 1) * SECT) % SECT; });
+    const VN = P.length / 3, count = new Int32Array(SECT);
+    for (let v = 0; v < VN; v += 3) count[secOfCell[I[v * 2] | 0]] += 3;
+    const out = Array.from({ length: SECT }, (_, k) => ({ p: new Float32Array(count[k] * 3), n: new Float32Array(count[k] * 3), i: new Float32Array(count[k] * 2), u: new Float32Array(count[k] * 2), at: 0, lo: Infinity, hi: -Infinity, mid: ((k + 0.5) / SECT) * TAU }));
+    for (let v = 0; v < VN; v++) {
+      const o = out[secOfCell[I[v * 2] | 0]], a = o.at++;
+      o.p.set(P.subarray(v * 3, v * 3 + 3), a * 3); o.n.set(N.subarray(v * 3, v * 3 + 3), a * 3); o.i.set(I.subarray(v * 2, v * 2 + 2), a * 2); o.u.set(UVa.subarray(v * 2, v * 2 + 2), a * 2);
+      let d = azOf(P[v * 3], P[v * 3 + 2]) - o.mid; d -= Math.round(d / TAU) * TAU; if (d < o.lo) o.lo = d; if (d > o.hi) o.hi = d;   // the sector's real reach (a stone may cross its edge)
+    }
+    const wedge = walls.map((w) => { const a = endA(w, -1), b = endA(w, 1); let d = b - a; d -= Math.round(d / TAU) * TAU; return d >= 0 ? [a, d] : [b, -d]; });   // [start, span]
+    function endA(w, sg) { return azOf(w.centre.x + w.right.x * sg * w.width / 2, w.centre.z + w.right.z * sg * w.width / 2); }
+    const WL0 = room.WALL_LAYER0;
+    for (const o of out) {
+      if (!o.at) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(o.p, 3)); g.setAttribute('normal', new THREE.BufferAttribute(o.n, 3));
+      g.setAttribute('aInf', new THREE.BufferAttribute(o.i, 2)); g.setAttribute('aUV', new THREE.BufferAttribute(o.u, 2));
+      g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 3, 0), 16);
+      const m = new THREE.Mesh(g, heroMat); m.frustumCulled = false; heroMesh.add(m); heroParts.push(m);
+      if (WL0 == null || PQ.has('pnosect')) continue;                                    // (an older room, or ?pnosect: every wall draws everything, as before)
+      m.layers.disableAll();
+      walls.forEach((w, wi) => {
+        const [s0, sp] = wedge[wi]; let c = o.mid - (s0 + sp / 2); c -= Math.round(c / TAU) * TAU;   // the sector's reach vs the wall's wedge, both ± margin
+        const lo = c + o.lo - MARGIN, hi = c + o.hi + MARGIN;
+        if (hi >= -sp / 2 && lo <= sp / 2) m.layers.enable(WL0 + wi);
+      });
+    }
+    try { window.__heroSectors = heroParts.map((m) => [m.geometry.attributes.position.count, m.layers.mask >>> 20]); } catch { /* lab only */ }
+  }
   // the GROUT: one continuous surface just behind the pieces, bone-white and matte (ART: #F2EBDD); it shows in the joints and where a piece
   // has fallen; cut by the doors per pixel, it dissolves in patches as the part comes and goes
   const groutMesh = (() => {
@@ -1524,7 +1575,7 @@ export function create(ctx) {
     dispose() {
       try { bc?.close(); } catch { /* closed */ }
       for (const m of meshes) m.dispose?.();
-      heroGeo.dispose(); stTex.dispose(); pieceTex.dispose(); envRT?.dispose?.(); crackle.dispose(); try { arches?.dispose?.(); } catch { /* gone */ }
+      heroGeo.dispose(); for (const m of heroParts) m.geometry.dispose(); stTex.dispose(); pieceTex.dispose(); envRT?.dispose?.(); crackle.dispose(); try { arches?.dispose?.(); } catch { /* gone */ }
     },
   };
 }

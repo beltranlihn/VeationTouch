@@ -32,7 +32,11 @@ import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 
 export async function createRoom3D(vt, canvas, opt = {}) {
   const W = vt.size.width, H = vt.size.height;
-  const renderer = new THREE.WebGPURenderer({ canvas, antialias: false, alpha: false, forceWebGL: !!opt.forceWebGL, powerPreference: 'high-performance' });
+  // studio 26-11 (OPTIMIZAR-60FPS): lab ?perf — GPU time per pass (WebGPU timestamp queries), draw calls and triangles per frame, in
+  // room.perf; ?pnobloom / ?pwalls=N switch parts off to measure what each costs. Nothing changes without the URL switches.
+  const QP = (() => { try { return new URLSearchParams(location.search); } catch { return new URLSearchParams(); } })();
+  const PERF = QP.has('perf');
+  const renderer = new THREE.WebGPURenderer({ canvas, antialias: false, alpha: false, forceWebGL: !!opt.forceWebGL, powerPreference: 'high-performance', trackTimestamp: PERF });
   renderer.setPixelRatio(1);
   renderer.setSize(W, H, false);
   await renderer.init();
@@ -60,6 +64,9 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; const fwd = new THREE.Vector3(Math.sin(a), 0, -Math.cos(a)); sides.push([fwd.clone().multiplyScalar(apothem), new THREE.Vector3(Math.cos(a), 0, Math.sin(a))]); }
   }
   const up = new THREE.Vector3(0, 1, 0);
+  // studio 26-11 (OPTIMIZAR-60FPS): per-wall layers. Every wall's camera sees layer 0 (everything, as before) AND its own layer
+  // WALL_LAYER0 + i; a big object split in sectors puts each sector only on the layers of the walls that can see it (umbral3d's mosaic)
+  const WALL_LAYER0 = 20;
   const walls = vt.walls.map((w, i) => {
     const [centre, right] = sides[i], normal = new THREE.Vector3().crossVectors(right, up).normalize();   // into the room (right × up)
     // corners: on a rectangle room the walls share their corners exactly (the profile's widths differ by ~1 %: averaged), so
@@ -68,6 +75,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     const pa = centre.clone().addScaledVector(right, -half), pb = centre.clone().addScaledVector(right, half), pc = pa.clone().setY(heights[i]);
     const camera = new THREE.PerspectiveCamera(60, w.rect.w / w.rect.h, opt.near ?? 0.05, opt.far ?? 400);
     camera.matrixAutoUpdate = true; camera.userData.wall = i;          // a material can tell which wall it is drawn for
+    camera.layers.enable(WALL_LAYER0 + i);                             // studio 26-11: an object on layer WALL_LAYER0 + i (and not on 0) is drawn for wall i only
     return { id: w.id, index: i, width: half * 2, height: heights[i], centre, right, normal, pa, pb, pc, camera, rect: w.rect };
   });
   const wallIndex = new Map(walls.map((w) => [w.id, w.index]));
@@ -391,7 +399,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   const grain = Fn(() => { const p = uv().mul(vec2(W, H)).add(time.mul(61.7)); return fract(sin(dot(p, vec2(12.9898, 78.233))).mul(43758.5453)).sub(0.5).mul(grainAmt); });
   // the finish (T-037): film grain that follows the light — a third of it in the blacks (it still breaks banding, the projector's black
   // stays black), all of it in the mid-tones. NO vignette: per wall it would draw four frames round the public and break the corners.
-  const lit = src.rgb.add(bl.rgb);
+  const lit = QP.has('pnobloom') ? src.rgb : src.rgb.add(bl.rgb);
   pipeline.outputNode = vec4(lit.add(vec3(grain().mul(clamp(dot(lit, vec3(0.3, 0.55, 0.15)).mul(1.6), 0, 1).mul(0.67).add(0.33)))), float(1));
 
   // ---- hands on the walls, in world coordinates
@@ -537,15 +545,18 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // WebGL2: a whole-target clear after rendering into another target only cleared the last viewport used (the tile passes accumulated
   // additive layers into white); there each wall's viewport is cleared on its own, scissored. WebGPU clears the whole target once.
   const GL2 = backend === 'webgl2';
-  function views(target, sc, clear = false) {
+  const PWALLS = Math.max(1, Number(QP.get('pwalls')) || walls.length);
+  function views(target, sc, clear = false, tag = 'wall') {
     renderer.setRenderTarget(target);
     target.scissorTest = true;
     for (const w of walls) {
+      if (w.index >= PWALLS) continue;
       const r = w.rect, x0 = Math.round(r.x * RS), x1 = Math.round((r.x + r.w) * RS), y0 = Math.round((H - r.y - r.h) * RS), y1 = Math.round((H - r.y) * RS);   // viewports count from the bottom
       target.viewport.set(x0, y0, x1 - x0, y1 - y0); target.scissor.set(x0, y0, x1 - x0, y1 - y0);
       if (clear && GL2) { renderer.setClearColor(clearColor, 1); renderer.autoClear = true; }
       renderer.render(sc, w.camera);
       renderer.autoClear = false;
+      perfMark(`${tag}${w.index}`);
     }
     target.scissorTest = false; target.viewport.set(0, 0, RW, RH); target.scissor.set(0, 0, RW, RH);
   }
@@ -589,27 +600,58 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   }
   // render(dt, pass): pass(which) is the host's hook while tiles.on: it is called with 'out' before the outgoing world is drawn and
   // with 'in' before the incoming one (show / hide each world's objects); it is not called otherwise.
+  // ---- lab ?perf: which timestamp query belongs to which pass (the queries added since the last mark), resolved a frame or two later
+  const perf = { gpu: 0, gpuMax: 0, passes: {}, calls: 0, tris: 0, frames: 0, on: PERF };
+  const perfOf = new Map(); let perfSeen = 0, perfBusy = false;
+  function perfMark(name) {
+    if (!PERF) return;
+    const pool = renderer.backend?.timestampQueryPool?.render; if (!pool) return;
+    const keys = [...pool.queryOffsets.keys()];
+    for (let i = perfSeen; i < keys.length; i++) perfOf.set(keys[i], name);
+    perfSeen = keys.length;
+    if (perfOf.size > 4000) perfOf.clear();
+  }
+  function perfFrameEnd() {
+    if (!PERF) return;
+    perf.calls = renderer.info.render.drawCalls ?? renderer.info.render.calls; perf.tris = renderer.info.render.triangles; renderer.info.reset();
+    if (perfBusy) return;
+    const pool = renderer.backend?.timestampQueryPool?.render; if (!pool) return;
+    perfBusy = true;
+    renderer.resolveTimestampsAsync('render').then((total) => {
+      if (typeof total !== 'number') return;
+      const by = {}; for (const [uid, ms] of pool.timestamps) { const k = perfOf.get(uid) || 'other'; by[k] = (by[k] || 0) + ms; }
+      const a = perf.frames < 5 ? 1 : 0.1; perf.frames++;
+      perf.gpu += (total - perf.gpu) * a; perf.gpuMax = Math.max(perf.gpuMax * 0.995, total);
+      for (const k of Object.keys(by)) perf.passes[k] = (perf.passes[k] ?? by[k]) + (by[k] - (perf.passes[k] ?? by[k])) * a;
+    }).catch(() => {}).finally(() => { perfBusy = false; perfSeen = 0; });
+  }
+  if (PERF) renderer.info.autoReset = false;
+  try { if (PERF) window.__roomPerf = perf; } catch { /* no window */ }
   function render(dt = 1 / 60, pass = null) {
     t += dt; time.value = t % 1000; tiles.time.value = t % 1000;
     stepFlash(dt); stepBackground(dt); frameNo++;
     if (ENV.pending) bakeEnvironment();
     jitter();
     const tl = tiles.on && !!pass;
-    if (tl) { pass('out'); clearTo(stripOut); views(stripOut, scene, true); pass('in'); }
-    clearTo(strip); views(strip, scene, true);
+    perfMark('pre');
+    if (tl) { pass('out'); clearTo(stripOut); views(stripOut, scene, true, 'out'); pass('in'); }
+    clearTo(strip); perfMark('clear'); views(strip, scene, true);
     let img = strip;
-    if (tl) { renderer.setRenderTarget(comp); compQuad.render(renderer); img = comp; }
+    if (tl) { renderer.setRenderTarget(comp); compQuad.render(renderer); img = comp; perfMark('tiles'); }
     overlayCount = overlay.children.length;
-    if (overlayCount) { if (img === strip) { renderer.setRenderTarget(strip); renderer.clearDepth(); } views(img, overlay); }   // the overlay never depth-tests against the world
+    if (overlayCount) { if (img === strip) { renderer.setRenderTarget(strip); renderer.clearDepth(); } views(img, overlay, false, 'overlay'); }   // the overlay never depth-tests against the world
     if (TAA) {
-      maskPass();
+      maskPass(); perfMark('mask');
       taaIn.value = img.texture; taaHist.value = histA.texture;
       renderer.setRenderTarget(histB); taaQuad.render(renderer); taaK.value = 0.12;
       img = histB; const sw = histA; histA = histB; histB = sw;
+      perfMark('taa');
     }
     src.value = img.texture;
     renderer.setRenderTarget(null);
     pipeline.render();
+    perfMark('post');
+    perfFrameEnd();
   }
   // warm the tile pass now (its pipeline would otherwise be built in the first frame of the first transition: a hitch at the cut)
   try { renderer.setRenderTarget(comp); compQuad.render(renderer); renderer.setRenderTarget(null); } catch (err) { console.info('room3d: tile pass warm-up skipped (' + err.message + ')'); }
@@ -632,5 +674,5 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   return { THREE, renderer, scene, overlay, clearColor, walls, eye, hands, wallPoint, render, setBloom,
     // T-048 (SIS): the shared system — see PARTS.md «What the room gives since T-048»
     PALETTE, setBackground, background: bg, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline,
-    reactive, REACTIVE, taaReactive };   // T-070: room.reactive(object) — moving things opt out of the TAA history (see the TAA section)
+    reactive, REACTIVE, taaReactive, perf, WALL_LAYER0 };   // T-070: room.reactive(object) — moving things opt out of the TAA history (see the TAA section)
 }
