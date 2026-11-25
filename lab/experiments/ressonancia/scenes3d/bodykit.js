@@ -88,7 +88,7 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [20000, 3200, 9000], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [20000, 2600, 6500], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
   const splatOnlyLodMesh = false;
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;
@@ -227,11 +227,11 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   // them fall with gravity. Nothing radial, nothing fast.
   const splatSets = [];   // { build, lod, N, rows, tex, bodyTex, bodyData, geo, mesh, count }
   const uSize = uniform(1), uOpacity = uniform(1), uDrift = uniform(1), uFlow = uniform(1), uStreak = uniform(0);
-  const uLit = uniform(new THREE.Vector3(...palLin('cal-foc', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.6 + palLin('cal-foc')[i] * 0.25)));   // terracota, desaturated towards the lime
+  const uLit = uniform(new THREE.Vector3(...palLin('cal-foc', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.45 + palLin('cal-foc')[i] * 0.4)));   // terracota, desaturated towards the lime
   const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
-  const uContact = uniform(0), uBackAO = uniform(0), uDarkRim = uniform(0), uGoldDark = uniform(new THREE.Vector3(...palLin('bronze', 0.6)));
+  const uContact = uniform(0), uBackAO = uniform(0), uDarkRim = uniform(0), uGoldDark = uniform(new THREE.Vector3(...palLin('bronze', 0.6))), uGoldLit = uniform(new THREE.Vector3(...palLin('or-clar', 0.95)));
   const SPN = spots?.pos?.length ? Math.min(8, spots.pos.length) : 0;
   const SPP = SPN ? TSL.uniformArray(spots.pos, 'vec4') : null, SPD = SPN ? TSL.uniformArray(spots.dir, 'vec4') : null, uSpotK = uniform(0.00025);   // plaza SPOT_K ≈ 2600 → ≈ 0.65 at the beam's heart
   // the human base: per bone class [density, max depth inside (m), aura share] — wide thorax and pelvis (core 28–32 cm), thick thighs,
@@ -368,7 +368,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const headK = float(1).sub(step(0.25, AX.x)).mul(step(1.35, pl.y));                // the head: no dark band under the jaw, no bulb on top
     // the core is volume: it takes the light of a normal turned half towards the eye (no dark specks from inner points of the far side)
     const nL = normalize(mix(nW, toCam, core.mul(0.55)));
-    const lk = clamp(dot(nL, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.4)).min(mix(float(1), float(0.72), headK));   // the head never brighter than the torso
+    const lk = clamp(dot(nL, Lk).mul(0.62).add(0.38), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.4)).min(mix(float(1), float(0.72), headK));   // the head never brighter than the torso
     const ramp = mix(mix(uSAmb, uHalf, smoothstep(0.06, 0.42, lk)), uLit, smoothstep(0.42, 0.92, lk)).mul(B2.xyz);
     let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(lod === 0 ? 1.4 : 2.0))).mul(uSKey);   // far: more contrast, so overlapping bodies part by light and shadow
     colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer
@@ -385,7 +385,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       colr = colr.add(uLit.mul(sp.mul(uSpotK)).mul(mix(float(0.6), float(1), AX.y)));
     }
     // gold (achievement, the crown) REPLACES the ramp, keeping the light: never brighter, never white
-    const goldRamp = mix(uGoldDark, uColor.glow, smoothstep(0.1, 0.8, lk)).mul(mix(float(0.15), float(0.9), lk.pow(1.2)));   // deep bronze → or
+    const goldRamp = mix(mix(uGoldDark, uColor.glow, smoothstep(0.1, 0.55, lk)), uGoldLit, smoothstep(0.55, 0.95, lk)).mul(mix(float(0.15), float(1), lk.pow(1.2)))
+      .add(uGoldLit.mul(B2.w.sub(1).max(0)));   // deep bronze → or → or-clar (lit); glow > 1 = a light source (the enxaneta)
     colr = mix(colr, goldRamp, B2.w.clamp(0, 1)).add(uColor.glow.mul(uSGlow));
     colr = colr.mul(mix(float(1), float(0.3), pow(float(1).sub(abs(facing)), 2).mul(uDarkRim)));   // a dark rim: the sculpture against a bright air
     // contact shade: the feet sink into the shoulders below / the floor — a dark gap between stacked bodies
@@ -547,7 +548,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     if (o.pose2 != null) S[b + 5] = poseIndex(o.pose2); else if (o.pose != null && o.mix == null) S[b + 5] = S[b + 4];
     if (o.mix != null) S[b + 6] = o.mix;
     if (o.scale != null) S[b + 7] = o.scale;
-    if (o.tint) { S[b + 8] = o.tint[0]; S[b + 9] = o.tint[1]; S[b + 10] = o.tint[2]; }
+    if (o.tint) { S[b + 8] = Math.max(0.85, o.tint[0]); S[b + 9] = Math.max(0.85, o.tint[1]); S[b + 10] = Math.max(0.85, o.tint[2]); }   // one look: a tint only nuances
     if (o.glow != null) S[b + 11] = o.glow;
     if (o.build != null) S[b + 12] = builds.includes(o.build) ? o.build : builds[0];
     if (o.scale != null && o.scale < 0.82 && builds.includes(2)) S[b + 12] = 2;   // a small body is a child (child proportions)
