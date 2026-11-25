@@ -366,7 +366,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const reg = AX.x, w3 = smoothstep(2.35, 2.65, reg);
     const tE = normalize(vec3(uEye.x.sub(C.x), 0, uEye.z.sub(C.z))), side = vec3(tE.z, 0, tE.x.negate());
     // one warm ramp by light: tinta (shadow, luma ≈ 0.05–0.10, lost in the night) → terracota (half) → cal-foc (lit, ≤ 0.8)
-    const Lk = normalize(side.mul(-1.0).add(vec3(0, 0.75, 0)).add(tE.mul(0.05)));   // a true side key: half of every body in shadow
+    const Lk = normalize(side.mul(-0.7).add(vec3(0, 0.95, 0)).add(tE.mul(0.35)));   // a high side key at ~45° (a pure side key striped every vertical limb: «dripping» legs)
     const headK = float(1).sub(step(0.25, AX.x)).mul(step(1.35, pl.y));                // the head: no dark band under the jaw, no bulb on top
     // the core is volume: it takes the light of a normal turned half towards the eye (no dark specks from inner points of the far side)
     const nL = normalize(mix(nW, toCam, core.mul(0.3)));   // (0.55 flattened the modelling)
