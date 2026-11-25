@@ -610,7 +610,12 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
       if (b === 'crown') {
         const Wd = room.walls[w].width, lim = Wd / 2 - 1.15 - 0.45; y = 1.7;
         const o = OBST.find((q) => q.wall === w && (q.y1 || 0) > 2.0);
-        if (o) { const l = o.x - o.half - 1.6, r = o.x + o.half + 1.6; side = Math.abs(l) <= lim && (Math.abs(l) <= Math.abs(r) || Math.abs(r) > lim) ? l : Math.abs(r) <= lim ? r : clamp(l, -lim, lim); }   // in the shadow gap beside the tower, not stuck to it
+        if (o) {   // in the shadow gap beside the tower (tower half + 2.1 m: AD #9), on the side free of lamps (plaza.textObstacles), never across a corner
+          const l = o.x - o.half - 2.1, r = o.x + o.half + 2.1;
+          const free = (x) => { if (Math.abs(x) > lim) return -9; let g = 9; for (const q of OBST) if (q !== o && q.wall === w && (q.y1 ?? 3) > 1.3) g = Math.min(g, Math.abs((q.x || 0) - x) - 1.15 - (q.half || 0.5)); return g; };
+          const fl = free(l), fr = free(r);
+          side = fl >= 0 && (fl >= fr || fr < 0) ? l : fr >= 0 ? r : fl > fr ? clamp(l, -lim, lim) : clamp(r, -lim, lim);
+        }
         else side = Math.min(2.1, lim);
       } else {   // the other cards: the clearest of centre / left / right, away from pillars and the parts' heroes above 1.6 m
         const Wd = room.walls[w].width, lim = Wd / 2 - 1.3 - 0.45, TT = Array.isArray(S.targets) ? S.targets : [];
