@@ -92,6 +92,7 @@ for (const [name, pr] of loads) {
   try {
     const params = {};
     for (const d of Array.isArray(defs) ? defs : []) params[d.key] = d.default;
+    if (name === 'umbral3d') params.mosaic = P.mosaic || 'stone';   // studio 25-11: the entrance's stones — one colour each, or his picture printed on them
     if (name === 'atmos') params.demoLamps = false;                // the square's own lamps light the dust
     if (name === 'plaza') params.glow = 0.3;                       // atmos draws the lamps' glow in the air too
     if (name === 'castell') params.density = DENS[P.quality] ?? 1;

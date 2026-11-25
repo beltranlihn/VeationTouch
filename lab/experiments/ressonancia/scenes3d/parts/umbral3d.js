@@ -530,10 +530,11 @@ export function create(ctx) {
   const HAND_POOL = 0, HAND_LIGHT = 0;   // studio 25-11 (Beltrán: «quita la luz que genera la mano y las partículas»): pool and light off (Vicente's light was 2.0); motion only
   const uHandP = Array.from({ length: 6 }, () => uniform(new THREE.Vector4(0, -9, 0, 0)));
   const STONE_K = 1;
-  const MOSAIC_TEX = (() => { try { return new URLSearchParams(location.search).get('mosaic') || 'image'; } catch { return 'image'; } })();   // lab: ?mosaic=stone to compare
+  // studio 25-11 (Beltrán): one colour per stone by default; his picture printed on the stones with params.mosaic = 'image' (or ?mosaic=image)
+  const MOSAIC_TEX = (() => { let q = null; try { q = new URLSearchParams(location.search).get('mosaic'); } catch { /* no location */ } return q || params?.mosaic || 'stone'; })();
   const UNPAINTED = true, RAW_STONE = vec3(0.6, 0.5, 0.37);                             // a warm travertine (linear ≈ #CBBBA4)
   const texLoad = (f) => { const t = new THREE.TextureLoader().load(new URL(f, import.meta.url).href); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.wrapS = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
-  const texOn = STONES ? texLoad('./umbral3d/mosaic-on.jpg') : null, texOff = STONES ? texLoad('./umbral3d/mosaic-off.jpg') : null;   // studio 25-11: how much stone texture (0 = the plain glaze)
+  const texOn = STONES && MOSAIC_TEX === 'image' ? texLoad('./umbral3d/mosaic-on.jpg') : null, texOff = STONES && MOSAIC_TEX === 'image' ? texLoad('./umbral3d/mosaic-off.jpg') : null;   // (only when used)   // studio 25-11: how much stone texture (0 = the plain glaze)
   const stoneTex = new THREE.TextureLoader().load(new URL('./umbral3d/stone-detail.png', import.meta.url).href);
   stoneTex.wrapS = stoneTex.wrapT = THREE.RepeatWrapping; stoneTex.colorSpace = THREE.NoColorSpace; stoneTex.anisotropy = 4;   // studio 25-11: the hands' points on the mosaic (w = strength)   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
   // THE THRESHOLDS: at the centre of every wall the mosaic opens in a tall arch (Gaudí's: straight jambs, a pointed round head) — cut
