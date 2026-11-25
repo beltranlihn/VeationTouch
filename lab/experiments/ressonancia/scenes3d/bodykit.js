@@ -204,6 +204,17 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     plMat.positionNode = vec3(pa.x.add(pg.x.mul(pa.z)), 0.006, pa.y.add(pg.z.mul(pa.z)));
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
     plMat.colorNode = uPool.mul(exp(d2.mul(-3.0)).sub(0.05).max(0)).mul(pa.w); }
+  const uPalmCol = uniform(new THREE.Vector3(...palLin('cal-fanal', 0.9)));
+  const gsGeo = new THREE.InstancedBufferGeometry();
+  { const q = new THREE.PlaneGeometry(2, 2); gsGeo.index = q.index; gsGeo.setAttribute('position', q.attributes.position); gsGeo.setAttribute('uv', q.attributes.uv); }
+  const gsA = new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4); gsA.setUsage(THREE.DynamicDrawUsage); gsGeo.setAttribute('gA', gsA); gsGeo.instanceCount = 0;
+  const gsMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, fog: false });
+  { const ga = attribute('gA', 'vec4'), pg = TSL.positionGeometry, toC = normalize(cameraPosition.sub(ga.xyz)), rt = normalize(TSL.cross(vec3(0, 1, 0), toC).add(vec3(0.0001, 0, 0))), upv = TSL.cross(toC, rt);
+    const rad = float(0.22);
+    gsMat.positionNode = ga.xyz.add(toC.mul(0.06)).add(rt.mul(pg.x.mul(rad))).add(upv.mul(pg.y.mul(rad)));
+    const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
+    gsMat.colorNode = uPalmCol.mul(exp(d2.mul(-4.0)).sub(0.018).max(0)).mul(ga.w).mul(0.9); }
+  const gsMesh = new THREE.Mesh(gsGeo, gsMat); gsMesh.frustumCulled = false; gsMesh.renderOrder = 3; gsMesh.name = 'bodykit:palmGlow'; object.add(gsMesh);
   const plMesh = new THREE.Mesh(plGeo, plMat); plMesh.frustumCulled = false; plMesh.renderOrder = -4; plMesh.name = 'bodykit:pools'; object.add(plMesh);
   const CS = room?.contactShadows ? room.contactShadows(max, { color: 'tinta' }) : null;   // the room's contact discs (the chapter's shadow colour); the kit draws the cast
   if (CS) object.add(CS.mesh);
@@ -232,7 +243,6 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   const uSKey = uniform(0.88), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
-  const uPalmCol = uniform(new THREE.Vector3(...palLin('cal-fanal', 0.9)));
   const uContact = uniform(0), uBackAO = uniform(0), uDarkRim = uniform(0), uGoldDark = uniform(new THREE.Vector3(...palLin('bronze', 0.6))), uGoldLit = uniform(new THREE.Vector3(...palLin('or-clar', 0.95)));
   const SPN = spots?.pos?.length ? Math.min(8, spots.pos.length) : 0;
   const SPP = SPN ? TSL.uniformArray(spots.pos, 'vec4') : null, SPD = SPN ? TSL.uniformArray(spots.dir, 'vec4') : null, uSpotK = uniform(0.00025);   // plaza SPOT_K ≈ 2600 → ≈ 0.65 at the beam's heart
@@ -378,7 +388,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     colr = colr.add(uSRim.mul(pow(float(1).sub(abs(facing)), 4)).mul(smoothstep(1.15, 1.45, pl.y)).mul(float(1).sub(headK)).mul(0.6));   // a thin cool rim on the shoulders (not the jaw)
     // (no hand flash on the bodies: a hand is always near the palm figure and it washed the whole body to white — the palmGlow is the answer)
     // the palm's glow (palmGlow): a warm light held in the right palm, ≥ 35–40 cm, that lights the forearm and the chest («put your hand here»)
-    const dP = pl.sub(B4.xyz).length(), pgw = B4.w.mul(exp(dP.mul(dP).mul(-6.0))).mul(1.8);   // ≈ 40 cm, reads at scale 0.5
+    const dP = pl.sub(B4.xyz).length(), pgw = B4.w.mul(exp(dP.mul(dP).mul(-3.2))).mul(3.0);   // ≈ 45 cm on the body: hand, forearm, chest
     colr = colr.add(uPalmCol.mul(pgw).mul(mix(float(0.55), float(1), smoothstep(-0.2, 0.6, dot(nW, rotY(B4.xyz.sub(pl)).normalize())))));
     // the stage spots of the square (plaza.js part.spots, when given): what stands in a beam is lit by it
     if (spots && SPP) {
@@ -512,7 +522,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     if (!ready) return;
     for (const M of meshes) M.count = 0;
     for (const P of splatSets) P.count = 0;
-    let ns = 0, nc = 0, np = 0;
+    let ns = 0, nc = 0, np = 0, ng = 0;
     const kx = _e.x, kz = _e.z;     // the key light is above the room's centre: the cast shadow points away from it
     for (let i = 0; i < max; i++) {
       const o = i * SZ; if (!S[o + 14]) continue;
@@ -525,6 +535,11 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       const SP = splatSets.find((q) => q.build === M.build && q.lod === M.lod);
       if (SP) { const j = SP.count++, D = SP.bodyData; D.set([x, y, z, S[o + 3], S[o + 4], S[o + 5], S[o + 6], sc, S[o + 8], S[o + 9], S[o + 10], S[o + 11], S[o + 16], S[o + 17], S[o + 15], 0], j * 20);
         if (S[o + 19] > 0.001) { const pa = palm(S[o + 4] | 0, S[o + 12] | 0), pb = palm(S[o + 5] | 0, S[o + 12] | 0), m = S[o + 6]; D.set([pa[0] + (pb[0] - pa[0]) * m, pa[1] + (pb[1] - pa[1]) * m, pa[2] + (pb[2] - pa[2]) * m, S[o + 19]], j * 20 + 16); } else D[j * 20 + 19] = 0; }
+      if (S[o + 19] > 0.001) {   // the palm's glow sprite, at the palm (world)
+        const pa = palm(S[o + 4] | 0, S[o + 12] | 0), pb = palm(S[o + 5] | 0, S[o + 12] | 0), mm = S[o + 6], yw = S[o + 3], cy = Math.cos(yw), sy = Math.sin(yw);
+        const lx = (pa[0] + (pb[0] - pa[0]) * mm) * sc, ly = (pa[1] + (pb[1] - pa[1]) * mm) * sc, lz = (pa[2] + (pb[2] - pa[2]) * mm) * sc;
+        gsA.array.set([x + cy * lx + sy * lz, y + ly, z - sy * lx + cy * lz, S[o + 19] * S[o + 16]], (ng++) * 4);
+      }
       if (S[o + 18] > 0.001 && y < 0.05) plA.array.set([x, z, 1.15 * sc, S[o + 18] * S[o + 16]], (np++) * 4);
       if (y < 0.05 && ns < max * 2 - 1) {    // shadows only for bodies standing on the floor
         const lift = Math.max(0, y);
@@ -541,6 +556,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     for (const M of meshes) { M.geo.instanceCount = M.count; if (M.count) { M.iA.needsUpdate = M.iB.needsUpdate = M.iC.needsUpdate = true; } M.mesh.visible = M.count > 0; }
     for (const P of splatSets) { P.geo.instanceCount = P.count * P.N; P.mesh.visible = P.count > 0; if (P.count) P.bodyTex.needsUpdate = true; }
     plGeo.instanceCount = np; plMesh.visible = np > 0; if (np) plA.needsUpdate = true;
+    gsGeo.instanceCount = ng; gsMesh.visible = ng > 0; if (ng) gsA.needsUpdate = true;
     if (CS) { for (let i = nc; i < csUsed; i++) CS.clear(i); csUsed = nc; }
     shGeo.instanceCount = ns; if (ns) { shA.needsUpdate = shB.needsUpdate = true; }
     shMesh.visible = ns > 0;
