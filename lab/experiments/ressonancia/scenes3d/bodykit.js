@@ -367,7 +367,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const headK = float(1).sub(step(0.25, AX.x)).mul(step(1.35, pl.y));                // the head: no dark band under the jaw, no bulb on top
     const lk = clamp(dot(nW, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.45)).min(mix(float(1), float(0.82), headK));
     const ramp = mix(mix(uSAmb, uHalf, smoothstep(0.06, 0.42, lk)), uLit, smoothstep(0.42, 0.92, lk)).mul(B2.xyz);
-    let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(1.4))).mul(uSKey);
+    let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(lod === 0 ? 1.4 : 2.0))).mul(uSKey);   // far: more contrast, so overlapping bodies part by light and shadow
     colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer
     colr = colr.add(uSRim.mul(pow(float(1).sub(abs(facing)), 4)).mul(smoothstep(1.15, 1.45, pl.y)).mul(0.6));   // a thin cool rim on the shoulders and head
     if (room?.flash) colr = colr.add(uLit.mul(room.flash(C)).mul(0.35));
@@ -386,7 +386,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // contact shade: the feet sink into the shoulders below / the floor — a dark gap between stacked bodies
     colr = colr.mul(mix(float(1), smoothstep(0.0, 0.45, pl.y).mul(0.65).add(0.35), uContact));
     // dust: each splat faint (0.08–0.15), the volume comes from accumulation; the skin thins outwards (the edge is a density falloff)
-    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : 1.35);
+    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : 1.2);
     const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura).mul(lod === 0 ? float(1) : float(1).sub(aura));
     const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(mix(float(1).sub(away).pow(2), float(1).sub(away.mul(0.6)), dust.max(riseM))), 'vSplA');   // gathering splats are faint until home (no heaps on the floor)
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);

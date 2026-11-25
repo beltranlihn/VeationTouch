@@ -532,7 +532,7 @@ export function create(ctx) {
         // a floor that forms climbs into place with the lift; one that slips drops and goes
         // particles: a forming floor ASSEMBLES from streams (with the lift), a slipping one falls as dust; no body moves as a block
         let dy = 0, form = 1, fmode = 'gather';
-        if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, 0.3 + S.lift * 0.55 + S.solid * 0.5); dy = -(1 - form) * 0.15; }   // the next floor hovers half-formed until the hands lift it
+        if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, S.lift * 0.8 + S.solid * 0.6); dy = -(1 - form) * 0.15; }   // the next floor gathers only as the hands lift it   // the next floor hovers half-formed until the hands lift it
         if (S.goneT >= 0) { form = Math.max(0, 1 - S.goneT / 1.4); fmode = 'dust'; }
         if (S.taken) { form = Math.max(0, 1 - tk / 2.5); fmode = 'light'; }
         if (c.lv === 0) form = 0.97 + 0.03 * Math.sin(time * 0.4 + c.x * 3 + c.z * 2);   // the pinya's mass breathes
