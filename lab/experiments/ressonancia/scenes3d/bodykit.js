@@ -88,7 +88,7 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [30000, 4000], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [20000, 3200], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
   const splatOnlyLodMesh = false;
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;
@@ -365,7 +365,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // one warm ramp by light: tinta (shadow, luma ≈ 0.05–0.10, lost in the night) → terracota (half) → cal-foc (lit, ≤ 0.8)
     const Lk = normalize(side.mul(-0.85).add(vec3(0, 0.85, 0)).add(tE.mul(0.15)));
     const headK = float(1).sub(step(0.25, AX.x)).mul(step(1.35, pl.y));                // the head: no dark band under the jaw, no bulb on top
-    const lk = clamp(dot(nW, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.3)).min(mix(float(1), float(0.82), headK));
+    const lk = clamp(dot(nW, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.45)).min(mix(float(1), float(0.82), headK));
     const ramp = mix(mix(uSAmb, uHalf, smoothstep(0.06, 0.42, lk)), uLit, smoothstep(0.42, 0.92, lk)).mul(B2.xyz);
     let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(1.4))).mul(uSKey);
     colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer

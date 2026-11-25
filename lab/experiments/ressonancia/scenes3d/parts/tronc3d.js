@@ -471,7 +471,9 @@ export function create(ctx) {
     for (let L = 0; L < 6; L++) {
       const s = tier[L], R0 = 0.33 * Math.max(0.55, s);
       TRUNK[L + 1] = { y: feet, r: R0 + 0.18 * s, h: 1.342 * s };
-      for (let j = 0; j < 3; j++) { const a = Math.PI / 2 + (j * TAU) / 3; CAST.push({ lv: L + 1, x: Math.cos(a) * R0, z: Math.sin(a) * R0, y: feet, yaw: Math.atan2(Math.cos(a), Math.sin(a)), pose: 'lock', s, build: 0 }); }
+      // each casteller a little different (yaw, size, build, how much they carry): no repeated beads
+      for (let j = 0; j < 3; j++) { const a = Math.PI / 2 + (j * TAU) / 3, jy = (r3() - 0.5) * 0.3, js = 1 + (r3() - 0.5) * 0.07;
+        CAST.push({ lv: L + 1, x: Math.cos(a) * R0, z: Math.sin(a) * R0, y: feet, yaw: Math.atan2(Math.cos(a), Math.sin(a)) + jy, pose: 'lock', pose2: 'carry', mixV: 0.1 + r3() * 0.3, s: s * js, build: (L + j) % 2 }); }
       feet += 1.342 * s + 0.03;
     }
     const pd = Math.pow(PERSP, 6), pa = Math.pow(PERSP, 7), pe = Math.pow(PERSP, 8);
@@ -542,7 +544,7 @@ export function create(ctx) {
         const away = uAway.value;
         // arrive / leave: the particles gather / scatter (form below), no block movement
         const pose2 = c.enx ? (crowned ? 'raise' : 'stand') : c.pose;
-        kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw, pose: c.pose === 'lock' && c.lv > 0 && S.forming && S.solid < 0.5 ? 'carry' : c.pose, pose2, mix: c.enx ? (crowned ? 1 : 0) : 1,
+        kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw, pose: c.pose, pose2: c.enx ? pose2 : (c.pose2 || c.pose), mix: c.enx ? (crowned ? 1 : 0) : (c.lv > 0 && S.forming && S.solid < 0.5 ? 1 : (c.mixV || 0)),
           form: form * (1 - uAway.value), fmode, lod: 'far', scale: c.s * SC, build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - (9 - c.lv) * 0.5) / 0.8)) : S.flash * 0.35, tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
       }
     }
@@ -597,7 +599,11 @@ export function create(ctx) {
     { const want = inTronc && pr.decor !== false && !(!S && lone()) ? 1 : 0; decor += (want - decor) * ease(4, dt); if (Math.abs(want - decor) < 0.004) decor = want; uDecor.value = decor; }
     if (S && inTronc && !wasIn && col.on) restore();
     if (col.on) { floors = col.floors; prog = 0; rewarding = false; }
-    else if (!inTronc) { floors = keepFloors; prog = 0; rewarding = false; }
+    else if (!inTronc) {
+      // a late entry (a jump to the Pom, a join after the Tronc): the castell stands at the group's height at once (≥ 5 floors)
+      if ((castMode === 'top' || castMode === 'crowned') && keepFloors < 5) keepFloors = Math.min(9, Math.max(5, (S && S.castell && S.castell.floors) || 0));
+      floors = keepFloors; prog = 0; rewarding = false;
+    }
     else keepFloors = floors;
     if (col.on) col.t += dt;
     const arrive = clamp01(S ? (input.arrive ?? 1) : (input.arrive ?? pr.arrive ?? 1));
@@ -632,7 +638,10 @@ export function create(ctx) {
     pull += ((rewarding || (leave > 0 && pull > 0.01) ? 1 : 0) - pull) * ease(0.6, dt);
     if (pull > 0.001) target += (TOWER_H * SC * 0.5 - 1.2 - target) * smooth(0, 1, pull);
     target = Math.max(0, target);                     // 25-11 (director): the world only goes DOWN (the room rises); never up, never floating
-    if (focusY != null && !OLD && !col.on) target = Math.max(0, focusY - (room.eye.y || 1.6));   // Pom: the climbed floor in the reach band (setFocusY)
+    if (focusY != null && !OLD && !col.on) {
+      target = Math.max(0, focusY - (room.eye.y || 1.6));
+      if (target > 0.01) target = Math.max(target, 0.75);      // never a base hanging mid-wall: lowered at all, it leaves through the bottom edge
+    }   // Pom: the climbed floor in the reach band (setFocusY)
     else if (!inTronc || col.on) target = rise;
     // entering / reset: the room starts on the ground and eases (≤ 0.30 m/s) to its height — a snap only when asked (fall3d) or at 0
     if (snapNext || ((reset || floorsPrev < 0 || (inTronc && !wasIn)) && target < 0.01)) { rise = target; riseV = 0; snapNext = false; }
