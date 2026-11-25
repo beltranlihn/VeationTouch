@@ -35,7 +35,7 @@ const Y = { castell: 1.89, ribbon: 1.5, gloss: 2.64, sentence: 2.2, credits: 2.2
 // the ring of prints (wall-local metres): centre, two rings; the dials: x, y per value (two each side, inside the walls' free edge)
 const RING = { y: 2.05, rx: [1.95, 2.22], ry: [0.68, 0.87], cap: [40, 48] };
 const DIAL = { r: 0.19, pos: [[-2.58, 2.72], [-2.58, 1.72], [2.58, 2.72], [2.58, 1.72]] };   // ART r5: each value block ×1.6
-const PRINT_H = 0.2, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
+const PRINT_H = 0.24, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
 const env = (t, a, b, c, d) => (t < a || t > d ? 0 : t < b ? smooth((t - a) / (b - a)) : t > c ? 1 - smooth((t - c) / (d - c)) : 1);
@@ -129,7 +129,7 @@ export function create({ THREE, TSL, room, params = {} }) {
         const ridge = float(1).sub(rr.mul(0.45)).max(0.4);   // gold leaf: denser at the palm, thinner to the fingertips
         const wet = exp(rr.sub(front).div(0.06).pow(2).negate()).mul(step(vD.x, 0.99)).mul(fill);
         const g = vec3(0.81, 0.43, 0.07);   // «or» #E8B04A (linear), saturated (AD #14)
-        cov.assign(fill.mul(ridge.mul(0.55).add(0.3)).max(rim).mul(reveal).min(1));
+        cov.assign(fill.mul(0.95).max(rim).mul(reveal).min(1));   // solid leaf: the print reads at a glance (AD #14)
         c.addAssign(g.mul(cov).add(vec3(1.0, 0.72, 0.3).mul(rim.mul(0.55).add(wet.mul(0.5)).add(fill.mul(0.12))).mul(reveal)));   // a slight glow
         c.addAssign(vec3(1.0, 0.78, 0.45).mul(fill.mul(vD.y).mul(0.6)));
         const lamp = flash ? flash(vW) : float(0);
