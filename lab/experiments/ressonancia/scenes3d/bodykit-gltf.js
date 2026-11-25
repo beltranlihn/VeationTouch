@@ -40,15 +40,15 @@ export const HUMAN_POSES = {
   palm: { lean: 0.1, head: 0.06, arms: { up: D(0.16, -1, 0.06), lo: D(0.1, -1, 0.16), hand: D(0.05, -1, 0.1) },
     armR: { up: D(-0.06, -0.33, 0.94), lo: D(-0.02, 0.12, 1), hand: D(0, 1, 0.25) }, legs: { th: D(0.1, -1, 0.1), ca: D(0.04, -1, -0.12) } },
   // the pinya's embrace: arms at shoulder height, elbows bent, hugging forward and in; back leaning in, head down
-  lock: { lean: 0.32, head: 0.38, arms: { up: D(0.82, 0.02, 0.55), lo: D(-0.35, -0.05, 1), hand: D(-0.6, -0.15, 0.75) }, legs: { th: D(0.14, -1, 0.18), ca: D(0.06, -1, -0.2) } },
+  lock: { lean: 0.32, head: 0.38, arms: { up: D(0.74, -0.38, 0.55), lo: D(-0.3, 0.12, 1), hand: D(-0.55, 0.05, 0.8) }, legs: { th: D(0.14, -1, 0.18), ca: D(0.06, -1, -0.2) } },
   // carrying: knees well bent, feet apart, back loaded, arms up holding the one above — effort
   carry: { lean: 0.26, head: 0.2, arms: { up: D(0.3, 0.85, 0.32), lo: D(0.06, 1, 0.1), hand: D(0, 1, 0.08) }, legs: { th: D(0.24, -0.84, 0.46), ca: D(0.1, -1, -0.36) } },
   raise: { lean: -0.03, head: -0.2, arms: { up: D(0.18, -1, 0.05), lo: D(0.12, -1, 0.15), hand: D(0.05, -1, 0.1) },
     armR: { up: D(-0.12, 1, 0.08), lo: D(-0.05, 1, 0.06), hand: D(0, 1, 0.05) }, legs: { th: D(0.17, -1, 0.12), ca: D(0.06, -1, -0.14) } },
 };
 export const HUMAN_BUILDS = [
-  { base: 0, scale: 0.955, arm: 0.84, thigh: 0.88, chest: 0.9, head: 1.0 },      // a man
-  { base: 1, scale: 0.97, arm: 0.86, thigh: 0.9, chest: 0.93, head: 1.0 },       // a woman
+  { base: 0, scale: 0.955, arm: 1.0, thigh: 1.02, chest: 0.95, head: 0.97 },      // a man (25-11 AD: the mass back — no wiry limbs)
+  { base: 1, scale: 0.97, arm: 1.02, thigh: 1.04, chest: 0.97, head: 0.97 },      // a woman
   { base: 1, scale: 1.0, arm: 0.8, thigh: 0.85, chest: 0.86, head: 1.38, legs: 0.8, arms: 0.86 },   // a child (instance scale 0.55–0.8): big head, short limbs
 ];
 

@@ -472,16 +472,18 @@ export function create(ctx) {
       const s = tier[L], R0 = 0.33 * Math.max(0.55, s);
       TRUNK[L + 1] = { y: feet, r: R0 + 0.18 * s, h: 1.342 * s };
       // each casteller a little different (yaw, size, build, how much they carry): no repeated beads
-      for (let j = 0; j < 3; j++) { const a = Math.PI / 2 + (j * TAU) / 3, jy = (r3() - 0.5) * 0.3, js = 1 + (r3() - 0.5) * 0.07;
+      for (let j = 0; j < 3; j++) { const a = Math.PI / 2 + (j * TAU) / 3, jy = (r3() - 0.5) * 0.3, js = 1 + (r3() - 0.5) * 0.16;   // height ±8 %
         CAST.push({ lv: L + 1, x: Math.cos(a) * R0, z: Math.sin(a) * R0, y: feet, yaw: Math.atan2(Math.cos(a), Math.sin(a)) + jy, pose: 'lock', pose2: 'carry', mixV: 0.1 + r3() * 0.3, s: s * js, build: (L + j) % 2 }); }
       feet += 1.342 * s + 0.03;
     }
     const pd = Math.pow(PERSP, 6), pa = Math.pow(PERSP, 7), pe = Math.pow(PERSP, 8);
-    for (const sg of [-1, 1]) CAST.push({ lv: 7, x: sg * 0.17 * Math.max(0.5, pd), z: 0, y: feet, yaw: Math.atan2(-sg, 0), pose: 'lock', s: 0.8 * pd, build: 1 });
-    const dsY = feet + (1.286 * 0.8 + 0.03) * pd;
-    CAST.push({ lv: 8, x: 0, z: -0.06 * pa, y: dsY, yaw: 0, pose: 'carry', s: 0.66 * pa, build: 2 });
-    CAST.push({ lv: 9, x: 0, z: -0.02 * pe, y: OLD ? Math.max(dsY + 0.42, 9.8) : dsY + 0.42 * pa, yaw: 0, pose: 'stand', pose2: 'raise', s: 0.62 * pe, build: 2, enx: true });
-    TRUNK[7] = { y: feet, r: 0.3 * Math.max(0.5, pd), h: 1.286 * 0.8 * pd }; TRUNK[8] = { y: dsY, r: 0.2 * pa, h: 0.9 * pa }; TRUNK[9] = { y: dsY + 0.42 * pa, r: 0.15 * pe, h: 1.1 * pe };
+    // the pom de dalt is not compressed below a readable size (AD: the enxaneta's raised arm reads at the top, ≤ 3.4 m)
+    const sD = OLD ? 0.8 : Math.max(0.8 * pd, 0.3), sA = OLD ? 0.66 : Math.max(0.66 * pa, 0.27), sE = OLD ? 0.62 : Math.max(0.62 * pe, 0.27);
+    for (const sg of [-1, 1]) CAST.push({ lv: 7, x: sg * 0.17 * Math.max(0.5, sD / 0.8), z: 0, y: feet, yaw: Math.atan2(-sg, 0), pose: 'lock', s: sD, build: 1 });
+    const dsY = feet + 1.286 * sD + 0.03 * sD;
+    CAST.push({ lv: 8, x: 0, z: -0.06 * sA, y: dsY, yaw: 0, pose: 'carry', s: sA, build: 2 });
+    CAST.push({ lv: 9, x: 0, z: -0.02 * sE, y: OLD ? Math.max(dsY + 0.42, 9.8) : dsY + 0.62 * sA, yaw: 0, pose: 'stand', pose2: 'raise', s: sE, build: 2, enx: true });
+    TRUNK[7] = { y: feet, r: 0.3 * sD / 0.8, h: 1.286 * sD }; TRUNK[8] = { y: dsY, r: 0.2 * sA / 0.66, h: 1.36 * sA }; TRUNK[9] = { y: dsY + 0.62 * sA, r: 0.15 * sE / 0.62, h: 1.7 * sE };
     for (const c of CAST) { const L = CLV[c.lv] || (CLV[c.lv] = { y0: 1e9, y1: -1e9 }); L.y0 = Math.min(L.y0, c.y); L.y1 = Math.max(L.y1, c.y + 1.7 * c.s); }
     const ringN = OLD ? [10, 16, 22] : [12];      // two tight rings (+ the folre): the splat budget goes to the tower
     for (let i = 0; i < ringN.length; i++) {

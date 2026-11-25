@@ -268,7 +268,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       const upper = R0[vi * 3 + 1] > 1.0, ty = rnd(), aP = upper ? auraP : 0;
       const kind = ty < aP ? 1 : ty < aP + 0.7 * (1 - aP) ? 0 : 0.5;
       // core inside the volume · skin: a soft density falloff across the surface (−2 … +5 cm, thinning outwards) · aura: 3–12 cm off
-      const depth = kind === 0 ? -Math.pow(rnd(), 0.6) * dmax : kind === 0.5 ? Math.pow(rnd(), 2.2) * 0.07 - 0.02 : 0.03 + rnd() * 0.09;
+      const depth = kind === 0 ? -Math.pow(rnd(), 0.6) * dmax : kind === 0.5 ? Math.pow(rnd(), 2.6) * 0.05 - 0.015 : 0.03 + rnd() * 0.09;   // the skin: fuller (the edge falloff narrower)
       pick.push([lo, w0, u, v, vi, kind, depth]); k++;
     }
     while (pick.length < N) pick.push(pick[pick.length % Math.max(1, pick.length)] || [0, 1, 0, 0, idx[0], 0, 0]);
@@ -365,11 +365,11 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // one warm ramp by light: tinta (shadow, luma ≈ 0.05–0.10, lost in the night) → terracota (half) → cal-foc (lit, ≤ 0.8)
     const Lk = normalize(side.mul(-0.85).add(vec3(0, 0.85, 0)).add(tE.mul(0.15)));
     const headK = float(1).sub(step(0.25, AX.x)).mul(step(1.35, pl.y));                // the head: no dark band under the jaw, no bulb on top
-    const lk = clamp(dot(nW, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.45)).min(mix(float(1), float(0.82), headK));
+    const lk = clamp(dot(nW, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.4)).min(mix(float(1), float(0.72), headK));   // the head never brighter than the torso
     const ramp = mix(mix(uSAmb, uHalf, smoothstep(0.06, 0.42, lk)), uLit, smoothstep(0.42, 0.92, lk)).mul(B2.xyz);
     let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(lod === 0 ? 1.4 : 2.0))).mul(uSKey);   // far: more contrast, so overlapping bodies part by light and shadow
     colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer
-    colr = colr.add(uSRim.mul(pow(float(1).sub(abs(facing)), 4)).mul(smoothstep(1.15, 1.45, pl.y)).mul(0.6));   // a thin cool rim on the shoulders and head
+    colr = colr.add(uSRim.mul(pow(float(1).sub(abs(facing)), 4)).mul(smoothstep(1.15, 1.45, pl.y)).mul(float(1).sub(headK)).mul(0.6));   // a thin cool rim on the shoulders (not the jaw)
     if (room?.flash) colr = colr.add(uLit.mul(room.flash(C)).mul(0.35));
     // the stage spots of the square (plaza.js part.spots, when given): what stands in a beam is lit by it
     if (spots && SPP) {
