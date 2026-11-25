@@ -17,6 +17,9 @@
 // The ink is the acta's (palette.js: dark ink when the acta is the lit lime wall, bone while it is dark).
 import { typo } from '../typo3d.js';
 import { chapter } from '../palette.js';
+// STUDIO 25-11, Art Director #13: no dials — the four values are a typographic record (one line of serif small caps under the
+// outcome: «FORÇA 35 · EQUILIBRI 12 · VALOR 8 · SENY 28», 60 % ink, a value of 0 not shown); the story lines at capitals 0.18 m;
+// the prints are GOLD HANDPRINTS at real size that STAY WHERE THEY WERE LEFT (no ring, no glide).
 
 const VALUES = [['forca', 'Força'], ['equilibri', 'Equilibri'], ['valor', 'Valor'], ['seny', 'Seny']];
 const OUTCOME = { descarregat: ['descarregat', 'levantado, coronado y bajado sin caer'], carregat: ['carregat', 'coronado, y después cayó'], intent: ['intent', 'cayó antes de la corona'] };
@@ -28,11 +31,11 @@ const NUM = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', '
 const words = (c) => { const t = String(c).replace(/\d+/g, (d) => NUM[+d] ?? d); return t.charAt(0).toUpperCase() + t.slice(1); };   // «3 de 7» → «Tres de siete»
 const CHAPTER = [[1.0, 0.14, 0.014], [0.027, 0.65, 0.56], [0.55, 0.12, 0.04], [0.85, 0.89, 1.0], [0.92, 0.56, 0.1], [0.93, 0.47, 0.56]];
 const VALUE_COL = [CHAPTER[1], CHAPTER[2], CHAPTER[3], CHAPTER[5]];      // Força = Pinya, Equilibri = Tronc, Valor = Pom, Seny = the descent
-const Y = { castell: 1.89, ribbon: 1.5, gloss: 2.64, sentence: 2.2, credits: 2.2, invite: 1.45 };   // castell: its name's caps centred at 2.05 m
+const Y = { castell: 1.89, ribbon: 1.5, gloss: 2.64, sentence: 2.2, credits: 2.2, invite: 1.1, values: 1.36 };   // castell: its name's caps centred at 2.05 m; outcome 1.62; values 1.36; invite 1.1
 // the ring of prints (wall-local metres): centre, two rings; the dials: x, y per value (two each side, inside the walls' free edge)
 const RING = { y: 2.05, rx: [1.95, 2.22], ry: [0.68, 0.87], cap: [40, 48] };
 const DIAL = { r: 0.19, pos: [[-2.58, 2.72], [-2.58, 1.72], [2.58, 2.72], [2.58, 1.72]] };   // ART r5: each value block ×1.6
-const PRINT_H = 0.13, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
+const PRINT_H = 0.12, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
 const env = (t, a, b, c, d) => (t < a || t > d ? 0 : t < b ? smooth((t - a) / (b - a)) : t > c ? 1 - smooth((t - c) / (d - c)) : 1);
@@ -55,6 +58,7 @@ export function create({ THREE, TSL, room, params = {} }) {
   const T = (y, opt = {}, x = 0) => { const t = typo.text({ placements: typo.onWalls(room, y, x), renderOrder: 12, ...opt }); object.add(t.object); return { t, prev: 0 }; };
   const castellT = T(Y.castell, { plate: 0 }), glossT = T(Y.gloss, { plate: 0 }), statT = T(Y.gloss, { plate: 0 }), sentT = T(Y.sentence, { plate: 0, depth: 0.45 }), credT = T(Y.credits, { plate: 0 });
   const inviteT = T(Y.invite, { plate: 0, flash });
+  const valuesT = T(Y.values, { plate: 0, halo: 0.2 });
   const labelT = DIAL.pos.map(([x, y]) => T(y - DIAL.r - 0.37, { plate: 0, max: 16, flash }, x));
   const numT = DIAL.pos.map(([x, y]) => { const o = T(y - DIAL.r - 0.16, { plate: 0, max: 8 }, x); o.shown = -1; return o; });   // ART r5: the figure, in mono, ×2
   sentT.t.set([{ text: SENTENCE[0], font: 'italic', size: 0.13, y: 0.36, track: 0.015, alpha: 0.75, color: INK, rise: true },
@@ -217,12 +221,14 @@ export function create({ THREE, TSL, room, params = {} }) {
     if (key === contentKey) return;
     contentKey = key;
     const O = OUTCOME[outcome] || OUTCOME.descarregat;
-    castellT.t.set([{ text: castell, font: 'serif', size: 0.46 / 0.667, y: 0.16, track: 0.01, color: INK }, { text: O[0], font: 'italic', size: 0.2, y: -0.38, track: 0.02, alpha: 0.95, color: INK, rules: 0.45, rise: true, delay: 0.5 }]);
-    glossT.t.set([{ text: O[1].charAt(0).toUpperCase() + O[1].slice(1), font: 'italic', size: 0.12 / 0.7, y: 0, track: 0.02, alpha: 0.92, color: SOFT }]);
+    castellT.t.set([{ text: castell, font: 'serif', size: 0.46 / 0.667, y: 0.16, track: 0.01, color: INK }, { text: O[0], font: 'italic', size: 0.2, y: -0.27, track: 0.02, alpha: 0.95, color: INK, rules: 0.45, rise: true, delay: 0.5 }]);
+    glossT.t.set([{ text: O[1].charAt(0).toUpperCase() + O[1].slice(1), font: 'italic', size: 0.18 / 0.7, y: 0, track: 0.015, alpha: 0.92, color: SOFT }]);
     // the line of story: who raised it, and what the colla did (D2: the help is named)
     const story = [hands > 0 ? `Levantado por ${hands} ${hands === 1 ? 'mano' : 'manos'}` : 'Levantado por vuestras manos'];
     if (colla > 0) story.push(`La colla ayudó en ${colla} ${colla === 1 ? 'piso' : 'pisos'}`);
-    statT.t.set(story.map((text, i) => ({ text, font: 'italic', size: 0.12 / 0.7, y: story.length > 1 ? (i ? -0.13 : 0.13) : 0, track: 0.03, alpha: 0.9, color: SOFT, reveal: 'blur', delay: i * 0.3 })));
+    statT.t.set(story.map((text, i) => ({ text, font: 'italic', size: 0.18 / 0.7, y: story.length > 1 ? (i ? -0.16 : 0.16) : 0, track: 0.03, alpha: 0.9, color: SOFT, reveal: 'blur', delay: i * 0.3 })));
+    const rec = VALUES.map(([, name], q) => [name, Math.round(values[q] * 100)]).filter(([, v]) => v > 0).map(([name, v]) => `${name.toUpperCase()} ${v}`).join('  ·  ');
+    valuesT.t.set(rec ? [{ text: rec, font: 'serif', size: 0.12 / 0.7, y: 0, track: 0.06, alpha: 0.6, color: INK }] : []);
     const lk = values.join(',');
     if (lk !== labelKey) { labelKey = lk; for (let k = 0; k < 4; k++) labelT[k].t.set([{ text: VALUES[k][1], font: 'sans', size: 0.13, y: 0, track: 0.14, alpha: 0.35 + 0.6 * values[k], color: INK, upper: true, reveal: 'blur' }]); }
   }
@@ -247,6 +253,7 @@ export function create({ THREE, TSL, room, params = {} }) {
     prints.push({ id, wall, x, y, a: 0, s: 1, born: t, form: 0, pop: 0, seed, mir: x < 0 ? 1 : 0, ring: 0, pref, tx: x, ty: y, ta: 0, landed: false, sweep: 0 });
   }
   function layoutRing() {
+    return;   // 25-11 (AD #13): the prints stay where they were left
     // per wall: the prints that have left the hand join the ring, sorted by where they came from, spaced evenly, rotated to fit
     for (let wi = 0; wi < NW; wi++) {
       const L = prints.filter((p) => p.wall === wi);
@@ -336,7 +343,7 @@ export function create({ THREE, TSL, room, params = {} }) {
         const r = 1 - Math.exp(-dt * (p.landed ? 1.6 : 2.4));
         p.x += (p.tx - p.x) * r; p.y += (p.ty - p.y) * r;
         let da = p.ta - p.a; da = Math.atan2(Math.sin(da), Math.cos(da)); p.a += da * r;
-        p.s += (0.82 - p.s) * r;
+        p.s += (1 - p.s) * r;
         if (!p.landed && Math.hypot(p.tx - p.x, p.ty - p.y) < 0.03) { p.landed = true; p.pop = 1; if (firstLand < 0) firstLand = t; }
       } else if (age > 0.7) { p.y += dt * 0.02; }
       p.pop = Math.max(0, p.pop - dt / 0.8);
@@ -347,7 +354,7 @@ export function create({ THREE, TSL, room, params = {} }) {
     }
     // the dotted ring where the prints go (faint; a dot goes out under a landed print)
     for (let wi = 0; wi < NW; wi++) {
-      const dotA = 0.6 * (1 - 0.5 * clamp01(filled[wi] / 8));
+      const dotA = 0;   // no ring of slots (the prints stay where they were left)
       for (let i = 0; i < NSLOT; i++) { const [x, y] = slotDot(0, i / NSLOT); put(1, wi, x, y, 0, 0.02, 1, 0, 0, dotA); }
     }
     piG.instanceCount = n; for (const a of [PA, PB, PN, PD]) a.needsUpdate = true;
@@ -360,6 +367,7 @@ export function create({ THREE, TSL, room, params = {} }) {
     const inv = Math.min(S && S.printOpen != null && S.block === 'acta' ? (S.printOpen ? env(t, 3.0, 4.0, 99, 100) : (t > 3.5 ? 0 : 0)) : env(t, 3.0, 4.0, 21.4, 22), landed ? 1 - 0.2 * smooth((t - firstLand) / 0.6) : 1) * brk;   // 3–22 s; a little dimmer once a print lands
     set(inviteT, inv, k, dt);
     set(statT, env(t, 12, 13.5, 24, 24.6) * brk, k, dt);
+    set(valuesT, env(t, 12.5, 14, 31.8, 32.6) * brk, k, dt);   // the values: a typographic record under the outcome
     set(sentT, env(t, 25, 28, 31.8, 32.6) * brk, k, dt);
     set(credT, env(t, 33.5, 35, 38.8, 39.6) * brk, k, dt);
     for (let i = 0; i < NW; i++) { const rb = ribbons[i]; rb.U.grow.value = clamp01((t - 1.6) / 1.8) * (1 - smooth((t - 13.2) / 0.6)) * brk; rb.U.a.value = k; rb.mesh.visible = rb.U.grow.value > 0.001 && k > 0.002; }
@@ -367,13 +375,13 @@ export function create({ THREE, TSL, room, params = {} }) {
     // ---- the dials: each comes in (bezel and ticks), then its needle swings to the value and settles (a little overshoot)
     let anyDial = 0;
     for (let q = 0; q < 4; q++) {
-      const s0 = 12 + q * 0.7, a = env(t, s0, s0 + 1.0, 31.8, 32.6) * brk * k, U = dialU[q];
+      const s0 = 12 + q * 0.7, a = 0, U = dialU[q];   // AD #13: no dials
       const f = clamp01((t - (s0 + 0.6)) / 2.4), sw = f >= 1 ? 1 : 1 - Math.exp(-f * 5) * Math.cos(f * 7.5);
       U.a.value = a; U.v.value = clamp01(values[q] * sw); U.lit.value = a * values[q];
-      set(labelT[q], env(t, s0 + 0.4, s0 + 1.4, 31.8, 32.6) * brk, k * (0.55 + 0.45 * values[q]), dt);
+      set(labelT[q], 0, k, dt);
       const N = numT[q], pct = Math.round(U.v.value * 100);
       if (pct !== N.shown) { N.shown = pct; N.t.set([{ text: String(pct), font: 'sans', size: 0.22, y: 0, track: 0.02, color: INK, alpha: 0.85 }]); }
-      set(N, (t > s0 + 0.6 ? 1 : 0) * env(t, s0, s0 + 0.01, 31.8, 32.6) * brk, k, dt);
+      set(N, 0, k, dt);
       anyDial = Math.max(anyDial, a);
     }
     uDialA.value = anyDial * 0.9;
@@ -397,6 +405,6 @@ export function create({ THREE, TSL, room, params = {} }) {
     if (recipe) recipe.group.visible = anyDial > 0.002;
     if (typeof window !== 'undefined') window.__acta = { prints: prints.length, landed: prints.filter((p) => p.landed).length, firstLand, t };
   }
-  function dispose() { for (const m of mats) m.dispose(); for (const g of geos) g.dispose(); for (const o of [castellT, glossT, statT, sentT, credT, inviteT, ...labelT, ...numT]) o.t.dispose(); }
+  function dispose() { for (const m of mats) m.dispose(); for (const g of geos) g.dispose(); for (const o of [castellT, glossT, statT, sentT, credT, inviteT, valuesT, ...labelT, ...numT]) o.t.dispose(); }
   return { object, update, dispose };
 }
