@@ -255,7 +255,7 @@ const CTINT = { baixada: [0.95, 1.12, 2.6], fall: [0.95, 1.05, 2.2], pinya: [0.6
 const pal = { warm: [...PAL.wait.warm], cool: [...PAL.wait.cool], air: [...PAL.wait.air], tint: [1, 1, 1], sky: [1, 1, 1], line: [...PAL.wait.thread], lineK: 0, halo: 1 };
 // the horizon line of atmos (QA 24-11: no amber band outside the intro): the intro's own, full; elsewhere thin (no soft band) in the
 // block's accent, dimmer; the acta keeps a fine white line; the wait has none
-const LINEK = { intro: 1, acta: 0.3 };   // elsewhere: no line (QA/director 24-11: the amber band at ~1.3 m in tronc)
+const LINEK = {};   // 25-11 (Art Director): no horizon line anywhere — the long line at ~1.4 m read as a bug
 function easePal(dt) { const T = PAL[S.block] || PAL.intro, C = CTINT[S.block] || ONE3; for (const k of ['warm', 'cool', 'air']) for (let i = 0; i < 3; i++) pal[k][i] = ease(pal[k][i], T[k][i], dt, 0.6); const K = STINT[S.block] || ONE3; const lk = LINEK[S.block] ?? 0; pal.lineK = ease(pal.lineK, lk, dt, 0.8); pal.halo = ease(pal.halo, S.block === 'intro' ? 1 : 0, dt, 0.8); for (let i = 0; i < 3; i++) pal.line[i] = ease(pal.line[i], T.thread[i], dt, 0.6); for (let i = 0; i < 3; i++) { pal.tint[i] = ease(pal.tint[i], C[i], dt, 0.6); pal.sky[i] = ease(pal.sky[i], K[i], dt, 0.4); } }
 
 // ------------------------------------------------------------------------------------------------ the transition (T-028)
