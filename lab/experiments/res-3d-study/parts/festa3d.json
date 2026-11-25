@@ -16,6 +16,28 @@
   ]
  },
  {
+  "key": "festaLook",
+  "label": "Festa: the resonance's look",
+  "type": "select",
+  "default": "aigua",
+  "options": [
+   [
+    "aigua",
+    "Water (pool)"
+   ],
+   [
+    "camps",
+    "Threads (fields)"
+   ]
+  ]
+ },
+ {
+  "key": "useOldFesta",
+  "label": "Festa: the old resonance (plate + sand), rollback",
+  "type": "bool",
+  "default": false
+ },
+ {
   "key": "crown",
   "label": "Festa: crown time override (0 = clock)",
   "type": "number",

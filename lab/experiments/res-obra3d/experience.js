@@ -117,7 +117,7 @@ function steadyOn(e) { for (const l of e.steady) if (l.intensity === 0 && l.user
 // dunes, far floor; the serpentine at 5–10 m is lit and goes down with its lights); `all` covers the whole threshold. Uniforms only.
 // Bloom per block (ART: the noon's whites keep their relief): the wait 0.07 on screen with threshold 1.0; the night's bloom comes back
 // only once the noon has gone (dusk.t ≥ 2.3 s), so no halo ever blooms over the sand.
-const BLOOM = { wait: { strength: 0.14, threshold: 1.0 } };          // strength in the host's scale: room3d applies × 0.5 (BLOOM_K) → 0.07
+const BLOOM = { wait: { strength: 0.14, threshold: 1.0 }, festa: { strength: 0.3, threshold: 0.9 } };   // festa: ARTE-RESSONANCIA, 0.15 on screen (fine lines, no glow)          // strength in the host's scale: room3d applies × 0.5 (BLOOM_K) → 0.07
 const bloomTo = (b) => BLOOM[b] || { strength: P.bloom, threshold: 0.85 };
 const bloomNow = { ...bloomTo('wait') };
 const linC = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
