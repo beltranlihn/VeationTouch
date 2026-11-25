@@ -1084,7 +1084,7 @@ export default async function start(host) {
     if (b === 'brasa' && callAt >= 0 && S.stage === 'brasa:call' && S.clock - callAt > CALL_LATE) { callAt = -1; cue('call:late'); }
     if (b === 'pom' && !nearSaid && S.pomStage === 'silence' && (S.climb || 0) > 0.7) { nearSaid = true; cue('pom:near'); }
     // no 20 s without guidance (25-11): in a block that asks for hands, nothing achieved and nothing said for 22 s → «Dejad la mano sobre la luz.»
-    if (NUDGE.has(b) && ph === 'play' && S.clock - lastAchClock > 22 && S.clock - lastSaidClock > 22) { lastAchClock = S.clock; cue('nudge'); }
+    if (NUDGE.has(b) && ph === 'play' && !/:(free|reward|bloom)$/.test(S.stage || '') && S.clock - lastAchClock > 22 && S.clock - lastSaidClock > 22) { lastAchClock = S.clock; cue('nudge'); }
     if (!on) return;
     musicKeep(); ambKeep();
     // the threshold: as play reveals the button, glass motes gather (more and brighter); the start ring raises a glass tone
