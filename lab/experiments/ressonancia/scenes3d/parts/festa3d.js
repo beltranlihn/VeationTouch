@@ -629,8 +629,10 @@ export function create({ THREE, TSL, room, params, parts }) {
     fm.colorNode = Fn(() => {
       const s = wrapS(vSD.x), d = vSD.y, q = fieldUV(s, clamp(d.mul(0.5).add(0.15), 0.0, HG));
       const D = field.sample(q), h = D.x;
-      const lines = exp(fract(h.mul(7.0)).sub(0.5).mul(fract(h.mul(7.0)).sub(0.5)).div(-0.012)).mul(smoothstep(0.015, 0.12, abs(h)));
-      const glow = smoothstep(0.02, 0.5, abs(h)).mul(0.35);
+      // AD#10: soft concentric rings that expand and fade (only the gentle part of the wave; its steep crests read as hard zigzags)
+      const fr = fract(h.mul(5.0)).sub(0.5), gentle = smoothstep(0.012, 0.08, abs(h)).mul(float(1).sub(smoothstep(0.3, 0.7, abs(h))));
+      const lines = exp(fr.mul(fr).div(-0.03)).mul(gentle).mul(0.6);
+      const glow = gentle.mul(0.12);
       const fade = smoothstep(0.0, 0.4, d).mul(float(1).sub(smoothstep(6.0, 11.0, d)));
       return vec4(mix(P_OR, P_ORC, lines).mul(lines.mul(0.9).add(glow)).mul(fade).mul(U.arrive).mul(float(1).sub(U.leave)), 1);
     })();
