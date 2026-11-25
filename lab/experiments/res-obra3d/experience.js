@@ -97,8 +97,11 @@ for (const name of NAMES) {
 const has = (n) => !!parts[n];
 // T-057: a steady light is dimmed to 0 while its part is gone and given back its intensity when the part comes back (parts that set the
 // intensity once, e.g. a room.lightRecipe().group, stayed dark after their first exit). The value kept is the last one > 0 the light had.
-function steadyOff(e) { for (const l of e.steady) { if (l.intensity > 0) l.userData.hostIntensity = l.intensity; l.intensity = 0; } }
-function steadyOn(e) { for (const l of e.steady) if (l.intensity === 0 && l.userData.hostIntensity != null) l.intensity = l.userData.hostIntensity; }
+// 25-11 (VFX e9bb10a): never EXACTLY 0 — a light going 0 → x rebuilds every lit pipeline (the 0.7 s hitch at intro → Brasa). LIGHT_OFF is
+// invisible (the only key light with a shadow, the plaza's moon, has a static map: no per-frame shadow pass for an 'off' light).
+const LIGHT_OFF = 1e-4;
+function steadyOff(e) { for (const l of e.steady) { if (l.intensity > LIGHT_OFF) l.userData.hostIntensity = l.intensity; l.intensity = LIGHT_OFF; } }
+function steadyOn(e) { for (const l of e.steady) if (l.intensity <= LIGHT_OFF && l.userData.hostIntensity != null) l.intensity = l.userData.hostIntensity; }
 lt('parts'); const guide = createGuide({ THREE, TSL, room, fine: LAB && q.get('fine') === '1' });   // lab ?fine=1: the instrument graphics (rulers, «P4», «1,25 m»); never in the room
 room.overlay.add(guide.object);
 const targets3d = LAB && q.get('tg') === '0' ? { object: new THREE.Group(), update() {}, count: 0 } : createTargets3D({ THREE, TSL, room }); room.scene.add(targets3d.object);   // lab ?tg=0: without them (isolating a cost / an error)
@@ -608,7 +611,7 @@ async function warmUp() {
     room.overlay.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
     // 25-11 (QA: a 60 → 7 fps dip at wait → intro): the parts' key / moon lights are at 0 while their part is gone, so the shadow
     // passes (and every caster's depth material) were first built on the intro's first lit frame. Here they are lit for the two frames.
-    const lit0 = []; for (const e of list) for (const l of e.steady) { lit0.push(l, l.intensity); if (!(l.intensity > 0)) l.intensity = l.userData.hostIntensity || 1; if (l.castShadow && l.shadow) { l.shadow.needsUpdate = true; l.userData.shadowDirty = true; } }
+    const lit0 = []; for (const e of list) for (const l of e.steady) { lit0.push(l, l.intensity); if (!(l.intensity > LIGHT_OFF)) l.intensity = l.userData.hostIntensity || 1; if (l.castShadow && l.shadow) { l.shadow.needsUpdate = true; l.userData.shadowDirty = true; } }
     room.setTiles({ on: true, mix: 0.5 });
     for (let k = 0; k < 2; k++) { room.render(1 / 60, () => {}); await new Promise((r) => requestAnimationFrame(r)); }
     room.setTiles({ on: false, mix: 0 });
@@ -665,7 +668,63 @@ async function warmSetsLater() {
       await new Promise((r) => setTimeout(r, 250));
     }
     lt('warm:setsLater');
+    try { await warmRealSets(); } catch (err) { console.info('res-obra3d: real-set warm-up skipped (' + err.message + ')'); }
+    lt('warm:realSets');
     console.info(`res-obra3d: warmed ${order.length + 1} light sets (${carriers.map((e) => e.name).join(', ') || 'none'}), ${Math.round(performance.now() - t0)} ms in the background`);
   } finally { prewarm.busy = false; }
+}
+// 25-11 (QA + VFX: the 60 → 5 fps dip a few seconds into the intro): compileAsync does not draw shadow maps, and a static shadow map
+// (the plaza's moon) builds its depth materials on the first frame it is really rendered — the intro's. Here, still in the wait, the next
+// sets are each rendered ONCE for real (their parts updated with that block's look, their key / moon lights on, shadow maps dirty) into the
+// strip: the next wall frame clears the strip and draws the wait over it, the canvas never sees these renders. A one-off cost in the wait
+// (the compile itself), none at the intro. Sets: the intro with the threshold still there (its first frames), the intro alone, Brasa, Tronc.
+async function warmRealSets() {
+  if (P.warmReal === false) return;   // lab switch (not in the manifest): as before 25-11
+  const ms = warmLater.real = [];
+  const inWait = () => S.block === 'wait' && lastBlock === 'wait' && !tr.on;
+  // [block, the block still leaving beside it (its parts shown as they are, lights on) or '', the arriving parts' arrive]: the wait → intro
+  // and intro → Brasa crossings as their first frames draw them (arrive 0: brasa3d's fires start at intensity 0), then each block alone.
+  // A 4th value: the parts on both sides (the plaza) drawn breaking at that leave / shatter (intro → Brasa is a REFORM: the square breaks)
+  const sets = [['intro', 'wait', 0], ['intro', 'wait', 1], ['intro', '', 1], ['brasa', 'intro', 0], ['brasa', 'intro', 0.1, 0.2], ['brasa', 'intro', 0.1, 0.9], ['brasa', '', 1], ['tronc', 'brasa', 0.1], ['tronc', '', 1]].filter(([b]) => wanted(b).some(has));
+  const cam = room.walls[0].camera.clone();
+  for (const [b, from, arr, brk = 0] of sets) {
+    if (!inWait()) return;
+    const both = from ? new Set(wanted(from).filter(has)) : new Set();
+    const on = new Set(wanted(b).filter(has)), keep = from ? new Set(wanted(from).filter((n) => has(n) && !on.has(n))) : new Set();
+    const saved = [], culled = [], lit0 = [];
+    const st = Object.assign({}, S, { block: b, t: 20, progress: 0.4 });
+    for (const e of list) {
+      saved.push(e, e.part.object.visible, e.rig.visible);
+      const show = on.has(e.name) || keep.has(e.name);
+      e.part.object.visible = show; e.rig.visible = show;
+      if (!show) continue;
+      for (const l of e.lights) l.visible = true;
+      for (const l of e.steady) { lit0.push(l, l.intensity); if (!(l.intensity > LIGHT_OFF)) l.intensity = l.userData.hostIntensity || 1; if (l.castShadow && l.shadow) l.shadow.needsUpdate = true; }
+      if (!on.has(e.name)) continue;                                   // leaving: drawn as it is, lights on, not updated
+      const p = Object.assign({}, e.params);
+      for (const k in e.base) if (typeof e.base[k] === 'number') p[k] = e.base[k];
+      if (e.name === 'plaza') Object.assign(p, b === 'intro' ? { noBreak: P.tiles !== false, skyTint: INTRO_SKY, silhouette: 0, shatter: 0, reveal: 0, windows: Math.max(0.55, e.base.windows ?? 0.45), pool: 1.5, moonKey: 1, night: 1, reach: 0.4 } : { noBreak: false, skyTint: pal.sky, silhouette: 0, shatter: 0, reveal: 0, pool: 1, moonKey: 1, night: 0, reach: 1 });
+      const go = brk > 0 && both.has(e.name);                      // continuing through a REFORM: it breaks
+      if (go && e.name === 'plaza') p.shatter = brk;
+      if (e.name === 'atmos') { p.warm = pal.warm; p.cool = pal.cool; p.air = pal.air; p.lineColor = pal.line; p.lineHalo = pal.halo; }
+      const wi = { time: performance.now() / 1000, t: 20, dt: 1 / 60, progress: 0.4, hands: [], downs: [], ups: [], params: p, state: st, events: [], arrive: go ? 1 : arr, leave: go ? brk : 0, acta };
+      try { e.part.update(1 / 60, wi); } catch (err) { console.info(`res-obra3d: real-set warm-up of "${e.name}" skipped (${err.message})`); }
+    }
+    room.scene.traverse((o) => { if (o.frustumCulled) { culled.push(o); o.frustumCulled = false; } });   // one camera, every wall's objects
+    const rt0 = room.renderer.getRenderTarget();
+    const r0 = performance.now();
+    targets3d.prime?.(true);                                          // the targets' skins too (Brasa's braziers: first drawn at intro → Brasa)
+    try { room.renderer.setRenderTarget(room.strip); room.renderer.render(room.scene, cam); }
+    finally {
+      targets3d.prime?.(false);
+      room.renderer.setRenderTarget(rt0);
+      for (const o of culled) o.frustumCulled = true;
+      for (let i = 0; i < lit0.length; i += 2) { lit0[i].intensity = lit0[i + 1]; if (lit0[i].castShadow && lit0[i].shadow) { lit0[i].shadow.needsUpdate = true; lit0[i].userData.shadowDirty = true; } }   // the block's own first frame redraws its map
+      for (let i = 0; i < saved.length; i += 3) { const e = saved[i]; e.part.object.visible = saved[i + 1]; e.rig.visible = saved[i + 2]; if (e.state === 'off') { for (const l of e.lights) l.visible = false; steadyOff(e); } }
+    }
+    ms.push([(from ? from + '>' : '') + b + '@' + arr + (brk ? '/brk' + brk : ''), Math.round(performance.now() - r0)]);
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  console.info(`res-obra3d: rendered ${sets.length} next sets once in the wait (${sets.map(([b, fr, a]) => (fr ? fr + '>' : '') + b + '@' + a).join(', ')})`);
 }
 setTimeout(() => { warmSetsLater().catch((err) => console.info('res-obra3d: light-set warm-up skipped (' + err.message + ')')).finally(() => { warmLater.running = false; warmEnd(); }); }, 500);
