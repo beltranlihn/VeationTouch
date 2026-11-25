@@ -101,7 +101,8 @@ function steadyOff(e) { for (const l of e.steady) { if (l.intensity > 0) l.userD
 function steadyOn(e) { for (const l of e.steady) if (l.intensity === 0 && l.userData.hostIntensity != null) l.intensity = l.userData.hostIntensity; }
 lt('parts'); const guide = createGuide({ THREE, TSL, room, fine: LAB && q.get('fine') === '1' });   // lab ?fine=1: the instrument graphics (rulers, «P4», «1,25 m»); never in the room
 room.overlay.add(guide.object);
-const targets3d = createTargets3D({ THREE, TSL, room }); room.overlay.add(targets3d.object);   // over the image, like the guide (the rules: ../ressonancia/targets.js)   // T-028: the guide is drawn over the final image (after the tiles: the words never break); its materials are depthTest-free
+const targets3d = LAB && q.get('tg') === '0' ? { object: new THREE.Group(), update() {}, count: 0 } : createTargets3D({ THREE, TSL, room }); room.overlay.add(targets3d.object);   // lab ?tg=0: without them (isolating a cost / an error)
+//   // v4: objects of the world, in its light and depth (the rules: ../ressonancia/targets.js)   // T-028: the guide is drawn over the final image (after the tiles: the words never break); its materials are depthTest-free
 // compile every material once, now, so a universe arriving later does not stall the room
 // T-057 (prewarmRT): into the strip's format — with no target, compileAsync built pipelines for the canvas that no frame uses
 const toStrip = async (fn) => { const rt0 = room.renderer.getRenderTarget(); if (P.prewarmRT !== false) room.renderer.setRenderTarget(room.strip); try { return await fn(); } finally { room.renderer.setRenderTarget(rt0); } };
@@ -173,7 +174,7 @@ function readHands() {
 
 // ------------------------------------------------------------------------------------------------ which parts, block by block
 let fallSet = ['atmos'];
-// 05-plan M4 (Modelado): the SAME castell persists from the Tronc to the coronation — tronc3d stays on in crown / festa (not in pom), in the
+// 05-plan M4 (Modelado): the SAME castell persists from the Tronc to the coronation — tronc3d stays on in pom / crown / festa, in the
 // mode of each block (setMode below, on every block change). Only once tronc3d has setMode: before that, nothing changes here.
 const CASTELL_MODE = { tronc: 'build', pom: 'top', crown: 'crowned', festa: 'crowned', baixada: 'down' };
 const castellKept = () => (typeof parts.tronc3d?.part.setMode === 'function' ? ['tronc3d'] : []);
@@ -192,7 +193,7 @@ function wantedBase(b) {
     case 'baixada':                                                  // 3D-FE: the group's tower (tronc3d) is brought down floor by floor (3D-PO, takeFloor)
       if (has('tronc3d')) return has('baixada3d') ? ['plaza', 'tronc3d', 'baixada3d'] : ['tronc3d', 'atmos'];   // plaza as a black silhouette against 3D-PO's dawn (far layer)   // director 24-11: no night square over the dawn; 3D-PO hides tronc3d's floors itself
       return has('baixada3d') ? ['plaza', 'castell', 'baixada3d', 'atmos'] : ['plaza', 'castell', 'atmos'];
-    case 'pom': return has('pom3d') ? ['pom3d'] : ['plaza', 'castell', 'atmos'];   // 25-11: no tronc3d here — pom3d draws its own castell top and climbers
+    case 'pom': return has('pom3d') ? ['plaza', ...castellKept(), 'pom3d'] : ['plaza', 'castell', 'atmos'];   // 25-11 (art direction): the same square at its darkest, the tower 'top', pom3d's climbers and gold light on it
     case 'crown': case 'festa': return has('festa3d') ? ['festa3d', ...castellKept()] : ['plaza', 'castell', 'atmos'];
     case 'fall': return fallSet;
     case 'acta': return ['actatext', 'atmos'];
@@ -522,7 +523,7 @@ function frame(dt) {
         if (e.home === 'fall') { if (S.block === 'fall') e.fallK = clamp(S.t / 9, 0, 1); sh = Math.max(sh, e.fallK); }
         p.shatter = sh; p.reveal = 0;
         const dim = e.state === 'out' && S.block === 'acta' ? 1 - smooth(Math.min(1, e.leave * 2)) : 1;   // its light goes first: the next universe's words read at once
-        e.mood = ease(e.mood ?? 1, e.home === 'baixada' || e.home === 'fall' ? 0.18 : 1, dt, 1.2);   // 25-11 (VFX): tronc keeps its lamps — the lit square (plaza V8) is the tronc's light now (was 0.2)   // the baixada: the square goes into night
+        e.mood = ease(e.mood ?? 1, e.home === 'baixada' || e.home === 'fall' || e.home === 'pom' ? 0.18 : 1, dt, 1.2);   // pom: the square at its darkest, lamps almost off   // 25-11 (VFX): tronc keeps its lamps — the lit square (plaza V8) is the tronc's light now (was 0.2)   // the baixada: the square goes into night
         const night = (e.mood - 0.18) / 0.82;   // 0 in the baixada's night … 1 elsewhere
         p.lamps = (e.base.lamps ?? 1) * dim * e.mood; p.sky = (e.base.sky ?? 1) * dim * (0.15 + 0.85 * night); p.windows = (e.base.windows ?? 0.45) * dim * (0.15 + 0.85 * night); p.moon = (e.base.moon ?? 1) * (0.12 + 0.88 * night);
         p.glow = (e.base.glow ?? 0.3) * e.mood; p.haze = (e.base.haze ?? 1) * (0.2 + 0.8 * night);
