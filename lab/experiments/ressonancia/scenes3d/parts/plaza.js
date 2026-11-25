@@ -1436,7 +1436,7 @@ export function create(ctx) {
     pomK += (((blk === 'pom' || (!input.state && pr.pom)) ? 1 : 0) - pomK) * Math.min(1, dt * 1.2); uPom.value = pomK;
     if (pomK > 0.01) { uWin.value *= 1 - 0.75 * pomK; uStars.value *= 1 - 0.5 * pomK; moon.intensity *= 1 - 0.6 * pomK; hemi.intensity *= 1 - 0.6 * pomK; uFog.value = Math.max(uFog.value, 0.008 * pomK); }
     if (nightK > 0.01) { moon.color.setRGB(0.36, 0.35, 0.36); moon.intensity *= 1 - 0.6 * nightK; hemi.color.setRGB(0.2, 0.2, 0.24); hemi.intensity *= 1 - 0.5 * nightK; }   // Brasa (AD#5): only the fire gives colour
-    if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, input.state?.progress ?? 0)); object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 0.7 - 0.5 * pg; uStars.value *= 0.4 * (1 - pg);
+    if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, Math.max(input.state?.progress ?? 0, (input.state?.t ?? 0) / 45)));   // AD#14: the lamps go out visibly over the chapter (by time too) object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 0.7 - 0.5 * pg; uStars.value *= 0.4 * (1 - pg);
       hemi.color.setRGB(0.42, 0.55, 0.95); hemi.groundColor.setRGB(0.18, 0.14, 0.2); hemi.intensity = Math.max(hemi.intensity, 0.55 + 0.35 * pg); moon.color.setRGB(0.95, 0.7, 0.7); moon.intensity = Math.max(moon.intensity, 0.35 + 0.3 * pg); blueProg = pg; } else blueProg = 0;
     uDawn.value = blueK * smooth01((blueProg - 0.1) / 0.85);   // the blue hour: a cool sky fill, a rose dawn key;   // the lamps go out as the tower comes down
     uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low';

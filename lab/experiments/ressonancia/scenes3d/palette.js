@@ -63,7 +63,7 @@ export const PAL = {
   wait:    { tones: ['tinta', 'pedra-nit', 'os'], accent: 'or', accentK: 0.4, light: 'os', shadow: 'tinta', ink: 'os', luma: 0.10, dark: true,
     story: 'The square asleep', sky: { top: ['pedra-nit', 0.55], horizon: ['pedra-nit', 0.9], bottom: ['tinta', 0.8] } },
   intro:   { tones: ['tinta', 'blau-plaça', 'cal-fanal'], accent: 'fanal', light: 'cal-fanal', shadow: 'tinta', ink: 'os', luma: 0.14, dark: true,
-    story: 'The lanterns: first islands of lit lime', sky: { top: ['blau-plaça', 0.75], horizon: ['blau-plaça', 1.25], bottom: ['tinta', 0.9] } },
+    story: 'The lanterns: first islands of lit lime', sky: { top: ['tinta', 0.85], horizon: ['blau-plaça', 0.6], bottom: ['tinta', 0.85] } },   // AD#14: near-night, linking with the dark square
   brasa:   { tones: ['carbó', 'brasa', 'flama'], accent: 'or', light: 'flama', shadow: 'carbó', ink: 'os', luma: 0.15, dark: true,
     story: 'The one chapter of fire over dark', sky: { top: ['tinta', 0.75], horizon: ['blau-plaça', 0.5], bottom: ['tinta', 1.0] } },   // a COOL night: the warm comes only from the fires
   pinya:   { tones: ['cal-foc', 'terracota', 'ombra'], accent: 'faixa', light: 'cal-foc', shadow: 'ombra', ink: 'os', luma: 0.18, dark: true,

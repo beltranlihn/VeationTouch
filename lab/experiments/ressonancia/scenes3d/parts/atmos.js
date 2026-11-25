@@ -324,6 +324,7 @@ export function create({ THREE, TSL, room, params }) {
     U.line.value = lineOn * (1 - 0.2 * ss(24, 34, t)) * (1 - 0.8 * ss(46, 53, t)) * lineB;
     U.head.value = (lt > 0 ? (lt < 1 ? 1 : 0) : ss(8.0, 9.0, t) * (1 - ss(22.2, 25.5, t))) * lineB;
     U.flash.value = (lt > 0 ? 0 : ss(21.3, 22.1, t) * (1 - ss(22.1, 26.0, t))) * lineB;
+    if (room.background?.name === 'pom') { U.head.value = 0; U.flash.value = 0; U.line.value *= 0.3; }   // AD#14: no white sparkle in the Pom
 
     // hands
     let nh = 0;

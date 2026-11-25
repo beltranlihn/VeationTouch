@@ -436,7 +436,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   const GRADE = {
     wait:    { ev: 0.35, sat: 0.9, contrast: 1.0, lo: 'tinta', loK: 0.3, hi: 'os', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.0072, height: 0.22, heightK: 0.5, start: 3.6, max: 0.7 } },
-    intro:   { ev: 0.75, sat: 0.95, contrast: 1.0, lo: 'blau-plaça', loK: 0.3, hi: 'cal-fanal', hiK: 0.15, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
+    intro:   { ev: 0.5, sat: 0.95, contrast: 1.0, lo: 'blau-plaça', loK: 0.3, hi: 'cal-fanal', hiK: 0.15, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.012, height: 0.25, heightK: 0.5, start: 3.6, max: 0.75, key: { dir: [0, 0.05, -1], token: 'fanal', k: 0.25 } } },
     brasa:   { ev: 0.35, sat: 0.85, contrast: 1.06, lo: 'tinta', loK: 0.25, hi: 'flama', hiK: 0.06, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.35, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.012, height: 0.22, heightK: 0.6, start: 4.5, max: 0.7 } },   // smoke: dark, the fires light it (no colour veil)

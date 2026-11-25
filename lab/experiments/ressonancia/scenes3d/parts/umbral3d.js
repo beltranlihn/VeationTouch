@@ -197,7 +197,7 @@ export function create(ctx) {
       Nn.crossVectors(Tu, Tv).normalize(); if (Nn.x * P0.x + Nn.z * P0.z > 0) Nn.negate();      // towards the public
       // what it is: kind at rest (0 bone, 1 mirror, 2 graphite) and its glaze
       const u = rnd(), vein = Math.abs(Math.sin(cu * 0.31 + 1.7 * Math.sin(cy * 0.55 + cu * 0.07)));
-      let kind = s.mother ? 0 : (vein < 0.04 ? 1 : u < 0.2 ? 2 : 0);   // AD#12: no mirror mothers (the chrome gems); a thin mirror vein only
+      let kind = s.mother ? 0 : (u < 0.2 ? 2 : 0);   // AD#12: no mirror mothers (the chrome gems); a thin mirror vein only
       // its rosette: the nearest mother piece; its glaze: the rosette's family, in rings round the heart
       let ros = 0, rd = 1e9; mothers.forEach((M, k) => { const d = Math.hypot(wrapU(cu - M.cu), cy - M.y); if (d < rd) { rd = d; ros = k; } });
       const fam = FAMILY[mothers[ros].fam], bandN = Math.floor(rd / 0.62 + rnd() * 0.3);
@@ -428,7 +428,7 @@ export function create(ctx) {
   }
 
   // ---- materials and meshes of the loose shards
-  const mirrorM = new THREE.MeshPhysicalNodeMaterial({ color: 0xf2f3f6, metalness: 1, roughness: 0.14, envMap: env, envMapIntensity: 1.0 });   // a soft mirror: the lighthouse leaves a sheen on it, not a burnt core
+  const mirrorM = new THREE.MeshPhysicalNodeMaterial({ color: 0x3a3836, metalness: 0.15, roughness: 0.55, envMap: env, envMapIntensity: 0.35 });   // AD#14: no chrome — a dark glazed stoneware back   // a soft mirror: the lighthouse leaves a sheen on it, not a burnt core
   function glazeMat(attr, glowU) {
     const m = new THREE.MeshPhysicalNodeMaterial({ color: 0xffffff, roughness: 0.36, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, normalMap: crackle, normalScale: new THREE.Vector2(0.5, 0.5), envMap: env, envMapIntensity: 1.0 });
     m.colorNode = vec3(instancedBufferAttribute(attr));
