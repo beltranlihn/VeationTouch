@@ -72,7 +72,7 @@ function imageStats(img) {
 
 app.whenReady().then(async () => {
   if (!URL_) return say({ error: 'no url' }, 2);
-  const errors = [];
+  const errors = [], skipped = [];   // skipped: every «… skipped (…)» line at any level (info included), reported, not gated
   // offscreen: it paints while hidden (a plain hidden window gets no frames)
   const win = new BrowserWindow({ show: false, width: W, height: H, useContentSize: true, webPreferences: { backgroundThrottling: false, offscreen: true, partition: `vt-lab-${process.pid}` } });
   // checks are silent: nobody listens to a hidden window, and it would play through the computer's speakers. The page's audio
@@ -80,6 +80,7 @@ app.whenReady().then(async () => {
   if (process.env.LAB_AUDIBLE !== '1') win.webContents.setAudioMuted(true);
   win.webContents.on('console-message', (e, level, message) => {
     const lv = e?.level ?? level, msg = e?.message ?? message;
+    if (/skipped/i.test(String(msg)) && skipped.length < 40) skipped.push(String(msg).slice(0, 200));
     if (lv === 'error' || lv === 3) errors.push(String(msg).slice(0, 300));
     // gate (25-11): a part the host skips («failed to load», «… is not defined») hides a whole chapter behind a mere warning — an ERROR here
     else if ((lv === 'warning' || lv === 2) && /failed to load|is not defined|skipped [(]/i.test(String(msg)) && !/setEnvironment|releaseTronc|precompile|warm-up/i.test(String(msg))) errors.push('[warn] ' + String(msg).slice(0, 300));
@@ -102,7 +103,7 @@ app.whenReady().then(async () => {
       if (cfg.width && img.getSize().width !== Number(cfg.width)) img = img.resize({ width: Number(cfg.width), quality: 'best' });
       if (SHOT) fs.writeFileSync(SHOT, img.toPNG());
     }
-    say({ url: win.webContents.getURL(), title: win.getTitle(), errors, result, ...(stats ? { stats } : {}) }, errors.length ? 1 : 0);
+    say({ url: win.webContents.getURL(), title: win.getTitle(), errors, skipped, result, ...(stats ? { stats } : {}) }, errors.length ? 1 : 0);
   } catch (e) {
     say({ error: String(e.message || e), errors }, 2);
   }
