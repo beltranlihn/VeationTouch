@@ -590,7 +590,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     card.want(g.card ? 'c|' + g.card.join('|') : '', g.card ? cardItems(g.card) : null);
     const L = g.line && (g.line[0] || g.line[1]) ? g.line : null;   // (an empty invitation with a label: the floor's / climber's name alone)
     if (L && !(b === 'brasa' && S.brasaStage === 'relay') && blocked(S, b, L[0], time)) lineNonce++;
-    line.want(L ? 'l|' + lineNonce + '|' + L.join('|') : '', L ? lineItems(L) : null);
+    line.want(L ? 'l|' + lineNonce + '|' + (S.stage || '') + '|' + L.join('|') : '', L ? lineItems(L) : null);   // a consigna lives within its stage
     // 25-11: no plates; a tight soft halo (lighter on the light chapters, where the ink is dark)
     for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : 0.3; }
     if (!card.up) { for (const t of card.texts) t.P.forEach((P, w) => { const side = b === 'crown' ? Math.min(2.1, room.walls[w].width / 2 - 1.7) : 0; P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], side); }); }   // beside the crowned castell (seen at the centre of every wall), never across a corner (the P3→P4 seam)
@@ -610,10 +610,11 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     const cardUp = card.up;
     // N6: the wall that calls carries the consigna at 100 % and first; the others an echo at 30 %, 0.6 s later (not for the calls to
     // all, l'aleta, the wait's invitation or a warning)
-    const fw = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;
-    const allCall = !!warn || (b === 'brasa' && S.brasaStage === 'call') || (b === 'festa' && S.festaStage === 'call') || S.phase === 'aleta' || (b === 'wait' && (S.reveal ?? 1) < 1);
+    let fw = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // no calling wall: the wall with the most hands
+    if (fw < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fw = w; } }); }
+    const allCall = !!warn || (b === 'brasa' && S.brasaStage === 'call') || (b === 'festa' && S.festaStage === 'call') || (b === 'wait' && (S.reveal ?? 1) < 1);
     const focusOn = fw >= 0 && !allCall;
-    const mask = (w) => (!!warn || !structureOnly || inS[w] ? (focusOn && w !== fw ? 0.3 : 1) : 0);   // a warning goes on every wall
+    const mask = (w) => (!!warn || S.phase === 'aleta' || !structureOnly || inS[w] ? (focusOn && w !== fw ? 0.3 : 1) : 0);   // a warning and l'aleta go on every wall
     const lead = focusOn ? (w) => (w === fw ? 0 : 0.6) : null;
     // the wait: the instruction is the lintel inscription of ENT-F's doorway (keystone ~1.95 m): one line centred at 2.12 m. It moves
     // only while no words are up (never slides in view)
@@ -632,9 +633,10 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     stepAch(dtT, S, events, time);
     if (warn) for (const t of line.texts) { t.U.sweepK.value = 1; t.U.sweep.value = ((time0 * 0.9) % 1.6) - 0.3; }   // the warning pulses
     // the walls outside the structure: «Ayudad desde aquí» (they count at 50 %), while the structure's walls carry the invitation
-    const outOn = on && structureOnly && !warn && S.phase !== 'reward' && !learnedNow && (b === 'tronc' || b === 'pom' || b === 'baixada');
+    // the walls outside the structure carry their line ONLY in the stages that ask for every wall's hands (a consigna lives within its stage)
+    const outOn = on && structureOnly && !warn && S.phase === 'play' && (S.stage === 'tronc:lift' || S.stage === 'pom:relay' || S.stage === 'baixada:lower');
     const outWord = b === 'tronc' ? CUES['title:tronc'].others : 'Sostened la luz';   // the Tronc's targets are blocks; elsewhere the target is «la luz»
-    lineOut.want(outOn ? 'o|' + outWord : '', outOn ? lineItems([outWord, '']) : null);
+    lineOut.want(outOn ? 'o|' + (S.stage || '') + '|' + outWord : '', outOn ? lineItems([outWord, '']) : null);
     lineOut.step(dtT, { gain, hold: hold || cardUp, mask: (w) => !inS[w], gate: waveGate });
   }
   function dispose() {
