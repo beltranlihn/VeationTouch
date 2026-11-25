@@ -26,6 +26,7 @@
 //   { type: 'fx', fx: 'impact', wall, u (0..1 along the wall), strength (0..1), mat ('ceramic'|'chrome'|'glass'), kind ('hit'|'floor'|'break'|'hook') }
 // (≤ 16 a second). How it is drawn: the mosaic is ONE mesh; a small float texture carries each piece's turn, lift, light and scale
 // (springs and waves on the CPU, the pose in the vertex stage). Its mirror image under a black gloss is the floor's reflection.
+import { lin as palLin } from '../palette.js';
 import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 import { createScore } from '../../score.js';
 
@@ -49,12 +50,13 @@ export function create(ctx) {
   // the palette (linear): at rest bone, graphite, chrome; the glaze behind every piece — the colours of the chapters to come
   const BONE = [0.66, 0.63, 0.57], GRAPHITE = [0.022, 0.023, 0.026], GOLD = [0.86, 0.5, 0.09];   // bone #F1ECE2 (kept under the bloom), graphite #1A1B20, gold #F6C65B
   // the glaze behind the pieces, by FAMILIES — one per rosette, the colours of the chapters to come: [heart, first ring, outer ring, accent]
+  // VFX 25-11 (palette.js, D4b): the families from the palette of the work — no coral / turquoise / cobalt / lilac / aquamarine
   const FAMILY = [
-    [[0.95, 0.14, 0.014], [0.7, 0.03, 0.01], [0.3, 0.012, 0.006], [0.95, 0.84, 0.55]],        // brasa: orange, red, dark red · spark
-    [[0.95, 0.15, 0.095], [0.027, 0.62, 0.53], [0.004, 0.115, 0.133], [0.86, 0.68, 0.55]],    // pinya: coral, turquoise, teal · bone
-    [[0.77, 0.37, 0.024], [0.015, 0.061, 0.43], [0.55, 0.12, 0.042], [0.86, 0.84, 0.78]],     // tronc: ochre, cobalt, terracotta · white
-    [[0.95, 0.6, 0.18], [0.82, 0.86, 0.96], [0.004, 0.012, 0.09], [0.95, 0.6, 0.18]],         // pom: gold, white, deep blue
-    [[0.92, 0.56, 0.36], [0.9, 0.45, 0.54], [0.46, 0.36, 0.78], [0.26, 0.72, 0.62]],          // dawn: peach, rose, lilac · aquamarine
+    [palLin('flama'), palLin('brasa'), palLin('carbó', 3), palLin('cal-fanal')],              // brasa: flame, ember, coal · lantern
+    [palLin('cal-foc'), palLin('terracota'), palLin('ombra'), palLin('faixa')],                // pinya: lime-fire, terracotta, shadow · sash
+    [palLin('porcellana', 0.85), palLin('pedra-llum'), palLin('tinta-ombra', 2), palLin('or')], // tronc: porcelain, stone, blue shadow · gold
+    [palLin('or-clar'), palLin('lluna', 0.8), palLin('nit-alta', 2), palLin('or')],             // pom: pale gold, moon, high night
+    [palLin('alba-rosa'), palLin('alba-blau'), palLin('albergínia', 1.5), palLin('or-clar')],   // dawn: rose, dawn blue, aubergine · pale gold
   ];
   const GLAZE = FAMILY.map((f) => f[1]);
 
