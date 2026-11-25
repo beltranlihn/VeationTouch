@@ -391,7 +391,7 @@ export function create(ctx) {
       }
     }
     // l'aleta: her arm sends a ray of gold up into the night
-    if (raiseK > 0.02) { const k = sm(raiseK) * uWorld.value; glow(_b.x, _b.y, _b.z, 0.06, OR[0] * 1.4 * k, OR[1] * 1.4 * k, OR[2] * 1.4 * k, 1, 2.5 + 7 * sm(aletaT / 2.5)); }
+    if (raiseK > 0.02) { const k = sm(raiseK) * uWorld.value; glow(_b.x, _b.y, _b.z, 0.06, OR[0] * 1.4 * k, OR[1] * 1.4 * k, OR[2] * 1.4 * k, 1, Math.max(0.15, Math.min(2.5 + 7 * sm(aletaT / 2.5), (3.35 - _b.y) / 2))); }   // the ray ends under 3.4 m (AD #14)
     // falling dust (a slide) and the motes the hands shed (room frame)
     for (let i = 0; i < NFM; i++) {
       if (FM.life[i] <= 0) continue;
