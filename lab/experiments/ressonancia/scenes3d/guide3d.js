@@ -606,7 +606,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     else if (b === 'tronc' && S.phase === 'play') { let need = 0, ok = 0; for (let w = 0; w < NW; w++) if (walls[w]) { need++; if (S.balance ? S.left[w] && S.right[w] : S.count[w] > 0) ok++; } doing = need ? ok / need : 0; }
     else if (b === 'pom') doing = S.lightWall >= 0 && S.count[S.lightWall] > 0 && !S.restless ? 1 : 0;
     else if (b === 'baixada') { let need = 0, ok = 0; for (let w = 0; w < NW; w++) if (walls[w]) { need++; if (S.count[w] > 0) ok++; } doing = need ? ok / need : 0; }
-    gain *= 1 - (chapter(b).dark === false ? 0.2 : 0.55) * doing;   // on light chapters the words never fade to grey
+    gain *= 1 - 0.2 * doing;   // the words stay clear while the group does it (Art Director 25-11: «faint»)
     const cardUp = card.up;
     // N6: the wall that calls carries the consigna at 100 % and first; the others an echo at 30 %, 0.6 s later (not for the calls to
     // all, l'aleta, the wait's invitation or a warning)
