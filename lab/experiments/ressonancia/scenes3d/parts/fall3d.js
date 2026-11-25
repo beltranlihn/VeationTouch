@@ -39,7 +39,9 @@ export function create(ctx) {
   let own = null;
   const ownP = { floors: 7, floorProgress: 0, cycle: 0, lean: 0, weak: 0, reward: false, walls: NW, rise: 1, arrive: 0, leave: 0, gain: 1, collapse: 'off', collapseDur: 10.5 };
   const ownIn = { time: 0, t: 0, dt: 0, progress: 0, hands: [], downs: [], ups: [], params: ownP, arrive: 0, leave: 0 };
-  import('./tronc3d.js').then((m) => {
+  // AD 25-11 (album: «the old plaster mannequins in a grey void»): no private tower any more — without the host's tower on screen the
+  // fall is a COLLAPSE OF DUST where the tower stood, in the night square. (The private tronc3d instance built the rejected bodies.)
+  if (P.ownTower === true) import('./tronc3d.js').then((m) => {
     const keep = typeof window !== 'undefined' ? window.__tronc3d : undefined;   // the host's debug handle stays the host's
     own = m.create({ THREE, TSL, room, params: ownP, parts: {} });
     if (typeof window !== 'undefined' && keep) window.__tronc3d = keep;
@@ -198,23 +200,25 @@ export function create(ctx) {
     for (const s of shards) s.on = false; for (const d of dust) d.on = false;
     const host = ctx.parts?.tronc3d, glass = ctx.parts?.baixada3d;
     const hostShown = !!(host && host.collapse && host.object && host.object.visible && host.object.parent);
-    glassFall = !intent && !!(glass && glass.object && glass.object.visible); towerBase = towerBase0;
+    glassFall = !intent && !!(glass && glass.object && glass.object.visible); towerBase = towerBase0; dustFall = false;
     if (glassFall) {                                   // carregat from the bajada: baixada3d's glass tower IS the castell and lets go
       src = host && host.levels ? host : null; srcOwn = false;   // on its own; the tronc tower it hid must stay hidden (no second tower)
       veilAt = 0;
     } else if (hostShown) {                                   // carregat (or any fall with the tower on screen): this tower falls
       src = host; srcOwn = false;
       if (!host.collapsing?.on) host.collapse({ mode: intent ? 'intent' : 'carregat', duration: dur });
-    } else {                                           // intent: the group's tower, assembled here
+    } else if (P.ownTower === true) {                  // (old: the group's tower, assembled here — only on request)
       src = own; srcOwn = true; towerBase = towerBaseOwn;
       framed = false;
+    } else {                                           // no tower on screen: a collapse of dust where it stood
+      src = null; srcOwn = false; dustFall = true; veilAt = 0;
     }
     void S;
   }
   // frame the private tower for its fall: tronc3d's room rise follows the forming floor; here it is scaled so that (intent) the stump
   // that stays (the top of the floor under the crack) sits at the foot of the walls, and the floors that fall come down through the
   // whole height of the walls; (carregat) the top of the tower at ~6.5 m. A reset (floors 9 → N) makes tronc3d jump to the new rise.
-  let framed = false, glassFall = false, veilAt = -1;
+  let framed = false, glassFall = false, veilAt = -1, dustFall = false;
   function frame(intent, n) {
     ownP.collapse = 'off'; ownP.rise = 1; ownP.floors = n; ownIn.time = 0; ownIn.arrive = 0;
     own.update(0.016, ownIn);
@@ -273,6 +277,13 @@ export function create(ctx) {
     object.updateMatrixWorld(); inv.copy(object.matrixWorld).invert();
 
     // ---- carregat from the bajada: the glass tower falls by itself (baixada3d); here the tronc stays hidden and a veil of dust rises
+    if (dustFall && t < 7 && time - veilAt > 0.08) {   // the dust collapse: puffs falling down the tower's height, then settling
+      veilAt = time;
+      for (let w = 0; w < NW; w++) {
+        const b = towerBase[w], a = R() * Math.PI * 2, rr = R() * 1.6, hgt = Math.max(0.2, 7 * (1 - t / 6)) * R();
+        tmpV.set(b.x + Math.cos(a) * rr, hgt, b.z + Math.sin(a) * rr).applyMatrix4(inv); puff(tmpV, 1, true);
+      }
+    }
     if (glassFall) {
       const host = ctx.parts?.tronc3d;
       if (host?.takeFloor && !ctx.parts?.baixada3d?.object?.visible) for (let i = 0; i <= 9; i++) host.takeFloor(i, { hide: true });   // once the bajada has given its floors back

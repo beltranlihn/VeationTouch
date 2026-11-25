@@ -1417,7 +1417,7 @@ export function create(ctx) {
     uWin.value = (pr.windowGlow ?? 1);
     uStars.value = pr.stars ?? 1;
     blueK += ((blk === 'baixada' && pr.blueHour !== false ? 1 : 0) - blueK) * Math.min(1, dt * 1.2);   // AD plan B: the blue hour, not a silhouette
-    const silK = blueK > 0.5 ? 0 : Math.max(0, Math.min(1, pr.silhouette ?? 0)); uSil.value = silK; sky.visible = silK < 0.5; floor0.visible = silK < 0.5; object.position.y = -(pr.silDrop ?? 0) * silK;   // params.silDrop (m): the silhouette sinks so its rooftops sit low on the walls, the sky above
+    const silK = blueK > 0.5 || blk === 'fall' ? 0 : Math.max(0, Math.min(1, pr.silhouette ?? 0));   // the fall happens in the night square (it breaks as the tower falls), not a silhouette uSil.value = silK; sky.visible = silK < 0.5; floor0.visible = silK < 0.5; object.position.y = -(pr.silDrop ?? 0) * silK;   // params.silDrop (m): the silhouette sinks so its rooftops sit low on the walls, the sky above
     if (Array.isArray(pr.skyTint)) uSkyTint.value.fromArray(pr.skyTint); else uSkyTint.value.set(1, 1, 1);
     const envK = (pr.env ?? 1) * reveal * dark; for (const m of envMats) m.envMapIntensity = envK;
     const moonK = (pr.moon ?? 1) * reveal * dark;
@@ -1433,7 +1433,7 @@ export function create(ctx) {
     if (pinK > 0.5 && !(nightK > 0.5)) setFires(pinFires, (F) => F.p, (F) => F.k * pinK * (0.85 + 0.15 * Math.sin(time * (2.1 + F.k) + F.k * 9)));   // the crowd's bonfires
     else if (pinK > 0.01 && pinK <= 0.5 && !(nightK > 0.5)) setFires(null);
     // POM (AD 25-11): the tower in the square at its darkest — lamps almost out, few windows, the room's deep sky, a faint haze
-    pomK += (((blk === 'pom' || (!input.state && pr.pom)) ? 1 : 0) - pomK) * Math.min(1, dt * 1.2); uPom.value = pomK;
+    pomK += (((blk === 'pom' || blk === 'fall' || (!input.state && pr.pom)) ? 1 : 0) - pomK) * Math.min(1, dt * 1.2); uPom.value = pomK;   // the fall: the square at its darkest too
     if (pomK > 0.01) { uWin.value *= 1 - 0.75 * pomK; uStars.value *= 1 - 0.5 * pomK; moon.intensity *= 1 - 0.6 * pomK; hemi.intensity *= 1 - 0.6 * pomK; uFog.value = Math.max(uFog.value, 0.008 * pomK); }
     if (nightK > 0.01) { moon.color.setRGB(0.36, 0.35, 0.36); moon.intensity *= 1 - 0.6 * nightK; hemi.color.setRGB(0.2, 0.2, 0.24); hemi.intensity *= 1 - 0.5 * nightK; }   // Brasa (AD#5): only the fire gives colour
     if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, Math.max(input.state?.progress ?? 0, (input.state?.t ?? 0) / 45)));   // AD#14: the lamps go out visibly over the chapter (by time too) object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 0.7 - 0.5 * pg; uStars.value *= 0.4 * (1 - pg);
