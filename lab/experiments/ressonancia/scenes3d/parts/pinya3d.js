@@ -117,8 +117,8 @@ export function create({ THREE, TSL, room, params }) {
       let yaw = Math.atan2(foot.x - x, foot.z - z) + (1 - al) * c.la;
       const pose = closedS > 0.5 ? 'lock' : c.pose;
       // particles (25-11): the loose crowd is half air — the pinya assembles as the wall fills, and breathes
-      kit.set(c.i, { pos: [x, 0, z], yaw, pose: 'stand', pose2: pose, mix: al * (0.35 + 0.65 * Math.max(fills[c.w], closedS)), scale: c.scale, build: c.build, tint: [c.tint * 0.6, c.tint * 0.6, c.tint * 0.62], glow: 0,
-        form: al * there, fmode: 'gather', pool: 0.18 });
+      kit.set(c.i, { pos: [x, 0, z], yaw, pose: 'stand', pose2: pose, mix: al * (0.35 + 0.65 * Math.max(fills[c.w], closedS)), scale: c.scale, build: c.build, tint: [c.tint, c.tint, c.tint], glow: 0,
+        form: al * there, fmode: 'gather', pool: 0 });
     }
 
     // ---- hands → wall coordinates
@@ -151,7 +151,7 @@ export function create({ THREE, TSL, room, params }) {
     for (let w = 0; w < NW; w++) {
       const list = palms.filter((q) => q.on && (q.stroke !== null || q.locked) && q.wall === w).sort((a, b) => a.x - b.x);
       list.forEach((q, k) => { q.slot = (k - (list.length - 1) / 2) * 0.62; });
-      if (lockWall[w]) for (const q of list) { if (!q.locked) { q.locked = true; q.lockK = 0; q.glow = Math.max(q.glow, 1); } }
+      if (lockWall[w]) for (const q of list) { if (!q.locked) { q.locked = true; q.lockK = 0; q.glow = Math.max(q.glow, 0.6); } }
     }
 
     // ---- per palm figure
@@ -176,9 +176,9 @@ export function create({ THREE, TSL, room, params }) {
       // charge: the target's own, else the time of contact; the weight loads, the palm warms in gold, held = it stays
       const tc = q.idle || q.stroke !== null ? (q.tCharge ?? 0) : 0;
       const charge = Math.max(tc, q.contact >= 0.99 ? Math.min(1, q.charge + dt / 0.5) : q.charge * Math.max(0, 1 - dt * 0.4));
-      if (q.charge < 1 && charge >= 1) q.glow = 1;
+      if (q.charge < 1 && charge >= 1) q.glow = 0.6;
       q.charge = charge;
-      q.glow = Math.max(q.locked ? 0.28 : q.charge >= 1 ? 0.22 : q.charge * 0.35, q.glow - dt * 0.8);
+      q.glow = Math.max(0, q.glow - dt * 0.9);   // gold only as a brief flash of achievement (held / locked), never a standing colour
       // arrive / retreat
       const go = q.stay > 0 || q.idle || q.locked;
       q.app = go ? Math.min(1, q.app + dt / 1.4) : Math.max(0, q.app - dt / 2.5);      // it gathers at once and is whole in ≈ 1.4 s (from the ground and the hand inward); it dissolves slowly
@@ -202,7 +202,7 @@ export function create({ THREE, TSL, room, params }) {
       else if (!h && !q.idle && q.stay < 8) { pose = 'stand'; pose2 = 'palm'; mix = clamp01(q.stay / 8); }   // the arm comes down before it goes back
       // a waiting figure (an offered palm, nobody there yet) is a quieter suggestion: dimmer, not fully gathered; with a hand: whole, bright
       const held = q.stroke !== null || q.locked || q.charge > 0.05, wk = held ? 1 : 0.45, wf = held ? 1 : 0.8;
-      kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: e * wf * there, fmode: 'gather', lod: 'near', pool: held ? 1 : 0.3 });
+      kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: e * wf * there, fmode: 'gather', lod: 'near', pool: held ? 0.6 : 0.15 });
     }
     kit.update(dt);
   }

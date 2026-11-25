@@ -7,7 +7,7 @@ import { createBodies, POSES } from '../bodykit.js';
 export function create({ THREE, TSL, room, params }) {
   const P = params || {};
   const object = new THREE.Group(); object.name = 'bodies';
-  const kit = createBodies({ THREE, TSL, room, max: 24, lods: [0], splats: [12000] });
+  const kit = createBodies({ THREE, TSL, room, max: 24, lods: [0] });
   object.add(kit.object);
   const K0 = kit.uniforms.key.value.clone();
   // no light of its own: the bodies are self-lit (as in the work); the floor is a basic gradient

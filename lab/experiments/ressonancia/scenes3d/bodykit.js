@@ -88,7 +88,7 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [30000, 3600], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [30000, 5000], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
   const splatOnlyLodMesh = false;
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;
@@ -199,7 +199,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   { const q = new THREE.PlaneGeometry(1, 1); q.rotateX(-Math.PI / 2); plGeo.index = q.index; plGeo.setAttribute('position', q.attributes.position); plGeo.setAttribute('uv', q.attributes.uv); }
   const plA = new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4); plA.setUsage(THREE.DynamicDrawUsage); plGeo.setAttribute('pA', plA); plGeo.instanceCount = 0;
   const plMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-  const uPool = uniform(new THREE.Vector3(...palLin('cal-fanal', 0.22)));
+  const uPool = uniform(new THREE.Vector3(...palLin('cal-fanal', 0.14)));
   { const pa = attribute('pA', 'vec4'), pg = TSL.positionGeometry;
     plMat.positionNode = vec3(pa.x.add(pg.x.mul(pa.z)), 0.006, pa.y.add(pg.z.mul(pa.z)));
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
@@ -333,7 +333,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const drift = vec3(sin(t.mul(hz).add(ph)), sin(t.mul(hz.mul(0.83)).add(ph.mul(1.7))), sin(t.mul(hz.mul(1.13)).add(ph.mul(2.3)))).mul(jit.mul(0.01).add(0.008)).mul(uDrift);
     pl = pl.add(drift).add(nl.mul(sin(t.mul(1.25).add(B0.x.mul(1.3)).add(B0.z.mul(0.7))).mul(AX2.z).mul(0.008)));
     // gathering: from the ground (and round the body's feet) inward and upward, feet first; dust: down with gravity
-    const form = B3.x, dust = B3.y;
+    const form = B3.x, riseM = step(1.5, B3.y), dust = step(0.5, B3.y).mul(float(1).sub(riseM));
     const hy = clamp(pl.y.div(1.9), 0, 1);
     const k = clamp(form.mul(1.45).sub(rr.mul(0.3)).sub(hy.mul(0.15)), 0, 1), ke = k.mul(k).mul(float(3).sub(k.mul(2)));
     const away = float(1).sub(ke);
@@ -341,7 +341,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const offG = vec3(TSL.sin(ang).mul(spread), pl.y.negate().mul(fract(rr.mul(3.9)).mul(0.25).add(0.7)), cos(ang).mul(spread));
     const fallT = away.mul(away);
     const offD = vec3(TSL.sin(ang).mul(0.18).mul(away), pl.y.negate().add(0.015).mul(fallT), cos(ang).mul(0.18).mul(away));
-    const off = mix(offG.mul(away), offD, dust).mul(uFlow);
+    const offR = vec3(TSL.sin(ang).mul(0.3), fract(rr.mul(3.9)).mul(1.2).add(0.6), cos(ang).mul(0.3)).mul(away.mul(away));   // up into the light
+    const off = mix(mix(offG.mul(away), offD, dust), offR, riseM).mul(uFlow);
     const C = rotY(pl.add(off).mul(sc)).add(B0.xyz);
     const nW = rotY(nl);
     // a round, isotropic gaussian facing the eye
@@ -352,7 +353,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const vis = mix(smoothstep(-0.3, 0.1, facing), smoothstep(-0.6, -0.1, facing), core).max(aura).max(away);
     // crisp grain: core 1–2 cm, skin 3–5 cm, aura 6–10 cm (faint)
     const skin = step(0.25, kind).mul(float(1).sub(aura));
-    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.012), float(0.026), jit), skin).add(aura.mul(mix(float(0.012), float(0.022), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.7);
+    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.012), float(0.026), jit), skin).add(aura.mul(mix(float(0.012), float(0.022), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.15);
     const r0 = size.mul(1.6).mul(vis);
     const q = positionGeometry.xy;
     m.positionNode = C.add(right.mul(q.x.mul(r0))).add(upv.mul(q.y.mul(r0)));
@@ -379,7 +380,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     }
     colr = colr.add(uColor.glow.mul(B2.w).mul(0.9)).add(uColor.glow.mul(uSGlow));
     // dust: each splat faint (0.08–0.15), the volume comes from accumulation; the skin thins outwards (the edge is a density falloff)
-    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : 1.6);
+    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : 1.35);
     const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura);
     const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(float(1).sub(away.mul(0.6))), 'vSplA');
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
@@ -499,7 +500,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       M.iA.array.set([x, y, z, S[o + 3]], k * 4); M.iB.array.set([S[o + 4], S[o + 5], S[o + 6], sc], k * 4); M.iC.array.set([S[o + 8], S[o + 9], S[o + 10], S[o + 11]], k * 4);
       const SP = splatSets.find((q) => q.build === M.build && q.lod === M.lod);
       if (SP) { const j = SP.count++, D = SP.bodyData; D.set([x, y, z, S[o + 3], S[o + 4], S[o + 5], S[o + 6], sc, S[o + 8], S[o + 9], S[o + 10], S[o + 11], S[o + 16], S[o + 17], S[o + 15], 0], j * 16); }
-      if (S[o + 18] > 0.001 && y < 0.05) plA.array.set([x, z, 1.9 * sc, S[o + 18] * S[o + 16]], (np++) * 4);
+      if (S[o + 18] > 0.001 && y < 0.05) plA.array.set([x, z, 1.15 * sc, S[o + 18] * S[o + 16]], (np++) * 4);
       if (y < 0.05 && ns < max * 2 - 1) {    // shadows only for bodies standing on the floor
         const lift = Math.max(0, y);
         // contact: round, tight, dark (sB: length, width, offset, soft) — the room's disc when it has them
@@ -537,7 +538,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     if (o.lod != null) S[b + 13] = o.lod === 'auto' ? -1 : (o.lod === 'far' || o.lod === 1 ? 1 : 0); else if (!S[b + 14]) S[b + 13] = -1;
     if (o.pool != null) S[b + 18] = o.pool;                      // a warm pool of light on the ground under the body (0..1)
     if (o.form != null) S[b + 16] = o.form;                      // splats: 0 = scattered ... 1 = assembled
-    if (o.fmode != null) S[b + 17] = o.fmode === 'dust' || o.fmode === 1 ? 1 : 0;   // how they are away: 'gather' (in the air, streaming in) | 'dust' (fallen)
+    if (o.fmode != null) S[b + 17] = o.fmode === 'dust' || o.fmode === 1 ? 1 : o.fmode === 'light' || o.fmode === 2 ? 2 : 0;   // 'light': up, into the light   // how they are away: 'gather' (in the air, streaming in) | 'dust' (fallen)
     S[b + 14] = o.visible === false ? 0 : 1;
   }
   const hide = (i) => { if (i >= 0 && i < max) S[i * SZ + 14] = 0; };

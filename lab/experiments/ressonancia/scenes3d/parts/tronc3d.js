@@ -498,7 +498,7 @@ export function create(ctx) {
     const fx = kit.tok('faixa'), pl = kit.tok('pedra-llum'), soft = fx.map((v, i) => v * 0.68 + pl[i] * 0.32);   // the faixa a little chalked by the light
     kit.setColors({ shirt: 'porcellana', skin: ['pedra-llum', 1.02], trousers: ['pedra-llum', 0.82], faixa: soft, hair: ['tinta-ombra', 1.6], crack: 'pedra-llum', shadow: 'tinta-ombra' });
     kit.uniforms.crack.value = 0.55;
-    kit.setSplat({ lit: 'porcellana', half: ['pedra-llum', 0.7], amb: ['tinta-ombra', 0.7] });
+    kit.setSplat({ lit: 'cal-foc', half: 'terracota', amb: 'tinta-ombra' });   // the one warm ramp (AD)
   }
   let lightMode = '', breathK = 0;
   let castMode = 'build', focusY = null;
@@ -509,6 +509,7 @@ export function create(ctx) {
   const _bp = new THREE.Vector3();
   function placeBodies(dt, inTronc, floorsNow, withScore) {
     if (!kit) return;
+    for (const t of towers) for (const s of t.st) s.takenT = s.taken ? (s.takenT || 0) + dt : 0;
     const lm = withScore ? 'scene' : 'self'; if (lm !== lightMode) { lightMode = lm; kit.setLighting(lm); }
     let n = 0;
     const crowned = castMode === 'crowned';
@@ -521,13 +522,16 @@ export function create(ctx) {
         if ((!visT && !(ringOnly && c.lv === 0)) || col.on) { kit.hide(i); continue; }
         const S = t.st[c.lv];
         if (castMode === 'top' && c.lv >= 7) { kit.hide(i); continue; }      // the Pom draws its climbers (Interacción); crowned: shown again
-        const shown = c.lv === 0 || (S.shown && !S.taken && (S.solid > 0.001 || S.forming || S.goneT >= 0));
+        // the bajada (Art Director): a floor taken by baixada3d does not vanish — its bodies dissolve into light (≈ 2.5 s)
+        const tk = S.taken ? (S.takenT || 0) : 0;
+        const shown = c.lv === 0 || (S.shown && (!S.taken || tk < 2.5) && (S.solid > 0.001 || S.forming || S.goneT >= 0 || S.taken));
         if (!shown || (S.goneT >= 1.6)) { kit.hide(i); continue; }
         // a floor that forms climbs into place with the lift; one that slips drops and goes
         // particles: a forming floor ASSEMBLES from streams (with the lift), a slipping one falls as dust; no body moves as a block
         let dy = 0, form = 1, fmode = 'gather';
         if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, 0.3 + S.lift * 0.55 + S.solid * 0.5); dy = -(1 - form) * 0.15; }   // the next floor hovers half-formed until the hands lift it
         if (S.goneT >= 0) { form = Math.max(0, 1 - S.goneT / 1.4); fmode = 'dust'; }
+        if (S.taken) { form = Math.max(0, 1 - tk / 2.5); fmode = 'light'; }
         if (c.lv === 0) form = 0.97 + 0.03 * Math.sin(time * 0.4 + c.x * 3 + c.z * 2);   // the pinya's mass breathes
         const lx = c.x * SC, ly = (c.y + dy) * SC, lz = c.z * SC;
         const tx = lx * ct - ly * st, ty = lx * st + ly * ct;                       // the lean (tower frame, about its z)
