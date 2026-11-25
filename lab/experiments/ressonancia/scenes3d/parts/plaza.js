@@ -830,7 +830,7 @@ export function create(ctx) {
       });
     });
     // CORONATION (AD#6): a burst — the square's air turns to or-clar light, thicker with distance, bathing everything
-    ins.addAssign(vec3(...palLin('or-clar')).mul(float(1).sub(exp(max(dist.sub(3.5), 0).mul(-0.07)))).mul(uCrown).mul(0.55));
+    ins.addAssign(vec3(...palLin('or-clar')).mul(float(1).sub(exp(max(dist.sub(8.0), 0).mul(-0.035)))).mul(uCrown).mul(0.3));   // starts behind the tower: the tower stays crisp in front of the gold
     // PINYA (AD#5): a low heavy warm haze that swallows the square up to ~2 m — above it only silhouettes and lit windows
     If(uPinya.greaterThan(0.01), () => {
       const low = smoothstep(2.6, 0.2, Pw.y), thick = float(1).sub(exp(max(dist.sub(4.0), 0).mul(-0.11)));
