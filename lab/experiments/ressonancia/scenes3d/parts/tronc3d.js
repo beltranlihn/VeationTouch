@@ -526,9 +526,10 @@ export function create(ctx) {
   // height sits at the eye's level, in the reach band; null gives the ground back
   function setFocusY(y) { focusY = y == null ? null : +y; }
   const _bp = new THREE.Vector3();
-  function placeBodies(dt, inTronc, floorsNow, withScore) {
+  function placeBodies(dt, inTronc, floorsNow, withScore, scoreFloors) {
     if (!kit) return;
     for (const t of towers) for (const s of t.st) s.takenT = s.taken ? (s.takenT || 0) + dt : 0;
+    for (const t of towers) t.st.forEach((s, lv) => { s.downT = castMode === 'down' && scoreFloors != null && lv > scoreFloors && lv > 0 ? (s.downT || 0) + dt : 0; });
     for (const t of towers) { if (t.lvAcc) { t.lvPos = t.lvAcc.map((a) => (a[2] ? { x: a[0] / a[2], z: a[1] / a[2], y: a[3] } : null)); for (const a of t.lvAcc) { a[0] = a[1] = a[2] = 0; a[3] = 1e9; } } }
     crownT = castMode === 'crowned' ? crownT + dt : 0;   // the crown: gold rises from the foot to the enxaneta, floor by floor
     // against the luminous gold air the tower must be a dark-and-gold sculpture: denser, a dark rim, the shadow side to bronze
@@ -547,14 +548,18 @@ export function create(ctx) {
         if (castMode === 'top' && c.lv >= 7) { kit.hide(i); continue; }      // the Pom draws its climbers (Interacción); crowned: shown again
         // the bajada (Art Director): a floor taken by baixada3d does not vanish — its bodies dissolve into light (≈ 2.5 s)
         const tk = S.taken ? (S.takenT || 0) : 0;
-        const shown = c.lv === 0 || (S.shown && (!S.taken || tk < 4.5) && (S.solid > 0.001 || S.forming || S.goneT >= 0 || S.taken));
+        // the bajada: the floors still up stay as figures inside the dust (half dissolved) until the score brings them down; a floor that
+        // has come down dissolves into light in ~1.5 s
+        const down = castMode === 'down' && !OLD, upNow = scoreFloors == null || c.lv <= scoreFloors;
+        const shown = c.lv === 0 || (down ? S.shown !== false && (upNow || (S.downT || 0) < 1.5) : S.shown && (!S.taken || tk < 4.5) && (S.solid > 0.001 || S.forming || S.goneT >= 0 || S.taken));
         if (!shown || (S.goneT >= 1.6)) { kit.hide(i); continue; }
         // a floor that forms climbs into place with the lift; one that slips drops and goes
         // particles: a forming floor ASSEMBLES from streams (with the lift), a slipping one falls as dust; no body moves as a block
         let dy = 0, form = 1, fmode = 'gather';
         if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, S.lift * 0.8 + S.solid * 0.6); dy = -(1 - form) * 0.15; }   // the next floor gathers only as the hands lift it   // the next floor hovers half-formed until the hands lift it
         if (S.goneT >= 0) { form = Math.max(0, 1 - S.goneT / 1.4); fmode = 'dust'; }
-        if (S.taken) { form = tk < 3.5 ? Math.max(0.5, 1 - tk / 2.5) : Math.max(0, 0.5 - (tk - 3.5) * 0.5); fmode = 'light'; }   // the bajada: half dissolved, the figure still there, then gone
+        if (down) { if (S.taken) { form = upNow ? Math.max(0.55, 1 - tk / 2.5) : Math.max(0, 0.55 - (S.downT || 0) / 1.5 * 0.55); fmode = 'light'; } else if (!upNow) { form = Math.max(0, 1 - (S.downT || 0) / 1.5); fmode = 'light'; } }
+        else if (S.taken) { form = tk < 3.5 ? Math.max(0.5, 1 - tk / 2.5) : Math.max(0, 0.5 - (tk - 3.5) * 0.5); fmode = 'light'; }   // half dissolved, the figure still there, then gone
         // (the pinya stays whole: a form < 1 left particles hanging below the bodies — the «stalactites»)
         const sw = c.lv > 0 && !OLD ? Math.sin(time * 0.45 + t.tw * 1.7) * 0.012 * Math.min(1, c.y / 3) : 0;   // the trunk sways, 1–2 cm, slowly
         // each wall's castell turned a little round its axis (no four identical clones)
@@ -871,7 +876,7 @@ export function create(ctx) {
       const sil = S && S.pomStage === 'silence' ? 1 : 0; breathK += (sil - breathK) * Math.min(1, dt * 0.8);
       const b = Math.sin(time * 0.94) * breathK; kit.setSplat({ size: 1 + 0.07 * b, key: lookKey * (1 + 0.12 * b) });
     }
-    placeBodies(dt, inTronc, floors, !!S);
+    placeBodies(dt, inTronc, floors, !!S, S ? S.floors : null);
   }
   function nearestTower(wi, showT) {
     let best = -1, bd = 1e9; for (let j = 0; j < NW; j++) { if (!showT(j)) continue; let d = Math.abs((PER[j] + walls[j].width / 2) - (PER[wi] + walls[wi].width / 2)); d = Math.min(d, perim - d); if (d < bd) { bd = d; best = j; } }
