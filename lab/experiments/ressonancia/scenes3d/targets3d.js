@@ -169,7 +169,8 @@ export function createTargets3D({ THREE, TSL, room }) {
     const rest = vec3(...lin('cal-fanal')).mul(edge.mul(0.16));
     const gold = GOLD.mul(fill.mul(float(0.45).add(S.y.mul(0.5)))).add(GOLD.mul(edge.mul(S.x.mul(0.3))));
     handMat.colorNode = rest.add(gold).mul(float(1).sub(S.w));
-    handMat.opacityNode = fill.mul(0.25).mul(float(1).sub(S.w));                        // the gold sits in the lime a little (darkens the wall under it)
+    // on a light (lime) wall the outline is an ENGRAVING (it darkens the lime a little), on a dark one a faint warm line
+    handMat.opacityNode = fill.mul(0.25).add(edge.mul(0.32).mul(LIGHTK)).mul(float(1).sub(S.w));
   }
   const hand = skin(new THREE.PlaneGeometry(1, 1), handMat, 'hand'); hand.mesh.castShadow = false; hand.mesh.receiveShadow = false;
 
@@ -256,7 +257,7 @@ export function createTargets3D({ THREE, TSL, room }) {
       } else if (p.kind === 'palm') {                  // the Pinya: warm light on the wall where the palm will meet the hand
         // AD #8: nothing here — the figure's own palm (pinya3d) is the target and glows itself; no ring over the wall
       } else if (p.kind === 'print') {                 // the acta: a hand at real size (≥ 20 cm tall), gold when held
-        const hh = Math.max(0.24, Math.min(H, 0.3)); put(hand, p, 0, p.y, 0.004, hh * 0.83, hh, 1);
+        const hh = 0.3; put(hand, p, 0, p.y, 0.004, hh * 0.83, hh, 1);   // a real hand, ~30 cm with the wrist
       } else {                                          // the generic fallback: a warm stone plaque
         put(plaque, p, 0, p.y, -0.01, W, H, 0.05);
       }
