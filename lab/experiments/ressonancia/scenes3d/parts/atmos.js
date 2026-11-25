@@ -310,7 +310,7 @@ export function create({ THREE, TSL, room, params }) {
     const bn = room.background?.name; U.moon.value *= (bn === 'tronc' || bn === 'pinya' || bn === 'pom' || bn === 'brasa') ? 0.15 : 1;   // AD 25-11: no milky moon veil in the night chapters   // AD 25-11: no milky moon veil in the night chapters
     U.amount.value = Math.max(0, Number(P.dust ?? 1)) * (room.quality === 'low' ? 0.35 : room.quality === 'medium' ? 0.6 : 1) * (bn === 'pom' ? 0.2 : bn === 'tronc' ? 0.35 : bn === 'intro' ? 0.5 : 1);   // VFX perf 25-11; pom / tronc: a few motes, not snow
     U.haze.value = ss(0.5, 7.0, t) * Math.max(0, Number(P.haze ?? 1));
-    U.moon.value = Number(P.moon ?? 1); U.bokeh.value = Number(P.bokeh ?? 1) * ((room.background?.name === 'pom') ? 0.15 : 1);   // AD#11: no white flare-like discs in the Pom U.stir.value = Number(P.stir ?? 1);
+    U.moon.value = Number(P.moon ?? 1); U.bokeh.value = Number(P.bokeh ?? 1) * ((room.background?.name === 'pom') ? 0.15 : room.background?.name === 'intro' ? 0.35 : 1);   // AD#11: no white flare-like discs in the Pom U.stir.value = Number(P.stir ?? 1);
     if (Array.isArray(P.warm)) uWarm.value.fromArray(P.warm);
     if (Array.isArray(P.cool)) uCool.value.fromArray(P.cool);
     if (Array.isArray(P.air)) uAir.value.fromArray(P.air);
