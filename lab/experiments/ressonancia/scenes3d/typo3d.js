@@ -137,7 +137,7 @@ function layout(items) {
     const width = pen * s, cx0 = it.x || 0;
     const left = it.align === 'left' ? cx0 : it.align === 'right' ? cx0 - width : cx0 - width / 2, lineC = left + width / 2;
     const base = (it.y || 0) - it.size * 0.34;                    // y = the centre of the caps (cap height ≈ 0.68 em)
-    const col = it.color || [1, 0.95, 0.88], blur = it.reveal === 'blur';
+    const col = it.color || [1, 0.95, 0.88], blur = it.reveal !== 'tiles';   // Art Director 25-11: letters are ALWAYS intact — every word comes and goes by focus and opacity; the flying tiles only on request (reveal: 'tiles')
     let prevSp = true;
     seq.forEach((ch, i) => {
       const isRule = ch === RULE, g = isRule ? glyphs.get('sans:' + RULE) : glyph(font, ch);
