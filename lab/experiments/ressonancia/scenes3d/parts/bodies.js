@@ -7,7 +7,7 @@ import { createBodies, POSES } from '../bodykit.js';
 export function create({ THREE, TSL, room, params }) {
   const P = params || {};
   const object = new THREE.Group(); object.name = 'bodies';
-  const kit = createBodies({ THREE, TSL, room, max: 24, lods: [0] });
+  const kit = createBodies({ THREE, TSL, room, max: 24, lods: [0, 1] });
   object.add(kit.object);
   const K0 = kit.uniforms.key.value.clone();
   // no light of its own: the bodies are self-lit (as in the work); the floor is a basic gradient
@@ -40,7 +40,7 @@ export function create({ THREE, TSL, room, params }) {
       s.x = tmp.x; s.z = tmp.z;
       const pose = poseSel === 'all' ? s.pose : poseSel;
       const yaw = Math.atan2(room.eye.x - s.x, room.eye.z - s.z);
-      kit.set(s.i, { pos: [s.x, 0, s.z], yaw, pose, pose2: pose, mix: 0, scale: s.scale, build: s.scale < 0.8 ? 2 : s.build, lod: 'near', pool: 0.7 });
+      kit.set(s.i, { pos: [s.x, 0, s.z], yaw, pose, pose2: pose, mix: 0, scale: s.scale, build: s.scale < 0.8 ? 2 : s.build, lod: P.lod === 'far' ? 'far' : 'near', pool: 0.7 });
     }
   }
   const touched = new Map();   // slot → 0..1

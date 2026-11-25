@@ -309,6 +309,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const { instanceIndex, positionGeometry, cross, step, fract, select, cos } = TSL;
     const solid = splatBlend === 'solid';
     const m = new THREE.MeshBasicNodeMaterial({ transparent: !solid, depthWrite: solid, side: THREE.DoubleSide, blending: splatBlend === 'alpha' || solid ? THREE.NormalBlending : THREE.AdditiveBlending });
+    m.fog = false;   // the bodies are the subject: the room's air must not wash them to a veil (they are at 2–6 m)
     const NP = POSES.length;
     const ii = int(instanceIndex), bi = ii.div(int(N)), si = ii.mod(int(N));
     const B0 = textureLoad(bodyTex, ivec2(0, bi)), B1 = textureLoad(bodyTex, ivec2(1, bi)), B2 = textureLoad(bodyTex, ivec2(2, bi)), B3 = textureLoad(bodyTex, ivec2(3, bi));
@@ -355,7 +356,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const vis = mix(smoothstep(-0.3, 0.1, facing), smoothstep(-0.6, -0.1, facing), core).max(aura).max(away);
     // crisp grain: core 1–2 cm, skin 3–5 cm, aura 6–10 cm (faint)
     const skin = step(0.25, kind).mul(float(1).sub(aura));
-    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.012), float(0.026), jit), skin).add(aura.mul(mix(float(0.012), float(0.022), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 0.95);
+    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.012), float(0.026), jit), skin).add(aura.mul(mix(float(0.012), float(0.022), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.05);
     const r0 = size.mul(1.6).mul(vis);
     const q = positionGeometry.xy;
     m.positionNode = C.add(right.mul(q.x.mul(r0))).add(upv.mul(q.y.mul(r0)));
@@ -388,7 +389,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // back occlusion (a tower: each body's back faces the others): the back half sinks, so overlapping bodies part by shadow
     colr = colr.mul(mix(float(1), float(0.3), smoothstep(0.1, -0.7, nl.z).mul(uBackAO)));
     // dust: each splat faint (0.08–0.15), the volume comes from accumulation; the skin thins outwards (the edge is a density falloff)
-    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : 1.2);
+    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : 1.5);
     const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura).mul(lod === 0 ? float(1) : float(1).sub(aura));
     const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(mix(float(1).sub(away).pow(2), float(1).sub(away.mul(0.6)), dust.max(riseM))), 'vSplA');   // gathering splats are faint until home (no heaps on the floor)
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);

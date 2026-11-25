@@ -4,5 +4,6 @@
   { "key": "crack", "label": "Bodies: crackle", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 0.35 },
   { "key": "rim", "label": "Bodies: rim", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 0.35 },
   { "key": "light", "label": "Bodies: key light", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
-  { "key": "floor", "label": "Bodies: floor", "type": "bool", "default": true }
+  { "key": "floor", "label": "Bodies: floor", "type": "bool", "default": true },
+  { "key": "lod", "label": "Bodies: level of detail", "type": "select", "default": "near", "options": [["near", "Near"], ["far", "Far"]] }
 ]
