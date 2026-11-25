@@ -728,7 +728,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // chapter's shadow token), the one matter, lit by whatever light the world has and by the hands. We look at the square THROUGH it.
   // Present in intro, brasa, pinya, tronc, baixada (setBackground sets it); room.setPorxada(0..1) overrides. It comes and goes by a
   // dissolve of fragments (screen-door), the work's language. In the scene root: the same frame in both worlds of a transition.
-  const PORX_ON = new Set(['intro', 'brasa', 'pinya', 'tronc', 'pom', 'crown', 'baixada']);   // (pinya is the abstract field: no porch)
+  const PORX_ON = new Set(['intro', 'brasa', 'pinya', 'tronc', 'pom', 'crown', 'festa', 'baixada']);   // (pinya is the abstract field: no porch)
   const porx = { k: uniform(0), to: 0, group: new THREE.Group(), lit: uniform(0) };
   porx.group.name = 'room:porxada';
   {
