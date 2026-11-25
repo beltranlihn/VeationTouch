@@ -1,0 +1,25 @@
+{
+ "language": "ca (central Catalan, vosaltres)",
+ "lines": {
+  "v-wait-invite": "[softly] Toqueu. Jugueu amb la sala.",
+  "v-wait-start": "[softly] Mantingueu la mà al cercle.",
+  "v-intro-1": "[hushed, intimate] Des de fa més de dos-cents anys, a les places de Catalunya, la gent aixeca torres.",
+  "v-intro-2": "[hushed] Sense pedra. Sense cordes. Només cossos, l'un sobre l'altre, fins a deu pisos d'alçada. En diuen castells.",
+  "v-intro-3": "[softly] Un castell no el construeixen els qui pugen. El construeixen els de baix: centenars de mans, estretes, sostenint.",
+  "v-intro-4": "[whispers] Aquesta nit, aquests murs són la plaça. I vosaltres sou la pinya.",
+  "v-intro-5": "[slowly, softly] Força. Equilibri. Valor. I seny.",
+  "v-brasa-1": "[hushed] Tot castell comença a la foscor, amb un sol gest. Toqueu el mur.",
+  "v-brasa-2": "[softly] Ara, tots alhora.",
+  "v-brasa-3": "[softly] Un altre cop. Junts.",
+  "v-aleta-2": "[warmly] Ara, la plaça és vostra.",
+  "v-cierre-final": "[tender, hushed] Aquest ha estat el vostre castell. Quan els cossos ressonen junts, neix la cultura."
+ },
+ "voice": "Gabriel - Clear Catalan (ElevenLabs voice library, gVPrsdPwbJWr1d81hITr)",
+ "model": "eleven_v4",
+ "settings": {
+  "stability": 0.5,
+  "similarity_boost": 0.8
+ },
+ "output": "mp3_44100_128",
+ "notes": "2026-11-25: only the lines the trailer (res-trailer) can play, plus v-intro-5 and v-cierre-final; the rest of the work falls back to Spanish."
+}

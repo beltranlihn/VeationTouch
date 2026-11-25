@@ -6,7 +6,7 @@
 //   the square (45 s):    presenters → «Ressonància» + subtitle → four lines, one per wall
 //   the correfoc (53 s):  the written trailer, wall after wall → the work's data, two sets of four
 //   the resonance (62 s): the closing line on every wall → credits, one per wall → logos and support
-// Texts: TEXT[lang] below (es by default, en). Everything that is a fact to confirm (names, roles, dates) is in CREDITS / DATA.
+// Texts: TEXT[lang] below (es by default, en, ca). Everything that is a fact to confirm (names, roles, dates) is in CREDITS / DATA.
 import { typo } from '../../ressonancia/scenes3d/typo3d.js';
 
 const INK = [0.78, 0.75, 0.70], SOFT = [0.70, 0.67, 0.62], GOLD = [0.95, 0.80, 0.52];
@@ -34,6 +34,17 @@ export const TEXT = {
     closing: ['When bodies resonate together,', 'culture is born.'],
     credits: [['A work by', 'Vicente Manzano'], ['Creative direction', 'Alma Digital Studio'], ['Production', 'Barcelona XR Lab'], ['Interactive technology', 'VEATION Touch']],
     support: 'With the support of the Generalitat de Catalunya',
+  },
+  ca: {
+    presents: ['Barcelona XR Lab  ×  Alma Digital Studio', 'presenten'],
+    title: 'Ressonància', subtitle: 'una obra immersiva i interactiva sobre els castells',
+    four: ['Un castell no l’aixeca ningú sol.', 'L’aixequen centenars de mans.', 'Força, equilibri, valor i seny.', 'Aquest cop, el castell sou vosaltres.'],
+    trailer: ['Deu minuts. Quatre murs. Un sol cos.', 'Les vostres mans encenen el foc del correfoc,', 'aixequen la pinya i sostenen el tronc,', 'callen perquè pugi el pom de dalt, i coronen.'],
+    data: [[['Durada', '10 minuts'], ['Públic', 'de 2 a 15 persones'], ['Sala', '4 murs · 360 graus'], ['Interacció', 'les mans sobre el mur']],
+           [['So', 'veu i música en 4.1'], ['Tecnologia', 'VEATION Touch · LiDAR'], ['Lloc', 'Barcelona XR Lab'], ['Lema', 'Força, equilibri, valor i seny']]],
+    closing: ['Quan els cossos ressonen junts,', 'neix la cultura.'],
+    credits: [['Una obra de', 'Vicente Manzano'], ['Direcció creativa', 'Alma Digital Studio'], ['Producció', 'Barcelona XR Lab'], ['Tecnologia interactiva', 'VEATION Touch']],
+    support: 'Amb el suport de la Generalitat de Catalunya',
   },
 };
 

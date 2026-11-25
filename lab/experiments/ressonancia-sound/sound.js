@@ -82,6 +82,8 @@ const VOICES = [...(WAIT_VOICES ? ['v-wait-invite', 'v-wait-start'] : []), ...IN
   'v-pom-2', 'v-pom-3', 'v-aleta-2', ...Object.values(OUTCOME_LINE), 'v-cierre-final', 'v-tronc-wobble', 'v-aleta-raise', 'v-aleta-yours', 'v-aleta-crowned', 'v-baixada-gently', 'v-pinya-closein'];
 const FILES = [...new Set([...Object.values(SETS).flatMap((s) => Object.values(s.layers)), ...AMBIENCE, ...SHOTS, ...VOICES])];
 const VOICE_SET = new Set(VOICES);
+// 25-11 (studio, for res-trailer): the Catalan voice (Gabriel - Clear Catalan, eleven_v4; audio/ca/voice-lines-ca.json) has only these lines
+const VOICE_CA = new Set(['v-wait-invite', 'v-wait-start', 'v-intro-1', 'v-intro-2', 'v-intro-3', 'v-intro-4', 'v-intro-5', 'v-brasa-1', 'v-brasa-2', 'v-brasa-3', 'v-aleta-2', 'v-cierre-final']);
 const GROUP = (name) => (name.startsWith('st-') ? name.split('-').slice(0, 2).join('-') : name);   // stems share one normalisation
 const GRALLA_HZ = 415;                       // s-gralla's pitch (G#4, measured): grains are tuned from it
 
@@ -168,7 +170,7 @@ export default async function start(host) {
   const buffers = new Map(), peaks = new Map(), failed = new Set();
   const load = async (name) => {
     try {
-      const file = P.lang === 'es' && VOICE_SET.has(name) ? `es/${name}` : name;          // the voice in the chosen language
+      const file = !VOICE_SET.has(name) || P.lang === 'en' ? name : P.lang === 'ca' && VOICE_CA.has(name) ? `ca/${name}` : `es/${name}`;   // the voice in the chosen language (25-11: Catalan for the trailer's lines; the rest falls back to Spanish)
       const r = await fetch(new URL(`./audio/${file}.mp3`, import.meta.url)); if (!r.ok) throw new Error(String(r.status));
       const buf = await ctx.decodeAudioData(await r.arrayBuffer());
       let pk = 0; for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i += 2) { const v = Math.abs(d[i]); if (v > pk) pk = v; } }
@@ -933,7 +935,7 @@ export default async function start(host) {
     const t = now(), b = block, ph = S.phase, prog = S.progress || 0, on = running();
     if (S.hands > 0) lastHandClock = S.clock;
     // the voice by the clock: the intro's lines, the waiting call, the acta's lines
-    const IV = P.lang === 'es' ? INTRO_VOICE_ES : INTRO_VOICE;
+    const IV = P.lang === 'en' ? INTRO_VOICE : INTRO_VOICE_ES;   // 25-11: the Catalan lines (audio/ca/) fit the Spanish cues: 5.5 · 10.0 · 8.3 · 5.3 · 4.6 s
     if (b === 'intro') while (introCue < IV.length && S.t >= IV[introCue][0]) say(IV[introCue++][1], { delay: 0.05 });
     if (b === 'wait' && S.hands === 0) { const gone = S.clock - lastHandClock; if (gone >= WAIT_AFTER && gone <= WAIT_RECENT && S.clock - waitSaid >= WAIT_EVERY) { waitSaid = S.clock; if (WAIT_VOICES && (S.reveal || 0) < 1) say('v-wait-invite', { polite: true, delay: 0.2 }); } }
     if (b === 'acta') {

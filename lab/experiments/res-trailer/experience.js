@@ -227,7 +227,7 @@ doJump();
 // play early), a move into the NEXT segment's block jumps the clock there; any other move is put back.
 const TRL = { tt: 0, seg: -1, jumpedAt: -9, loops: 0 };
 const segments = () => {
-  const pre = P['trailer.preroll'] ?? 12, title = 45, fire = 53, res = 62;
+  const pre = P['trailer.preroll'] ?? 12, title = 50, fire = 53, res = 62;   // title 50: the intro's 4th line (41 s, ~5.4 s) ends before the correfoc
   return [['wait', 0], ['intro', pre], ['brasa', pre + title], ['festa', pre + title + fire], ['end', pre + title + fire + res]];
 };
 function trailerStep(dt) {
