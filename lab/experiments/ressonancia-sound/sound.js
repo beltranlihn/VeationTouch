@@ -950,7 +950,7 @@ export default async function start(host) {
     // the threshold: as play reveals the button, glass motes gather (more and brighter); the start ring raises a glass tone
     if (b === 'wait') {
       const rv = S.reveal || 0;
-      if (rv > 0.04 && rv < 1 && Math.random() < dt * (0.4 + 5 * rv)) { const w = Math.floor(Math.random() * NW); modal(t + 0.01, midiHz(86 + MAJOR_PENTA[Math.floor(Math.random() * 5)] + (Math.random() < 0.3 ? 12 : 0)), (0.004 + 0.012 * rv) * P.effects, toWall(w), GLASS, 1); }
+      if (rv > 0.04 && rv < 1 && performance.now() / 1000 - dragAt < 0.25 && Math.random() < dt * (0.4 + 5 * rv)) {   /* studio 25-11: the reveal's glints only while a hand drags (they rang on until the reveal faded) */ const w = Math.floor(Math.random() * NW); modal(t + 0.01, midiHz(86 + MAJOR_PENTA[Math.floor(Math.random() * 5)] + (Math.random() < 0.3 ? 12 : 0)), (0.004 + 0.012 * rv) * P.effects, toWall(w), GLASS, 1); }
       const st = S.start || 0;
       startTone.frequency.setTargetAtTime(midiHz(62) * Math.pow(2, st), t, 0.15); startFifth.frequency.setTargetAtTime(midiHz(69) * Math.pow(2, st), t, 0.15);
       startG.gain.setTargetAtTime(st > 0.01 ? (0.006 + 0.03 * st) * P.effects : 0, t, 0.2);
