@@ -32,18 +32,29 @@ function fillWindow() {
 }
 /** Where the strip is on screen: the canvas's content box (object-fit: contain). */
 function stripRect(c) {
-  const b = c.getBoundingClientRect(), a = c.width / c.height, ba = b.width / b.height;
+  const b = c.getBoundingClientRect();
+  if (c.style.objectFit === 'fill') return { x: b.left, y: b.top, w: b.width, h: b.height };   // laid out by applyZoom (real proportions)
+  const a = c.width / c.height, ba = b.width / b.height;
   if (ba > a) { const w = b.height * a; return { x: b.left + (b.width - w) / 2, y: b.top, w, h: b.height }; }
   const h = b.width / a; return { x: b.left, y: b.top + (b.height - h) / 2, w: b.width, h };
 }
 
 /** F (25-11): one wall of the strip filling the window (R.zoom 1..n), or the whole strip (0). The canvas is laid out larger and shifted,
  *  so stripRect() — and with it the mouse → hand mapping and the overlay — stays exact. */
+// REAL PROPORTIONS (25-11, Beltrán): the strip is 912 px for a WALL_H-m image but ~261 px/m along the walls, so on a monitor a circle in
+// metres looks flattened (7 % at 3.75 m). By default the canvas is shown stretched to the wall's own proportions (px per metre the same
+// both ways), as the projector does on the wall; ?physical=0 shows the raw strip.
+const PHYS = q.get('physical') !== '0';
+function physK(K) { const S = K.ROOM.strip; return PHYS ? (S.width / K.ROOM.perimeter) / (S.height / K.ROOM.wallHeight) : 1; }
 function applyZoom(R) {
   const c = R.canvas; if (!c) return;
-  const K = R.K, S = K.ROOM.strip, w = R.zoom ? K.ROOM.walls[R.zoom - 1] : null;
-  if (!w) { Object.assign(c.style, { inset: '0', left: '', top: '', width: '100vw', height: '100vh', objectFit: 'contain' }); return; }
-  const SW = Math.min(innerWidth * S.width / w.w, innerHeight * S.width / S.height), SH = SW * S.height / S.width;
+  const K = R.K, S = K.ROOM.strip, w = R.zoom ? K.ROOM.walls[R.zoom - 1] : null, k = physK(K), SHk = S.height * k;
+  if (!w) {
+    if (k === 1) { Object.assign(c.style, { inset: '0', left: '', top: '', width: '100vw', height: '100vh', objectFit: 'contain' }); return; }
+    const a = S.width / SHk, W = Math.min(innerWidth, innerHeight * a), H = W / a;
+    Object.assign(c.style, { inset: 'auto', left: (innerWidth - W) / 2 + 'px', top: (innerHeight - H) / 2 + 'px', width: W + 'px', height: H + 'px', objectFit: 'fill' }); return;
+  }
+  const SW = Math.min(innerWidth * S.width / w.w, innerHeight * S.width / SHk), SH = SW * SHk / S.width;
   const left = (innerWidth - (w.w / S.width) * SW) / 2 - (w.x / S.width) * SW, top = (innerHeight - SH) / 2;
   Object.assign(c.style, { inset: 'auto', left: left + 'px', top: top + 'px', width: SW + 'px', height: SH + 'px', objectFit: 'fill' });
 }
@@ -182,7 +193,7 @@ export async function connectExperience(opt = {}) {
     let last = performance.now(), raf = 0;
     const step = (tNow) => {
       const now = performance.now(), dt = Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
-      if (!canvas) { canvas = fillWindow(); if (canvas) { R.canvas = canvas; canvas.dataset.lkSeen = '1'; const wq = q.get('wall'), wi = RM.walls.findIndex((x) => x.id === wq); if (wi >= 0) { R.zoom = wi + 1; applyZoom(R); } } }   // ?wall=P1: start on that wall large (F)
+      if (!canvas) { canvas = fillWindow(); if (canvas) { R.canvas = canvas; canvas.dataset.lkSeen = '1'; const wq = q.get('wall'), wi = RM.walls.findIndex((x) => x.id === wq); if (wi >= 0) R.zoom = wi + 1; applyZoom(R); } }   // ?wall=P1: start on that wall large (F)
       try { R.stage.step(dt); feed(now); vt._tick(); fn(dt); } catch (e) { console.error(e); }
       raf = requestAnimationFrame(step);
     };
