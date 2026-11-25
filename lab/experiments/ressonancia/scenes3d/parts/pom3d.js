@@ -282,10 +282,10 @@ export function create(ctx) {
     let want = lightWall >= 0 ? lightWall : towerW >= 0 ? towerW : 0;
     if (shown && shown.length && !shown.includes(want)) { let best = shown[0], bd = 99; for (const t of shown) { const d = Math.min((t - want + NW) % NW, (want - t + NW) % NW); if (d < bd) { bd = d; best = t; } } want = best; }
     if (towerW < 0) towerW = want;
-    // each climber keeps the tower she started on (a figure flying across the room between towers read as floating, AD): a new climber
-    // starts on the tower of the light's wall; while she climbs, a handoff is a leap UP her own tower and the gold strand reaches the hand
+    // the three climb ONE tower, the one of the light's wall when the pom begins (a figure flying across the room between towers read as
+    // floating, AD); while she climbs, a handoff is a leap UP her own tower and the gold strand reaches the hand
     const prevTowerW = towerW;
-    if (climber !== lastClimber && phase === 'play') towerW = want;
+    if (lastClimber < 0 || (climber === 0 && climber !== lastClimber)) towerW = want;   // the castell of this pom: the three climb the same tower
     hopT = Math.min(1, hopT + dt / 1.2);
     // ---- arrive / leave
     const arrive = input.arrive ?? (S ? 1 : pr.arrive ?? 1), leave = input.leave ?? (S ? 0 : pr.leave ?? 0);
