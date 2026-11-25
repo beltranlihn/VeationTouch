@@ -366,7 +366,7 @@ export function create({ THREE, TSL, room, params = {} }) {
     const landed = firstLand >= 0 && t > firstLand;
     set(castellT, env(t, 0.2, 2.6, 24, 24.6) * brk, k, dt);
     set(glossT, env(t, 2.4, 4.2, 11, 11.6) * brk, k, dt);   // above the castell, then the line of story in its place (12–24 s)
-    const inv = Math.min(S && S.printOpen != null && S.block === 'acta' ? (S.printOpen ? env(t, 3.0, 4.0, 99, 100) : (t > 3.5 ? 0 : 0)) : env(t, 3.0, 4.0, 21.4, 22), landed ? 1 - 0.2 * smooth((t - firstLand) / 0.6) : 1) * brk;   // 3–22 s; a little dimmer once a print lands
+    const inv = (S && S.printOpen != null && S.block === 'acta' ? (S.printOpen ? env(t, 3.0, 4.0, 99, 100) : 0) : env(t, 3.0, 4.0, 21.4, 22)) * brk;   // while the score's print window is open (no dimming: words never half-leave)
     set(inviteT, inv, k, dt);
     set(statT, env(t, 12, 13.5, 24, 24.6) * brk, k, dt);
     set(valuesT, env(t, 12.5, 14, 31.8, 32.6) * brk, k, dt);   // the values: a typographic record under the outcome
