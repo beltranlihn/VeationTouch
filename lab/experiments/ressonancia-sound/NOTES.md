@@ -293,5 +293,18 @@ BroadcastChannel in practice (handled in code only), and the real 4.1 routing (t
   −7 … −14 dBFS before the limiter (target ≤ −3). Not measured: the voice-over-rest ratio in 1–4 kHz while it speaks, and the
   attack-to-grid timing — to be listened in the room.
 
+- **Later the same night (full ×1 passes wait → acta, sound page, cue log):** lines of one moment (< 1.5 s apart) queue one after the
+  other instead of cutting (the colla + the call, «Aguanta» + «Ahora allí»); a narration is never cut in its last 4 s (v-pom-1 by
+  «Quietos»); a follow-up stays in its block; the brasa's «Eso es. La plaza despierta.» only in the brasa (the festa's waves are text);
+  «Shhh. Quietos.» ≥ 30 s apart; the score's hints are silent; a **nudge** «Dejad la mano sobre la luz.» after 22 s without progress
+  nor voice in a block that asks for hands (not in free / reward stages); «La colla os ayuda» once per block; the baixada's free coda
+  has its own line («Lo habéis bajado. La plaza es vuestra.», v-baixada-free).
+- **The brasa's bed slides** (m-brasa, per 6 s window and by register): D (+A, F#) for its first ~27 s, C# (+G#) after it (bass:
+  C# 53 %, D 36 % over the loop). The brasa's generative layer and the drone follow the bed's playhead (`bedPos('brasa')`, D → C#,
+  scale {1, 2, 4, 5}). Re-measured with 15 hands: 65 % (D part) / 69 % (C# part) in key. The tronc's creak resonance moved 420 → 440 Hz
+  (it rang G#).
+- Re-measure of all chapters after these changes (15 hands, master chroma, flat noise ≈ 58 %): festa 88 %, baixada 73 %, tronc 67 %,
+  pinya 66 %, brasa 64 %, pom 63 % (the pom's thread is a continuous glide D5 → D6 by design). Wall peaks −8 … −19 dBFS.
+
 ## Requests to the studio
 See `ressonancia/NOTES.md`: audio samples (an exception to "no samples"), a channel between a visual piece and its sound piece.
