@@ -497,7 +497,7 @@ export function create(ctx) {
     }
     return { CAST, CLV, TRUNK };
   }
-  const LAY = { persp: makeLayout(OLD ? 1 : 0.58), full: makeLayout(1) };   // ×0.58: the whole 9-floor castell fits ≤ 3.4 m on the wall
+  const LAY = { persp: makeLayout(OLD ? 1 : 0.58), full: makeLayout(0.85) };   // the Pom: 15 % compressed (no scale jump from the Tronc)   // ×0.58: the whole 9-floor castell fits ≤ 3.4 m on the wall
   let { CAST, CLV, TRUNK } = LAY.persp;
   const bodies = P.bodies !== false && !lone();   // fall3d's private tower (parts: {}) falls as the sculpture: no bodies there
   const kit = bodies ? createBodies({ THREE, TSL, room, max: Math.min(400, CAST.length * Math.min(NW, 4)), lods: [1, 2], spots: ctx.parts?.plaza?.spots || null }) : null;   // the square's stage spots light the bodies in their beams
@@ -546,14 +546,14 @@ export function create(ctx) {
         if (castMode === 'top' && c.lv >= 7) { kit.hide(i); continue; }      // the Pom draws its climbers (Interacción); crowned: shown again
         // the bajada (Art Director): a floor taken by baixada3d does not vanish — its bodies dissolve into light (≈ 2.5 s)
         const tk = S.taken ? (S.takenT || 0) : 0;
-        const shown = c.lv === 0 || (S.shown && (!S.taken || tk < 2.5) && (S.solid > 0.001 || S.forming || S.goneT >= 0 || S.taken));
+        const shown = c.lv === 0 || (S.shown && (!S.taken || tk < 4.5) && (S.solid > 0.001 || S.forming || S.goneT >= 0 || S.taken));
         if (!shown || (S.goneT >= 1.6)) { kit.hide(i); continue; }
         // a floor that forms climbs into place with the lift; one that slips drops and goes
         // particles: a forming floor ASSEMBLES from streams (with the lift), a slipping one falls as dust; no body moves as a block
         let dy = 0, form = 1, fmode = 'gather';
         if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, S.lift * 0.8 + S.solid * 0.6); dy = -(1 - form) * 0.15; }   // the next floor gathers only as the hands lift it   // the next floor hovers half-formed until the hands lift it
         if (S.goneT >= 0) { form = Math.max(0, 1 - S.goneT / 1.4); fmode = 'dust'; }
-        if (S.taken) { form = Math.max(0, 1 - tk / 2.5); fmode = 'light'; }
+        if (S.taken) { form = tk < 3.5 ? Math.max(0.5, 1 - tk / 2.5) : Math.max(0, 0.5 - (tk - 3.5) * 0.5); fmode = 'light'; }   // the bajada: half dissolved, the figure still there, then gone
         // (the pinya stays whole: a form < 1 left particles hanging below the bodies — the «stalactites»)
         const sw = c.lv > 0 && !OLD ? Math.sin(time * 0.45 + t.tw * 1.7) * 0.012 * Math.min(1, c.y / 3) : 0;   // the trunk sways, 1–2 cm, slowly
         // each wall's castell turned a little round its axis (no four identical clones)
@@ -662,7 +662,12 @@ export function create(ctx) {
     pull += ((rewarding || (leave > 0 && pull > 0.01) ? 1 : 0) - pull) * ease(0.6, dt);
     if (pull > 0.001) target += (TOWER_H * SC * 0.5 - 1.2 - target) * smooth(0, 1, pull);
     target = Math.max(0, target);                     // 25-11 (director): the world only goes DOWN (the room rises); never up, never floating
-    if (focusY != null && !OLD && !col.on) {
+    if (castMode === 'top' && !OLD && !col.on) {
+      // the Pom (AD #14): the trunk's top (the dosos' feet) sits at ≤ 3.4 m on the wall, the base leaves through the bottom edge; the
+      // climbers go up a trunk that is wholly inside the wall (setFocusY no longer moves it)
+      const top = (TRUNK[7]?.y || 5.9) * SC, dW = Math.max(0.5, -_v.copy(walls[0].centre).sub(room.eye).dot(walls[0].normal)), d = dW + TOWER_D;
+      target = Math.max(0.75, top - (room.eye.y + (3.3 - room.eye.y) * d / dW));
+    } else if (focusY != null && !OLD && !col.on) {
       target = Math.max(0, focusY - (room.eye.y || 1.6));
       if (target > 0.01) target = Math.max(target, 0.75);      // never a base hanging mid-wall: lowered at all, it leaves through the bottom edge
     }   // Pom: the climbed floor in the reach band (setFocusY)
