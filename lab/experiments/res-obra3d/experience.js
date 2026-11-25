@@ -522,10 +522,10 @@ function frame(dt) {
     } else if (e.name === 'plaza') {
       if (e.home === 'intro') { t = S.block === 'intro' ? S.t : 70; p.noBreak = P.tiles !== false; p.skyTint = INTRO_SKY; p.silhouette = 0; p.shatter = 0; p.reveal = 0; p.lamps = e.base.lamps ?? 1; p.sky = e.base.sky ?? 1; p.windows = Math.max(0.55, e.base.windows ?? 0.45); p.pool = 1.5; p.moonKey = 1.0; p.night = 1; p.reach = 0.4; p.glow = e.base.glow ?? 0.3; p.haze = e.base.haze ?? 1; p.moon = e.base.moon ?? 1; e.mood = 1; }
       else {
-        t = 30; p.noBreak = false; p.skyTint = pal.sky; p.silhouette = e.home === 'baixada' || e.home === 'fall' ? 1 : 0; p.silDrop = 13.5;   // director 24-11: rooftops at ~30–40 % of the wall, the dawn sky dominates p.pool = 1; p.moonKey = 1; p.night = 0; p.reach = 1;
+        t = 30; p.noBreak = false; p.skyTint = pal.sky; p.silhouette = e.home === 'baixada' ? 1 : 0; p.silDrop = 13.5;   // director 24-11: rooftops at ~30–40 % of the wall, the dawn sky dominates p.pool = 1; p.moonKey = 1; p.night = 0; p.reach = 1;
         let sh = e.state === 'in' ? 1 - smooth(e.arrive) : e.state === 'out' ? 1 - (1 - e.leave) * (1 - e.leave) : 0;   // leaving: it starts breaking at once
         if (e.reform) sh = Math.max(sh, e.reform.sh);                  // a world-moving change with the square on both sides: it breaks and re-forms
-        if (e.home === 'fall') { if (S.block === 'fall') e.fallK = clamp(S.t / 9, 0, 1); sh = Math.max(sh, e.fallK); }
+        // 25-11 (director): in the fall the host does not break the square (VFX's 'fall' mood does what it needs)
         p.shatter = sh; p.reveal = 0;
         const dim = e.state === 'out' && S.block === 'acta' ? 1 - smooth(Math.min(1, e.leave * 2)) : 1;   // its light goes first: the next universe's words read at once
         e.mood = ease(e.mood ?? 1, e.home === 'baixada' || e.home === 'fall' || e.home === 'pom' ? 0.18 : 1, dt, 1.2);   // pom: the square at its darkest, lamps almost off   // 25-11 (VFX): tronc keeps its lamps — the lit square (plaza V8) is the tronc's light now (was 0.2)   // the baixada: the square goes into night
@@ -606,9 +606,13 @@ async function warmUp() {
     saved.length = 0;
     room.scene.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
     room.overlay.traverse((o) => { saved.push(o, o.visible); o.visible = true; });
+    // 25-11 (QA: a 60 → 7 fps dip at wait → intro): the parts' key / moon lights are at 0 while their part is gone, so the shadow
+    // passes (and every caster's depth material) were first built on the intro's first lit frame. Here they are lit for the two frames.
+    const lit0 = []; for (const e of list) for (const l of e.steady) { lit0.push(l, l.intensity); if (!(l.intensity > 0)) l.intensity = l.userData.hostIntensity || 1; if (l.castShadow && l.shadow) { l.shadow.needsUpdate = true; l.userData.shadowDirty = true; } }
     room.setTiles({ on: true, mix: 0.5 });
     for (let k = 0; k < 2; k++) { room.render(1 / 60, () => {}); await new Promise((r) => requestAnimationFrame(r)); }
     room.setTiles({ on: false, mix: 0 });
+    for (let i = 0; i < lit0.length; i += 2) lit0[i].intensity = lit0[i + 1];
     for (let i = 0; i < saved.length; i += 2) saved[i].visible = saved[i + 1];
     for (const m of thread.meshes) { room.overlay.remove(m); m.visible = false; }
   }
