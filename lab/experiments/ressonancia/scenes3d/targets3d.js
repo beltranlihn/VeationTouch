@@ -25,7 +25,7 @@ const DONE = {
   echo: { to: [1.2, 0, 0], secs: 1.2 }, crown: { to: [0, 1.6, 0], secs: 1.4 }, print: { to: [0, 0, -0.02], secs: 2.8 },
   other: { to: [0, 0.5, 0], secs: 1.0 },
 };
-const SKIN_OF = (t) => (t.kind === 'fire' ? 'brazier' : t.shape === 'pillar' || ['call', 'echo', 'crown'].includes(t.kind) ? 'column'
+const SKIN_OF = (t, block) => (t.kind === 'fire' || t.kind === 'relay' || block === 'brasa' ? 'brazier' : t.shape === 'pillar' || ['call', 'echo', 'crown'].includes(t.kind) ? 'column'
   : t.shape === 'rect' || ['rung', 'foot', 'down'].includes(t.kind) ? 'ashlar' : 'plaque');
 
 export function createTargets3D({ THREE, TSL, room }) {
@@ -86,7 +86,9 @@ export function createTargets3D({ THREE, TSL, room }) {
       .add(vec3(...lin('flama')).mul(rim.mul(float(0.25).add(S.x.mul(0.6)).add(S.y.mul(0.8))))));
   }
   const bowl = skin(bowlGeo, bowlMat, 'brazier');
-  const stand = skin(new THREE.CylinderGeometry(0.5, 0.7, 1, 10), ceramic({ color: 'carbó', glaze: 0.3, wear: 0.6, rim: 0.2, hands: 0.1 }), 'stand');
+  const standMat = ceramic({ color: 'carbó', glaze: 0.45, wear: 0.6, rim: 0.2, hands: 0.1 });
+  { const S = S_(); addEmissive(standMat, vec3(...lin('flama')).mul(smoothstep(0.1, 0.5, positionLocal.y).mul(float(0.06).add(S.x.mul(0.25)).add(S.y.mul(0.35))))); }   // the ember lights the top of its post
+  const stand = skin(new THREE.CylinderGeometry(0.5, 0.7, 1, 10), standMat, 'stand');
   // the flame: a light shape (additive) over the bowl; its height grows with the charge (set per instance)
   const flameMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
   {
@@ -117,10 +119,10 @@ export function createTargets3D({ THREE, TSL, room }) {
   const column = skin(new THREE.CylinderGeometry(0.5, 0.5, 1, 20, 1), columnMat, 'column');
 
   // plaque: a stone slab on the wall; the print glows into it in gold (an oval at its heart) with the charge, and stays when done
-  const plaqueMat = ceramic({ color: 'cal', glaze: 0.35, wear: 0.6, rim: 0.25, hands: 0.3 });
+  const plaqueMat = ceramic({ color: 'pedra-llum', glaze: 0.3, wear: 0.7, rim: 0.2, hands: 0.3 });   // warm stone (the fallback too: never a grey square)
   {
     const S = S_(), front = smoothstep(0.6, 0.95, normalLocal.z), d = length(positionLocal.xy.mul(TSL.vec2(1.0, 0.8))), heart = smoothstep(0.42, 0.18, d);
-    addEmissive(plaqueMat, GOLD.mul(front.mul(heart).mul(S.x.mul(0.9).add(S.y.mul(1.4)).add(S.z.mul(0.3)))));
+    addEmissive(plaqueMat, vec3(...lin('cal-fanal')).mul(0.06).add(GOLD.mul(front.mul(heart).mul(S.x.mul(0.9).add(S.y.mul(1.4)).add(S.z.mul(0.3))))));
   }
   const plaque = skin(new RoundedBoxGeometry(1, 1, 1, 2, 0.08), plaqueMat, 'plaque');
 
@@ -143,8 +145,9 @@ export function createTargets3D({ THREE, TSL, room }) {
     sk.aS.setXYZW(i, p.charge, p.hold, p.gold, p.burst); sk.aG.setXYZW(i, p.grow, p.asm, rise, 0);
   }
   let shown = 0, csN = 0, warm = 3;   // warm: the first frames draw every skin (empty) — their pipelines are built at load, not on the first touch
-  function update(dt, { targets, time = 0, on = true, events } = {}) {
-    uTime.value = time;
+  let blockNow = '';
+  function update(dt, { targets, block = '', time = 0, on = true, events } = {}) {
+    uTime.value = time; blockNow = block;
     shown = ease(shown, on ? 1 : 0, dt, 3);
     if (events) for (const e of events) if (typeof e === 'string' && (e === 'wave' || e.startsWith('wave'))) FLARE.value = 1;
     FLARE.value = Math.max(0, FLARE.value - dt / 1.2);
@@ -156,7 +159,7 @@ export function createTargets3D({ THREE, TSL, room }) {
       if (!p) { p = free(); if (!p) continue; if (p.id) byId.delete(p.id); byId.set(t.id, p); Object.assign(p, { id: t.id, live: true, asm: 0, grow: 0, gold: 0, burst: 0, charge: 0, hold: 0 }); }
       p.seen = true; p.live = true;
       p.wall = Math.min(room.walls.length - 1, Math.max(0, t.wall | 0)); p.dx = +t.dx || 0;
-      p.skin = SKIN_OF(t); p.kind = t.kind || 'other';
+      p.skin = SKIN_OF(t, blockNow); p.kind = t.kind || 'other';
       p.w = +t.w || (t.r > 0 ? 2 * t.r : 0.44); p.h = +t.h || (t.r > 0 ? 2 * t.r : 0.44); p.y = +t.y || 1.25;
       p.charge = t.state === 'idle' ? Math.max(0, +t.charge || 0) : t.state === 'charging' ? +t.charge || 0 : 1;
       p.hold = t.state === 'active' ? +t.hold || 0 : t.state === 'done' ? 1 : 0;
