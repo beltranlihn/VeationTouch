@@ -124,7 +124,11 @@ export function create(ctx) {
   // surface follows the room: a rounded rectangle OFF m behind the walls (its foot meets the sand ~0.2 m above each wall's bottom edge),
   // straight up to YS, then curving in (a circle of radius RV) — the sky shows only through the four portals. Fixed to the room (no turn).
   // Its own parameters: cu = metres along (θ = cu / RM, closed: 0..LL), cy = v = metres along the profile from the foot (= height up to YS).
-  const RM = 4.6, LL = Math.PI * 2 * RM, YTOP = 4.4, OFF = 0.6, YS = 2.3, RV = 3.0;
+  const RM = 4.6, LL = Math.PI * 2 * RM, YTOP = 5.3, OFF = 0.6, YS = 1.95, RV = 2.2;   // YTOP 5.3 (was 4.4): the lower curl must still close over the walls' top   // studio 25-11 (Beltrán): the curl into the vault starts lower and rounder (was YS 2.3, RV 3.0)
+  // studio 25-11 (Beltrán: «el manto de mosaicos debe llegar al piso, la arena sólo se ve detrás del portal»): the profile now starts ON
+  // THE FLOOR right at the wall line (OF0), runs out along the sand (LS) and rises through a soft cove (radius RC) into the wall. v (the
+  // profile's own length) is SHIFT longer than the height up the straight part; VTOP is the old YTOP in v.
+  const OF0 = 0.03, RC = 0.25, LS = OFF - RC - OF0, V1 = LS + Math.PI * RC / 2, SHIFT = V1 - RC, VTOP = YTOP + SHIFT, FLOOR_Y = 0.004;
   const wrapU = (d) => d - Math.round(d / LL) * LL;
   const WK = walls.map((w) => ({ nx: w.normal.x, nz: w.normal.z, k: -((w.centre.x - eye.x) * w.normal.x + (w.centre.z - eye.z) * w.normal.z) }));
   const HMAX = Math.max(...walls.map((w) => w.height));
@@ -133,13 +137,18 @@ export function create(ctx) {
     for (const q of WK) { const dn = -(ux * q.nx + uz * q.nz); if (dn > 0) a += (dn / q.k) ** 8; }
     return a > 0 ? a ** (-1 / 8) : 5;
   }
-  const yOf = (v) => (v <= YS ? v : YS + RV * Math.sin(Math.min(1.5, (v - YS) / RV)));
-  const vOf = (y) => (y <= YS ? y : YS + RV * Math.asin(Math.min(1, (y - YS) / RV)));
-  function surfR(th, v) { return wallD(th) + OFF - (v <= YS ? 0 : RV * (1 - Math.cos(Math.min(1.5, (v - YS) / RV)))); }
+  const yUp = (u) => (u <= YS ? u : YS + RV * Math.sin(Math.min(1.5, (u - YS) / RV)));                 // the wall and the vault (u = v − SHIFT)
+  const yOf = (v) => (v < LS ? FLOOR_Y : v < V1 ? FLOOR_Y + RC * (1 - Math.cos((v - LS) / RC)) : yUp(v - SHIFT));
+  const vOf = (y) => (y < RC ? LS + RC * Math.acos(Math.max(-1, Math.min(1, 1 - y / RC))) : (y <= YS ? y : YS + RV * Math.asin(Math.min(1, (y - YS) / RV))) + SHIFT);
+  function surfR(th, v) {
+    if (v < LS) return wallD(th) + OF0 + v;                                                        // the skirt, on the sand
+    if (v < V1) return wallD(th) + OF0 + LS + RC * Math.sin((v - LS) / RC);                        // the cove
+    const u = v - SHIFT; return wallD(th) + OFF - (u <= YS ? 0 : RV * (1 - Math.cos(Math.min(1.5, (u - YS) / RV))));
+  }
   const surfP = (cu, v, out) => { const th = cu / RM, r = surfR(th, v); return out.set(r * Math.cos(th), yOf(v), r * Math.sin(th)); };
   const ARCH = [];                          // (no openings baked in the mosaic: the thresholds are cut where the walls' centres look, see doorK)
   function archF() { return 9; }
-  function crest() { return YTOP; }
+  function crest() { return VTOP; }
   const DOOR_A = 0.8, DOOR_H = 1.95, DOOR_P = 2.2;   // T-058c: half base span, height, shape — y = H·(1 − |x/A|^P), metres ON THE WALL: a near-parabola, base 1.6 m, apex the narrowest; the start ring (r 0.31–0.39 at 1.25 m) sits inside with ≥ 7 cm to the jambs; the guide's words go above
 
   // ---- the mosaic (T-058): FINE trencadís. Poisson sites whose size follows the height (fine in the band the hands reach, larger above,
@@ -147,7 +156,7 @@ export function create(ctx) {
   // ~3–5 cm pieces in the hand band, 8–12 cm above, a few rosette "mothers" (some ROUND medallions, ref 02) of 12–18 cm.
   const cells = [];
   let heroGeo;
-  const BS = 0.25, BW = Math.ceil(LL / BS), BH = Math.ceil(YTOP / BS) + 1, RIMAX = 0.3, PT = 5;
+  const BS = 0.25, BW = Math.ceil(LL / BS), BH = Math.ceil(VTOP / BS) + 1, RIMAX = 0.3, PT = 5;
   {
     const bucket = Array.from({ length: BW * BH }, () => []);
     const bxOf = (cu) => ((Math.floor((cu / LL) * BW) % BW) + BW) % BW, byOf = (y) => Math.min(BH - 1, Math.max(0, Math.floor(y / BS)));
@@ -172,14 +181,14 @@ export function create(ctx) {
       return false;
     };
     for (let t = 0, n = 0; t < 6000 && n < 96; t++) {     // the mothers first (rosette hearts), 40 % of them round medallions
-      const cu = rr(0, LL), y = rr(0.35, 3.2);
+      const cu = rr(0, LL), y = rr(0.35, 3.2) + SHIFT;
       if (!seen(cu, y) || inDoor(cu, y) || !fits(cu, y, 0.5)) continue;
       const s = put(cu, y, rr(0.2, 0.24), true); n++;
       if (rnd() < 0.4) { s.round = true; s.Rm = rr(0.05, 0.065); }
     }
     // the size: ~0.08 m (physical) up to 2.9 m (on the wall: up to ~2.2 m), growing to ~0.2 m at the top; zones a little finer / coarser
     const fine = (cu, v) => { const y = yOf(v); return (0.06 + 0.05 * smooth(1.95, 2.6, y) + 0.06 * smooth(2.9, 3.9, v)) * (0.9 + 0.2 * (0.5 + 0.5 * Math.sin(cu * (4 / RM) + 1.3 * Math.sin(v * 0.7)))); };   // T-058c: ~6 cm on the wall in the hands' band, ~10 cm above 2.2 m, ~15 cm in the vault
-    for (let t = 0; t < 600000 && sites.length < 12600; t++) { const cu = rr(0, LL), y = rr(0.0, YTOP); if (!seen(cu, y) || inDoor(cu, y)) continue; const ri = fine(cu, y); if (fits(cu, y, ri)) put(cu, y, ri, false); }
+    for (let t = 0; t < 600000 && sites.length < 12600; t++) { const cu = rr(0, LL), y = rr(0.0, VTOP); if (!seen(cu, y) || inDoor(cu, y)) continue; const ri = fine(cu, y); if (fits(cu, y, ri)) put(cu, y, ri, false); }
 
     // Voronoi: clip an octagon round each site by the bisectors of its neighbours (periodic in cu); against a round medallion the
     // neighbour grows up to the medallion's rim (a tangent cut), so the fine pieces fit round it as in ref 02
@@ -230,7 +239,7 @@ export function create(ctx) {
       // the frame of the surface at the piece
       surfP(cu, cy, P0); surfP(cu + 0.05, cy, Pu); surfP(cu, cy + 0.05, Pv);
       Tu.subVectors(Pu, P0).multiplyScalar(20); Tv.subVectors(Pv, P0).multiplyScalar(20);
-      Nn.crossVectors(Tu, Tv).normalize(); if (Nn.x * P0.x + Nn.z * P0.z > 0) Nn.negate();      // towards the public
+      Nn.crossVectors(Tu, Tv).normalize(); if (P0.y < 0.12 && Math.abs(Nn.y) > 0.7 ? Nn.y < 0 : Nn.x * P0.x + Nn.z * P0.z > 0) Nn.negate();      // towards the public (on the floor skirt: up; the vault keeps facing down)
       // what it is: kind (0 ceramic, 1 pearl glaze, 2 old-gold glaze: a fine vein through the mosaic) — no metal (ART: the arch's gold is the only metal)
       const u = rnd(), vein = Math.abs(Math.sin(cu * (2 / RM) * 1.25 + 1.7 * Math.sin(cy * 0.55 + cu * (1 / RM))));
       const kind = s.mother ? (s.round ? 0 : u < 0.3 ? 1 : 0) : (u < 0.03 ? 1 : 0);   // T-058b: no gold vein (it read as dark ochre specks)
@@ -303,7 +312,8 @@ export function create(ctx) {
   stTex.magFilter = stTex.minFilter = THREE.NearestFilter; stTex.generateMipmaps = false; stTex.needsUpdate = true;
 
   const { Fn, attribute, uniform, varying, textureLoad, ivec2, int, float, vec3, vec4, modelWorldMatrix, normalize, mix, step, sin, cos, cross, dot, floor, mod, exp, abs, smoothstep, max, positionLocal, normalLocal, positionWorld, instancedBufferAttribute, fract } = TSL;
-  const uBed = uniform(1), uPush = uniform(0), uDoor = uniform(1), PUSH = 1.4;   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
+  const uBed = uniform(1), uPush = uniform(0), uDoor = uniform(1), PUSH = 1.4;
+  const uHandP = Array.from({ length: 6 }, () => uniform(new THREE.Vector4(0, -9, 0, 0)));   // studio 25-11: the hands' points on the mosaic (w = strength)   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
   // THE THRESHOLDS: at the centre of every wall the mosaic opens in a tall arch (Gaudí's: straight jambs, a pointed round head) — cut
   // where the wall LOOKS, not in the mosaic: the serpentine turns and its pieces fold away as they reach the door and grow back past it.
   // (DOOR_A / DOOR_H / DOOR_P: see THE SHELL above; T-058b had A 0.725: half base span, height, shape — y = H·(1 − |x/A|^P), metres ON THE WALL: a near-catenary (P 2 = a parabola), base 1.45 m, apex the narrowest (was 0.9 / 4.5: a flat lintel). The start ring (r 0.31–0.39 at 1.25 m) sits inside; the guide's words go above
@@ -337,7 +347,10 @@ export function create(ctx) {
   const LUMW = vec3(0.2126, 0.7152, 0.0722), CALM = vec3(...PASTEL[0]);
   const rotA = (v, a, c, s) => v.mul(c).add(cross(a, v).mul(s)).add(a.mul(dot(a, v)).mul(float(1).sub(c)));
   function heroMaterial() {
-    const m = new THREE.MeshPhysicalNodeMaterial({ envMap: env, envMapIntensity: 0.38 });
+    // studio 25-11 (Beltrán: «cerámica mate, no brillante, que se note un grano; que no sean reflectivas, si no pesa mucho»): diffuse only
+    // (Lambert: no environment, no clearcoat, no specular), the grain of fired clay in the colour (two octaves of noise in the piece's own
+    // frame, so it stays on the piece when it turns)
+    const m = new THREE.MeshLambertNodeMaterial();
     const aInf_ = attribute('aInf', 'vec2'), id = aInf_.x, ix = int(mod(id, TW)), iy = int(floor(id.div(TW)));
     const ld = (k) => textureLoad(pieceTex, ivec2(ix, iy.mul(PT).add(k)));
     const st = textureLoad(stTex, ivec2(ix, iy));      // turn, lift, light (+8 = the glaze shows), scale
@@ -361,12 +374,17 @@ export function create(ctx) {
     const body = vec3(0.86, 0.8, 0.7);                                                  // the fired body on the bevel: light, it draws every piece
     let col = topCol.mul(top).add(backCol.mul(back)).add(mix(topCol, body, 0.55).mul(side));
     col = mix(col, CALM.mul(dot(col, LUMW).div(dot(CALM, LUMW)).mul(0.35).add(0.65)), quiet.mul(0.75));   // the quiet zones: only bone / cream, calm
+    const gp = varying(positionLocal.sub(ld(0).xyz));                                     // the piece's own frame (before its turn)
+    const grain = TSL.mx_noise_float(gp.mul(260)).mul(0.6).add(TSL.mx_noise_float(gp.mul(70)).mul(0.4));   // ≈ 4 mm and 1.5 cm grain
+    col = col.mul(grain.mul(0.09).add(1)).mul(side.mul(0.06).add(0.97));
     m.colorNode = col;
+    const fill = col.mul(0.28);                                                             // studio 25-11: the light the environment gave, as a flat fill (matte, cheap)
     const glazed = top.mul(kc).add(back.mul(float(1).sub(kc)));                          // the side showing the glaze
-    m.roughnessNode = mix(mix(float(0.3), float(0.16), glazed), float(0.2), kPearl).add(side.mul(0.25));
-    m.clearcoatNode = mix(float(0.35), float(1), glazed).mul(float(1).sub(quiet.mul(0.6))).mul(float(1).sub(side)); m.clearcoatRoughnessNode = float(0.06);
     // the light of a crossing: the bevels light up (thin, warm-white — no neon); the glaze holds a breath of its own light (≤ 0.15)
-    m.emissiveNode = vec3(1.0, 0.92, 0.78).mul(side.mul(0.3).add(top.add(back).mul(0.03))).mul(g).add(vGl.mul(glazed.mul(0.07))).mul(float(1).sub(quiet));
+    let pool = float(0);                                                                    // studio 25-11: where a hand is, the mosaic warms at once
+    for (const u of uHandP) { const d = positionWorld.sub(u.xyz); pool = pool.add(exp(dot(d, d).mul(-1 / (2 * 0.32 * 0.32))).mul(u.w)); }
+    m.emissiveNode = vec3(1.0, 0.92, 0.78).mul(side.mul(0.3).add(top.add(back).mul(0.03))).mul(g).add(vGl.mul(glazed.mul(0.07))).mul(float(1).sub(quiet))
+      .add(vec3(1.0, 0.72, 0.42).mul(col).mul(pool.min(1.4).mul(0.55))).add(fill);
     return m;
   }
   const heroMesh = new THREE.Mesh(heroGeo, heroMaterial()); heroMesh.frustumCulled = false; hero.add(heroMesh);
@@ -378,7 +396,7 @@ export function create(ctx) {
       const cu = (i / NU) * LL, top = crest(cu) - 0.03;   // T-069: up to the ragged crest (was −0.12: the sky showed in its gaps)
       for (let j = 0; j <= NV; j++) {
         const y = (j / NV) * top; surfP(cu, y, P); surfP(cu + 0.05, y, Q); surfP(cu, y + 0.05, R);
-        N.crossVectors(Q.sub(P), R.sub(P)).normalize(); if (N.x * P.x + N.z * P.z > 0) N.negate();
+        N.crossVectors(Q.sub(P), R.sub(P)).normalize(); if (P.y < 0.12 && Math.abs(N.y) > 0.7 ? N.y < 0 : N.x * P.x + N.z * P.z > 0) N.negate();
         const o = (i * (NV + 1) + j) * 3; P.addScaledVector(N, GROUT_H - 0.03 * smooth(2.2, 3.0, y));   // T-069: up the vault the big flat pieces' corners sink under the curved bed: it drops 3 cm there (no grout over them) · T-058b/T-066: the bed 8 mm up the bevels, the joint 2.5 mm wide there and sunk under the faces; the
         pos[o] = P.x; pos[o + 1] = P.y; pos[o + 2] = P.z; nor[o] = N.x; nor[o + 1] = N.y; nor[o + 2] = N.z;   // write was lost in a comment: no grout, the sky showed through
         if (i < NU && j < NV) { const a = i * (NV + 1) + j, b = a + NV + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
@@ -403,7 +421,7 @@ export function create(ctx) {
   function surfHit(pos) {
     const dx = pos.x - eye.x, dy = pos.y - eye.y, dz = pos.z - eye.z, dh = Math.hypot(dx, dz) || 1e-3, th = Math.atan2(dz, dx) + hero.rotation.y;
     let t = 0, v = eye.y;
-    for (let i = 0; i < 6; i++) { t = surfR(th, v) / dh; v = clamp(vOf(eye.y + t * dy), 0, YTOP); }
+    for (let i = 0; i < 6; i++) { t = surfR(th, v) / dh; v = clamp(vOf(eye.y + t * dy), 0, VTOP); }
     hit.cu = ((th * RM) % LL + LL) % LL; hit.cy = v;
     hit.p.set(eye.x + dx * t, eye.y + dy * t, eye.z + dz * t);
     return hit;
@@ -498,9 +516,9 @@ export function create(ctx) {
   }
 
   // ---- materials and meshes of the loose shards
-  const mirrorM = new THREE.MeshStandardNodeMaterial({ color: new THREE.Color(0.86, 0.8, 0.7), metalness: 0, roughness: 0.7 });   // T-058: the back of a piece is its fired body (cream, matte) — no mirror
+  const mirrorM = new THREE.MeshLambertNodeMaterial({ color: new THREE.Color(0.86, 0.8, 0.7) });   // studio 25-11: matte, diffuse only   // T-058: the back of a piece is its fired body (cream, matte) — no mirror
   function glazeMat(attr, glowU) {
-    const m = new THREE.MeshPhysicalNodeMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0, clearcoat: 0.8, clearcoatRoughness: 0.06, normalMap: crackle, normalScale: new THREE.Vector2(0.35, 0.35), envMap: env, envMapIntensity: 0.6 });
+    const m = new THREE.MeshLambertNodeMaterial({ color: 0xffffff });   // studio 25-11: matte ceramic (was physical, clearcoat, environment)
     m.colorNode = vec3(instancedBufferAttribute(attr));
     if (glowU) m.emissiveNode = vec3(instancedBufferAttribute(attr)).mul(glowU);
     return m;
@@ -643,15 +661,19 @@ export function create(ctx) {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
     m.colorNode = Fn(() => {
       const d = normalize(positionLocal), y = d.y;
-      const up = mix(vec3(1.153, 0.632, 0.328), vec3(1.924, 1.104, 0.579), smoothstep(0.0, 0.55, y));   // T-058b: ACES-inverted #E9D2B4 → #F3E6D3 (it read grey)
-      const c = mix(vec3(0.731, 0.42, 0.222), up, smoothstep(-0.12, 0.02, y));
-      const sun = exp(dot(d, vec3(0.42, 0.55, 0.72).normalize()).sub(1).mul(9)).mul(0.07);          // the sun's veil, high and soft
-      return c.add(vec3(1, 0.95, 0.85).mul(sun)).mul(SKY_GAIN).mul(uFar);
+      // studio 25-11 (Beltrán): NIGHT behind the portals — deep blue at the zenith, a dusky blue at the horizon with a last warm band,
+      // a soft moon and sparse stars (the mosaic, lit by its own lamps, stays light ceramic in front of it)
+      const up = mix(vec3(0.030, 0.045, 0.110), vec3(0.006, 0.010, 0.032), smoothstep(0.02, 0.7, y));
+      const c = mix(vec3(0.010, 0.012, 0.024), up, smoothstep(-0.12, 0.02, y)).add(vec3(0.16, 0.07, 0.03).mul(exp(y.mul(y).div(-0.0025))).mul(0.5));
+      const moon = exp(dot(d, vec3(-0.35, 0.42, 0.84).normalize()).sub(1).mul(900)).mul(1.4).add(exp(dot(d, vec3(-0.35, 0.42, 0.84).normalize()).sub(1).mul(40)).mul(0.03));
+      const cell = floor(d.mul(420)), hs = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))).mul(43758.5453));
+      const star = step(0.9985, hs).mul(smoothstep(0.04, 0.3, y)).mul(fract(hs.mul(97.3)).mul(0.6).add(0.2));
+      return c.add(vec3(0.85, 0.88, 1.0).mul(moon.add(star))).mul(uFar);
     })();
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(150, 48, 24), m); mesh.renderOrder = -900; mesh.frustumCulled = false; return mesh;
   })();
   world.add(skyMesh);
-  const HAZE = vec3(1.489, 0.805, 0.419).mul(SKY_GAIN);   // #EFDCC3 on screen
+  const HAZE = vec3(0.022, 0.030, 0.070);   // studio 25-11: a night haze (was the sand noon's #EFDCC3)
   // dunes and terraces: rings of soft ridges, lit on their crests, hazier with distance
   function ridgeRing(R, h0, amp, seedK, hazeK) {
     const N = 320, pos = new Float32Array((N + 1) * 2 * 3), uvs = new Float32Array((N + 1) * 2 * 2), idx = [];
@@ -664,7 +686,7 @@ export function create(ctx) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2)); g.setIndex(idx);
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, fog: false });
     const v = TSL.uv().y, terr = fract(v.mul(4.5)), line = exp(terr.mul(terr).div(-0.004)).mul(0.12);
-    m.colorNode = mix(mix(vec3(0.591, 0.337, 0.179), vec3(1.153, 0.632, 0.328), smoothstep(0.0, 0.95, v)).mul(float(1).sub(line)).mul(SKY_GAIN), HAZE, hazeK).mul(uFar);
+    m.colorNode = mix(mix(vec3(0.010, 0.012, 0.022), vec3(0.050, 0.060, 0.110), smoothstep(0.0, 0.95, v)).mul(float(1).sub(line)), HAZE, hazeK).mul(uFar);   // studio 25-11: dunes at night, moonlit crests
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; return mesh;
   }
   const hazes = [ridgeRing(56, 2.5, 7, 0.4, 0.62), ridgeRing(38, 0.8, 3.2, 2.1, 0.42), ridgeRing(24, 0.1, 1.2, 4.2, 0.25)];
@@ -674,7 +696,7 @@ export function create(ctx) {
     const { normalWorld } = TSL;
     const vm = new THREE.MeshBasicNodeMaterial({ fog: false });
     const lit = dot(normalWorld, vec3(0.42, 0.62, 0.66).normalize()).mul(0.5).add(0.5);
-    vm.colorNode = mix(mix(vec3(0.535, 0.339, 0.2), vec3(1.6, 1.0, 0.55), lit).mul(SKY_GAIN), HAZE, 0.45).mul(uFar);
+    vm.colorNode = mix(mix(vec3(0.012, 0.014, 0.026), vec3(0.09, 0.10, 0.17), lit), HAZE, 0.45).mul(uFar);   // studio 25-11: the far vaults in the night
     for (const [a, R, H, A] of [[0.5, 30, 8.5, 3.4], [1.25, 33, 10, 4.2], [2.6, 29, 7.5, 3.0], [3.7, 34, 11, 4.4], [4.6, 31, 8, 3.2], [5.6, 35, 9.5, 3.9]]) {
       const pts = []; for (let k = 0; k <= 40; k++) { const x = -1.08 + (2.16 * k) / 40; pts.push(new THREE.Vector3(x * A, H * (1 - x * x), 0)); }
       const mesh = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, 0.32 + H * 0.03, 8, false), vm);
@@ -949,6 +971,7 @@ export function create(ctx) {
     emptyT = hands.length ? 0 : emptyT + dt;
     let nh = 0;
     for (let i = 0; i < HL; i++) { const l = handLights[i]; if (!hands[i]) l.intensity *= Math.exp(-dt * 4); }
+    for (let i = 0; i < uHandP.length; i++) if (!hands[i] || !playing) uHandP[i].value.w *= Math.exp(-dt * 3);   // a lifted hand's warmth fades in ~0.6 s
     if (playing) {
       for (const h of hands) {
         const w = walls[h.wall], hx = _v.subVectors(h.pos, w.centre).dot(w.right), hy = h.pos.y;
@@ -957,7 +980,8 @@ export function create(ctx) {
         const da = hy < DOOR_H ? DOOR_A * Math.pow(1 - hy / DOOR_H, 1 / DOOR_P) : 0;
         if (Math.abs(hx) < da + 0.12) surfHit(_v3.copy(h.pos).addScaledVector(w.right, (hx < 0 ? -1 : 1) * (da + 0.38) - hx)); else surfHit(h.pos);
         if (nh < MAXH) { hcu[nh] = hit.cu; hcy[nh] = hit.cy; hfresh[nh] = fresh ? 1 : 0; nh++; }
-        if (nh <= HL) { const l = handLights[nh - 1]; l.position.copy(hit.p).multiplyScalar(0.9); l.position.y = hit.p.y + 0.15; l.intensity += (2.0 * arrive * (1 - leave) - l.intensity) * (1 - Math.exp(-dt * 18)); }
+        if (nh <= HL) { const l = handLights[nh - 1]; l.position.copy(hit.p).multiplyScalar(0.9); l.position.y = hit.p.y + 0.15; l.intensity += (3.6 * arrive * (1 - leave) - l.intensity) * (1 - Math.exp(-dt * 18)); }   // studio 25-11: brighter (was 2.0)
+        if (nh <= uHandP.length) { const U = uHandP[nh - 1].value; U.set(hit.p.x, hit.p.y, hit.p.z, U.w + ((fresh ? 1.4 : 1) * arrive * (1 - leave) - U.w) * (1 - Math.exp(-dt * 25))); }
         const under = nearest(hit.cu, hit.cy), ros = under >= 0 ? cells[under].ros : -1;
         // QA (T-058c): the LiDAR may drop a still hand and give it a new stroke ~every 2 s — a landing within ~0.15 m (on the wall) of a hand
         // that left < 0.5 s ago is the same hand: no new wave, knock or sound, and it keeps that hand's hold
