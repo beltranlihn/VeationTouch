@@ -34,8 +34,9 @@
 // texture carries each piece's centre, axis, normal, glaze and rest colour, a live float texture its turn, lift, light and scale
 // (springs and waves on the CPU, the pose in the vertex stage). No floor reflection (was a second copy of the mosaic), no shadows.
 import { createScore } from '../../score.js';
+import { createStory } from './umbral3d/story.js';   // studio 25-11: the continuous story the tiles carry
 
-const GROUT_H = 0.008, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
+const GROUT_H = 0.008, STORY = false, STORY_REST = 0.82, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
 
 export function create(ctx) {
   const { THREE, TSL, room, params } = ctx;
@@ -284,6 +285,25 @@ export function create(ctx) {
     const warm = byC.slice(0, coolFrom).sort((a, b) => cells[a].w - cells[b].w), cool = byC.slice(coolFrom).sort((a, b) => cells[a].k - cells[b].k);
     warm.forEach((i, r) => { const q = r / warm.length; cells[i].rest = q < 0.30 / 0.7 ? PASTEL[0] : q < 0.52 / 0.7 ? PASTEL[1] : PASTEL[2]; });
     cool.forEach((i, r) => { const q = r / cool.length; cells[i].rest = q < 0.4 ? PASTEL[3] : q < 0.733 ? PASTEL[4] : q < 0.9 ? PASTEL[5] : PASTEL[6]; });
+    // studio 25-11 (Beltrán: «que el mosaico cuente la historia, de manera muy abstracta, como un continuo»): every tile takes the colour of
+    // the story map where the eye sees it on the walls — at rest the scene is only intuited (STORY_REST of it over the pastel), a hand
+    // turns the tile to its glaze, which is the story's own colour in full
+    if (STORY) {
+      const story = createStory(walls); try { window.__story = story.canvas; } catch { /* lab only */ } const wn = walls.map((w) => ({ c: w.centre, n: w.normal, r: w.right, half: w.width / 2, k: (w.centre.x - eye.x) * w.normal.x + (w.centre.y - eye.y) * w.normal.y + (w.centre.z - eye.z) * w.normal.z }));
+      for (const c of cells) {
+        const dx = c.c.x - eye.x, dy = c.c.y - eye.y, dz = c.c.z - eye.z;
+        for (let wi = 0; wi < wn.length; wi++) {
+          const q = wn[wi], dn = dx * q.n.x + dy * q.n.y + dz * q.n.z; if (dn > -1e-4) continue;
+          const t = q.k / dn; if (t <= 0 || t > 1.0001) continue;
+          const hx = eye.x + dx * t, hy = eye.y + dy * t, hz = eye.z + dz * t, x = (hx - q.c.x) * q.r.x + (hz - q.c.z) * q.r.z;
+          if (x < -q.half - 0.01 || x > q.half + 0.01) continue;
+          const col = story.at(story.start[wi] + x + q.half, hy);
+          c.col = [col[0] * 1.08, col[1] * 1.08, col[2] * 1.08];
+          c.rest = [c.rest[0] + (col[0] - c.rest[0]) * STORY_REST, c.rest[1] + (col[1] - c.rest[1]) * STORY_REST, c.rest[2] + (col[2] - c.rest[2]) * STORY_REST];
+          break;
+        }
+      }
+    }
     for (const c of cells) { if (c.kind === 2) c.rest = GOLD; /* T-069: a pearl piece keeps its patch's colour at rest (its grey-white #DCD6CC read as a hole in the grout) */ if (c.round) c.rest = c.r1 < 0.5 ? PASTEL[3] : PASTEL[4]; }
     // per piece, static (a float texture, PT rows per piece): centre + rnd, turn axis + kind, normal + mother, glaze, rest
     const TW0 = 128, TH0 = Math.max(1, Math.ceil(NCc / TW0)), pd = new Float32Array(TW0 * TH0 * PT * 4);
@@ -397,13 +417,16 @@ export function create(ctx) {
     // half turn, when the public sees the other one. kc = 1: the face shows the glaze
     const kc = step(6, packed), g = packed.sub(kc.mul(8));
     const topCol = mix(vRest, vGl, kc), backCol = mix(vGl, vRest, kc);
-    const quiet = quietOf(positionWorld);
+    const quiet = STORY ? float(0) : quietOf(positionWorld);   // studio 25-11: the story runs through (the trailer has no guide words on the entrance)
     const body = vec3(0.86, 0.8, 0.7);                                                  // the fired body on the bevel: light, it draws every piece
     let col = topCol.mul(top).add(backCol.mul(back)).add(mix(topCol, body, 0.55).mul(side));
     col = mix(col, CALM.mul(dot(col, LUMW).div(dot(CALM, LUMW)).mul(0.35).add(0.65)), quiet.mul(0.75));   // the quiet zones: only bone / cream, calm
     const gp = varying(positionLocal.sub(ld(0).xyz));                                     // the piece's own frame (before its turn)
     const grain = TSL.mx_noise_float(gp.mul(260)).mul(0.6).add(TSL.mx_noise_float(gp.mul(70)).mul(0.4));   // ≈ 4 mm and 1.5 cm grain
     col = col.mul(grain.mul(0.09).add(1)).mul(side.mul(0.06).add(0.97));
+    const vein = TSL.mx_noise_float(gp.mul(vec3(38, 38, 38)).add(vec3(r, r.mul(2.3), 0))), vl = smoothstep(0.06, 0.0, abs(vein)).mul(0.16);   // studio 25-11: stone veins
+    const mott = smoothstep(-0.25, 0.55, TSL.mx_noise_float(gp.mul(11).add(vec3(r.mul(7), 0, 0))));                                       // and a second tone within the piece
+    col = col.mul(float(1).sub(vl)).mul(mix(float(0.9), float(1.04), mott));
     m.colorNode = col;
     const fill = col.mul(0.28);                                                             // studio 25-11: the light the environment gave, as a flat fill (matte, cheap)
     const glazed = top.mul(kc).add(back.mul(float(1).sub(kc)));                          // the side showing the glaze
