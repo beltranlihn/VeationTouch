@@ -9,6 +9,17 @@
   canvas { display: block; width: 100vw; height: 100vh; object-fit: contain; }
 </style>
 <!-- three.js r187, vendored (MIT): ../ressonancia/vendor/three-r187 -->
+<script>
+  // Lab only (25-11, Beltrán): opened in the lab harness without options, the trailer starts as we review it — one wall large at full size,
+  // no simulated people, the mouse a hand by passing over the wall, no lab marks, with its sound. The app opens it with ?run=1: untouched.
+  (() => {
+    const u = new URL(location.href), q = u.searchParams;
+    if (q.has('run') || q.has('capture') || q.has('wall') || q.has('raw')) return;
+    const d = { scale: '1', wall: 'P1', demo: '0', hover: '', overlay: '0', sound: 'ressonancia-sound' };
+    for (const [k, v] of Object.entries(d)) if (!q.has(k)) q.set(k, v);
+    location.replace(u.href);
+  })();
+</script>
 <script type="importmap">
 { "imports": {
   "three": "../ressonancia/vendor/three-r187/build/three.webgpu.js",
