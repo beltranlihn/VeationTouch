@@ -1239,9 +1239,9 @@ export function create(ctx) {
       const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
       const Vv = normalize(cameraPosition.sub(positionWorld)), Nn = normalize(normalWorld);
       const along = clamp(positionLocal.y.negate(), 0, 1);                      // 0 at the lamp … 1 at the far end
-      const core = pow(abs(dot(Nn, Vv)), 2.2);                                    // bright through the middle, soft at the rim
+      const core = pow(abs(dot(Nn, Vv)), 4.0);   // a defined beam: bright core, quick fall-off to the rim                                    // bright through the middle, soft at the rim
       const breathe = sin(uTime.mul(0.35).add(i * 1.7)).mul(0.12).add(0.88);
-      m.colorNode = SPC.mul(core.mul(smoothstep(0.0, 0.08, along)).mul(float(1).sub(smoothstep(0.75, 1.0, along))).mul(mix(1.0, 0.45, along))).mul(uFest).mul(0.05).mul(uShaftK).mul(breathe);
+      m.colorNode = SPC.mul(core.mul(smoothstep(0.0, 0.08, along)).mul(float(1).sub(smoothstep(0.75, 1.0, along))).mul(mix(1.0, 0.45, along))).mul(uFest).mul(0.03).mul(uShaftK).mul(breathe);
       const cone = new THREE.Mesh(coneG, m); cone.renderOrder = 6; cone.frustumCulled = false;
       shafts.add(cone);
     }
@@ -1271,7 +1271,7 @@ export function create(ctx) {
       const len = _ss.distanceTo(_sf) * (cross ? 1.9 : 1.15), rad = len * Math.tan(A);
       c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad, len, rad);
     }
-    uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C); uShaftK.value = cross ? 2.0 : 1.0;
+    uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C); uShaftK.value = cross ? 1.6 : 1.0;
   }
   placeSpots(2.3);
   // VFX 25-11: the Brasa's fires light the square. setFires(list, posOf(item) → Vector3, kOf(item) → 0..~1.2); the first NFI count
