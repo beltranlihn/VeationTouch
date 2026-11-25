@@ -518,7 +518,8 @@ export function create(ctx) {
   function setLook(look) { const L = look === 'pom' ? COLD : WARM; if (kit && L) { kit.setSplat(L); lookKey = L.key; } }
   if (kit) kit.setSplat(WARM);
   function setMode(m) {
-    castMode = m || 'build'; if (castMode !== 'top') focusY = null; setLook(castMode === 'top' ? 'pom' : 'warm');
+    const was = castMode; castMode = m || 'build'; if (castMode !== 'top') focusY = null; setLook(castMode === 'top' ? 'pom' : 'warm');
+    if (castMode === 'top' && was !== 'top' && !OLD) snapNext = true;   // the Pom's framing at once (under the tile transition), not climbing 12 s
     ({ CAST, CLV, TRUNK } = castMode === 'top' && !OLD ? LAY.full : LAY.persp);   // the Pom climbs a full-scale trunk (no floating children over a bush)
   }
   // setFocusY(y): y in metres above the plaza floor (the tower unrisen, e.g. trunk(f).yRest): the world lowers (≤ 0.30 m/s) so that
