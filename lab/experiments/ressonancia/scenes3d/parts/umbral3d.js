@@ -205,7 +205,7 @@ export function create(ctx) {
       if (af < 0) continue;                                                             // an arch: open
       let loose = 0;
       if (s.y > H) { continue; }   // T-058b (ART): nothing off the wall at rest   // ART: (almost) nothing floats at rest
-      else if (!s.mother && (rnd() < 0.002 || (H - s.y < 0.12 && rnd() < 0.25))) continue;   // a missing piece; a ragged crest
+      else if (!s.mother && (rnd() < 0.002 || (H - s.y < 0.12 && rnd() < 0))) continue;   // T-069 (ART): no ragged crest any more (its holes read as white gaps); rnd() still drawn: same layout   // a missing piece; a ragged crest
       const R0 = s.mother ? 0.34 : s.ri * 1.25 + 0.03;
       let poly = []; const a0 = rr(0, 6.28);
       for (let k = 0; k < 8; k++) poly.push([Math.cos(a0 + k * 0.7854) * R0, Math.sin(a0 + k * 0.7854) * R0]);
@@ -279,7 +279,7 @@ export function create(ctx) {
     const warm = byC.slice(0, coolFrom).sort((a, b) => cells[a].w - cells[b].w), cool = byC.slice(coolFrom).sort((a, b) => cells[a].k - cells[b].k);
     warm.forEach((i, r) => { const q = r / warm.length; cells[i].rest = q < 0.30 / 0.7 ? PASTEL[0] : q < 0.52 / 0.7 ? PASTEL[1] : PASTEL[2]; });
     cool.forEach((i, r) => { const q = r / cool.length; cells[i].rest = q < 0.4 ? PASTEL[3] : q < 0.733 ? PASTEL[4] : q < 0.9 ? PASTEL[5] : PASTEL[6]; });
-    for (const c of cells) { if (c.kind === 2) c.rest = GOLD; else if (c.kind === 1) c.rest = [0.86, 0.84, 0.8]; if (c.round) c.rest = c.r1 < 0.5 ? PASTEL[3] : PASTEL[4]; }
+    for (const c of cells) { if (c.kind === 2) c.rest = GOLD; /* T-069: a pearl piece keeps its patch's colour at rest (its grey-white #DCD6CC read as a hole in the grout) */ if (c.round) c.rest = c.r1 < 0.5 ? PASTEL[3] : PASTEL[4]; }
     // per piece, static (a float texture, PT rows per piece): centre + rnd, turn axis + kind, normal + mother, glaze, rest
     const TW0 = 128, TH0 = Math.max(1, Math.ceil(NCc / TW0)), pd = new Float32Array(TW0 * TH0 * PT * 4);
     cells.forEach((c, i) => {
@@ -373,13 +373,13 @@ export function create(ctx) {
   // the GROUT: one continuous surface just behind the pieces, bone-white and matte (ART: #F2EBDD); it shows in the joints and where a piece
   // has fallen; cut by the doors per pixel, it dissolves in patches as the part comes and goes
   const groutMesh = (() => {
-    const NU = 380, NV = 48, P = new THREE.Vector3(), Q = new THREE.Vector3(), R = new THREE.Vector3(), N = new THREE.Vector3(), pos = new Float32Array((NU + 1) * (NV + 1) * 3), nor = new Float32Array(pos.length), idx = [];
+    const NU = 380, NV = 96, P = new THREE.Vector3(), Q = new THREE.Vector3(), R = new THREE.Vector3(), N = new THREE.Vector3(), pos = new Float32Array((NU + 1) * (NV + 1) * 3), nor = new Float32Array(pos.length), idx = [];
     for (let i = 0; i <= NU; i++) {
-      const cu = (i / NU) * LL, top = crest(cu) - 0.12;
+      const cu = (i / NU) * LL, top = crest(cu) - 0.03;   // T-069: up to the ragged crest (was −0.12: the sky showed in its gaps)
       for (let j = 0; j <= NV; j++) {
         const y = (j / NV) * top; surfP(cu, y, P); surfP(cu + 0.05, y, Q); surfP(cu, y + 0.05, R);
         N.crossVectors(Q.sub(P), R.sub(P)).normalize(); if (N.x * P.x + N.z * P.z > 0) N.negate();
-        const o = (i * (NV + 1) + j) * 3; P.addScaledVector(N, GROUT_H);   // T-058b/T-066: the bed 8 mm up the bevels, the joint 2.5 mm wide there and sunk under the faces; the
+        const o = (i * (NV + 1) + j) * 3; P.addScaledVector(N, GROUT_H - 0.03 * smooth(2.2, 3.0, y));   // T-069: up the vault the big flat pieces' corners sink under the curved bed: it drops 3 cm there (no grout over them) · T-058b/T-066: the bed 8 mm up the bevels, the joint 2.5 mm wide there and sunk under the faces; the
         pos[o] = P.x; pos[o + 1] = P.y; pos[o + 2] = P.z; nor[o] = N.x; nor[o + 1] = N.y; nor[o + 2] = N.z;   // write was lost in a comment: no grout, the sky showed through
         if (i < NU && j < NV) { const a = i * (NV + 1) + j, b = a + NV + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
       }

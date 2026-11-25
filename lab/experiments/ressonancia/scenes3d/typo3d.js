@@ -232,16 +232,20 @@ function makeMaterial(U, a, lag, flash) {
   return m;
 }
 // the soft dark plate under a block of words (legibility over a bright universe, never a box)
+const PLATE_F = 0.8;   // T-069: the plate's feather (m)
 function makePlate(U, a, flash) {
   const m = new THREE.MeshBasicNodeMaterial(OVER);
   const q = uv().sub(0.5).mul(2.0), r = q.x.mul(q.x).add(q.y.mul(q.y));
+  // T-069 (ART: it read as a black rectangle): a rounded box round the words feathered over 0.8 m (metres from its size), ≤ 50 %
+  const sz = uniform(new THREE.Vector2(1, 1)), pmm = uv().sub(0.5).mul(sz), hi = sz.mul(0.5).sub(PLATE_F);
+  const dq = TSL.max(TSL.abs(pmm).sub(hi), 0), dPl = TSL.length(dq), fea = float(1).sub(smoothstep(0, PLATE_F, dPl));
   const k = clamp(U.asm.mul(1.6), 0, 1).mul(float(1).sub(clamp(U.out.mul(1.4), 0, 1)));
   // T-048: the plate's soft edge catches a hand's light (gradient-border-flashlight): a faint warm band near r ≈ 0.75, only near a hand
   const lamp = flash ? flash(TSL.positionWorld) : float(0);
   const band = exp(r.sub(0.72).mul(r.sub(0.72)).mul(-60.0));
-  const op = float(1).sub(smoothstep(0.15, 1.0, r)).mul(U.plate).mul(k).mul(a);
+  const op = fea.mul(fea).mul(TSL.min(U.plate, 0.5)).mul(k).mul(a);
   m.colorNode = U.lamp.mul(band.mul(lamp).mul(0.05)).mul(k).mul(a).add(U.plateCol.mul(op));   // T-059: plateCol (0 = the dark plate; a cream = a pale veil on a light ground)
-  m.opacityNode = op;
+  m.opacityNode = op; m.userData.sz = sz;
   return m;
 }
 
@@ -281,7 +285,8 @@ function text({ placements, renderOrder = 20, max = 160, spread = 2.0, depth = 0
     // the plate: an ellipse a little larger than the words
     if (L.n) {
       const w = L.maxX - L.minX, h = L.maxY - L.minY;
-      p.plate.scale.set(w + Math.max(0.8, h * 1.6), h * 2.1 + 0.25, 1);
+      const pw = w + 0.2 + 2 * PLATE_F, ph = h + 0.16 + 2 * PLATE_F;                // T-069: the words' box + 0.8 m of feather each side
+      p.plate.scale.set(pw, ph, 1); p.plate.material.userData.sz.value.set(pw, ph);
       p.plate.position.copy(p.mesh.position);
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(p.mesh.quaternion);
       p.plate.position.addScaledVector(right, (L.minX + L.maxX) / 2).y += (L.minY + L.maxY) / 2;

@@ -96,7 +96,7 @@ export function createDiables(ctx) {
   const col = (hex) => { const c = new THREE.Color(hex); return vec3(c.r, c.g, c.b); };   // sRGB hex → linear
   const C = {
     char: col(0x23201E), rim: col(0x9FB4C8), garnet: col(0x6E1410), red: col(0xC8281A), orange: col(0xEE6A1F), amber: col(0xF2B23A),
-    cream: col(0xF4E3C8), lavaEdge: col(0xB3260E), lavaMid: col(0xFF7A1A), lavaCore: col(0xFFD27A), sparkHot: col(0xFFE9B0), sparkEnd: col(0x8A1F0E), clothDark: col(0x2E2220),
+    cream: col(0xF4E3C8), lavaEdge: col(0xB3260E), lavaMid: col(0xFF7A1A), lavaCore: col(0xFFD27A), sparkHot: col(0xFFE9B0), sparkEnd: col(0x8A1F0E), clothDark: col(0x4A1A12), ember: col(0x3A1A10),
   };
   const UP = vec3(0, 1, 0);
   const tint = CHROME || vec3(1, 0.93, 0.84);
@@ -218,15 +218,15 @@ export function createDiables(ctx) {
       const cloth = max(isCoat, isHood);
       const nz = mx_noise_float(vLoc.mul(2.3)), seam = float(1).sub(smoothstep(0.0, fwidth(nz).mul(1.1).add(1e-4), abs(nz)));
       const pulse = sin(U.time.mul(2.3).add(vLoc.x.mul(30.0)).add(vLoc.y.mul(9.0))).mul(0.25).add(0.75);
-      let c = C.char.mul(1.05).add(warm.mul(fireLight.mul(1.6).add(ringLight)).mul(0.22));
+      let c = C.ember.add(warm.mul(fireLight.mul(1.8).add(ringLight)).mul(0.36));   // T-064c: hot charcoal, saturated (not grey)
       c = c.add(mix(C.lavaEdge, C.lavaMid, pulse).mul(seam).mul(0.32).mul(select(kind.lessThan(0.5), float(1), float(0))).mul(float(1).sub(cloth)));
       // the cloth: a coat to mid-leg and a deep hood, in folds, the coat's hem trimmed with embers
       const ang = atan(vGeo.z, vGeo.x), fold = sin(ang.mul(isCoat.mul(4).add(5))).mul(0.5).add(0.5);
-      const clothC = C.clothDark.mul(fold.mul(0.7).add(0.55)).add(warm.mul(fireLight.mul(1.6).add(ringLight)).mul(0.24));
+      const clothC = C.clothDark.mul(fold.mul(0.55).add(0.75)).add(warm.mul(fireLight.mul(1.8).add(ringLight)).mul(0.38));
       const hem = smoothstep(0.4, 0.47, vY).mul(float(1).sub(smoothstep(0.495, 0.5, vY))).mul(isCoat)   // the outside of the hem only (not the underside)
         .mul(pulse.mul(0.3).add(0.7));
       c = mix(c, clothC, cloth).add(mix(C.lavaEdge, C.lavaMid, hem).mul(hem).mul(0.5));
-      c = c.add(C.rim.mul(rimT).mul(0.45));
+      c = c.add(C.rim.mul(rimT).mul(0.3));
       c = c.add(C.lavaMid.mul(flashN(vW)).mul(rimT).mul(0.5));
       const gd = normalize(vGeo.xyz.mul(vec3(1, 2.6, 1))), onHead = select(abs(vGeo.w.sub(3)).lessThan(0.5), float(1), float(0));   // two ember eyes under the hood
       const eyes = max(smoothstep(0.978, 0.992, dot(gd, normalize(vec3(0.9, 0.2, 0.4)))), smoothstep(0.978, 0.992, dot(gd, normalize(vec3(0.9, 0.2, -0.4)))));
@@ -234,7 +234,7 @@ export function createDiables(ctx) {
       const forca = vec3(0.035, 0.022, 0.016).add(C.rim.mul(rimT).mul(0.35)).add(warm.mul(fireLight).mul(0.2));
       const spokes = pow(sin(atan(vGeo.z, vGeo.x).mul(5.0).sub(U.time.mul(Math.PI * 2 * 3.5))).mul(0.5).add(0.5), 6.0);   // a wheel turning 3.5×/s
       const hot = C.sparkHot.mul(spokes.mul(1.05).add(0.42));
-      const horn = C.char.mul(1.1).add(C.rim.mul(rimT).mul(0.7)).add(warm.mul(fireLight).mul(0.15)).add(mix(C.lavaEdge, C.lavaMid, vK.w).mul(0.35));
+      const horn = C.char.mul(1.3).add(C.rim.mul(rimT).mul(0.7)).add(warm.mul(fireLight).mul(0.15)).add(mix(C.lavaEdge, C.lavaMid, vK.w).mul(0.35));
       c = select(kind.lessThan(0.5), c, select(kind.lessThan(1.5), forca, select(kind.lessThan(2.5), hot, horn)));
       c = c.add(mix(C.lavaMid, C.lavaCore, vK.y).mul(vK.y).mul(1.6));                                                                     // the burning edge (assemble / dissolve)
       c = c.mul(float(1).sub(U.leave.mul(0.6)));
@@ -301,7 +301,7 @@ export function createDiables(ctx) {
       const c = mix(C.lavaEdge.mul(0.5), hot, smoothstep(0.1, 0.9, g)).mul(vC.x);
       const across = exp(q.x.sub(0.5).mul(q.x.sub(0.5)).mul(-10.0));
       const ends = smoothstep(0.0, 0.15, g).mul(float(1).sub(smoothstep(0.85, 1.0, g)));
-      const out = c.mul(across).mul(ends).mul(vC.y).mul(1.45).mul(U.devils).mul(float(1).sub(U.leave));
+      const out = c.mul(across).mul(ends).mul(vC.y).mul(1.6).mul(U.devils).mul(float(1).sub(U.leave));
       return mirror ? out.mul(tint).mul(U.refl).mul(0.6) : out;
     })();
     m.fog = false;
@@ -378,7 +378,7 @@ export function createDiables(ctx) {
       const shade = smoothstep(0.45, 1.0, au).mul(0.38).add(0.62);                  // the layer above shades this one inside
       const edge = smoothstep(0.86, 0.98, au);                                       // the cut edge catches the cold rim
       const fresnel = pow(float(1).sub(abs(dot(N, V))), 2.0);
-      let c = base.mul(key).mul(shade).mul(0.84);
+      let c = base.mul(key).mul(shade).mul(0.95);
       c = c.add(C.rim.mul(edge.mul(0.12).add(fresnel.mul(0.06))));
       c = c.add(C.lavaMid.mul(float(1).sub(smoothstep(0.0, 0.25, vUV.y))).mul(0.18).mul(float(1).sub(lay.div(4))));   // hot at the root
       c = c.add(C.amber.mul(flashN(vW)).mul(edge.add(0.2)).mul(0.35));

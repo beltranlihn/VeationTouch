@@ -111,7 +111,7 @@ const PALETTES = {
   baixada: [[1.0, 0.62, 0.75], [0.7, 0.6, 1.0], [0.5, 0.95, 0.85]],
 };
 
-export function createGuide({ THREE, TSL, room }) {
+export function createGuide({ THREE, TSL, room, studio = false }) {   // T-069: studio = the lab / calibration look (rulers, figures, wall ids); false = the room
   const { pmremTexture, refract, cross, uniform, uv, vec2, vec3, vec4, atan, float, smoothstep, exp, length, step, texture, select, clamp: tclamp, max, min, cos, sin, abs, pow, dot, normalize, reflect, attribute, positionGeometry, positionLocal, normalWorld, positionWorld, cameraPosition, mix, fract } = TSL;
   const object = new THREE.Group(); object.name = 'guide';
   const NW = room.walls.length;
@@ -295,7 +295,7 @@ export function createGuide({ THREE, TSL, room }) {
       const huv = p.div(GLYPH).add(vec2(0.5, 0.47)), gIn = step(0, huv.x).mul(step(huv.x, 1)).mul(step(0, huv.y)).mul(step(huv.y, 1));
       const gv = texture(lineTex, tclamp(huv, vec2(0), vec2(1))).r;
       const gd = abs(gv.sub(0.5)).mul(64 * GLYPH / 512);                                        // metres from the outline (the distance field)
-      const ghw = max(float(LINE_HW), fw.mul(0.75));
+      const ghw = max(mix(float(0.0038), float(LINE_HW), uLite), fw.mul(0.75));   // T-069: 2 px on a deep universe, 2.5 px on sand
       const gline = float(1).sub(smoothstep(ghw.sub(fw.mul(0.5)), ghw.add(fw.mul(0.5)), gd)).mul(gIn);
       const inkC = mix(uInk, uGlaze.mul(0.8), U.hot.mul(0.55).add(U.held.mul(0.25)).min(0.7).mul(float(1).sub(uLite)));   // T-066: on sand the ink stays #2E2A26
       over(inkC, gline.mul(inside));                                                             // one flat ink: no shading
@@ -423,7 +423,8 @@ export function createGuide({ THREE, TSL, room }) {
     const zB = smoothstep(0.9, 0.6, abs(x)).mul(smoothstep(0.85, 0.95, y)).mul(smoothstep(1.65, 1.55, y)).mul(smoothstep(0.3, 0.45, length(vec2(x, y.sub(1.25)))));   // not inside the ring
     const grid = dot.mul(zT.max(zB)).mul(0.45);
     const lamp = room.flash ? room.flash(positionWorld) : float(0);
-    const k = spine.add(band).add(ticks).add(plus.mul(0.9)).min(1).mul(0.16).add(grid.mul(0.07));
+    // T-069 (ART): in the room only the «+» marks at 25 % (rulers, ticks, hairlines, the grid read as debug); all of it in studio
+    const k = studio ? spine.add(band).add(ticks).add(plus.mul(0.9)).min(1).mul(0.16).add(grid.mul(0.07)) : plus.mul(0.25);
     m.colorNode = ACC.mul(k).mul(lamp.mul(2.2).add(1)).mul(fineA);
     m.opacityNode = float(0);                                                     // pure light (premultiplied «over»: adds)
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(Wm, Hm), m);
@@ -439,6 +440,7 @@ export function createGuide({ THREE, TSL, room }) {
     const w = room.walls[wi], xl = -w.width / 2 + EDGE + 0.17, xr = w.width / 2 - EDGE - 0.17;
     const c = [0.3 * (0.6 + 0.4 * acc[0]), 0.3 * (0.6 + 0.4 * acc[1]), 0.3 * (0.6 + 0.4 * acc[2])];   // ink tinted by the accent, ~40 %
     const L = (text, x, y, align, alpha = 1, delay = 0, upper = true) => ({ text, font: 'mono', size: 0.08, y, x, align, track: 0.08, alpha, color: c, edge: 0.48, upper, reveal: 'blur', delay });
+    if (!studio) return [L(label, xl, 2.42, 'left')];                              // T-069: the room keeps only the chapter label
     return [L(label, xl, 2.42, 'left'), L(wallName(w, wi), xr, 2.42, 'right', 0.85, 0.12), L('1,25 m', xl, 1.25, 'left', 0.9, 0.24, false),
       L('0,90', xl, ZY0, 'left', 0.55, 0.3), L('1,60', xl, ZY1, 'left', 0.55, 0.3)];
   }
@@ -502,9 +504,15 @@ export function createGuide({ THREE, TSL, room }) {
   const GHOST = 0.34, gq = new THREE.PlaneGeometry(GHOST, GHOST);
   const ghosts = room.walls.map((w, wi) => {
     const mk = () => {
-      const a = uniform(0), hs = texture(handTex, uv()), mask = hs.r, depth = hs.b;
+      // T-069 (ART: it read as a white glove): the entrance's single-stroke hand (the same distance field), 2 px, no fill —
+      // cream #F4E3C8 on a deep universe (ACES-inverted, kept under the bloom's threshold), ink #2E2A26 on the sand
+      const a = uniform(0), hq = uv().sub(vec2(0.5, 0.47)).mul(GLYPH / GHOST).add(vec2(0.5, 0.47));
+      const gIn = step(0, hq.x).mul(step(hq.x, 1)).mul(step(0, hq.y)).mul(step(hq.y, 1));
+      const gd = abs(texture(lineTex, tclamp(hq, vec2(0), vec2(1))).r.sub(0.5)).mul(64 * GHOST / 512);   // metres from the outline
+      const gfw = max(TSL.fwidth(uv().x.mul(GHOST)), float(1e-4)), ghw = max(float(0.0038), gfw.mul(0.75));
+      const stroke = float(1).sub(smoothstep(ghw.sub(gfw.mul(0.5)), ghw.add(gfw.mul(0.5)), gd)).mul(gIn);
       const m = new THREE.MeshBasicNodeMaterial(OVER);
-      m.colorNode = vec3(0.82, 0.8, 0.76).mul(mask.mul(depth.mul(0.7).add(0.3))).mul(a); m.opacityNode = mask.mul(0.3).mul(a);
+      m.colorNode = mix(vec3(1.4, 0.72, 0.32), vec3(0.046, 0.041, 0.036), uLite).mul(stroke).mul(a); m.opacityNode = stroke.mul(a);
       const mesh = new THREE.Mesh(gq, m); mesh.renderOrder = 23; mesh.visible = false; mesh.quaternion.copy(basis[wi]); object.add(mesh);
       return { mesh, a };
     };
@@ -598,7 +606,7 @@ export function createGuide({ THREE, TSL, room }) {
     handsNow = hands;
     const liteTo = gb === 'wait' && waitIsLight() ? 1 : 0;
     liteNow = ease(liteNow, liteTo, dt, 2); uLite.value = liteNow; 
-    { const ink = [0.0273 + (0.62 - 0.0273) * (1 - liteNow), 0.0232 + (0.6 - 0.0232) * (1 - liteNow), 0.0185 + (0.56 - 0.0185) * (1 - liteNow)];
+    { const ink = [0.0273 + (1.4 - 0.0273) * (1 - liteNow), 0.0232 + (0.72 - 0.0232) * (1 - liteNow), 0.0185 + (0.32 - 0.0185) * (1 - liteNow)];   // T-069: cream #F4E3C8 on a deep universe (was bone)
       uInk.value.set(ink[0], ink[1], ink[2]);
       const gz = gb === 'wait' ? [0.0137, 0.0497, 0.392] : palNow[0];                  // cobalt #1F3FA8 in the wait; the chapter's glaze after
       uGlaze.value.set(gz[0], gz[1], gz[2]); }

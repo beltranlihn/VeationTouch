@@ -56,7 +56,7 @@ const NF = 36000;                       // flame sprites
 const MAXD = 14, NJ = 24, PER_DEVIL = 4500;
 const NSH = 2400;                       // shards
 const RING0 = 4, RING1 = 8;             // the bed, metres beyond the walls
-const DEV_D = 6.0;
+const DEV_D = 2.6;   // 25-11 (ARTE-BRASA §c): devils 1.5–2.5 m beyond the wall read ~1.5× bigger (was 6.0)
 const WAIT0 = 9.0, WAIT1 = 10.0;           // the wait's line: this far beyond the walls (seen at ~1.06–1.19 m on them)                      // devils dance in the middle of the bed
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -607,7 +607,7 @@ export function create({ THREE, TSL, room, params }) {
       if (wave && all >= (crowdN > 4 ? 4 : 6)) return null; }            // and the wave's relay only while few dance
     const dv = devils.find((x) => !x.on && !x.res);
     if (!dv) return null;
-    Object.assign(dv, { hop: 0, gain: 1, on: true, s, d: DEV_D + (Math.random() - 0.5) * 1.2, dir, spd, stride: 0.3, age: 0, life, k: 0, dis: 0, style: devilCount % 2, phase: Math.random() * 6, wave, h: 1 + Math.random() * 0.1, acc: 0, born: devilCount++ * 1.37 % 100 });
+    Object.assign(dv, { hop: 0, gain: 1, on: true, s, d: DEV_D + (Math.random() - 0.5) * 0.6, dir, spd, stride: 0.3, age: 0, life, k: 0, dis: 0, style: devilCount % 2, phase: Math.random() * 6, wave, h: 1 + Math.random() * 0.1, acc: 0, born: devilCount++ * 1.37 % 100 });
     return dv;
   }
 

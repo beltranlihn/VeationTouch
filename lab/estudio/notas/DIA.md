@@ -65,3 +65,17 @@ Sin compute ni texturas: WebGPU y WebGL2 iguales.
 - Visto también montado en la escena de BRA (`res-3d-study?part=brasa3d&group=4`, sólo lectura): se leen figuras con capucha y faldón
   con la forca, sobre la plaza. `"errors":[]` en WebGPU y WebGL2 (cerca, baile, relevo, ciclo, 14 diables); `npm run check` verde.
   `album3/d1-diable-close.png` y `d2-diables-run.png` recapturados.
+
+## Ajuste T-064c (25-11, tras el PASA de ART) — respaldo `brasa3d/diables.T064c.js.bak`
+- **Luz de la figura**: el cuerpo pasa de carbón casi negro a **carbón incandescente saturado** (`#3A1A10`, tela granate `#4A1A12`),
+  luz de su propio fuego ×1,8, agujas ×1,1, filo frío a 0,3 (el filo gris + la neblina cálida de la escena la volvían «fantasma»).
+  Un primer intento subiendo el gris (×1,6) la hacía más pálida y más fantasmal: descartado.
+- **Opacidad**: cuerpo y ropa son opacos (1,0) en el módulo. **Lo translúcido en la obra entera es el TAA del host** (`room3d`,
+  `aa: 'auto'` = TAA en calidad alta, sin reproyección): el mismo instante con `?aa=msaa` los muestra sólidos (scratchpad
+  `w31`/`w5msaa` frente a `w30`/`w5taa`), y quitando agujas y vetas siguen translúcidos con TAA. Arreglo en el host (RND-F): una
+  máscara reactiva o recorte min/max para lo que se mueve; desde `diables.js` no se puede.
+- **Escala**: la figura mide 1,75 m (pico de la capucha) / ~1,8 con los cuernos, según la especificación. Se ven pequeños porque
+  BRA los pone lejos: diables de mano a `DEV_D = 6` m tras el muro y el relevo a `relayD` 2,6 m (+0,5…1,7 los ayudantes); en la
+  obra, raíces a 6,4–8 m del ojo → ~0,7–0,9 m aparentes en el muro. La especificación pide 1,5–2,5 m: con `DEV_D` ≈ 2,0 y
+  ayudantes a +0,3 m se verían ~1,1–1,2 m (×1,5). Es de BRA (`brasa3d.js`).
+- `album3/d3-diables-scene.png`: la obra entera (`res-obra3d ?demo=0&group=4`, salto a brasa, 30 s, TAA por defecto).

@@ -322,8 +322,8 @@ export function createArches(ctx, opt = {}) {
   const smat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
   smat.positionNode = grow(TSL.positionLocal);
   { const r = attribute('aRect', 'vec4'), dq = max(abs(r.xy).sub(r.zw), 0), d = length(dq);
-    smat.colorNode = vec3(0.535, 0.339, 0.2);                                      // T-066 (ART): #C9AE8E ON SCREEN (ACES-inverted, unlit, like the sand floor)
-    smat.opacityNode = exp(d.div(0.15).pow(2).negate()).mul(0.9).mul(uVis); }    // 30 cm of soft shade round the foot
+    smat.colorNode = vec3(0.403, 0.255, 0.148);                                    // T-069 (ART): #B89A78 ON SCREEN (ACES-inverted, unlit, like the sand floor)
+    smat.opacityNode = float(1).sub(smoothstep(0.0, 0.15, d)).mul(0.4).mul(uVis); }   // 40 % only in the 15 cm next to the plinth
   const shadow = new THREE.Mesh(sgeo, smat); shadow.frustumCulled = false; shadow.renderOrder = 2;
 
   const object = new THREE.Group(); object.name = 'umbral3d.arches';

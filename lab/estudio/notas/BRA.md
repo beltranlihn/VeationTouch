@@ -23,3 +23,10 @@
 - Bug corregido: el «hundimiento» (`sink`) quedaba fijo en 0,5 (la obra lo leía de brasa3d.json); ahora 0,2 y vuelve a depender del nivel.
 - El polvo/estrellas que aún se ve en el bloque brasa es de atmos.js (300 000 motas), no de brasa3d.
 - f1–f3 capturadas desde la obra completa (index.html, jump brasa). `"errors":[]` en la obra y en el estudio WebGL2; `npm run check` 90/90.
+
+## T-063c (último ajuste, 25-11)
+- Plaça: porxos ×2, fachadas ×1,5 (tope 0,08), canto naranja de los arcos al 60 %: se lee «plaza con porches».
+- Foguera a 1,6 m tras el muro, islote detrás (borde delantero ≥ 1,3 m): ≈ 45 cm de reflejo bajo el islote; la foguera queda ≈ 1,05–1,1 m
+  en el muro (con el ápice ≤ 1,65 m, «≥ 1,2 m de alto» y «≥ 40 cm de reflejo» no caben a la vez: se priorizó el reflejo).
+- brasa3d.json: `flames` y `smoke` por defecto 0 (la obra lee estos valores: las llamas de sprite y el humo seguían encendidos en la obra).
+- Puntos en el cielo: son el polvo de atmos. En res-obra3d/experience.js:558 `p.dust *= e.dustK;` quedó dentro del comentario (no se ejecuta).
