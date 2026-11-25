@@ -35,6 +35,8 @@
 // (springs and waves on the CPU, the pose in the vertex stage). No floor reflection (was a second copy of the mosaic), no shadows.
 import { createScore } from '../../score.js';
 
+const GROUT_H = 0.008;   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
+
 export function create(ctx) {
   const { THREE, TSL, room, params } = ctx;
   const walls = room.walls, NW = walls.length, eye = room.eye;
@@ -243,8 +245,10 @@ export function create(ctx) {
       const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(e1.copy(Tu).normalize(), e2.crossVectors(Nn, e1).normalize(), Nn));
       const cell = { cu, cy, rad, loose, kind, col, ros, rd, c: P0.clone(), n: Nn.clone(), q, mother: s.mother, round: s.round, over: loose ? (cy - H) / 0.6 : 0, r1: idRnd, r2: rnd(), keep: rnd() < 0.3, th: cu / RM, ax: ax.clone(), rest: null, w: fW(cu, cy), cC: fC(cu, cy), k: fK(cu, cy) };
       cells.push(cell);
-      // the shard: inset for the joint (grout ~8 mm physical ≈ 3–4 mm on the wall), thin (~1.5 cm), a bevel that catches the light; tilted a little
-      const gap = s.mother ? 0.005 : 0.004, n = poly.length, thick = (s.mother ? 0.024 : 0.014) + rr(0, 0.006), ch = Math.min(0.007, thick * 0.5);
+      // the shard: inset for the joint (see GROUT_H), thin (~1.5 cm), a bevel that catches the light; tilted a little
+      // T-066: the grout bed sits 8 mm up (GROUT_H): the foot is widened below it (hidden) so that at the grout line the joint is
+      // 2.5 mm (3 mm round a mother) everywhere, whatever the piece's thickness: no pools of grout, nothing floats
+      const n = poly.length, thick = (s.mother ? 0.024 : 0.014) + rr(0, 0.006), ch = Math.min(0.007, thick * 0.5), gap = (s.mother ? 0.0015 : 0.00125) - (GROUT_H / thick) * ch * 1.1;
       const tiltA = rr(0, 6.28), tiltK = loose ? 0 : rr(0.02, 0.06), tx = Math.cos(tiltA) * tiltK, ty = Math.sin(tiltA) * tiltK;
       const O = poly.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.45, 1 - gap / l); return [p[0] * k, p[1] * k]; });
       const T = O.map((p) => { const l = Math.hypot(p[0], p[1]) || 1, k = Math.max(0.5, 1 - (ch * 1.1) / l); return [p[0] * k, p[1] * k]; });
@@ -375,7 +379,8 @@ export function create(ctx) {
       for (let j = 0; j <= NV; j++) {
         const y = (j / NV) * top; surfP(cu, y, P); surfP(cu + 0.05, y, Q); surfP(cu, y + 0.05, R);
         N.crossVectors(Q.sub(P), R.sub(P)).normalize(); if (N.x * P.x + N.z * P.z > 0) N.negate();
-        const o = (i * (NV + 1) + j) * 3; P.addScaledVector(N, 0.008);   // T-058b: up to ~6 mm under the faces: the joint reads sunk, the bevels catch the light above it pos[o] = P.x; pos[o + 1] = P.y; pos[o + 2] = P.z; nor[o] = N.x; nor[o + 1] = N.y; nor[o + 2] = N.z;
+        const o = (i * (NV + 1) + j) * 3; P.addScaledVector(N, GROUT_H);   // T-058b/T-066: the bed 8 mm up the bevels, the joint 2.5 mm wide there and sunk under the faces; the
+        pos[o] = P.x; pos[o + 1] = P.y; pos[o + 2] = P.z; nor[o] = N.x; nor[o + 1] = N.y; nor[o + 2] = N.z;   // write was lost in a comment: no grout, the sky showed through
         if (i < NU && j < NV) { const a = i * (NV + 1) + j, b = a + NV + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
       }
     }
@@ -383,7 +388,7 @@ export function create(ctx) {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });   // unlit: the joint is in the pieces' shade anyway (and it is cheap)
     m.positionNode = positionLocal.add(normalize(vec3(positionLocal.x, 0, positionLocal.z)).mul(uPush.negate()));
     const pw = positionWorld, hsh = fract(sin(dot(floor(pw.xz.mul(3.0)).add(floor(pw.y.mul(3.0))), vec3(12.9898, 78.233, 37.719).xy)).mul(43758.5453));
-    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return vec3(0.765, 0.606, 0.418).mul(0.8); })();   // #D9CFBE on screen (ACES-inverted; unlit)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
+    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return vec3(0.765, 0.606, 0.418); })();   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; return mesh;
   })();
   hero.add(groutMesh);
@@ -1055,7 +1060,7 @@ export function create(ctx) {
           }
         }
         sleep[i] = 0;
-        target = col * Math.PI + sh * 0.2 + Math.min(bump, 1.3) * 0.36;
+        target = col * Math.PI + sh * 0.06 + Math.min(bump, 1.3) * 0.36;   // T-066: the idle shimmer turns a piece ≤ 7° (was 23°: the joints opened, the vault floated)
         vphi[i] += (kSpring * (target - phi[i]) - cSpring * vphi[i]) * dt; phi[i] += vphi[i] * dt;
         turn = phi[i] * 2; kc = phi[i] > 1.5708 ? 8 : 0;
         lift = Math.abs(Math.sin(phi[i])) * Math.min(0.07, c.rad * 1.1) + bump * 0.05 + sh * 0.008;   // ART: relief at rest ≤ 1.5 cm; a touched piece comes out 3–6 cm

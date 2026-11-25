@@ -31,7 +31,7 @@ export const CARDS = { brasa: ['I', 'Brasa', 'El despertar'], pinya: ['II', 'Pin
 const HAND_Y = 1.25, MAXT = 16;
 // T-059 (ARTE-ENTRADA §c): the liquid-glass lens r 0.28 m (Ø 0.56) with a 2.5 cm round bevel; the 3 px cobalt arc on its rim (r 0.2875),
 // the ticks every 10° on the bezel inside the edge; everything inside r ≤ 0.30 m (ENT's tile ring is at 0.36–0.55 m)
-const RL = 0.28, BEV = 0.025, RA = 0.2875, ARC_HW = 0.0057, RT0 = 0.238, RT1 = 0.25, TICK_HW = 0.0024, LQ = 0.30, GLYPH = 0.39, LINE_HW = 0.0048, NGRAIN = 720;
+const RL = 0.28, BEV = 0.025, RA = 0.2875, ARC_HW = 0.0057, RT0 = 0.234, RT1 = 0.25, TICK_HW = 0.0034, LQ = 0.30, GLYPH = 0.39, LINE_HW = 0.0048, NGRAIN = 720;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate));
 
@@ -157,21 +157,35 @@ export function createGuide({ THREE, TSL, room }) {
   const handTex = new THREE.CanvasTexture(hcv); handTex.colorSpace = THREE.NoColorSpace; handTex.wrapS = handTex.wrapT = THREE.ClampToEdgeWrapping;
 
   // ------------------------------------------------------------------ T-059: the liquid-glass lens (one family for every target)
-  // The hand as a FINE LINE: the open hand's silhouette (palm + five round-tipped fingers, the same design as the trencadís hand),
-  // filled once at 512 px and blurred (3 px): the 0.5 level of that soft field is the outline, drawn in the shader as a hairline
-  // with a width in metres (2–3 px of the room, ARTE-ENTRADA), no fill.
+  // The hand as a FINE LINE: the open hand's silhouette (palm + four fingers fanned a little + the thumb: a refined pictogram, the
+  // fingers 2.7 cm wide with ≥ 2.2 cm between them so two strokes never merge), filled once at 512 px and turned into a DISTANCE
+  // field (exact EDT, ±32 texels, 0.5 = the outline): the shader draws |d| < half-width in metres — ONE clean stroke of constant
+  // width (2.5 px of the room, ARTE-ENTRADA), no fill, no shading (T-066; was the 0.5 level of a blurred mask: uneven widths).
   const LN = 512, lcv = document.createElement('canvas'); lcv.width = lcv.height = LN;
   {
-    const big = document.createElement('canvas'); big.width = big.height = 512;
-    const g = big.getContext('2d'); g.fillStyle = '#fff';
+    const big = document.createElement('canvas'); big.width = big.height = LN;
+    const g = big.getContext('2d'); g.fillStyle = '#fff'; g.translate(40, -20);
     const capsule = (bx, by, len, w, a) => { g.save(); g.translate(bx, by); g.rotate(a); g.beginPath(); g.moveTo(-w / 2, 0); g.lineTo(-w / 2, -len + w / 2); g.arc(0, -len + w / 2, w / 2, Math.PI, 0); g.lineTo(w / 2, 0); g.arc(0, 0, w / 2, 0, Math.PI); g.closePath(); g.fill(); g.restore(); };
-    g.beginPath(); g.roundRect(184, 282, 156, 182, [64, 64, 86, 86]); g.fill();                    // palm
-    capsule(204, 352, 128, 28, -0.95);                                                              // thumb
-    capsule(210, 292, 150, 28, -0.24); capsule(254, 284, 172, 28, -0.07); capsule(296, 290, 156, 28, 0.11); capsule(334, 308, 114, 28, 0.32);
-    const out = lcv.getContext('2d', { willReadFrequently: true });
-    out.fillStyle = '#000'; out.fillRect(0, 0, LN, LN); out.filter = 'blur(3px)'; out.drawImage(big, 0, 0, LN, LN); out.filter = 'none';
+    g.beginPath(); g.roundRect(142, 268, 228, 186, [34, 30, 92, 92]); g.fill();                    // palm
+    capsule(166, 300, 150, 36, -0.17); capsule(225, 296, 172, 36, -0.055); capsule(285, 298, 160, 36, 0.06); capsule(346, 306, 126, 34, 0.18);   // fingers
+    capsule(170, 404, 124, 38, -0.85);                                                              // thumb
+    const M = big.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, LN, LN).data, INF = 1e9, R = 32;
+    // Felzenszwalb's 1D squared-distance transform, rows then columns
+    const f = new Float64Array(LN), dd = new Float64Array(LN), v = new Int32Array(LN), z = new Float64Array(LN + 1);
+    const dt1 = () => { let k = 0; v[0] = 0; z[0] = -INF; z[1] = INF;
+      for (let q = 1; q < LN; q++) { let sx; for (;;) { const r = v[k]; sx = ((f[q] + q * q) - (f[r] + r * r)) / (2 * q - 2 * r); if (sx <= z[k] && k > 0) k--; else break; } if (sx <= z[k]) { v[0] = q; z[0] = -INF; z[1] = INF; k = 0; continue; } k++; v[k] = q; z[k] = sx; z[k + 1] = INF; }
+      k = 0; for (let q = 0; q < LN; q++) { while (z[k + 1] < q) k++; const r = v[k]; dd[q] = (q - r) * (q - r) + f[r]; } };
+    const edt = (inside) => { const D = new Float64Array(LN * LN);
+      for (let i = 0; i < LN * LN; i++) D[i] = (M[i * 4 + 3] > 127) === inside ? 0 : INF;
+      for (let y = 0; y < LN; y++) { for (let x = 0; x < LN; x++) f[x] = D[y * LN + x]; dt1(); for (let x = 0; x < LN; x++) D[y * LN + x] = dd[x]; }
+      for (let x = 0; x < LN; x++) { for (let y = 0; y < LN; y++) f[y] = D[y * LN + x]; dt1(); for (let y = 0; y < LN; y++) D[y * LN + x] = dd[y]; }
+      return D; };
+    const dOut = edt(true), dIn = edt(false);                                                       // distance to the shape / to the outside
+    const out = lcv.getContext('2d'), img = out.createImageData(LN, LN);
+    for (let i = 0; i < LN * LN; i++) { const sd = Math.sqrt(dOut[i]) - Math.sqrt(dIn[i]), e = Math.round(Math.min(1, Math.max(0, 0.5 + sd / (2 * R))) * 255); img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = e; img.data[i * 4 + 3] = 255; }
+    out.putImageData(img, 0, 0);
   }
-  const lineTex = new THREE.CanvasTexture(lcv); lineTex.colorSpace = THREE.NoColorSpace; lineTex.wrapS = lineTex.wrapT = THREE.ClampToEdgeWrapping;
+  const lineTex = new THREE.CanvasTexture(lcv); lineTex.colorSpace = THREE.NoColorSpace; lineTex.wrapS = lineTex.wrapT = THREE.ClampToEdgeWrapping; lineTex.generateMipmaps = false; lineTex.minFilter = THREE.LinearFilter;   // a distance field: never averaged
 
   // shared geometry: the lens and the instrument (one quad), its contact shadow (one quad), its grains (instanced quads)
   const lensGeo = new THREE.PlaneGeometry(LQ * 2, LQ * 2), shadowGeo = new THREE.PlaneGeometry(0.8, 0.8);
@@ -260,38 +274,38 @@ export function createGuide({ THREE, TSL, room }) {
       const over = (col, al) => { c = col.mul(al).add(c.mul(float(1).sub(al))); a = al.add(a.mul(float(1).sub(al))); };
       // 1. the body: frosted, almost clear in the middle; the bevel shows the world bent through it (a light ground: milk and sand;
       //    a deep universe: dark glass, as before)
-      const frost = mix(vec3(0.006, 0.007, 0.01), vec3(0.82, 0.89, 0.905), uLite);   // #EAF2F4 at 14 % on a light ground
+      const frost = mix(vec3(0.006, 0.007, 0.01), vec3(1.155, 2.01, 2.356), uLite);   // #EAF2F4 at 14 % ON SCREEN on a light ground (9 % of the HDR value: cool, not pink) — T-066: ACES-inverted (0.82/0.89/0.905 showed grey #DCDFDF: a dim pinkish disc)
       // round 2 (ART): no grey env in the glass on a light ground — a cheap refraction of the SCENE's tones: the room's background
       // gradient (sand below, cream above), sampled at the height the bevel looks to (flipped, as a lens does), a touch brighter
       const bgk = tclamp(float(0.5).add(positionWorld.y.sub(HAND_Y).div(0.9)).sub(nl.y.mul(1.6)), 0, 1);
       const sceneT = room.background ? mix(room.background.bottom, room.background.top, bgk).mul(room.background.gain).mul(1.04) : refr;
       const bent = mix(refr, sceneT, uLite);
-      const bodyA = mix(mix(float(0.5), float(0.14), uLite), mix(float(0.75), float(0.7), uLite), edge.mul(edge)).mul(inside);
-      const body = mix(frost, bent.mul(mix(float(1.1), float(1.0), uLite)), edge.mul(0.9)).mul(shade.mul(mix(float(0.35), float(0.18), uLite)).add(mix(float(0.75), float(0.9), uLite)));
+      const bodyA = mix(mix(float(0.5), float(0.09), uLite), mix(float(0.75), float(0.7), uLite), edge.mul(edge)).mul(inside);
+      const body = mix(frost, bent.mul(mix(float(1.1), float(1.0), uLite)), edge.mul(0.9)).mul(shade.mul(mix(float(0.35), float(0.18), uLite)).add(mix(float(0.75), float(1.0), uLite)));   // T-066: no dimming on sand (it read as a flat pinkish disc)
       over(body, bodyA);
       // 2. the liquid glaze, filling from the rim inwards as the hold grows, its meniscus trembling
       const lvl = U.arc, wob = sin(atan(p.x, p.y).mul(5).add(uTime.mul(1.7))).mul(0.004).add(sin(atan(p.x, p.y).mul(9).sub(uTime.mul(2.3))).mul(0.0025)).mul(lvl.mul(float(1).sub(lvl)).mul(4));
       const mr = RLb.mul(float(1).sub(lvl)).add(wob);
       const wet = smoothstep(mr.sub(fw), mr.add(fw), r).mul(inside).mul(step(0.002, lvl));
       const glazeC = uGlaze.mul(shade.mul(0.45).add(0.7)).add(refr.mul(0.08));
-      over(glazeC, wet.mul(mix(float(0.45), float(0.1), uLite)));   // quiet: the arc is the signal (ART)
+      over(glazeC, wet.mul(mix(float(0.45), float(0.035), uLite)));   // T-066: 3.5 % on sand (10 % cobalt over sand read mauve)   // quiet: the arc is the signal (ART)
       const men = tclamp(float(1).sub(abs(r.sub(mr)).div(fw.mul(1.2))), 0, 1).mul(inside).mul(step(0.002, lvl)).mul(step(lvl, 0.995));
       c = c.add(vec3(1.0, 0.98, 0.95).mul(men).mul(0.25));
       // 3. the hand: a fine line, softly embossed; ink on a light ground, bone on a deep one; it warms to the glaze under a hand
       const huv = p.div(GLYPH).add(vec2(0.5, 0.47)), gIn = step(0, huv.x).mul(step(huv.x, 1)).mul(step(0, huv.y)).mul(step(huv.y, 1));
-      const gv = texture(lineTex, tclamp(huv, vec2(0), vec2(1))).r.mul(gIn);
-      const gfw = max(TSL.fwidth(gv), float(1e-4)), gd = abs(gv.sub(0.5)).mul(fw).div(gfw);    // ≈ metres from the outline
+      const gv = texture(lineTex, tclamp(huv, vec2(0), vec2(1))).r;
+      const gd = abs(gv.sub(0.5)).mul(64 * GLYPH / 512);                                        // metres from the outline (the distance field)
       const ghw = max(float(LINE_HW), fw.mul(0.75));
-      const gline = float(1).sub(smoothstep(ghw.sub(fw.mul(0.5)), ghw.add(fw.mul(0.5)), gd)).mul(step(0.02, gv));
-      const inkC = mix(uInk, uGlaze.mul(0.8), U.hot.mul(0.55).add(U.held.mul(0.25)).min(0.7));
-      over(inkC, gline.mul(0.92).mul(inside));
+      const gline = float(1).sub(smoothstep(ghw.sub(fw.mul(0.5)), ghw.add(fw.mul(0.5)), gd)).mul(gIn);
+      const inkC = mix(uInk, uGlaze.mul(0.8), U.hot.mul(0.55).add(U.held.mul(0.25)).min(0.7).mul(float(1).sub(uLite)));   // T-066: on sand the ink stays #2E2A26
+      over(inkC, gline.mul(inside));                                                             // one flat ink: no shading
       // 5. light: the soft key highlight on the upper bevel, a broad sheen, the env's Fresnel, the thin bright rim (inside the edge)
       //    with the dark hairline that draws the edge on a light ground; the rim nearest a hand catches its light (the flashlight)
       const lamp = room.flash ? room.flash(positionWorld) : float(0);
       const sheen = exp(length(p.sub(vec2(-0.07, 0.11)).mul(vec2(1.0, 1.7))).mul(length(p.sub(vec2(-0.07, 0.11)).mul(vec2(1.0, 1.7)))).mul(-90.0)).mul(0.07);
       c = c.add(vec3(spec.mul(edge.mul(0.8).add(0.2)).mul(0.85).add(sheen)).mul(inside)).add(refl.mul(F).mul(mix(float(0.5), float(0.12), uLite)).mul(inside));
       const rimIn = tclamp(float(1).sub(abs(r.sub(RLb.sub(0.0035))).div(fw.mul(1.1))), 0, 1);
-      const rimUp = dirR.y.mul(0.35).add(0.65).mul(dirR.x.mul(-0.2).add(1));
+      const rimUp = mix(dirR.y.mul(0.35).add(0.65).mul(dirR.x.mul(-0.2).add(1)), dot(dirR, vec2(-0.7071, 0.7071)).mul(0.35).add(0.45), uLite);   // T-066: on sand dimmer away from the key
       const rimL = rimIn.mul(rimUp.mul(0.5).add(lamp.mul(0.8)).add(U.hot.mul(0.15)));
       c = c.add(mix(vec3(1.0, 0.97, 0.92), uGlaze.mul(0.6).add(0.5), lamp.mul(0.4).min(0.4)).mul(rimL));
       const rimOut = tclamp(float(1).sub(abs(r.sub(RLb.add(0.0012))).div(fw.mul(0.9))), 0, 1);
@@ -303,11 +317,12 @@ export function createGuide({ THREE, TSL, room }) {
       // rides the upper-left bevel (the liquid-glass read); both follow the tilt (nl) and the ripples
       const bevBand = smoothstep(0.15, 0.6, t).mul(float(1).sub(smoothstep(0.92, 1.0, t))).mul(inside);
       const away = tclamp(dot(dirR, vec2(0.3, -0.95)), 0, 1);
-      over(vec3(0.33, 0.27, 0.22), bevBand.mul(away).mul(0.22).mul(uLite));
+      over(vec3(1.155, 2.01, 2.356), bevBand.mul(0.16).mul(uLite));                               // T-066: the bevel a cool band (#EAF2F4-ish): the rim reads 2.5 cm
+      over(vec3(0.27, 0.3, 0.34), bevBand.mul(away).mul(0.2).mul(uLite));                      // its shade side cool too (no warm-brown → no pink)
       // the white specular arc: 60° centred top-left (135°), soft ends, on the outer half of the bevel
-      const toward = smoothstep(0.82, 0.93, dot(dirR, vec2(-0.7071, 0.7071)));                 // ≈ ±30° about the centre
-      const specBand = smoothstep(RLb.sub(BEV), RLb.sub(BEV * 0.55), r).mul(float(1).sub(smoothstep(RLb.sub(0.0035), RLb.sub(0.0005), r)));
-      over(vec3(1.0, 1.0, 1.0), specBand.mul(toward).mul(mix(float(0.45), float(0.8), uLite)));   // the 60° white arc (ART), opaque white on sand
+      const toward = smoothstep(0.80, 0.88, dot(dirR, vec2(-0.7071, 0.7071)));                 // T-066: full over ±28°, soft ends: 60°
+      const specBand = smoothstep(RLb.sub(BEV), RLb.sub(BEV * 0.7), r).mul(float(1).sub(smoothstep(RLb.sub(0.0035), RLb.sub(0.0005), r)));
+      over(vec3(1.0, 1.0, 1.0), specBand.mul(toward).mul(mix(float(0.45), float(0.95), uLite)));   // the 60° white arc (ART), opaque white on sand
       const glass = solid.mul(smoothstep(0.0, 0.25, U.asm));
       c = c.mul(glass); a = a.mul(glass);
       // 6. the instrument round the glass: a faint track, the arc of light (1–1.5 px) filling clockwise from the top with a bright

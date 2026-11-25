@@ -2,14 +2,16 @@
 //
 // What it is (spec: lab/estudio/ARTE-BRASA.md §c): a readable fire devil of 1.75 m (1.85 m with the horns), drawn as a SCULPTED body,
 // not a cloud. Per figure:
-//   Body       26 tapered capsules on a procedural 30-joint skeleton (CPU): torso, hood with a peak, two 12 cm horns (two segments
-//              each, curving out and up), a coat to mid-leg, arms, legs, feet; charcoal #23201E, lit by the cold rim #9FB4C8 (true
-//              from every wall camera) and by its own fire (the carretilles above it, the ember ring below), with thin glowing seams.
-//              The forca (2.1 m, held at 60–75° over the head, a V of two prongs) and the two carretilles (Ø 8 cm, white-hot) are
-//              capsules of the same mesh.
-//   Needles    3 000 oriented needles (ref 07/08) of 3–5 cm on the body's surface, combed upward and back by the run, glowing
-//              #B3260E → #FF7A1A → #FFD27A with the heat (more on shoulders, arms and hood); additive, never thinner than ~1.2 px,
-//              hidden behind the body (depth): the skin of fire reads as a volume.
+//   Body       26 tapered capsules on a procedural 30-joint skeleton (CPU): torso, hood with a peak, two 14 cm horns (two segments
+//              each, curving out and up, warming to the tip), two slit ember eyes, arms, legs, feet; CLOTHES (T-064b): a deep
+//              hood with volume and a coat skirt to mid-shin, in cloth folds, the hem trimmed with embers. Charcoal #23201E, lit
+//              by the cold rim #9FB4C8 (true from every wall camera) and by its own fire (the carretilles above it, the ember ring
+//              below), with sparse 1-px lava seams on the limbs and torso (none on the cloth).
+//              The forca (2.1 m, held at 60–75° over the head, a V of two prongs) and the two carretilles (Ø 8 cm, #FFE9B0, five
+//              spokes turning 3.5×/s, ≤ 1.5 HDR: a small wheel, not a bloom ball) are capsules of the same mesh.
+//   Needles    1 800 oriented needles (ref 07/08) of 2–3 cm lying DOWN along the body (feathers, not fur), swept back a little
+//              by the run, glowing #B3260E → #FF7A1A → #FFD27A with the heat (most on shoulders and arms, few on the cloth);
+//              additive, never thinner than ~1.2 px, hidden behind the body (depth).
 //   Tongues    7 cut-paper flame tongues (4 nested layers each: red, orange, amber, cream — the foguera's palette, 2.2 cm apart),
 //              25–45 cm, on the shoulders, the hood and the coat; one peels off every ~0.6 s, rises 0.6 m turning and goes out to
 //              garnet in 1.2 s, then a new one grows in its place. Matte, self-lit below the bloom threshold.
@@ -21,9 +23,9 @@
 //              body will be at mid-stance), two-bone IK legs and arms, torso 12° forward (more when running), knees bent, a full
 //              turn on the spot every 4–5 s with the forca up; facing eased from the real velocity; the relay's leap (slot.hop)
 //              tucks the legs. Everything eased; nothing jitters.
-//   Arrive / leave   ASSEMBLE from embers (the needles fly in from the floor, the body grows from the feet up, the tongues grow);
-//              DISSOLVE into sparks (the top first: the body thins with a burning edge, every tongue peels off, the needles lift
-//              up and apart, a last flash of the carretilles).
+//   Arrive / leave   ASSEMBLE from embers (the needles fly in from the floor, the body builds from the feet up behind a burning
+//              front 15 % of its height wide, the tongues grow); DISSOLVE into sparks (the top first: the front sinks from the
+//              horns, every tongue peels off, the needles lift up and apart, a last flash of the carretilles).
 // Reflection: everything is drawn a second time through `mirP` (BRA's liquid chrome): the solid parts as a transparent copy
 // (opacity 0.6 · U.refl, tinted by CHROME) so they draw OVER the floor (which writes no depth), the light parts additive.
 //
@@ -53,8 +55,8 @@
 //   // window.__brasa.roots: devils.map((d, i) => (d.on && d.dis === 0 ? (DIA.root(i, _v), [i, _v.x, _v.z, d.wave ? 1 : 0]) : null)).filter(Boolean)
 //   // dispose(): DIA.dispose();   (and drop ...devilMesh from the dispose list)
 //
-// Cost (14 devils): 8 draw calls per wall camera (4 + 4 mirrored). Per devil 26 capsules (~2.6k tris), 3 000 needle quads, 28 tongue
-// layers (48 tris each), 440 mote quads — ~45k quads + 37k tris for 14 devils, ×2 with the mirror (today: 63k additive quads ×2).
+// Cost (14 devils): 8 draw calls per wall camera (4 + 4 mirrored). Per devil 26 capsules (~2.6k tris), 1 800 needle quads, 28 tongue
+// layers (48 tris each), 440 mote quads — ~32k quads + 37k tris for 14 devils, ×2 with the mirror (today: 63k additive quads ×2).
 // Uniforms: 30 joints + 3 vec4 per devil (462 vec4 at 14). CPU: one pose per devil (~200 vector ops), nothing allocated per frame.
 // WebGPU and WebGL2 (no compute, no textures). Study page: ./diables/study.html (?mode=close | dance | run | cycle, ?gl=1).
 
@@ -65,10 +67,10 @@ export const NJ = 30;
 // segments: [jointA, jointB, radiusA, radiusB, kind (0 body · 1 forca · 2 carretilla · 3 horn), needle weight, tongue anchors]
 const SEG = [
   [0, 1, 0.135, 0.15, 0, 0.8], [1, 2, 0.155, 0.06, 0, 1.0], [4, 5, 0.07, 0.07, 0, 1.4], [3, 3, 0.098, 0.098, 0, 0.0],
-  [2, 28, 0.122, 0.03, 0, 1.3], [4, 6, 0.058, 0.046, 0, 1.3], [5, 7, 0.058, 0.046, 0, 1.3], [6, 8, 0.046, 0.034, 0, 1.0],
+  [2, 28, 0.155, 0.045, 0, 0.45], [4, 6, 0.058, 0.046, 0, 1.3], [5, 7, 0.058, 0.046, 0, 1.3], [6, 8, 0.046, 0.034, 0, 1.0],
   [7, 9, 0.046, 0.034, 0, 1.0], [10, 11, 0.1, 0.1, 0, 0.3], [10, 12, 0.085, 0.062, 0, 0.3], [11, 13, 0.085, 0.062, 0, 0.3],
   [12, 14, 0.058, 0.04, 0, 0.45], [13, 15, 0.058, 0.04, 0, 0.45], [14, 16, 0.043, 0.03, 0, 0.2], [15, 17, 0.043, 0.03, 0, 0.2],
-  [0, 29, 0.14, 0.2, 0, 0.75],
+  [0, 29, 0.15, 0.25, 0, 0.12],
   [18, 19, 0.017, 0.016, 1, 0], [19, 20, 0.013, 0.011, 1, 0], [19, 21, 0.013, 0.011, 1, 0], [20, 20, 0.04, 0.04, 2, 0], [21, 21, 0.04, 0.04, 2, 0],
   [24, 26, 0.04, 0.026, 3, 0], [26, 22, 0.026, 0.005, 3, 0], [25, 27, 0.04, 0.026, 3, 0], [27, 23, 0.026, 0.005, 3, 0],
 ];
@@ -78,7 +80,7 @@ const TONGUES = [
   [4, 0.25, Math.PI, 0, 0.36, 0.1], [4, 0.35, Math.PI * 0.7, 0, 0.28, 0.08],  // hood: back, back-side
   [16, 0.7, -1.9, 0, 0.36, 0.1], [16, 0.72, 1.9, 0, 0.36, 0.1], [16, 0.65, Math.PI, 0, 0.45, 0.12],   // coat: sides and back
 ];
-const NT = TONGUES.length, NLAYER = 4, PER_NEEDLE = 3000, PER_EMBER = 240, PER_SPARK = 200;
+const NT = TONGUES.length, NLAYER = 4, PER_NEEDLE = 1800, PER_EMBER = 240, PER_SPARK = 200;
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smoother = (v) => { const s = clamp01(v); return s * s * s * (s * (s * 6 - 15) + 10); };
 function rng(seed) { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -89,12 +91,12 @@ export function createDiables(ctx) {
   const {
     uniformArray, attribute, varying, positionGeometry, uv, vec2, vec3, vec4, float, int, sin, cos, exp, mix, clamp, smoothstep, max,
     min, abs, sqrt, fract, pow, dot, normalize, length, select, cross, modelViewMatrix, modelWorldMatrix, cameraProjectionMatrix,
-    cameraPosition, mx_noise_float,
+    cameraPosition, mx_noise_float, atan, fwidth,
   } = TSL;
   const col = (hex) => { const c = new THREE.Color(hex); return vec3(c.r, c.g, c.b); };   // sRGB hex → linear
   const C = {
     char: col(0x23201E), rim: col(0x9FB4C8), garnet: col(0x6E1410), red: col(0xC8281A), orange: col(0xEE6A1F), amber: col(0xF2B23A),
-    cream: col(0xF4E3C8), lavaEdge: col(0xB3260E), lavaMid: col(0xFF7A1A), lavaCore: col(0xFFD27A), sparkHot: col(0xFFE9B0), sparkEnd: col(0x8A1F0E),
+    cream: col(0xF4E3C8), lavaEdge: col(0xB3260E), lavaMid: col(0xFF7A1A), lavaCore: col(0xFFD27A), sparkHot: col(0xFFE9B0), sparkEnd: col(0x8A1F0E), clothDark: col(0x2E2220),
   };
   const UP = vec3(0, 1, 0);
   const tint = CHROME || vec3(1, 0.93, 0.84);
@@ -127,10 +129,10 @@ export function createDiables(ctx) {
   // the body's build / burn factor at a point (assemble from the feet up, dissolve from the top down) and its burning edge
   const bodyGrow = (py, ds, h) => {
     const yRel = clamp(py.sub(ds.w).div(h.mul(1.85)), 0, 1);
-    const eA = clamp(ds.x.mul(1.5).sub(yRel.mul(0.5)), 0, 1);
-    const vD = clamp(ds.y.mul(1.7).sub(float(1).sub(yRel).mul(0.7)), 0, 1);
+    const eA = clamp(ds.x.mul(1.35).sub(0.12).sub(yRel).div(0.15), 0, 1);          // a front rising from the feet (15 % of the height wide)
+    const vD = clamp(yRel.sub(float(1.1).sub(ds.y.mul(1.35))).div(0.15), 0, 1);    // a front sinking from the horns
     const g = smoothstep(0, 1, eA).mul(float(1).sub(smoothstep(0, 1, vD)));
-    return { g, edge: float(1).sub(g).mul(select(g.greaterThan(0.001), float(1), float(0))), vD, yRel };
+    return { g, edge: g.mul(float(1).sub(g)).mul(4.0), vD, yRel };                 // edge: the burning band at the front
   };
   // a surface point of a segment: t along, th round, c = polar cos on the caps / spheres
   const surface = (A, B, fr, t, th, c, rad) => {
@@ -198,6 +200,8 @@ export function createDiables(ctx) {
     m.positionNode = pf;
     const vN = varying(mirror ? vec3(nL.x, nL.y.negate(), nL.z) : nL), vW = varying(modelWorldMatrix.mul(vec4(pf, 1)).xyz);
     const vLoc = varying(vec3(positionGeometry.x.mul(rad), t.mul(fr.L).add(cap.mul(rad)), positionGeometry.z.mul(rad)).add(vec3(K4.z.mul(3.7), df.w.mul(11.0), 0)));
+    const vGeo = varying(vec4(positionGeometry.x, cap, positionGeometry.z, K4.z));   // the head's own sphere (segment 3: the eyes)
+    const vY = varying(y);                                                          // along the capsule (the coat's hem)
     const vTop = varying(uJ.element(int(K4.x.mul(NJ).add(19))).xyz.sub(p));   // to the forca's top (the carretilles' light)
     const vK = varying(vec4(K4.y, gr.edge, ds.z, select(J4.w.lessThan(0.01), t, t.mul(0.4))));   // w: along the horn (0 base … 1 tip)
     m.colorNode = (() => {
@@ -209,17 +213,30 @@ export function createDiables(ctx) {
       const ringLight = max(N.y.negate(), 0).mul(0.25).add(0.08);                                               // the bed below
       const warm = vec3(1.0, 0.42, 0.13);
       // thin glowing seams (cracks in the charcoal), stuck to the bone
-      const nz = mx_noise_float(vLoc.mul(4.5)), seam = float(1).sub(smoothstep(0.0, 0.035, abs(nz)));
+      // (T-064b: half as many, ~1 px wide whatever the distance; none on the cloth)
+      const seg = vGeo.w, isCoat = select(abs(seg.sub(16)).lessThan(0.5), float(1), float(0)), isHood = select(abs(seg.sub(4)).lessThan(0.5), float(1), float(0));
+      const cloth = max(isCoat, isHood);
+      const nz = mx_noise_float(vLoc.mul(2.3)), seam = float(1).sub(smoothstep(0.0, fwidth(nz).mul(1.1).add(1e-4), abs(nz)));
       const pulse = sin(U.time.mul(2.3).add(vLoc.x.mul(30.0)).add(vLoc.y.mul(9.0))).mul(0.25).add(0.75);
-      let c = C.char.mul(0.7).add(warm.mul(fireLight.add(ringLight)).mul(0.13));
-      c = c.add(C.rim.mul(rimT).mul(0.3));
-      c = c.add(mix(C.lavaEdge, C.lavaMid, pulse).mul(seam).mul(0.28).mul(select(kind.lessThan(0.5), float(1), float(0))));
+      let c = C.char.mul(1.05).add(warm.mul(fireLight.mul(1.6).add(ringLight)).mul(0.22));
+      c = c.add(mix(C.lavaEdge, C.lavaMid, pulse).mul(seam).mul(0.32).mul(select(kind.lessThan(0.5), float(1), float(0))).mul(float(1).sub(cloth)));
+      // the cloth: a coat to mid-leg and a deep hood, in folds, the coat's hem trimmed with embers
+      const ang = atan(vGeo.z, vGeo.x), fold = sin(ang.mul(isCoat.mul(4).add(5))).mul(0.5).add(0.5);
+      const clothC = C.clothDark.mul(fold.mul(0.7).add(0.55)).add(warm.mul(fireLight.mul(1.6).add(ringLight)).mul(0.24));
+      const hem = smoothstep(0.4, 0.47, vY).mul(float(1).sub(smoothstep(0.495, 0.5, vY))).mul(isCoat)   // the outside of the hem only (not the underside)
+        .mul(pulse.mul(0.3).add(0.7));
+      c = mix(c, clothC, cloth).add(mix(C.lavaEdge, C.lavaMid, hem).mul(hem).mul(0.5));
+      c = c.add(C.rim.mul(rimT).mul(0.45));
       c = c.add(C.lavaMid.mul(flashN(vW)).mul(rimT).mul(0.5));
+      const gd = normalize(vGeo.xyz.mul(vec3(1, 2.6, 1))), onHead = select(abs(vGeo.w.sub(3)).lessThan(0.5), float(1), float(0));   // two ember eyes under the hood
+      const eyes = max(smoothstep(0.978, 0.992, dot(gd, normalize(vec3(0.9, 0.2, 0.4)))), smoothstep(0.978, 0.992, dot(gd, normalize(vec3(0.9, 0.2, -0.4)))));
+      c = c.add(mix(C.lavaMid, C.lavaCore, eyes).mul(eyes.mul(onHead).mul(1.2)));
       const forca = vec3(0.035, 0.022, 0.016).add(C.rim.mul(rimT).mul(0.35)).add(warm.mul(fireLight).mul(0.2));
-      const hot = C.sparkHot.mul(sin(U.time.mul(47.0)).mul(0.15).add(2.6));
-      const horn = C.char.mul(0.8).add(C.rim.mul(rimT).mul(0.6)).add(warm.mul(fireLight).mul(0.15)).add(mix(C.lavaEdge, C.lavaMid, vK.w).mul(0.35));
+      const spokes = pow(sin(atan(vGeo.z, vGeo.x).mul(5.0).sub(U.time.mul(Math.PI * 2 * 3.5))).mul(0.5).add(0.5), 6.0);   // a wheel turning 3.5×/s
+      const hot = C.sparkHot.mul(spokes.mul(1.05).add(0.42));
+      const horn = C.char.mul(1.1).add(C.rim.mul(rimT).mul(0.7)).add(warm.mul(fireLight).mul(0.15)).add(mix(C.lavaEdge, C.lavaMid, vK.w).mul(0.35));
       c = select(kind.lessThan(0.5), c, select(kind.lessThan(1.5), forca, select(kind.lessThan(2.5), hot, horn)));
-      c = c.add(C.lavaMid.mul(vK.y).mul(2.2));                                                                     // the burning edge (assemble / dissolve)
+      c = c.add(mix(C.lavaMid, C.lavaCore, vK.y).mul(vK.y).mul(1.6));                                                                     // the burning edge (assemble / dissolve)
       c = c.mul(float(1).sub(U.leave.mul(0.6)));
       return mirror ? c.mul(tint) : c;
     })();
@@ -243,7 +260,7 @@ export function createDiables(ctx) {
       const sphere = ja === jb, cylT = r();
       const c = sphere ? 2 * r() - 1 : (r() < 0.08 ? -(r() * 0.8) : 0);
       aJ.set([s * NJ + ja, s * NJ + jb, sphere ? 0 : cylT, r() * Math.PI * 2], i * 4);
-      aR.set([ra, rb, 0.03 + 0.02 * r() + 0.05 * Math.max(0, wt - 1), Math.min(1.3, 0.55 + 0.4 * wt) * (0.75 + 0.25 * r())], i * 4);
+      aR.set([ra, rb, 0.02 + 0.01 * r() + 0.008 * Math.max(0, wt - 1), Math.min(1.35, 0.7 + 0.4 * wt) * (0.8 + 0.2 * r())], i * 4);
       aS.set([s, r(), r(), c], i * 4);
     }
     return quadGeo(n, { aJ, aR, aS });
@@ -264,9 +281,11 @@ export function createDiables(ctx) {
     // dissolve: up and apart, the top first
     const v = clamp(ds.y.mul(1.7).sub(r1.mul(0.4)).sub(float(1).sub(gr.yRel).mul(0.3)), 0, 1);
     p = p.add(vec3(sin(r2.mul(6.283).add(v.mul(2.0))).mul(v).mul(0.6), v.mul(v).mul(r1.mul(2.5).add(1.2)), cos(fract(r1.mul(7.1)).mul(6.283).add(v.mul(2.0))).mul(v).mul(0.6)).mul(h));
-    // combed up and outward, swept back by the run, alive (each needle flickers in length)
-    const sway = df.xyz.mul(sin(tm.mul(r2.mul(3.0).add(2.0)).add(r1.mul(40.0))).mul(0.18));
-    const dirN = normalize(sf.nrm.mul(0.55).add(UP.mul(0.95)).add(sway).sub(dv.xyz.mul(0.16)));
+    // combed DOWN along the body (feathers, not fur): the surface's downward tangent + the limb's downward axis, a hair off
+    // the surface, swept back a little by the run; alive (each needle flickers in length)
+    const sway = df.xyz.mul(sin(tm.mul(r2.mul(3.0).add(2.0)).add(r1.mul(40.0))).mul(0.06));
+    const downT = UP.negate().add(sf.nrm.mul(sf.nrm.y)), axDown = fr.dn.mul(select(fr.dn.y.greaterThan(0.0), float(-1), float(1)));
+    const dirN = normalize(downT.add(axDown.mul(0.35)).add(sf.nrm.mul(0.22)).add(sway).sub(dv.xyz.mul(0.05)).add(vec3(1e-4, 0, 0)));
     const flick = sin(tm.mul(r2.mul(5.0).add(4.0)).add(r1.mul(60.0))).mul(0.5).add(0.5);
     const len = R4.z.mul(h).mul(flick.mul(0.45).add(0.6)).mul(float(1).add(v.mul(2.5))).mul(e.mul(0.7).add(0.3));
     const tip = p.add(dirN.mul(len));
@@ -282,7 +301,7 @@ export function createDiables(ctx) {
       const c = mix(C.lavaEdge.mul(0.5), hot, smoothstep(0.1, 0.9, g)).mul(vC.x);
       const across = exp(q.x.sub(0.5).mul(q.x.sub(0.5)).mul(-10.0));
       const ends = smoothstep(0.0, 0.15, g).mul(float(1).sub(smoothstep(0.85, 1.0, g)));
-      const out = c.mul(across).mul(ends).mul(vC.y).mul(0.85).mul(U.devils).mul(float(1).sub(U.leave));
+      const out = c.mul(across).mul(ends).mul(vC.y).mul(1.45).mul(U.devils).mul(float(1).sub(U.leave));
       return mirror ? out.mul(tint).mul(U.refl).mul(0.6) : out;
     })();
     m.fog = false;
@@ -359,7 +378,7 @@ export function createDiables(ctx) {
       const shade = smoothstep(0.45, 1.0, au).mul(0.38).add(0.62);                  // the layer above shades this one inside
       const edge = smoothstep(0.86, 0.98, au);                                       // the cut edge catches the cold rim
       const fresnel = pow(float(1).sub(abs(dot(N, V))), 2.0);
-      let c = base.mul(key).mul(shade).mul(0.62);
+      let c = base.mul(key).mul(shade).mul(0.84);
       c = c.add(C.rim.mul(edge.mul(0.12).add(fresnel.mul(0.06))));
       c = c.add(C.lavaMid.mul(float(1).sub(smoothstep(0.0, 0.25, vUV.y))).mul(0.18).mul(float(1).sub(lay.div(4))));   // hot at the root
       c = c.add(C.amber.mul(flashN(vW)).mul(edge.add(0.2)).mul(0.35));
@@ -556,7 +575,7 @@ export function createDiables(ctx) {
     J[20].copy(J[19]).addScaledVector(barD, -0.3 * h).addScaledVector(poleD, 0.12 * h);
     J[21].copy(J[19]).addScaledVector(barD, 0.3 * h).addScaledVector(poleD, 0.12 * h);
     // the hood and the horns (12 cm, out then up)
-    J[28].copy(J[3]).addScaledVector(UPV, 0.15 * h).addScaledVector(F, -0.09 * h);
+    J[28].copy(J[3]).addScaledVector(UPV, 0.2 * h).addScaledVector(F, -0.15 * h);
     for (let L = 0; L < 2; L++) {
       const sg = L ? 1 : -1;
       J[24 + L].copy(J[3]).addScaledVector(UPV, 0.075 * h).addScaledVector(Sd, sg * 0.072 * h).addScaledVector(F, 0.03 * h);
@@ -565,7 +584,7 @@ export function createDiables(ctx) {
       tA.copy(UPV).multiplyScalar(0.95).addScaledVector(Sd, sg * 0.12).addScaledVector(F, 0.3).normalize();
       J[22 + L].copy(J[26 + L]).addScaledVector(tA, 0.08 * h);
     }
-    J[29].addVectors(J[12], J[13]).multiplyScalar(0.5).addScaledVector(UPV, -0.03 * h).addScaledVector(F, -0.03 * h);
+    J[29].addVectors(J[12], J[13]).multiplyScalar(0.28).addScaledVector(J[14], 0.22).addScaledVector(J[15], 0.22).addScaledVector(F, -0.04 * h);   // mid-shin
     for (let j = 0; j < NJ; j++) JV[i * NJ + j].set(J[j].x, J[j].y, J[j].z, 0);
     st.root.copy(J[0]);
     return floorY;

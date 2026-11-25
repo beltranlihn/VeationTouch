@@ -555,7 +555,7 @@ function frame(dt) {
       t = S.block === 'intro' && serving ? S.t : 69;
       e.mood = ease(e.mood ?? 1, e.home === 'baixada' ? 0.22 : e.home === 'tronc' ? 0.2 : e.home === 'acta' ? 0.15 : e.home === 'wait' ? 0.08 : e.home === 'pinya' ? 0.25 : 1, dt, 1.2);   // the wait: almost total dark, a line of embers   // the acta: black and typography   // the baixada: the air clears so the falling light reads
       for (const key of ['dust', 'haze', 'line']) p[key] = (e.base[key] ?? 1) * smooth(k) * (key === 'line' ? 1 : e.mood);
-      e.dustK = ease(e.dustK ?? 1, e.home === 'intro' ? 0.5 : 1, dt, 1.2); p.dust *= e.dustK;   // art 24-11: in the square at half (it read as snow)
+      e.dustK = ease(e.dustK ?? 1, e.home === 'intro' ? 0.5 : e.home === 'brasa' ? 0 : 1, dt, 1.2);   // art 25-11 (ARTE-BRASA): no motes in the Brasa, only sparks p.dust *= e.dustK;   // art 24-11: in the square at half (it read as snow)
       p.bokeh = (e.base.bokeh ?? 1) * e.mood;
       e.acta = ease(e.acta ?? 0, e.home === 'acta' || e.home === 'wait' ? 1 : 0, dt, 1.2);   // acta and wait: no lamps in the air, no haze
       e.noHaze = ease(e.noHaze ?? 0, e.home === 'pinya' ? 1 : 0, dt, 1.2); p.haze *= 1 - e.noHaze;   // pinya: no haze (the motes read as static)
