@@ -209,7 +209,7 @@
     addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey || /INPUT|SELECT|TEXTAREA/.test(e.target?.tagName || '')) return;
       const k = e.key.toLowerCase(); lastInput = performance.now();
-      if (k === 'f') { if (opt.fixedStrip) S.overlay = !S.overlay; else { S.strip = !S.strip; S.overlay = S.strip; opt.onLayout?.(); } }
+      if (k === 'f') { if (opt.onF) opt.onF(); else if (opt.fixedStrip) S.overlay = !S.overlay; else { S.strip = !S.strip; S.overlay = S.strip; opt.onLayout?.(); } }
       else if (k === 'b') S.body = !S.body;
       else if (k === 'h') { S.help = !S.help; helpEl.style.display = S.help ? 'block' : 'none'; }
       else if (k === 'd') { S.demo = !S.demo; if (!S.demo) releaseDemo(); }
@@ -229,7 +229,7 @@
     const hint = el('div'); hint.className = 'lk-hint'; document.body.appendChild(hint);
     hint.innerHTML = (opt.hint || 'Click = a hand') + ' &nbsp;·&nbsp; Shift+click pins a hand &nbsp;·&nbsp; F room &nbsp;·&nbsp; B body scale &nbsp;·&nbsp; H help';
     const helpEl = el('div'); helpEl.className = 'lk-help'; document.body.appendChild(helpEl);
-    const keysList = [['Click / drag', 'a hand (touch)'], ['Shift + click', 'pin a hand · again to remove'], ['F', opt.fixedStrip ? 'room overlay on / off' : 'room strip / full window'], ['B', 'body scale: 1.70 m adult, child, reach'],
+    const keysList = [['Click / drag', 'a hand (touch)'], ['Shift + click', 'pin a hand · again to remove'], ['F', opt.onF ? 'one wall large: P4 → P1 → P2 → P3 → the whole room' : opt.fixedStrip ? 'room overlay on / off' : 'room strip / full window'], ['B', 'body scale: 1.70 m adult, child, reach'],
       ['D', 'virtual hands at human speed'], ['G', 'virtual group: 1 · 2 · 4 · 8'], ['R', 'remove pinned hands'], ['L', 'LiDAR feel: 10 Hz, 150 ms late, missed readings'],
       ['S', 'sound on / off'], ['- / +', 'listening volume (also the fader, top right)'], ['P', 'parameters'], ['C', 'cursor on / off'], ...(opt.help || [])];
     helpEl.innerHTML = '<h4>Controls</h4>' + keysList.map(([a, b]) => `<div class="r"><span><kbd>${a}</kbd></span><span>${b}</span></div>`).join('') +

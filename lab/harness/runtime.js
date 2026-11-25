@@ -37,6 +37,17 @@ function stripRect(c) {
   const h = b.width / a; return { x: b.left, y: b.top + (b.height - h) / 2, w: b.width, h };
 }
 
+/** F (25-11): one wall of the strip filling the window (R.zoom 1..n), or the whole strip (0). The canvas is laid out larger and shifted,
+ *  so stripRect() — and with it the mouse → hand mapping and the overlay — stays exact. */
+function applyZoom(R) {
+  const c = R.canvas; if (!c) return;
+  const K = R.K, S = K.ROOM.strip, w = R.zoom ? K.ROOM.walls[R.zoom - 1] : null;
+  if (!w) { Object.assign(c.style, { inset: '0', left: '', top: '', width: '100vw', height: '100vh', objectFit: 'contain' }); return; }
+  const SW = Math.min(innerWidth * S.width / w.w, innerHeight * S.width / S.height), SH = SW * S.height / S.width;
+  const left = (innerWidth - (w.w / S.width) * SW) / 2 - (w.x / S.width) * SW, top = (innerHeight - SH) / 2;
+  Object.assign(c.style, { inset: 'auto', left: left + 'px', top: top + 'px', width: SW + 'px', height: SH + 'px', objectFit: 'fill' });
+}
+
 /** A page with no canvas (a sound piece): the strip drawn as a band across the window. */
 function bandRect() { const w = Math.max(200, innerWidth - 96), h = w * 912 / 7196; return { x: (innerWidth - w) / 2, y: (innerHeight - h) / 2, w, h }; }
 
@@ -55,7 +66,9 @@ async function room(opt) {
     title: opt.title || document.title || 'Experiment', fixedStrip: true, backdrop: !!opt.backdrop, view: opt.view || (() => (R.canvas ? stripRect(R.canvas) : bandRect())),
     hint: opt.hint, help: opt.help,
     onSound: (on) => { R.audio?.setOn(on); },
+    onF: () => { R.zoom = ((R.zoom || 0) + 1) % (K.ROOM.walls.length + 1); applyZoom(R); },   // F: one wall large, in turn (25-11, Beltrán)
   });
+  addEventListener('resize', () => applyZoom(R));
   R.stage.onGesture(() => { R.audio?.resume(); });
   shared = R;
   return R;
