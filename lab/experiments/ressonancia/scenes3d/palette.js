@@ -72,7 +72,7 @@ export const PAL = {
     story: 'The castell under the festival spots: porcelain where light falls, blue night and fog elsewhere', sky: { top: ['tinta', 0.75], horizon: ['tinta', 1.7], bottom: ['tinta', 0.8] } },
   pom:     { tones: ['nit-alta', 'blau-hora', 'lluna'], accent: 'or', light: 'lluna', shadow: 'nit-alta', ink: 'os', luma: 0.12, dark: true,
     story: 'The silence: the square goes out so one light is seen', sky: { top: ['nit-alta', 0.6], horizon: ['nit-alta', 1.25], bottom: ['nit-alta', 0.6] } },
-  crown:   { tones: ['or-clar', 'crema', 'bronze'], accent: 'os', light: 'crema', shadow: 'bronze', ink: 'os', luma: 0.32, dark: true,
+  crown:   { tones: ['or-clar', 'crema', 'bronze'], accent: 'os', light: 'crema', shadow: 'bronze', ink: 'tinta-text', luma: 0.45, dark: false,
     story: 'A burst of gold inside the night', sky: { top: ['tinta', 0.9], horizon: ['bronze', 0.9], bottom: ['tinta', 0.9] } },
   festa:   { tones: ['or-clar', 'crema', 'bronze'], accent: 'os', light: 'crema', shadow: 'bronze', ink: 'os', luma: 0.3, dark: true,
     story: 'The resonance: gold that rings in the night', sky: { top: ['tinta', 0.9], horizon: ['bronze', 0.8], bottom: ['tinta', 0.9] } },
