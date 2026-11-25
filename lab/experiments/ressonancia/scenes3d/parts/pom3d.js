@@ -336,7 +336,7 @@ export function create(ctx) {
       obstacle(wi, _a, 1.75 * sc, 0.32);
       if (active || (k === 3 && raiseK > 0.01)) { _b.copy(_a).addScaledVector(w.normal, 0.05); _b.y += 1.72 * sc; haveLight = true; }   // her raised hand: the light
     }
-    { const sk = stage === 'silence' ? 'silence' : 'gold'; if (sk !== splatKey) { splatKey = sk; kitC.setSplat(sk === 'gold' ? { lit: ['lluna', 0.9], half: 'bronze', amb: 'tinta' } : { lit: 'lluna', half: 'blau-hora', amb: 'tinta' }); } }   // sheet3 grain; a cool key (lit 'or' read as flames in the capture), the bronze half-tone from the gold light; the silence all lluna
+    { const sk = stage === 'silence' ? 'silence' : 'gold'; if (sk !== splatKey) { splatKey = sk; kitC.setSplat(sk === 'gold' ? { lit: ['lluna', 0.6], half: ['bronze', 0.8], amb: 'tinta', key: 0.6, opacity: 0.48 } : { lit: ['lluna', 0.55], half: 'blau-hora', amb: 'tinta', key: 0.6, opacity: 0.48 }); } }   // sheet3 grain; a cool key (lit 'or' read as flames in the capture), the bronze half-tone from the gold light; the silence all lluna
     kitC.update(dt);
     if (haveLight && obs.length < OB.length) { _p1.copy(_b); _p1.y -= 0.35; obstacle(towerW, _p1, 0.7, 0.45); }   // the light's burst
     if (!haveLight) _b.set(0, -99, 0);
@@ -346,7 +346,7 @@ export function create(ctx) {
     const lightW = (haveLight ? 1 : 0) * uWorld.value * flick * (phase === 'reward' ? 1.25 : 1) * (pr.gold ?? 1) * (fallLeave ? 1 - sm(leave / 0.3) : 1);
     nG = 0;
     glow(_b.x, _b.y, _b.z, 0.07 + 0.03 * relayK, OR[0] * 2.4 * lightW, OR[1] * 2.4 * lightW, OR[2] * 2.4 * lightW);
-    glow(_b.x, _b.y, _b.z, 0.45, OR[0] * 0.28 * lightW * relayK, OR[1] * 0.28 * lightW * relayK, OR[2] * 0.28 * lightW * relayK);
+    glow(_b.x, _b.y, _b.z, 0.32, OR[0] * 0.2 * lightW * relayK, OR[1] * 0.28 * lightW * relayK, OR[2] * 0.28 * lightW * relayK);
     // AD #8: the silence fills the room — on every other wall a faint echo of the climbing light at the same height, on that wall's
     // tower (or where it would stand: 1.25 m behind the wall's centre), breathing slowly; never more than a reflection in the air
     if (haveLight) for (let wi = 0; wi < NW; wi++) {
