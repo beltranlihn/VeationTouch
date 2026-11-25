@@ -282,7 +282,10 @@ export function create(ctx) {
     let want = lightWall >= 0 ? lightWall : towerW >= 0 ? towerW : 0;
     if (shown && shown.length && !shown.includes(want)) { let best = shown[0], bd = 99; for (const t of shown) { const d = Math.min((t - want + NW) % NW, (want - t + NW) % NW); if (d < bd) { bd = d; best = t; } } want = best; }
     if (towerW < 0) towerW = want;
-    if (want !== towerW && phase === 'play') { hopFrom = towerW; towerW = want; hopT = 0; leap = 1; }   // the light went to another tower: she leaps across
+    // each climber keeps the tower she started on (a figure flying across the room between towers read as floating, AD): a new climber
+    // starts on the tower of the light's wall; while she climbs, a handoff is a leap UP her own tower and the gold strand reaches the hand
+    const prevTowerW = towerW;
+    if (climber !== lastClimber && phase === 'play') towerW = want;
     hopT = Math.min(1, hopT + dt / 1.2);
     // ---- arrive / leave
     const arrive = input.arrive ?? (S ? 1 : pr.arrive ?? 1), leave = input.leave ?? (S ? 0 : pr.leave ?? 0);
@@ -297,7 +300,7 @@ export function create(ctx) {
     const done = phase === 'reward' || phase === 'aleta' || (S && S.block && S.block !== 'pom' && S.block !== 'fall');
     const rawY = done ? yTop[2] : y0 + (y1 - y0) * cl;
     if (climber !== lastClimber) {                                 // a new climber: the last one stays at her floor, she starts below
-      if (lastClimber >= 0 && lastClimber < 3) arrivedW[lastClimber] = towerW;
+      if (lastClimber >= 0 && lastClimber < 3) arrivedW[lastClimber] = prevTowerW;
       climbY = lastClimber < 0 ? rawY : Math.max(0, rawY - 0.3);
       lastClimber = climber; climbV = 0;
     }
@@ -348,6 +351,7 @@ export function create(ctx) {
         glow: k === 3 ? goldK * 0.85 : 0, form: Math.min(form, 1 - sl * 0.3), fmode: sl > 0.05 ? 'dust' : fmode, tint: [1, 1, 1], lod: 'near' });
       if (active && sl > 0.3 && rnd() < dt * 30) shed(_a.x, _a.y + 0.6 * sc, _a.z, 2, false, 0.35);
       obstacle(wi, _a, 1.75 * sc, 0.32);
+      if (active && stats) stats.at = [_a.x, _a.y, _a.z, wi].map((v) => Math.round(v * 100) / 100);
       if (active || (k === 3 && raiseK > 0.01)) { _b.copy(_a).addScaledVector(w.normal, 0.05); _b.y += 1.72 * sc; haveLight = true; }   // her raised hand: the light
     }
     kitC.update(dt);
