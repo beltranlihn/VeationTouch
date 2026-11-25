@@ -35,7 +35,7 @@ const Y = { castell: 1.89, ribbon: 1.5, gloss: 2.64, sentence: 2.2, credits: 2.2
 // the ring of prints (wall-local metres): centre, two rings; the dials: x, y per value (two each side, inside the walls' free edge)
 const RING = { y: 2.05, rx: [1.95, 2.22], ry: [0.68, 0.87], cap: [40, 48] };
 const DIAL = { r: 0.19, pos: [[-2.58, 2.72], [-2.58, 1.72], [2.58, 2.72], [2.58, 1.72]] };   // ART r5: each value block ×1.6
-const PRINT_H = 0.15, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
+const PRINT_H = 0.2, STILL_S = 3.0, MAXP = 160, NSLOT = 34;
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
 const env = (t, a, b, c, d) => (t < a || t > d ? 0 : t < b ? smooth((t - a) / (b - a)) : t > c ? 1 - smooth((t - c) / (d - c)) : 1);
@@ -128,9 +128,9 @@ export function create({ THREE, TSL, room, params = {} }) {
         const rim = float(1).sub(smoothstep(fw.mul(0.6), fw.mul(1.8), abs(d.add(fw.mul(0.8)))));
         const ridge = float(1).sub(rr.mul(0.45)).max(0.4);   // gold leaf: denser at the palm, thinner to the fingertips
         const wet = exp(rr.sub(front).div(0.06).pow(2).negate()).mul(step(vD.x, 0.99)).mul(fill);
-        const g = vec3(0.62, 0.38, 0.1);   // old gold leaf (linear): reads on the lime
+        const g = vec3(0.81, 0.43, 0.07);   // «or» #E8B04A (linear), saturated (AD #14)
         cov.assign(fill.mul(ridge.mul(0.55).add(0.3)).max(rim).mul(reveal).min(1));
-        c.addAssign(g.mul(cov).add(vec3(0.9, 0.62, 0.25).mul(rim.mul(0.35).add(wet.mul(0.5))).mul(reveal)));
+        c.addAssign(g.mul(cov).add(vec3(1.0, 0.72, 0.3).mul(rim.mul(0.55).add(wet.mul(0.5)).add(fill.mul(0.12))).mul(reveal)));   // a slight glow
         c.addAssign(vec3(1.0, 0.78, 0.45).mul(fill.mul(vD.y).mul(0.6)));
         const lamp = flash ? flash(vW) : float(0);
         c.addAssign(vec3(1.0, 0.82, 0.55).mul(rim.mul(lamp).mul(0.6)));
@@ -230,7 +230,7 @@ export function create({ THREE, TSL, room, params = {} }) {
     if (colla > 0) story.push(`La colla ayudó en ${colla} ${colla === 1 ? 'piso' : 'pisos'}`);
     statT.t.set(story.map((text, i) => ({ text, font: 'italic', size: 0.18 / 0.7, y: story.length > 1 ? (i ? -0.16 : 0.16) : 0, track: 0.03, alpha: 0.9, color: SOFT, reveal: 'blur', delay: i * 0.3 })));
     const rec = VALUES.map(([, name], q) => [name, Math.round(values[q] * 100)]).filter(([, v]) => v > 0).map(([name, v]) => `${name.toUpperCase()} ${v}`).join('  ·  ');
-    valuesT.t.set(rec ? [{ text: rec, font: 'serif', size: 0.14 / 0.7, y: 0, track: 0.06, alpha: 0.8, color: INK }] : []);
+    valuesT.t.set(rec ? [{ text: rec, font: 'serif', size: 0.14 / 0.7, y: 0, track: 0.06, alpha: 0.7, color: INK }] : []);
     const lk = values.join(',');
     if (lk !== labelKey) { labelKey = lk; for (let k = 0; k < 4; k++) labelT[k].t.set([{ text: VALUES[k][1], font: 'sans', size: 0.13, y: 0, track: 0.14, alpha: 0.35 + 0.6 * values[k], color: INK, upper: true, reveal: 'blur' }]); }
   }

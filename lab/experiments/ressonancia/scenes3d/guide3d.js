@@ -490,7 +490,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
       achMask[w] = 1; achX[w] = clamp((typeof a.s === 'number' ? a.s - achS0[w] : W.width / 2) - W.width / 2, -W.width / 2 + 1, W.width / 2 - 1);
       achY[w] = clamp((a.y || 1.4) + 0.35, 1.2, 2.1);
       // never on the consigna (Art Director 25-11: the layers treat each other as obstacles): above it when they would meet
-      if (Math.abs(achY[w] - lineY) < 0.4 && Math.abs(achX[w] - lineCurX[w]) < 0.4 + text.length * 0.2 * cap + 1.2) achY[w] = lineY + 0.48;
+      if (Math.abs(achY[w] - lineY) < 0.6 && Math.abs(achX[w] - lineCurX[w]) < 0.4 + text.length * 0.2 * cap + 1.4) achY[w] = lineY + 0.62;   // AD #14: clearly apart
     } else {
       const on = c.place === 'structure' && walls ? walls : [...Array(NW).keys()];
       const n = typeof r.n === 'number' ? r.n : 0;
@@ -600,7 +600,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     if (L && !(b === 'brasa' && S.brasaStage === 'relay') && blocked(S, b, L[0], time)) lineNonce++;
     line.want(L ? 'l|' + lineNonce + '|' + (S.stage || '') + '|' + L.join('|') : '', L ? lineItems(L) : null);   // a consigna lives within its stage
     // 25-11: no plates; a tight soft halo (lighter on the light chapters, where the ink is dark)
-    for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : (chapter(b).luma || 0) > 0.25 || b === 'wait' ? 0.55 : 0.35; }   // bone over a lit plaza (crown, festa): a fuller soft shadow under the letters
+    for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = b === 'wait' ? 0.4 : 0;   /* AD #14: a soft dark vignette (−40 %) behind the wait's words over the tiles */ t.U.halo.value = lightCh ? 0.2 : (chapter(b).luma || 0) > 0.25 || b === 'wait' ? 0.55 : 0.35; }   // bone over a lit plaza (crown, festa): a fuller soft shadow under the letters
     // the crown's card (Art Director 25-11): on the wall where the crowned tower stands (tronc3d.textObstacles), at its lower side,
     // toward the wall's centre (away from the corners and their lamps); never across a corner
     crownWall = -1; cardFit.fill(1);

@@ -19,6 +19,7 @@ export function create({ THREE, room }) {
     const [es, ca] = MOTTO[i % MOTTO.length];
     const items = [{ text: es, font: 'serif', size: 0.5, y: 0.1, track: 0.01, color: INK }];
     if (ca.toLowerCase() !== es.toLowerCase()) items.push({ text: ca, font: 'italic', size: 0.17, y: -0.3, track: 0.02, alpha: 0.85, color: SOFT, rules: 0.4, rise: true });   // «Valor / valor», «Seny / seny»: once
+    else items.push({ text: ' ', font: 'italic', size: 0.17, y: -0.3, alpha: 0.85, color: SOFT, rules: 0.4 });   // AD #14: a short hairline under every word
     t.set(items);
     t.alpha[0] = 1; object.add(t.object);
     return t;
