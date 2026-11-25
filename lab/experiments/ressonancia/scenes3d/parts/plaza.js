@@ -1274,7 +1274,7 @@ export function create(ctx) {
       _ss.copy(_sf).addScaledVector(w.right, side * (cross ? 5.0 : 3.0)).addScaledVector(w.normal, cross ? -4.0 : -1.0); _ss.y = cross ? 13.0 : 9.0;
       _sd.copy(_sf).sub(_ss).normalize();
       spotP[i].set(_ss.x, _ss.y, _ss.z, (cross ? SPOT_K : SPOT_K * 1.4) * (crown ? 2.2 : 1));   // the beams read by their shafts (×2), the pools stay small spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
-      const len = _ss.distanceTo(_sf) * (cross ? 1.9 : 1.15), rad = len * Math.tan(AV);
+      const len = _ss.distanceTo(_sf) * (cross ? 1.12 : 1.05), rad = len * Math.tan(AV);   // the shaft ends at the tower (past it, the cone came towards the eye: a veil)
       c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad, len, rad);
     }
     uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C); uShaftK.value = cross ? 2.2 : 1.0;
