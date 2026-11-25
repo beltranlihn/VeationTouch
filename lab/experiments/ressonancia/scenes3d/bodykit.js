@@ -88,7 +88,7 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [20000, 3200], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [20000, 3200, 9000], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
   const splatOnlyLodMesh = false;
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;
@@ -356,7 +356,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const vis = mix(smoothstep(-0.3, 0.1, facing), smoothstep(-0.6, -0.1, facing), core).max(aura).max(away);
     // crisp grain: core 1–2 cm, skin 3–5 cm, aura 6–10 cm (faint)
     const skin = step(0.25, kind).mul(float(1).sub(aura));
-    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.012), float(0.026), jit), skin).add(aura.mul(mix(float(0.012), float(0.022), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.05);
+    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.012), float(0.026), jit), skin).add(aura.mul(mix(float(0.012), float(0.022), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : lod === 2 ? 1.0 : 1.05);
     const r0 = size.mul(1.6).mul(vis);
     const q = positionGeometry.xy;
     m.positionNode = C.add(right.mul(q.x.mul(r0))).add(upv.mul(q.y.mul(r0)));
@@ -389,7 +389,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // back occlusion (a tower: each body's back faces the others): the back half sinks, so overlapping bodies part by shadow
     colr = colr.mul(mix(float(1), float(0.3), smoothstep(0.1, -0.7, nl.z).mul(uBackAO)));
     // dust: each splat faint (0.08–0.15), the volume comes from accumulation; the skin thins outwards (the edge is a density falloff)
-    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : 1.5);
+    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : lod === 2 ? 1.2 : 1.5);
     const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura).mul(lod === 0 ? float(1) : float(1).sub(aura));
     const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(mix(float(1).sub(away).pow(2), float(1).sub(away.mul(0.6)), dust.max(riseM))), 'vSplA');   // gathering splats are faint until home (no heaps on the floor)
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
@@ -546,7 +546,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     if (o.glow != null) S[b + 11] = o.glow;
     if (o.build != null) S[b + 12] = builds.includes(o.build) ? o.build : builds[0];
     if (o.scale != null && o.scale < 0.82 && builds.includes(2)) S[b + 12] = 2;   // a small body is a child (child proportions)
-    if (o.lod != null) S[b + 13] = o.lod === 'auto' ? -1 : (o.lod === 'far' || o.lod === 1 ? 1 : 0); else if (!S[b + 14]) S[b + 13] = -1;
+    if (o.lod != null) S[b + 13] = o.lod === 'auto' ? -1 : o.lod === 'far' || o.lod === 1 ? 1 : o.lod === 'mid' || o.lod === 2 ? 2 : 0; else if (!S[b + 14]) S[b + 13] = -1;
     if (o.pool != null) S[b + 18] = o.pool;                      // a warm pool of light on the ground under the body (0..1)
     if (o.form != null) S[b + 16] = o.form;                      // splats: 0 = scattered ... 1 = assembled
     if (o.fmode != null) S[b + 17] = o.fmode === 'dust' || o.fmode === 1 ? 1 : o.fmode === 'light' || o.fmode === 2 ? 2 : 0;   // 'light': up, into the light   // how they are away: 'gather' (in the air, streaming in) | 'dust' (fallen)

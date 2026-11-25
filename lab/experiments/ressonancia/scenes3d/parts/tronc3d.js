@@ -496,7 +496,7 @@ export function create(ctx) {
     }
   }
   const bodies = P.bodies !== false && !lone();   // fall3d's private tower (parts: {}) falls as the sculpture: no bodies there
-  const kit = bodies ? createBodies({ THREE, TSL, room, max: Math.min(400, CAST.length * Math.min(NW, 4)), spots: ctx.parts?.plaza?.spots || null }) : null;   // the square's stage spots light the bodies in their beams
+  const kit = bodies ? createBodies({ THREE, TSL, room, max: Math.min(400, CAST.length * Math.min(NW, 4)), lods: [1, 2], spots: ctx.parts?.plaza?.spots || null }) : null;   // the square's stage spots light the bodies in their beams
   if (kit) {
     world.add(kit.object);
     const fx = kit.tok('faixa'), pl = kit.tok('pedra-llum'), soft = fx.map((v, i) => v * 0.68 + pl[i] * 0.32);   // the faixa a little chalked by the light
@@ -547,7 +547,7 @@ export function create(ctx) {
         // arrive / leave: the particles gather / scatter (form below), no block movement
         const pose2 = c.enx ? (crowned ? 'raise' : 'stand') : c.pose;
         kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw, pose: c.pose, pose2: c.enx ? pose2 : (c.pose2 || c.pose), mix: c.enx ? (crowned ? 1 : 0) : (c.lv > 0 && S.forming && S.solid < 0.5 ? 1 : (c.mixV || 0)),
-          form: form * (1 - uAway.value), fmode, lod: 'far', scale: c.s * SC, build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - (9 - c.lv) * 0.5) / 0.8)) : S.flash * 0.35, tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
+          form: form * (1 - uAway.value), fmode, lod: c.lv > 0 ? 'mid' : 'far', scale: c.s * SC,   /* the trunk in mid detail (9k splats): it must read as bodies */ build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - (9 - c.lv) * 0.5) / 0.8)) : S.flash * 0.35, tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
       }
     }
     for (let i = n; i < kit.count; i++) kit.hide(i);
