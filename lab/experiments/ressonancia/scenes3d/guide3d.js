@@ -77,9 +77,9 @@ function linesPlay(S, acta, learned, warn) {
   if (b === 'pom') {
     if (S.phase === 'aleta') return { line: [CT('aleta'), ''] };     // «Levantad la mano» (05-plan §3.4)
     // T-051 (POV): three climbs — the relay asks for still hands; the breath holds it; the silence: her name only
-    if (S.pomStage === 'breath') return { line: [CT('climber:1'), CLIMBERS[S.climber] || ''] };
+    if (S.pomStage === 'breath') return { line: [CT('climber:1'), ''] };   // Art Director 25-11: few words in the Pom (names: the achievement layer)
     if (S.pomStage === 'silence') return { line: [CT('climber:2'), ''] };
-    return { line: [learned ? '' : CT('pom:play'), CLIMBERS[S.climber] || ''] };
+    return { line: [learned ? '' : CT('pom:play'), ''] };
   }
   // the acta's wall line («Dejad vuestra mano», 3–15 s) is drawn by parts/actatext (it sits under the castell, the ring of prints round it)
   if (b === 'crown') return S.t > 3 && S.t < 14 ? { card: ['V', 'Coronado', acta?.castell || "L'aleta"] } : {};
@@ -108,7 +108,11 @@ function cardItems(C) {
   return it;
 }
 // the instruction: ONE centred line (caps 0.18 m, <= 22 characters) at 1.62 m; the label (a name) ABOVE it at ~1.95 m (the targets live at 0.9–1.4 m), caps 0.14 m, Geist too
-let WRAP = false;
+let WRAP = false, CAP = TEXT.lineCap;
+// Art Director 25-11: per chapter — the brasa above the fire figure and its sparks (1.8 m); the tower's chapters lower and larger,
+// beside the castell; the Pom low and quiet beside the tower in the dark
+const LINE_Y = { brasa: 1.8, tronc: 1.58, baixada: 1.58, pom: 1.45 };
+const LINE_CAP = { tronc: 0.22, baixada: 0.22 };
 const splitLine = (t) => { const mid = t.length / 2; let k = -1, d = 1e9; for (let i = 0; i < t.length; i++) if (t[i] === ' ' && Math.abs(i - mid) < d) { d = Math.abs(i - mid); k = i; } return [t.slice(0, k), t.slice(k + 1)]; };
 const longest = (t) => (WRAP && t && t.length > 14 && t.indexOf(' ') > 0 ? Math.max(...splitLine(t).map((x) => x.length)) : (t || '').length);
 const lineItems = (L) => {
@@ -118,8 +122,8 @@ const lineItems = (L) => {
   // its italic. Caps 0.18 m (Instrument Serif caps ≈ 0.70 em).
   // beside the castell (WRAP) a long consigna goes on two lines, the hairlines on the first: it fits between the tower and the corner
   const two = WRAP && L[0] && L[0].length > 14 && L[0].indexOf(' ') > 0 ? splitLine(L[0]) : null;
-  if (two) { it.push({ text: two[0], font: 'serif', size: TEXT.lineCap / 0.7, y: 0.13, track: 0.015, alpha: INK_A, color: INK, rules: 0.32, reveal: 'blur' }); it.push({ text: two[1], font: 'serif', size: TEXT.lineCap / 0.7, y: -0.13, track: 0.015, alpha: INK_A, color: INK, reveal: 'blur', delay: 0.1 }); }
-  else if (L[0]) it.push({ text: L[0], font: 'serif', size: TEXT.lineCap / 0.7, y: 0, track: 0.015, alpha: INK_A, color: INK, rules: 0.32, reveal: 'blur' });
+  if (two) { it.push({ text: two[0], font: 'serif', size: CAP / 0.7, y: CAP * 0.72, track: 0.015, alpha: INK_A, color: INK, rules: 0.32, reveal: 'blur' }); it.push({ text: two[1], font: 'serif', size: CAP / 0.7, y: -CAP * 0.72, track: 0.015, alpha: INK_A, color: INK, reveal: 'blur', delay: 0.1 }); }
+  else if (L[0]) it.push({ text: L[0], font: 'serif', size: CAP / 0.7, y: 0, track: 0.015, alpha: INK_A, color: INK, rules: 0.32, reveal: 'blur' });
   if (L[1]) it.push({ text: L[1], font: 'italic', size: TEXT.labelCap / 0.7, y: L[0] ? 0.34 : 0, track: 0.02, alpha: INK_A * 0.9, color: INK, delay: 0.15, reveal: 'blur' });
   return it;
 };
@@ -313,13 +317,14 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
   const line = typo.slot({ placements: typo.onWalls(room, TEXT.line), renderOrder: 23, outDur: 0.5, plate: 0, halo: 0.3, spread: 2.4, flash: room.flash });
   // move a slot's words along each wall (only while nothing is up: words never slide in view)
   const lineBase = typo.onWalls(room, TEXT.line), rightOf = room.walls.map((w) => w.right.clone());
-  const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], typeof x === 'number' ? x : x[w]); }); };
+  let lineY = TEXT.line;
+  const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], typeof x === 'number' ? x : x[w]).setY(lineY); }); };
   // N7: the consigna TRAVELS with the Brasa's relay — on the devil's wall it follows the fire along the wall (eased, never past the
   // corners); the other walls keep their place. lineS0: where each wall starts along the perimeter (the score's s).
   const lineS0 = []; { let a = 0; for (const w of room.walls) { lineS0.push(a); a += w.width; } }
   const lineX = new Float32Array(room.walls.length), lineXT = new Float32Array(room.walls.length), spotXs = new Float32Array(room.walls.length);
   function spotX(S, b, text) {
-    const cand = SPOTS[b] || SPOTS.other, half = 0.4 + longest(text) * 0.036   /* serif caps 0.18 m ≈ 0.072 m a character, + the hairlines */, T = Array.isArray(S.targets) ? S.targets : [];
+    const cand = SPOTS[b] || SPOTS.other, half = 0.4 + longest(text) * 0.2 * CAP   /* serif: ≈ 0.4 × caps a character (half of it), + the hairlines */, T = Array.isArray(S.targets) ? S.targets : [];
     for (let w = 0; w < NW; w++) {
       const Wd = room.walls[w].width; let best = cand[0], bs = -1e9;
       // Art Director 25-11: the consigna stands ABOVE the targets it refers to (their centre on this wall), when they live under its band
@@ -330,7 +335,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
         let x = clamp(all[k], -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25);
         const hh = HERO_HALF[b] ? HERO_HALF[b] + half : 0;   // the castell stands at the room's centre: seen at the centre of EVERY wall
         if (hh && Math.abs(x) < hh) x = clamp((x < 0 || (x === 0 && k % 2 === 0) ? -1 : 1) * hh, -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25);
-        let gap = 9; for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < 1.45) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
+        let gap = 9; for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < lineY - CAP * 1.3 - 0.05) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
         const sc = Math.min(gap, 0.4) - k * 0.05 + (near.length && k === 0 ? 0.3 : 0);   // clear of every target that reaches the text's band; above its own targets first
         if (sc > bs) { bs = sc; best = x; }
       }
@@ -506,7 +511,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     for (let k = 0; k < 3; k++) { for (let c = 0; c < 3; c++) palNow[k][c] = ease(palNow[k][c], pal[k][c], dt, 2); PAL[k].value.setRGB(palNow[k][0], palNow[k][1], palNow[k][2]); }
     { const a = accentOf(b); for (let c = 0; c < 3; c++) accNow[c] = ease(accNow[c], a[c], dt, 1.5); ACC.value.set(accNow[0], accNow[1], accNow[2]);
       for (const sl of [card, line, lineOut]) for (const t of sl.texts) t.U.lamp.value.set(0.5 + 0.5 * accNow[0], 0.5 + 0.5 * accNow[1], 0.5 + 0.5 * accNow[2]); }
-    INK = inkOf(b); const lightCh = chapter(b).dark === false; INK_A = lightCh ? 1 : 0.92; WRAP = !!HERO_HALF[b];   // the next words laid out take the chapter's ink
+    INK = inkOf(b); const lightCh = chapter(b).dark === false; INK_A = lightCh ? 1 : 0.92; WRAP = !!HERO_HALF[b]; CAP = LINE_CAP[b] || TEXT.lineCap; if (!line.up) lineY = LINE_Y[b] || TEXT.line;   // the next words laid out take the chapter's ink
     nT = 0;
     for (const T of targets) T.used = false;
     softNow = gb === 'pinya' || gb === 'tronc' || gb === 'baixada' ? 1 : 0;
@@ -561,7 +566,8 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     line.want(L ? 'l|' + L.join('|') : '', L ? lineItems(L) : null);
     // 25-11: no plates; a tight soft halo (lighter on the light chapters, where the ink is dark)
     for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : 0.3; }
-    card.step(dtT, { hold, gate: waveGate });
+    { const fwc = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // the card too: 100 % on the wall that calls, 30 % elsewhere
+      card.step(dtT, { hold, gate: waveGate, mask: fwc >= 0 ? (w) => (w === fwc ? 1 : 0.3) : null, lead: fwc >= 0 ? (w) => (w === fwc ? 0 : 0.6) : null }); }
     // the wait's words come with the button (reveal) and thin out as the hands start the pass
     const st = b === 'wait' ? Math.min(1, S.start || 0) : 0;
     let gain = b === 'wait' ? 1 - st * st : 1;   // the invitation to play before the reveal, the ring's line after it
