@@ -40,7 +40,7 @@ import { createStory } from './umbral3d/story.js';   // studio 25-11: the contin
 // (desaturated sand) and turning to its On colour where a hand plays. SHARDS = null (no file) → the procedural mosaic, as before.
 const SHARDS = await fetch(new URL('./umbral3d/story-shards.json', import.meta.url)).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
-const GROUT_H = 0.008, STORY = false, STORY_REST = 0.82, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
+const GROUT_H = 0.008, ARCH_FRAME = false, WK_DOOR = true, STORY = false, STORY_REST = 0.82, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
 
 export function create(ctx) {
   const { THREE, TSL, room, params } = ctx;
@@ -145,12 +145,29 @@ export function create(ctx) {
   const yUp = (u) => (u <= YS ? u : YS + RV * Math.sin(Math.min(1.5, (u - YS) / RV)));                 // the wall and the vault (u = v − SHIFT)
   const yOf = (v) => yUp(v - SHIFT);
   const vOf = (y) => (y <= YS ? y : YS + RV * Math.asin(Math.min(1, (y - YS) / RV))) + SHIFT;
-  function surfR(th, v) { const u = v - SHIFT; return wallD(th) + OFF - (u <= YS ? 0 : RV * (1 - Math.cos(Math.min(1.5, (u - YS) / RV)))); }
+  function surfR0(th, v) { const u = v - SHIFT; return wallD(th) + OFF - (u <= YS ? 0 : RV * (1 - Math.cos(Math.min(1.5, (u - YS) / RV)))); }
+  // studio 25-11 (Beltrán: «orgánico, sin marco»): THE REVEAL — round each opening the mosaic itself curves back into the hole, like a
+  // thick wall of trencadís: within REVEAL_W of the opening's edge (metres on the wall) the shell goes REVEAL_D deeper, steepest at the edge
+  const REVEAL_D = 0.12, REVEAL_W = 0.42, REVEAL_GLOW = 0.5;
+  function surfR(th, v) {
+    const r0 = surfR0(th, v); if (!WK_DOOR) return r0;
+    const px = r0 * Math.cos(th) - eye.x, py = yOf(v) - eye.y, pz = r0 * Math.sin(th) - eye.z;
+    for (const w of walls) {
+      const dn = px * w.normal.x + py * w.normal.y + pz * w.normal.z; if (dn > -1e-4) continue;
+      const t = ((w.centre.x - eye.x) * w.normal.x + (w.centre.y - eye.y) * w.normal.y + (w.centre.z - eye.z) * w.normal.z) / dn; if (t <= 0 || t > 1.0001) continue;
+      const x = Math.abs((eye.x + px * t - w.centre.x) * w.right.x + (eye.z + pz * t - w.centre.z) * w.right.z), y = eye.y + py * t;
+      if (x > w.width / 2 + 0.01) continue;
+      const d = y < DOOR_H ? x - DOOR_A * Math.pow(Math.max(0, 1 - y / DOOR_H), 1 / DOOR_P) : Math.hypot(x, y - DOOR_H);
+      if (d >= REVEAL_W) return r0;
+      const k = 1 - Math.max(0, d) / REVEAL_W; return r0 + REVEAL_D * k * k;
+    }
+    return r0;
+  }
   const surfP = (cu, v, out) => { const th = cu / RM, r = surfR(th, v); return out.set(r * Math.cos(th), yOf(v), r * Math.sin(th)); };
   const ARCH = [];                          // (no openings baked in the mosaic: the thresholds are cut where the walls' centres look, see doorK)
   function archF() { return 9; }
   function crest() { return VTOP; }
-  const DOOR_A = 0.8, DOOR_H = 1.95, DOOR_P = 2.2;   // T-058c: half base span, height, shape — y = H·(1 − |x/A|^P), metres ON THE WALL: a near-parabola, base 1.6 m, apex the narrowest; the start ring (r 0.31–0.39 at 1.25 m) sits inside with ≥ 7 cm to the jambs; the guide's words go above
+  const DOOR_A = 0.85, DOOR_H = 2.5, DOOR_P = 1.45;   // studio 25-11 (Beltrán, ref «correfoc»): a taller, pointed opening cut in the mosaic (was 0.8 / 1.95 / 2.2 with a stucco frame)   // T-058c: half base span, height, shape — y = H·(1 − |x/A|^P), metres ON THE WALL: a near-parabola, base 1.6 m, apex the narrowest; the start ring (r 0.31–0.39 at 1.25 m) sits inside with ≥ 7 cm to the jambs; the guide's words go above
 
   // ---- the mosaic (T-058): FINE trencadís. Poisson sites whose size follows the height (fine in the band the hands reach, larger above,
   // where nobody reaches) → Voronoi cells → thin bevelled shards. Measured on the wall (the serpentine is ~2.2× farther than the wall):
@@ -190,6 +207,16 @@ export function create(ctx) {
       const cu = ((th * RM) % LL + LL) % LL;
       if (inDoor(cu, v)) continue;
       const st = put(cu, v, Math.max(0.025, a[3] * t), false); st.on = [a[4], a[5], a[6]]; st.off = [a[7], a[8], a[9]];
+    }
+    if (SHARDS && WK_DOOR) for (let wi = 0; wi < walls.length; wi++) {             // studio 25-11: the opening's lip — a row of small shards along its edge
+      const w = walls[wi];
+      for (let side = -1; side <= 1; side += 2) for (let y = 0.05; y < DOOR_H + 0.1; y += 0.075) {
+        const xa = y < DOOR_H ? DOOR_A * Math.pow(Math.max(0, 1 - y / DOOR_H), 1 / DOOR_P) : 0, xw = side * (xa + 0.05);
+        const px = w.centre.x + w.right.x * xw, pz = w.centre.z + w.right.z * xw, dx = px - eye.x, dy = y - eye.y, dz = pz - eye.z, dh = Math.hypot(dx, dz) || 1e-3, th = Math.atan2(dz, dx);
+        let t = 1, v = eye.y + SHIFT; for (let k = 0; k < 8; k++) { t = surfR(th, v) / dh; v = clamp(vOf(eye.y + t * dy), 0, VTOP); }
+        const cu = ((th * RM) % LL + LL) % LL; if (!fits(cu, v, 0.045)) continue;
+        const st = put(cu, v, 0.04 * t, false); st.lip = true;
+      }
     }
     for (let t = 0, n = 0; !SHARDS && t < 6000 && n < 96; t++) {     // the mothers first (rosette hearts), 40 % of them round medallions
       const cu = rr(0, LL), y = rr(0.35, 3.2) + SHIFT;
@@ -263,7 +290,7 @@ export function create(ctx) {
       const inAx = rr(-0.7, 0.7);                                                        // the axis of its turn: in the surface, near the vertical
       ax.copy(Tv).normalize().multiplyScalar(Math.cos(inAx)).addScaledVector(e1.copy(Tu).normalize(), Math.sin(inAx)).normalize();
       const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(e1.copy(Tu).normalize(), e2.crossVectors(Nn, e1).normalize(), Nn));
-      const cell = { cu, cy, rad, loose, kind, col, ros, rd, c: P0.clone(), n: Nn.clone(), q, mother: s.mother, on: s.on, off: s.off, round: s.round, over: loose ? (cy - H) / 0.6 : 0, r1: idRnd, r2: rnd(), keep: rnd() < 0.3, th: cu / RM, ax: ax.clone(), rest: null, w: fW(cu, cy), cC: fC(cu, cy), k: fK(cu, cy) };
+      const cell = { cu, cy, rad, loose, kind, col, ros, rd, c: P0.clone(), n: Nn.clone(), q, mother: s.mother, on: s.on, off: s.off, lip: !!s.lip, round: s.round, over: loose ? (cy - H) / 0.6 : 0, r1: idRnd, r2: rnd(), keep: rnd() < 0.3, th: cu / RM, ax: ax.clone(), rest: null, w: fW(cu, cy), cC: fC(cu, cy), k: fK(cu, cy) };
       cells.push(cell);
       // the shard: inset for the joint (see GROUT_H), thin (~1.5 cm), a bevel that catches the light; tilted a little
       // T-066: the grout bed sits 8 mm up (GROUT_H): the foot is widened below it (hidden) so that at the grout line the joint is
@@ -318,13 +345,26 @@ export function create(ctx) {
         }
       }
     }
-    if (SHARDS) for (const c of cells) if (c.on) { c.col = c.on; c.rest = c.off; }   // studio 25-11: his colours, On when played, OFF at rest
+    if (SHARDS) for (const c of cells) if (c.on) { c.col = c.on; c.rest = c.off; } else if (c.lip) { c.rest = [0.74, 0.6, 0.42]; c.col = [0.95, 0.62, 0.28]; }
+    // studio 25-11: how near the opening's edge each piece is (0 far … 1 at the edge): the reveal's warm light (row 3, w)
+    if (WK_DOOR) for (const c of cells) {
+      let k = 0; const dx = c.c.x - eye.x, dy = c.c.y - eye.y, dz = c.c.z - eye.z;
+      for (const w of walls) {
+        const dn = dx * w.normal.x + dy * w.normal.y + dz * w.normal.z; if (dn > -1e-4) continue;
+        const t = ((w.centre.x - eye.x) * w.normal.x + (w.centre.y - eye.y) * w.normal.y + (w.centre.z - eye.z) * w.normal.z) / dn; if (t <= 0 || t > 1.0001) continue;
+        const x = Math.abs((eye.x + dx * t - w.centre.x) * w.right.x + (eye.z + dz * t - w.centre.z) * w.right.z), y = eye.y + dy * t;
+        if (x > w.width / 2 + 0.01) continue;
+        const d = y < DOOR_H ? x - DOOR_A * Math.pow(Math.max(0, 1 - y / DOOR_H), 1 / DOOR_P) : Math.hypot(x, y - DOOR_H);
+        k = Math.max(0, 1 - Math.max(0, d) / 0.38); break;
+      }
+      c.edge = k * k;
+    }   // studio 25-11: his colours, On when played, OFF at rest
     for (const c of cells) { if (c.kind === 2) c.rest = GOLD; /* T-069: a pearl piece keeps its patch's colour at rest (its grey-white #DCD6CC read as a hole in the grout) */ if (c.round) c.rest = c.r1 < 0.5 ? PASTEL[3] : PASTEL[4]; }
     // per piece, static (a float texture, PT rows per piece): centre + rnd, turn axis + kind, normal + mother, glaze, rest
     const TW0 = 128, TH0 = Math.max(1, Math.ceil(NCc / TW0)), pd = new Float32Array(TW0 * TH0 * PT * 4);
     cells.forEach((c, i) => {
       const x = i % TW0, y = Math.floor(i / TW0), tone = 0.92 + 0.16 * c.r2, hue = (c.r1 - 0.5) * 0.04;
-      const rows = [[c.c.x, c.c.y, c.c.z, c.r1], [c.ax.x, c.ax.y, c.ax.z, c.kind], [c.n.x, c.n.y, c.n.z, c.mother ? 1 : 0], [c.col[0], c.col[1], c.col[2], 0], [c.rest[0] * tone * (1 + hue), c.rest[1] * tone, c.rest[2] * tone * (1 - hue), 0]];
+      const rows = [[c.c.x, c.c.y, c.c.z, c.r1], [c.ax.x, c.ax.y, c.ax.z, c.kind], [c.n.x, c.n.y, c.n.z, c.mother ? 1 : 0], [c.col[0], c.col[1], c.col[2], c.edge || 0], [c.rest[0] * tone * (1 + hue), c.rest[1] * tone, c.rest[2] * tone * (1 - hue), 0]];
       rows.forEach((r, k) => pd.set(r, ((y * PT + k) * TW0 + x) * 4));
     });
     var pieceTex = new THREE.DataTexture(pd, TW0, TH0 * PT, THREE.RGBAFormat, THREE.FloatType);
@@ -387,7 +427,7 @@ export function create(ctx) {
       const hp = E3.add(d.mul(t));
       const x = abs(dot(hp.sub(vec3(w.centre.x, w.centre.y, w.centre.z)), vec3(w.right.x, w.right.y, w.right.z))).add(jit).div(uDoor), y = hp.y.div(uDoor);
       const edge = y.sub(float(DOOR_H).mul(float(1).sub(x.div(DOOR_A).min(1).pow(DOOR_P))));
-      k = k.mul(max(max(smoothstep(-0.03, 0.2, edge), step(DOOR_A, x)), step(-0.0001, dn)));
+      k = k.mul(max(max(WK_DOOR ? smoothstep(-0.02, 0.005, edge) : smoothstep(-0.03, 0.2, edge), step(DOOR_A, x)), step(-0.0001, dn)));   // studio 25-11: no frame — the pieces at the opening keep their full size (no slivers)
     }
     return k;
   }
@@ -425,7 +465,7 @@ export function create(ctx) {
       const wind = th_.mul(ow.x).add(tv_.mul(ow.y)).add(aN_.mul(ow.z));                // studio 25-11: the wind's offset (sign of th_ fixed on the CPU)
       return aC_.add(rotA(local, aAx_, c, s)).add(aN_.mul(st.y)).add(inward).add(wind);
     })();
-    const face = aInf_.y, vKind = varying(ld(1).w), r = varying(ld(0).w), vGl = varying(ld(3).xyz), vRest = varying(ld(4).xyz), packed = varying(st.z);
+    const vEdge = varying(ld(3).w), face = aInf_.y, vKind = varying(ld(1).w), r = varying(ld(0).w), vGl = varying(ld(3).xyz), vRest = varying(ld(4).xyz), packed = varying(st.z);
     const top = float(1).sub(step(0.5, face)), back = step(0.5, face).mul(float(1).sub(step(1.5, face))), side = step(1.5, face);
     const kPearl = step(0.5, vKind).mul(float(1).sub(step(1.5, vKind)));
     // a piece turns a WHOLE turn to change colour (so it seats again in its own outline): its two faces swap what they show at the
@@ -449,7 +489,7 @@ export function create(ctx) {
     let pool = float(0);                                                                    // studio 25-11: where a hand is, the mosaic warms at once
     for (const u of uHandP) { const d = positionWorld.sub(u.xyz); pool = pool.add(exp(dot(d, d).mul(-1 / (2 * 0.32 * 0.32))).mul(u.w)); }
     m.emissiveNode = vec3(1.0, 0.92, 0.78).mul(side.mul(0.3).add(top.add(back).mul(0.03))).mul(g).add(vGl.mul(glazed.mul(0.07))).mul(float(1).sub(quiet))
-      .add(vec3(1.0, 0.72, 0.42).mul(col).mul(pool.min(1.4).mul(HAND_POOL))).add(fill);
+      .add(vec3(1.0, 0.72, 0.42).mul(col).mul(pool.min(1.4).mul(HAND_POOL))).add(fill).add(vec3(1.0, 0.55, 0.22).mul(vEdge).mul(REVEAL_GLOW));   // studio 25-11: the reveal glows warm at the opening (ref «correfoc»)
     return m;
   }
   const heroMesh = new THREE.Mesh(heroGeo, heroMaterial()); heroMesh.frustumCulled = false; hero.add(heroMesh);
@@ -717,7 +757,7 @@ export function create(ctx) {
   {
     const url = new URL('./umbral3d/arches.js', import.meta.url).href;
     fetch(url, { method: 'HEAD' }).then((r) => (r.ok ? import(url) : null)).then((mod) => {
-      if (!mod?.createArches) return;
+      if (!mod?.createArches || !ARCH_FRAME) return;   // studio 25-11 (Beltrán): no frame — the opening is cut in the mosaic itself
       arches = mod.createArches(ctx, { walls, env, door: { A: DOOR_A, H: DOOR_H, P: DOOR_P }, depth: 0.04, thickness: 0.4, frontal: true }); if (arches?.object) object.add(arches.object);   // T-058c: the arch 0.12–0.52 m behind each wall, in front of the shell (OFF 0.6 m)
     }).catch((err) => { arcErr = String(err.message); console.info('umbral3d: arches not loaded (' + err.message + ')'); });
   }
