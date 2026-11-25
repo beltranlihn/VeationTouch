@@ -3,8 +3,8 @@
 //
 // THE POM IS THE RAISED TOWER ITSELF in the almost-dark square (plaza + tronc3d in 'top' mode draw them; palette 05 §2.7, Pom: nit-alta
 // · blau-hora · lluna, luma ~0.12). This part is only what happens ON the tower:
-// - the climbers: the dosos (two), the acotxador, the enxaneta — SMALL particle figures (../bodykit.js, child scale, a warm key and a cool
-//   back, monochrome) that climb the trunk of the tower, on its face towards the room, at the axis tronc3d gives (trunk(floor, tower));
+// - the climbers: the dosos (two), the acotxador, the enxaneta — SMALL particle figures (../bodykit.js, child scale, a cool lluna key and back,
+//   monochrome) that climb the trunk of the tower, on its face towards the room, at the axis tronc3d gives (trunk(floor, tower));
 // - ONE light of `or` that rises with them (in the climber's raised hand), the soft halo behind it; the only warm thing of strength;
 // - a relay handoff (the score lifts her +12 %) = a visible JUMP up the tower (and across to the tower of the light's wall, if it is
 //   another); a slip (the climb going down: a broken silence, a falter) = a SLIDE down with a trail of dust;
@@ -81,7 +81,7 @@ export function create(ctx) {
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = -5; city.add(mesh);
   }
   // near motes: cool dust 1–5 m behind the walls, streaming down as the room rises (the sense of climbing)
-  const NMO = 1400;
+  const NMO = 500;
   {
     const g = quad(), aP = new Float32Array(NMO * 4);
     for (let i = 0; i < NMO; i++) { const s = rnd() * PER, back = 1 + Math.pow(rnd(), 1.5) * 5, w = walls[wallAt(s)], u = (s - cum[wallAt(s)]) / w.width; const x = w.pa.x + w.right.x * u * w.width - w.normal.x * back, z = w.pa.z + w.right.z * u * w.width - w.normal.z * back; aP.set([x, rnd() * 14, z, 0.012 + rnd() * 0.02], i * 4); }
@@ -93,7 +93,7 @@ export function create(ctx) {
     const mv = modelViewMatrix.mul(vec4(vec3(p.x, yy.sub(uA).add(1.6), p.z).add(wob), 1));
     m.vertexNode = cameraProjectionMatrix.mul(vec4(mv.xy.add(positionGeometry.xy.mul(max(p.w, minPx(mv.z, 2.2)))), mv.z, mv.w));
     const vQ = varying(positionGeometry.xy), vY = varying(yy.sub(uA));
-    m.colorNode = Fn(() => { const r2 = dot(vQ, vQ), edge = smoothstep(7, 4.5, abs(vY)); return vec4(COOL.mul(exp(r2.mul(-3.5))).mul(edge).mul(0.09).mul(uWorld), 1); })();
+    m.colorNode = Fn(() => { const r2 = dot(vQ, vQ), edge = smoothstep(7, 4.5, abs(vY)); return vec4(COOL.mul(exp(r2.mul(-3.5))).mul(edge).mul(0.035).mul(uWorld), 1); })();
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 2; object.add(mesh);
   }
 
@@ -102,7 +102,7 @@ export function create(ctx) {
   const kitC = createBodies({ THREE, TSL, room, max: NCL, builds: [2], lods: [0], seed: 31, blend: 'add' });
   object.add(kitC.object);
   kitC.setColors({ shirt: ['lluna', 1.0], skin: ['lluna', 0.75], trousers: ['blau-hora', 1.0], faixa: ['blau-hora', 1.3], hair: ['nit-alta', 1.2], glow: 'or' });
-  kitC.setSplat({ key: 0.8, lit: ['cal-fanal', 0.6], half: ['blau-hora', 0.6], amb: ['nit-alta', 0.5], rim: ['lluna', 0.35], opacity: 0.62, glow: 0.6 });   // warm key, cool back, monochrome; gold only at the crown
+  kitC.setSplat({ key: 0.8, lit: ['lluna', 0.62], half: ['blau-hora', 0.6], amb: ['nit-alta', 0.5], rim: ['lluna', 0.35], opacity: 0.62, glow: 0.6 });   // cool lluna key (AD #5: only the gold light is warm), cool back, monochrome; gold only at the crown
 
 
   // -------------------------------------------------------------------------------------------- glows (room frame): the light, the strand, rays
@@ -209,6 +209,20 @@ export function create(ctx) {
   // -------------------------------------------------------------------------------------------- state
   const pool = Array.from({ length: 32 }, () => ({ stroke: null, seen: -1, still: 0, vs: 0, s: 0, y: 0, age: 9, ray: 0, alY0: null, shed: 0 }));
   let frame = 0, climbY = -1, climbV = 0, lastClimber = -1, leap = 0, slide = 0, prevRaw = 0, gust = 0, aletaT = 0, raiseK = 0, goldK = 0;
+  // the text placer's obstacles (host: textObstacles()): every climber and the light, as seen on the wall plane from the eye
+  const OB = Array.from({ length: NCL + 1 }, () => ({ wall: 0, x: 0, half: 0, y0: 0, y1: 0 })), obs = [];
+  function onWallPlane(wi, p, out) {   // the point where the eye's ray to p crosses wall wi's plane → out (x from its centre, y)
+    const w = walls[wi], n = w.normal, dx = p.x - EYE.x, dy = p.y - EYE.y, dz = p.z - EYE.z;
+    const den = n.x * dx + n.z * dz, t = den < -1e-6 ? (n.x * (w.centre.x - EYE.x) + n.z * (w.centre.z - EYE.z)) / den : 1;
+    const X = EYE.x + dx * t, Y = EYE.y + dy * t, Z = EYE.z + dz * t;
+    out.x = (X - w.centre.x) * w.right.x + (Z - w.centre.z) * w.right.z; out.y = Y; return out;
+  }
+  const _o0 = { x: 0, y: 0 }, _o1 = { x: 0, y: 0 };
+  function obstacle(wi, p, h, half) {
+    if (obs.length >= OB.length) return;
+    onWallPlane(wi, p, _o0); _h.copy(p); _h.y += h; onWallPlane(wi, _h, _o1);
+    const o = OB[obs.length]; o.wall = wi; o.x = _o0.x; o.half = half; o.y0 = Math.min(_o0.y, _o1.y) - 0.1; o.y1 = Math.max(_o0.y, _o1.y) + 0.1; obs.push(o);
+  }
   let towerW = -1, hopFrom = -1, hopT = 1, standinW = 1, standinT = 0, focusSent = null;
   const arrivedW = [0, 0, 0];                                       // the tower where each climber arrived
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _h = new THREE.Vector3(), _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3();
@@ -293,6 +307,7 @@ export function create(ctx) {
     const climbing = Math.abs(climbV) > 0.03 || (cl > 0.01 && cl < 0.99 && phase === 'play');
     const form = 1 - dis, fmode = fallLeave ? 'dust' : 'gather';
     let haveLight = false;
+    obs.length = 0;
     for (let k = 0; k < NCL; k++) {
       const who = k < 2 ? 0 : k - 1;
       const sc = k === 3 ? 0.6 : k === 2 ? 0.68 : 0.76;
@@ -316,9 +331,11 @@ export function create(ctx) {
       kitC.set(k, { pos: [_a.x, _a.y, _a.z], yaw: Math.atan2(w.normal.x, w.normal.z) + Math.PI, pose, pose2, mix: mx, scale: sc,   // she faces the tower (her back to us)
         glow: k === 3 ? goldK * 0.85 : 0, form: Math.min(form, 1 - sl * 0.3), fmode: sl > 0.05 ? 'dust' : fmode, tint: [1, 1, 1], lod: 'near' });
       if (active && sl > 0.3 && rnd() < dt * 30) shed(_a.x, _a.y + 0.6 * sc, _a.z, 2, false, 0.35);
+      obstacle(wi, _a, 1.75 * sc, 0.32);
       if (active || (k === 3 && raiseK > 0.01)) { _b.copy(_a).addScaledVector(w.normal, 0.05); _b.y += 1.72 * sc; haveLight = true; }   // her raised hand: the light
     }
     kitC.update(dt);
+    if (haveLight && obs.length < OB.length) { _p1.copy(_b); _p1.y -= 0.35; obstacle(towerW, _p1, 0.7, 0.45); }   // the light's burst
     if (!haveLight) _b.set(0, -99, 0);
     // ---- the light: one gold light in the climber's raised hand (relay: bright; breath and silence: quieter); the halo behind it
     const relayK = stage === 'relay' ? 1 : stage === 'breath' ? 0.7 : 0.5;
@@ -387,5 +404,7 @@ export function create(ctx) {
   }
   function setParams() { /* read live in update() */ }
   function dispose() { for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); kitC.dispose(); try { fxBc?.close(); } catch { /* closed */ } }
-  return { object, update, setParams, dispose };
+  // [{ wall, x (m from the wall's centre), half (m), y0, y1 (m from the floor) }] this frame — read it, do not keep it
+  const textObstacles = () => obs;
+  return { object, update, setParams, dispose, textObstacles };
 }
