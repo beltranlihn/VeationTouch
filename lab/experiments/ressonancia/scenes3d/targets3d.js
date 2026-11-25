@@ -26,7 +26,7 @@ const DONE = {
   other: { to: [0, 0.5, 0], secs: 1.0 },
 };
 const SKIN_OF = (t, block) => (t.shape === 'pillar' || ['call', 'echo', 'crown'].includes(t.kind) ? 'column' : t.kind === 'fire' || t.kind === 'relay' || block === 'brasa' ? 'brazier'
-  : t.shape === 'rect' || ['rung', 'foot', 'down'].includes(t.kind) ? 'ashlar' : 'plaque');
+  : t.kind === 'print' ? 'plaque' : t.shape === 'rect' || ['rung', 'foot', 'down'].includes(t.kind) ? 'ashlar' : 'plaque');   // print: the hand (plaque path)
 
 export function createTargets3D({ THREE, TSL, room }) {
   const { uniform, vec3, float, smoothstep, abs, max, mix, step, attribute, positionGeometry, normalGeometry, uv, length, mx_noise_float } = TSL;   // geometry, not local: an instanced mesh's local position is already moved
@@ -86,8 +86,8 @@ export function createTargets3D({ THREE, TSL, room }) {
     const S = S_(), inner = smoothstep(0.36, 0.46, positionGeometry.y).mul(step(length(positionGeometry.xz), 0.44));   // the coals: only the inner lip / the top of the bowl
     const flick = mx_noise_float(positionGeometry.mul(14.0).add(vec3(0, uTime.mul(1.3), 0))).mul(0.35).add(0.75);
     const rim = smoothstep(0.42, 0.5, positionGeometry.y);                                  // the bowl's lip: metal catching its own ember
-    addEmissive(bowlMat, mix(vec3(...lin('brasa')), GOLD, S.z).mul(inner.mul(flick).mul(S.x.mul(1.4).add(S.y.mul(2.2)).add(0.45)))
-      .add(vec3(...lin('flama')).mul(rim.mul(float(0.03).add(S.x.mul(0.35)).add(S.y.mul(0.5))))));   // the iron lip catches the ember only as it charges
+    addEmissive(bowlMat, mix(vec3(...lin('brasa')), GOLD, S.z).mul(inner.mul(flick).mul(S.x.mul(1.4).add(S.y.mul(2.2)).add(0.8)))
+      .add(vec3(...lin('flama')).mul(rim.mul(float(0.14).add(S.x.mul(0.35)).add(S.y.mul(0.5))))));   // a thin warm lip at rest; it brightens as it charges
   }
   const bowl = skin(bowlGeo, bowlMat, 'brazier');
   const standMat = ceramic({ color: 'carbó', glaze: 0.6, wear: 0.5, rim: 0.06, hands: 0.05 }); standMat.metalness = 0.6;
@@ -133,13 +133,14 @@ export function createTargets3D({ THREE, TSL, room }) {
     const fireK = FIREK, wobble = mix(shimmer, flick, fireK);
     // fire (Brasa): flama licking up from the brazier, brighter; light (crown / echo): the chapter's tone, soft. Gold rises inside both
     // fire: brightest where it is born in the bowl (a hot core), thinning upward
-    const base = mix(LIGHT.mul(0.16), vec3(...lin('flama')).mul(float(0.55).mul(TSL.pow(float(1).sub(y), 0.5))).add(vec3(...lin('brasa')).mul(smoothstep(0.3, 0.0, y).mul(0.5))), FIREK);
+    const base = mix(LIGHT.mul(0.05), vec3(...lin('flama')).mul(float(0.55).mul(TSL.pow(float(1).sub(y), 0.5))).add(vec3(...lin('brasa')).mul(smoothstep(0.3, 0.0, y).mul(0.5))), FIREK);
     const glow = base.add(GOLD.mul(fill.mul(float(0.3).add(S.y.mul(0.4))))).add(GOLD.mul(FLARE.mul(0.3).add(S.y.mul(step(0.5, S.z)).mul(0.15))));
     const bronzeA = rim.mul(0.4).mul(LIGHTK);
     columnMat.colorNode = TSL.min(glow.mul(body).mul(wobble), vec3(0.6)).add(vec3(...lin('bronze')).mul(bronzeA).mul(0.5)).mul(float(1).sub(S.w));
     columnMat.opacityNode = bronzeA.add(body.mul(0.05)).mul(float(1).sub(S.w));
   }
-  const column = skin(new THREE.CylinderGeometry(0.16, 0.5, 1, 24, 10, true), columnMat, 'column');   // tapering: wide at the base, narrow at the top column.mesh.castShadow = false; column.mesh.receiveShadow = false;
+  const beam = skin(new THREE.CylinderGeometry(0.5, 0.5, 1, 24, 10, true), columnMat, 'beam'); beam.mesh.castShadow = false; beam.mesh.receiveShadow = false;   // light columns (crown, echo): straight, soft
+  const column = skin(new THREE.CylinderGeometry(0.16, 0.5, 1, 24, 10, true), columnMat, 'column');   // the fire column (Brasa): tapering   // tapering: wide at the base, narrow at the top column.mesh.castShadow = false; column.mesh.receiveShadow = false;
 
   // plaque: a stone slab on the wall; the print glows into it in gold (an oval at its heart) with the charge, and stays when done
   const plaqueMat = ceramic({ color: 'pedra-llum', glaze: 0.3, wear: 0.7, rim: 0.2, hands: 0.3 });   // warm stone (the fallback too: never a grey square)
@@ -149,7 +150,30 @@ export function createTargets3D({ THREE, TSL, room }) {
   }
   const plaque = skin(new RoundedBoxGeometry(1, 1, 1, 2, 0.08), plaqueMat, 'plaque');
 
-  const SKINS = [ashlar, plinth, bowl, stand, flame, glowPool, palmGlow, column, plaque];
+  // the acta's PRINT: a HAND at real size on the lime wall (procedural: a palm and five rounded fingers). At rest a faint warm outline that
+  // invites the hand; charging, gold fills it from the wrist up; done, it glows and hands over to actatext's print (which stays)
+  const handMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
+  {
+    const S = S_(), q = uv().sub(TSL.vec2(0.5, 0.5)).mul(TSL.vec2(1.0, 1.2));        // hand space: x ±0.5, y ±0.6 (wrist at the bottom)
+    const cap = (ax, ay, bx, by, r) => { const pa = q.sub(TSL.vec2(ax, ay)), ba = TSL.vec2(bx - ax, by - ay); const h = TSL.clamp(TSL.dot(pa, ba).div(TSL.dot(ba, ba)), 0, 1); return length(pa.sub(ba.mul(h))).sub(r); };
+    const palm = length(q.sub(TSL.vec2(0.0, -0.17)).mul(TSL.vec2(1.0, 1.15))).sub(0.27);
+    let d = TSL.min(palm, cap(-0.02, -0.45, 0.0, -0.3, 0.17));                          // palm + wrist
+    d = TSL.min(d, cap(-0.25, -0.12, -0.42, 0.08, 0.07));                              // thumb
+    d = TSL.min(d, cap(-0.15, 0.05, -0.2, 0.42, 0.065));                               // index
+    d = TSL.min(d, cap(-0.02, 0.07, -0.03, 0.5, 0.068));                               // middle
+    d = TSL.min(d, cap(0.11, 0.05, 0.14, 0.44, 0.064));                                // ring
+    d = TSL.min(d, cap(0.22, 0.0, 0.3, 0.3, 0.056));                                   // little
+    const inside = smoothstep(0.012, -0.012, d), edge = smoothstep(0.025, 0.0, abs(d));
+    const yH = q.y.div(1.2).add(0.5), level = mix(S.x, float(1.2), step(0.5, S.z)), fill = smoothstep(level.add(0.02), level.sub(0.04), yH).mul(inside);
+    const rest = vec3(...lin('cal-fanal')).mul(edge.mul(0.16));
+    const gold = GOLD.mul(fill.mul(float(0.45).add(S.y.mul(0.5)))).add(GOLD.mul(edge.mul(S.x.mul(0.3))));
+    handMat.colorNode = rest.add(gold).mul(float(1).sub(S.w));
+    handMat.opacityNode = fill.mul(0.25).mul(float(1).sub(S.w));                        // the gold sits in the lime a little (darkens the wall under it)
+  }
+  const hand = skin(new THREE.PlaneGeometry(1, 1), handMat, 'hand'); hand.mesh.castShadow = false; hand.mesh.receiveShadow = false;
+
+  const SKINS = [ashlar, plinth, bowl, stand, flame, glowPool, palmGlow, column, beam, plaque, hand];
 
   // ---- the slots
   const pool = Array.from({ length: MAXT }, (_, i) => ({ i, id: 0, live: false, asm: 0, grow: 0, gold: 0, burst: 0, charge: 0, hold: 0, done: false, on: false, to: [0, 0, 0], rise: 0 }));
@@ -228,10 +252,12 @@ export function createTargets3D({ THREE, TSL, room }) {
           put(stand, p, 0, (bowlY - bh / 2) / 2, -bw / 2 - 0.02, 0.08, bowlY - bh / 2, 0.08, 0);
           put(glowPool, p, 0, 0.01, -bw / 2 - 0.02, 1.4, 1, 1.4, 0);
           const fb = bowlY - bh * 0.35, ft = Math.max(top, 2.2); put(column, p, 0, (fb + ft) / 2, -bw / 2 - 0.02, bw * 0.75, ft - fb, bw * 0.75, bowlY);   // from inside the bowl
-        } else put(column, p, 0, top / 2, -0.04, cw, top, cw, 0);
+        } else put(beam, p, 0, top / 2, -0.04, cw, top, cw, 0);
       } else if (p.kind === 'palm') {                  // the Pinya: warm light on the wall where the palm will meet the hand
         // AD #8: nothing here — the figure's own palm (pinya3d) is the target and glows itself; no ring over the wall
-      } else {                                          // a plaque on the wall (the acta's print)
+      } else if (p.kind === 'print') {                 // the acta: a hand at real size (≥ 20 cm tall), gold when held
+        const hh = Math.max(0.24, Math.min(H, 0.3)); put(hand, p, 0, p.y, 0.004, hh * 0.83, hh, 1);
+      } else {                                          // the generic fallback: a warm stone plaque
         put(plaque, p, 0, p.y, -0.01, W, H, 0.05);
       }
     }
