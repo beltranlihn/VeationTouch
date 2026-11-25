@@ -460,12 +460,13 @@ export function create(ctx) {
   // (fall3d: while the castell falls the porcelain sculpture is shown, it is what breaks) — but its solid meshes are not drawn.
   // Layout in castell metres (× SC in the tower's frame, like the sculpture): a pinya of three rings + a folre, a tronc of three per tier,
   // the dosos, the acotxador, the enxaneta. Mode (setMode): build (Tronc) · top (Pom: the same castell) · crowned (the enxaneta's arm up) · down.
-  const CAST = [], CLV = [], TRUNK = [];      // CLV: the bodies' own levels (y0, y1 in castell metres), for levels() in the human-scale mode
-  {
+  // two layouts of the same castell (same bodies, same order): the forced perspective (Tronc, crown, bajada: the whole castell inside the
+  // wall) and full scale (the Pom: the climbers go up a real trunk and the room rises with them — setFocusY)
+  function makeLayout(PERSP) {
+    const CAST = [], CLV = [], TRUNK = [];      // CLV: the bodies' own levels (y0, y1 in castell metres), for levels() in the human-scale mode
     const r3 = rng(4401);
     // 25-11 (Art Director): the lower floors life-size in the foreground, the tower growing to ~3.4 m on the wall by COMPRESSING the
     // upper floors (a forced perspective: each tier ×PERSP), never shrinking the whole tower; no room-rise in this mode
-    const PERSP = OLD ? 1 : 0.58;   // the whole 9-floor castell fits ≤ 3.4 m on the wall
     const tier = [1.05, 1.02, 1.02, 1.02, 1.02, 1.02].map((v, L) => v * Math.pow(PERSP, L));
     let feet = 0;
     for (let L = 0; L < 6; L++) {
@@ -494,7 +495,10 @@ export function create(ctx) {
         if (i === 0 && OLD) { const rf = rr - 0.04; CAST.push({ lv: 0, x: Math.cos(a) * rf, z: Math.sin(a) * rf, y: 1.313 * s + 0.03, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), pose: 'carry', s: 0.95, build: 0, folre: true }); }
       }
     }
+    return { CAST, CLV, TRUNK };
   }
+  const LAY = { persp: makeLayout(OLD ? 1 : 0.58), full: makeLayout(1) };   // ×0.58: the whole 9-floor castell fits ≤ 3.4 m on the wall
+  let { CAST, CLV, TRUNK } = LAY.persp;
   const bodies = P.bodies !== false && !lone();   // fall3d's private tower (parts: {}) falls as the sculpture: no bodies there
   const kit = bodies ? createBodies({ THREE, TSL, room, max: Math.min(400, CAST.length * Math.min(NW, 4)), lods: [1, 2], spots: ctx.parts?.plaza?.spots || null }) : null;   // the square's stage spots light the bodies in their beams
   if (kit) {
@@ -512,7 +516,10 @@ export function create(ctx) {
   const COLD = { lit: ['lluna', 0.5], half: ['lluna', 0.34], amb: ['tinta', 0.9] };   // an almost-silhouette: lluna grey-blue, low contrast
   function setLook(look) { if (kit) kit.setSplat(look === 'pom' ? COLD : WARM); }
   if (kit) kit.setSplat(WARM);
-  function setMode(m) { castMode = m || 'build'; if (castMode !== 'top') focusY = null; setLook(castMode === 'top' ? 'pom' : 'warm'); }
+  function setMode(m) {
+    castMode = m || 'build'; if (castMode !== 'top') focusY = null; setLook(castMode === 'top' ? 'pom' : 'warm');
+    ({ CAST, CLV, TRUNK } = castMode === 'top' && !OLD ? LAY.full : LAY.persp);   // the Pom climbs a full-scale trunk (no floating children over a bush)
+  }
   // setFocusY(y): y in metres above the plaza floor (the tower unrisen, e.g. trunk(f).yRest): the world lowers (≤ 0.30 m/s) so that
   // height sits at the eye's level, in the reach band; null gives the ground back
   function setFocusY(y) { focusY = y == null ? null : +y; }
