@@ -519,7 +519,8 @@ export function create(ctx) {
   if (kit) kit.setSplat(WARM);
   function setMode(m) {
     const was = castMode; castMode = m || 'build'; if (castMode !== 'top') focusY = null; setLook(castMode === 'top' ? 'pom' : 'warm');
-    if (castMode === 'top' && was !== 'top' && !OLD) snapNext = true;   // the Pom's framing at once (under the tile transition), not climbing 12 s
+    if (castMode !== was && (castMode === 'top' || was === 'top') && !OLD) snapNext = true;   // into / out of the Pom: the framing at once (under the tiles)
+    if (castMode === 'fall' && was !== 'fall') fallT = 0;   // the Pom's framing at once (under the tile transition), not climbing 12 s
     ({ CAST, CLV, TRUNK } = castMode === 'top' && !OLD ? LAY.full : LAY.persp);   // the Pom climbs a full-scale trunk (no floating children over a bush)
   }
   // setFocusY(y): y in metres above the plaza floor (the tower unrisen, e.g. trunk(f).yRest): the world lowers (≤ 0.30 m/s) so that
@@ -682,6 +683,8 @@ export function create(ctx) {
       // climbers go up a trunk that is wholly inside the wall (setFocusY no longer moves it)
       const top = (TRUNK[7]?.y || 5.9) * SC, dW = Math.max(0.5, -_v.copy(walls[0].centre).sub(room.eye).dot(walls[0].normal)), d = dW + TOWER_D;
       target = Math.max(0.75, top - (room.eye.y + (2.0 - room.eye.y) * d / dW));   // the dosos' feet at 2.0 m on the wall: the pom de dalt (≈ 1.5 m of children) stays ≤ 3.4 m
+    } else if (!OLD && (castMode === 'fall' || ((castMode === 'crowned' || castMode === 'down') && !col.on))) {
+      target = 0;   // after the Pom: the Tronc's framing again (forced perspective, base on the ground)
     } else if (focusY != null && !OLD && !col.on) {
       target = Math.max(0, focusY - (room.eye.y || 1.6));
       if (target > 0.01) target = Math.max(target, 0.75);      // never a base hanging mid-wall: lowered at all, it leaves through the bottom edge
