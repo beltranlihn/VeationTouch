@@ -721,8 +721,8 @@ export default async function start(host) {
   // the fall (the assemblage tower collapses): a rumble that dies in ~6 s; the debris itself comes from the part's impacts
   const fallN = noiseSrc(), fallLp = F('lowpass', 90, 0.8), fallSubG = G(0, outSub), fallBp = F('bandpass', 260, 1.4), fallRoomG = G(0, genRoom);
   series(fallN, fallLp, fallSubG); fallN.connect(fallBp); fallBp.connect(fallRoomG);
-  // the tronc's creak: a slow click-train through a resonance, one level per wall (its lean), and a low wobble in the sub
-  const creakSrc = osc('sawtooth', 26), creakBp = F('bandpass', 420, 5), creakMix = G(1); series(creakSrc, creakBp, creakMix); creakSrc.start(); persistent.push(creakSrc);
+  // the tronc's creak: a slow click-train through a resonance (440 Hz = A, the fifth: 420 rang G#, out of the tronc's D — S4 25-11), one level per wall (its lean), and a low wobble in the sub
+  const creakSrc = osc('sawtooth', 26), creakBp = F('bandpass', 440, 5), creakMix = G(1); series(creakSrc, creakBp, creakMix); creakSrc.start(); persistent.push(creakSrc);
   const creakG = walls.map((_, w) => { const g = G(0, toWall(w)); creakMix.connect(g); return g; });
   const wob = osc('sine', 46), wobAm = G(0.5), wobG = G(0, tocSub); series(wob, wobAm, wobG); const wobLfo = osc('sine', 2.3), wobLg = G(0.5); series(wobLfo, wobLg, wobAm.gain); wob.start(); wobLfo.start(); persistent.push(wob, wobLfo);
 
