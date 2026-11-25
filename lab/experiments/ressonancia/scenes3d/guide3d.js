@@ -596,7 +596,7 @@ export function createGuide({ THREE, TSL, room, studio = false }) {   // T-069: 
     // the chapter's palette for the tiles and the glass
     const pal = PALETTES[gb] || PALETTES.wait;
     for (let k = 0; k < 3; k++) { for (let c = 0; c < 3; c++) palNow[k][c] = ease(palNow[k][c], pal[k][c], dt, 2); PAL[k].value.setRGB(palNow[k][0], palNow[k][1], palNow[k][2]); }
-    { const a = accentOf(b); for (let c = 0; c < 3; c++) accNow[c] = ease(accNow[c], a[c], dt, 1.5); ACC.value.set(accNow[0], accNow[1], accNow[2]);
+    { const a = b === 'festa' ? [0.89, 0.83, 0.72] : accentOf(b); for (let c = 0; c < 3; c++) accNow[c] = ease(accNow[c], a[c], dt, 1.5); ACC.value.set(accNow[0], accNow[1], accNow[2]);
       for (const sl of [card, line, lineOut]) for (const t of sl.texts) t.U.lamp.value.set(0.5 + 0.5 * accNow[0], 0.5 + 0.5 * accNow[1], 0.5 + 0.5 * accNow[2]); }
     stepFine(dtT, b, on);
     nT = 0;

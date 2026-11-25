@@ -1,5 +1,18 @@
 // Ressonància — part «festa3d»: V. L'aleta (the crown, 25 s) and la ressonància (free, ~65 s). Contract: ../PARTS.md.
 //
+// T-068 v2 (25-11, FES; ARTE-RESSONANCIA.md v2 + Vicente's refs 05/06): LA RESSONÀNCIA (block 'festa') IS «AIGUA» — festa3d/aigua.js: a
+//   pool of dark glossy liquid round the room seen in perspective (log-polar wave solver centred on the eye; header of aigua.js).
+//   params.festaLook = 'camps' gives v1 below (festa3d/camps.js); params.useOldFesta = true the festa before T-068.
+// T-068 v1: «CAMPS» — festa3d/camps.js: a room of
+//   fine threads on an ink-blue night; each hand a body that curves a 12 cm grid membrane (lens + a real sink 0.6 → 1.1 m deep), with
+//   its own breathing isolines that merge with the neighbours' (gold where two fields touch), cobalt field-line arcs between near hands
+//   (dipping 0.8 m into depth), a 25 cm grid 3 m deep with parallax; echo = dashed cobalt bodies round the room; call = straight fronts;
+//   bloom = the grid crystallises into gold Voronoi cells. Header of camps.js for the numbers.
+//   THE CROWN BELOW IS UNTOUCHED. Coming from the crown, the old world (plate, sand, pieces) takes its own leave in 2.2 s while the
+//   threads draw in; then it is hidden and not updated (no wave sim, no 600 k sand compute: about half the frame of the old festa).
+//   Rollback: params.useOldFesta = true (study JSON) = the festa as before (everything described below). Backup: festa3d.T068.js.bak.
+//
+// What follows describes the crown and the OLD festa (useOldFesta).
 // What it draws
 //   The plate   a luminous surface standing `depth` m behind the four walls (a radial copy of the wall planes from the eye, so at rest
 //               every point sits exactly behind the wall point it is seen through, and the four planes meet at the corners). Its
@@ -29,6 +42,8 @@
 // arrive: night shards drift in from the dark, burst into gold, their particles fly onto the plate; the plate opens cell by cell.
 // leave: the field freezes (0–0.15), then the sand and gold shards fall slowly like rain; the plate goes dark cell by cell.
 // Read-only: part.resonance (what is shown, 0..1), part.bloom (0..1).
+import { createCamps } from './festa3d/camps.js';
+import { createAigua } from './festa3d/aigua.js';
 const MAXH = 16, MAXI = 16, MAXM = 4, MAXS = 32;
 const NP_GPU = 600000, NP_GL = 300000, NSH = 2400;
 
@@ -909,7 +924,7 @@ export function create({ THREE, TSL, room, params }) {
     return ((Math.atan2(cy, cx) / (2 * Math.PI)) * PER + PER) % PER;
   }
 
-  function update(dt, input) {
+  function updateOld(dt, input) {
     dt = Math.min(Math.max(dt || 1 / 60, 0), 1 / 20);
     time += dt; frame++; nI = 0;
     fxT += dt; if (fxT > 1) { fxT = 0; fxN = 0; }
@@ -1120,11 +1135,47 @@ export function create({ THREE, TSL, room, params }) {
     r.compute(sandCompute);
   }
 
+  // ------------------------------------------------------------------ T-068: la ressonància = «camps» (festa3d/camps.js)
+  // The crown (block 'crown', or the study's mode 'crown') is the code above, untouched. The festa block shows the camps; the old plate /
+  // sand / pieces stay behind params.useOldFesta (true = the festa as before, for rollback). Coming from the crown, the old world takes
+  // its own leave in 2.2 s (the gold goes down) while the camps draw in; then it is hidden and not updated (no sim, no sand compute).
+  const useOld = P.useOldFesta === true;
+  const oldKids = object.children.slice();
+  const look = useOld ? null : P.festaLook === 'camps' ? 'camps' : 'aigua';   // T-068 v2: the pool of water; 'camps' = the threads (v1), for rollback
+  const camps = look === 'camps' ? createCamps({ THREE, TSL, room, params: P, fx: fxImpact }) : look === 'aigua' ? createAigua({ THREE, TSL, room, params: P, fx: fxImpact }) : null;
+  if (camps) object.add(camps.object);                  // visible at creation: the host's precompile sees it
+  let fT = -1, fromCrown = false, oldShown = true, lastBlock = null;
+  const oldIn = { time: 0, t: 0, dt: 0, progress: 0, hands: [], downs: [], ups: [], params: P, state: null, events: null, arrive: 1, leave: 0, acta: null };
+  const showOld = (v) => { if (oldShown === v) return; oldShown = v; for (const o of oldKids) o.visible = v; if (!v) for (const h of halos) h.mesh.visible = false; };
+  function update(dt, input) {
+    const st = input.state;
+    const festa = camps && (st ? st.block === 'festa' : P.mode !== 'crown');
+    if (!festa) {
+      fT = -1; if (camps) camps.object.visible = false; showOld(true);
+      lastBlock = st ? st.block : 'crown';
+      updateOld(dt, input); return;
+    }
+    if (fT < 0) { fT = 0; fromCrown = lastBlock === 'crown'; }
+    lastBlock = 'festa';
+    fT += Math.min(Math.max(dt || 0, 0), 1 / 20);
+    const X = fromCrown ? 2.2 : 0;
+    if (fT < X) {                                       // the crown's light goes down in its own way while the threads come in
+      showOld(true);
+      Object.assign(oldIn, input); oldIn.leave = Math.max(input.leave ?? 0, ss(0, X, fT));
+      updateOld(dt, oldIn);
+    } else showOld(false);
+    object.position.y = 0;                              // the old world's float is not the camps' (the nodes sit on the hands)
+    camps.object.visible = true;
+    camps.update(dt, input, fromCrown ? ss(0.2, 2.2, fT) : 1);
+  }
+
   return {
     object,
     update,
-    get resonance() { return Rs; },
-    get bloom() { return bloomEnv; },
+    get resonance() { return camps && camps.object.visible ? camps.resonance : Rs; },
+    get bloom() { return camps && camps.object.visible ? camps.bloom : bloomEnv; },
+    get camps() { return camps ? camps.counts : null; },
+    get campsDebug() { return camps ? camps.debug : null; },   // lab checks only
     get fronts() { return FR.slice(0, U.nFr.value).map((v) => [+v.x.toFixed(2), +v.y.toFixed(2), v.z, +v.w.toFixed(2)]); },   // T-047: for the lab's checks (s0, run, gen, alpha)
     setParams() { /* read live */ },
     dispose() {
@@ -1132,8 +1183,9 @@ export function create({ THREE, TSL, room, params }) {
       plateMat.dispose(); pcMat.dispose(); pcGeo.dispose(); hoopMat.dispose(); hoopGeo.dispose(); farMesh.geometry.dispose(); farMesh.material.dispose(); try { fxBc?.close(); } catch { /* closed */ }
       sm.dispose(); shM.dispose(); shG.dispose(); simMat.dispose(); derMat.dispose();
       for (const h of halos) h.mesh.material.dispose();
-      object.traverse((o) => { if (o.isMesh && o.geometry !== shG && o.name !== 'room:halo') o.geometry.dispose(); });   // the halo's plane is the room's, shared
+      for (const k of oldKids) k.traverse((o) => { if (o.isMesh && o.geometry !== shG && o.name !== 'room:halo') o.geometry.dispose(); });   // the halo's plane is the room's, shared
       for (const b of [bSeed, bS, bX, bP, bC]) b.value?.dispose?.();
+      camps?.dispose();
     },
   };
 }
