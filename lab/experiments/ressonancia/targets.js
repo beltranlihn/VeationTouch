@@ -139,7 +139,10 @@ export function createTargets(opt = {}) {
     if (!spec || !spec.cluster || t.mode !== 'field') return;
     const [a, b] = spec.cluster, n = a + Math.floor(rnd() * (b - a + 1)), [y0, y1] = band(), childY = spec.childY || 1.3;
     let last = t;
-    for (let k = 1; k < n && !full(); k++) {
+    // balance (AD): a wall holds at most ceil(alive / walls) + 1 of a clustered stage; the rest goes to the other walls
+    const want = clamp(Math.ceil(0.75 * api.n) + spec.walls.length, 4, TG.max), cap = Math.max(3, Math.ceil(want / spec.walls.length) + 1);
+    const onWall = () => { let c = 0; for (const u of list) if (u.wall === t.wall && u.state !== 'done') c++; return c; };
+    for (let k = 1; k < n && !full() && onWall() < cap; k++) {
       const y = k === 1 ? y0 + (Math.min(childY, y1) - y0) * rnd() : y0 + (y1 - y0) * rnd();
       const sp = spotNear(last.s, y, 0.6, 1.0, k % 2 ? 1 : -1, true, last.id) || spotNear(t.s, y, 0.6, 1.0, k % 2 ? -1 : 1, true, t.id);
       if (!sp) break;
