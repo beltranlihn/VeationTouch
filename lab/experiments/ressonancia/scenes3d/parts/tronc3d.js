@@ -481,8 +481,8 @@ export function create(ctx) {
     CAST.push({ lv: 9, x: 0, z: -0.02 * pe, y: OLD ? Math.max(dsY + 0.42, 9.8) : dsY + 0.42 * pa, yaw: 0, pose: 'stand', pose2: 'raise', s: 0.62 * pe, build: 2, enx: true });
     TRUNK[7] = { y: feet, r: 0.3 * Math.max(0.5, pd), h: 1.286 * 0.8 * pd }; TRUNK[8] = { y: dsY, r: 0.2 * pa, h: 0.9 * pa }; TRUNK[9] = { y: dsY + 0.42 * pa, r: 0.15 * pe, h: 1.1 * pe };
     for (const c of CAST) { const L = CLV[c.lv] || (CLV[c.lv] = { y0: 1e9, y1: -1e9 }); L.y0 = Math.min(L.y0, c.y); L.y1 = Math.max(L.y1, c.y + 1.7 * c.s); }
-    const ringN = [10, 16, 22];
-    for (let i = 0; i < 3; i++) {
+    const ringN = OLD ? [10, 16, 22] : [10, 16];      // two tight rings (+ the folre): the splat budget goes to the tower
+    for (let i = 0; i < ringN.length; i++) {
       const rad = 0.73 + i * 0.44 + 0.1, off = 0.31 + i * 0.17;
       for (let j = 0; j < ringN[i]; j++) {
         const a = off + ((j + (r3() - 0.5) * 0.2) * TAU) / ringN[i], s = 0.94 + r3() * 0.1, rr = rad + (r3() - 0.5) * 0.05;

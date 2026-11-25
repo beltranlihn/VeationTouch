@@ -88,7 +88,7 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [12000, 2400], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [30000, 3600], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
   const splatOnlyLodMesh = false;
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;
@@ -227,15 +227,15 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   // them fall with gravity. Nothing radial, nothing fast.
   const splatSets = [];   // { build, lod, N, rows, tex, bodyTex, bodyData, geo, mesh, count }
   const uSize = uniform(1), uOpacity = uniform(1), uDrift = uniform(1), uFlow = uniform(1), uStreak = uniform(0);
-  const uLit = uniform(new THREE.Vector3(...palLin('cal-foc', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota', 0.75)));
-  const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 0.6)));
+  const uLit = uniform(new THREE.Vector3(...palLin('cal-foc', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota', 1.0)));
+  const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
   const SPN = spots?.pos?.length ? Math.min(8, spots.pos.length) : 0;
   const SPP = SPN ? TSL.uniformArray(spots.pos, 'vec4') : null, SPD = SPN ? TSL.uniformArray(spots.dir, 'vec4') : null, uSpotK = uniform(0.00025);   // plaza SPOT_K ≈ 2600 → ≈ 0.65 at the beam's heart
   // the human base: per bone class [density, max depth inside (m), aura share] — wide thorax and pelvis (core 28–32 cm), thick thighs,
   // thin forearms, hands and feet at 30–40 %, the head lighter (no bulb)
-  const CLS = [[0.72, 0.07, 0.04], [1.0, 0.13, 0.08], [0.9, 0.075, 0], [0.62, 0.04, 0.08], [0.35, 0.012, 0.12], [0.35, 0.015, 0], [0.45, 0.028, 0.1]];
+  const CLS = [[0.8, 0.07, 0], [1.0, 0.13, 0.03], [0.9, 0.075, 0], [0.62, 0.04, 0.03], [0.35, 0.012, 0.05], [0.35, 0.015, 0], [0.45, 0.028, 0.04]];
   function partOf(p, reg, s) {        // rest pose (A-pose): density weight, max depth inside (m)
     const x = Math.abs(p[0]), y = p[1];
     if (reg < 0.5 && y < 1.3 * s) return [0.25, 0.01];                // hands
@@ -266,7 +266,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       // aura only on the upper body (shoulders, arms, hands, a little on the head): the dust leaves from where the weight is carried
       const upper = R0[vi * 3 + 1] > 1.0, ty = rnd(), aP = upper ? auraP : 0;
       const kind = ty < aP ? 1 : ty < aP + 0.7 * (1 - aP) ? 0 : 0.5;
-      const depth = kind === 0 ? -Math.pow(rnd(), 0.6) * dmax : kind === 0.5 ? -0.006 * rnd() : 0.15 + rnd() * 0.1;
+      // core inside the volume · skin: a soft density falloff across the surface (−2 … +5 cm, thinning outwards) · aura: 3–12 cm off
+      const depth = kind === 0 ? -Math.pow(rnd(), 0.6) * dmax : kind === 0.5 ? Math.pow(rnd(), 2.2) * 0.07 - 0.02 : 0.03 + rnd() * 0.09;
       pick.push([lo, w0, u, v, vi, kind, depth]); k++;
     }
     while (pick.length < N) pick.push(pick[pick.length % Math.max(1, pick.length)] || [0, 1, 0, 0, idx[0], 0, 0]);
@@ -346,22 +347,25 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // a round, isotropic gaussian facing the eye
     const toCam = normalize(cameraPosition.sub(C)), facing = dot(nW, toCam);
     const right = normalize(cross(vec3(0, 1, 0), toCam).add(vec3(0.0001, 0, 0))), upv = cross(toCam, right);
-    const vis = mix(smoothstep(-0.35, 0.1, facing), float(1), core.max(aura)).max(away);     // skin splats behind the body are culled; core and aura are volume
+    // what lies on the far side of the body is not drawn over the near side (no dark specks through the figure): skin culled at the
+    // silhouette, core a little further (it is volume), aura always
+    const vis = mix(smoothstep(-0.3, 0.1, facing), smoothstep(-0.6, -0.1, facing), core).max(aura).max(away);
     // crisp grain: core 1–2 cm, skin 3–5 cm, aura 6–10 cm (faint)
     const skin = step(0.25, kind).mul(float(1).sub(aura));
-    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.03), float(0.05), jit), skin).add(aura.mul(mix(float(0.06), float(0.1), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.35);
+    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.012), float(0.026), jit), skin).add(aura.mul(mix(float(0.012), float(0.022), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.7);
     const r0 = size.mul(1.6).mul(vis);
     const q = positionGeometry.xy;
     m.positionNode = C.add(right.mul(q.x.mul(r0))).add(upv.mul(q.y.mul(r0)));
     // light: warm high key from the upper left of the eye + cool backlight; shadow falls to ~17 % and into the night
     const reg = AX.x, w3 = smoothstep(2.35, 2.65, reg);
     const tE = normalize(vec3(uEye.x.sub(C.x), 0, uEye.z.sub(C.z))), side = vec3(tE.z, 0, tE.x.negate());
-    const Lk = normalize(side.mul(-0.7).add(vec3(0, 0.9, 0)).add(tE.mul(0.35)));
-    const lk = clamp(dot(nW, Lk).mul(0.65).add(0.3), 0, 1).mul(mix(float(0.75), float(1), AX.y));
-    const tone = mix(uHalf, uLit, smoothstep(0.25, 0.85, lk)).mul(B2.xyz);
-    let colr = mix(uSAmb, tone, smoothstep(0.02, 0.4, lk)).mul(lk.pow(1.2).mul(0.83).add(0.17)).mul(uSKey);
+    // one warm ramp by light: tinta (shadow, luma ≈ 0.05–0.10, lost in the night) → terracota (half) → cal-foc (lit, ≤ 0.8)
+    const Lk = normalize(side.mul(-0.85).add(vec3(0, 0.85, 0)).add(tE.mul(0.15)));
+    const lk = clamp(dot(nW, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y));
+    const ramp = mix(mix(uSAmb, uHalf, smoothstep(0.06, 0.42, lk)), uLit, smoothstep(0.42, 0.92, lk)).mul(B2.xyz);
+    let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(1.4))).mul(uSKey);
     colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer
-    colr = colr.add(uSRim.mul(pow(float(1).sub(abs(facing)), 2)).mul(smoothstep(0.1, -0.5, dot(nW, tE)).add(0.25)));   // the backlight
+    colr = colr.add(uSRim.mul(pow(float(1).sub(abs(facing)), 4)).mul(smoothstep(1.15, 1.45, pl.y)).mul(0.6));   // a thin cool rim on the shoulders and head
     if (room?.flash) colr = colr.add(uLit.mul(room.flash(C)).mul(0.35));
     // the stage spots of the square (plaza.js part.spots, when given): what stands in a beam is lit by it
     if (spots && SPP) {
@@ -374,7 +378,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       colr = colr.add(uLit.mul(sp.mul(uSpotK)).mul(mix(float(0.6), float(1), AX.y)));
     }
     colr = colr.add(uColor.glow.mul(B2.w).mul(0.9)).add(uColor.glow.mul(uSGlow));
-    const opa = (splatBlend === 'add' ? mix(mix(float(0.1), float(0.12), skin), float(0.05), aura) : mix(mix(float(0.5), float(0.24), skin), float(0.05), aura)).mul(lod === 0 ? 1 : 1.3);
+    // dust: each splat faint (0.08–0.15), the volume comes from accumulation; the skin thins outwards (the edge is a density falloff)
+    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : 1.6);
     const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura);
     const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(float(1).sub(away.mul(0.6))), 'vSplA');
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);

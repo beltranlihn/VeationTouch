@@ -34,18 +34,22 @@ function classOf(name) {
 // body frame directions per pose (mirrored for the right side: x → −x). `lean` (rad, forward), `head` (rad, down), `bend` knees.
 const D = (x, y, z) => [x, y, z];
 export const HUMAN_POSES = {
-  stand: { lean: 0.05, head: 0.1, arms: { up: D(0.16, -1, 0.04), lo: D(0.1, -1, 0.14), hand: D(0.05, -1, 0.1) }, legs: { th: D(0.09, -1, 0.06), ca: D(0.04, -1, -0.07) } },
+  // weight on the left leg, the right one free and a little bent; arms hanging relaxed
+  stand: { lean: 0.05, head: 0.12, arms: { up: D(0.07, -1, 0.02), lo: D(0.03, -1, 0.12), hand: D(0.02, -1, 0.08) }, legs: { th: D(0.03, -1, 0.02), ca: D(0.02, -1, -0.03) },
+    legR: { th: D(-0.15, -1, 0.1), ca: D(-0.06, -1, -0.14) } },
   palm: { lean: 0.1, head: 0.06, arms: { up: D(0.16, -1, 0.06), lo: D(0.1, -1, 0.16), hand: D(0.05, -1, 0.1) },
     armR: { up: D(-0.06, -0.33, 0.94), lo: D(-0.02, 0.12, 1), hand: D(0, 1, 0.25) }, legs: { th: D(0.1, -1, 0.1), ca: D(0.04, -1, -0.12) } },
-  lock: { lean: 0.12, head: 0.15, arms: { up: D(1, -0.28, 0.12), lo: D(1, -0.42, 0.08), hand: D(0.6, -1, 0) }, legs: { th: D(0.11, -1, 0.14), ca: D(0.05, -1, -0.16) } },
-  carry: { lean: 0.3, head: 0.25, arms: { up: D(0.28, 0.85, 0.35), lo: D(0.08, 1, 0.12), hand: D(0, 1, 0.1) }, legs: { th: D(0.13, -0.88, 0.42), ca: D(0.05, -1, -0.32) } },
+  // the pinya's embrace: arms at shoulder height, elbows bent, hugging forward and in; back leaning in, head down
+  lock: { lean: 0.32, head: 0.38, arms: { up: D(0.82, 0.02, 0.55), lo: D(-0.35, -0.05, 1), hand: D(-0.6, -0.15, 0.75) }, legs: { th: D(0.14, -1, 0.18), ca: D(0.06, -1, -0.2) } },
+  // carrying: knees well bent, feet apart, back loaded, arms up holding the one above — effort
+  carry: { lean: 0.26, head: 0.2, arms: { up: D(0.3, 0.85, 0.32), lo: D(0.06, 1, 0.1), hand: D(0, 1, 0.08) }, legs: { th: D(0.24, -0.84, 0.46), ca: D(0.1, -1, -0.36) } },
   raise: { lean: -0.03, head: -0.2, arms: { up: D(0.18, -1, 0.05), lo: D(0.12, -1, 0.15), hand: D(0.05, -1, 0.1) },
-    armR: { up: D(-0.12, 1, 0.08), lo: D(-0.05, 1, 0.06), hand: D(0, 1, 0.05) }, legs: { th: D(0.08, -1, 0.04), ca: D(0.03, -1, -0.05) } },
+    armR: { up: D(-0.12, 1, 0.08), lo: D(-0.05, 1, 0.06), hand: D(0, 1, 0.05) }, legs: { th: D(0.17, -1, 0.12), ca: D(0.06, -1, -0.14) } },
 };
 export const HUMAN_BUILDS = [
   { base: 0, scale: 0.955, arm: 0.84, thigh: 0.88, chest: 0.9, head: 1.0 },      // a man
   { base: 1, scale: 0.97, arm: 0.86, thigh: 0.9, chest: 0.93, head: 1.0 },       // a woman
-  { base: 1, scale: 1.0, arm: 0.8, thigh: 0.85, chest: 0.88, head: 1.28 },       // a child (instance scale 0.55–0.8)
+  { base: 1, scale: 1.0, arm: 0.8, thigh: 0.85, chest: 0.86, head: 1.38, legs: 0.8, arms: 0.86 },   // a child (instance scale 0.55–0.8): big head, short limbs
 ];
 
 export function* bakeHumanGen(THREE, gltf, build, specList) {
@@ -78,6 +82,14 @@ export function* bakeHumanGen(THREE, gltf, build, specList) {
     } else if (cls[v] === 1 && tmp.y > 1.05) tmp.x *= build.chest;
     if (cls[v] === 0 && build.head !== 1 && head) tmp.sub(head).multiplyScalar(build.head).add(head);
     tmp.toArray(bindPos, v * 3);
+  }
+  // a child's proportions: the legs shorter (everything below the hips pulled up towards them), the arms shorter (towards the shoulder)
+  if (build.legs && build.legs !== 1) {
+    const hipY = wpos('thigh_l').y;
+    for (let v = 0; v < n; v++) { const y = bindPos[v * 3 + 1]; if (y < hipY) bindPos[v * 3 + 1] = hipY - (hipY - y) * build.legs; }
+    const shl = wpos('upperarm_l'), shr = wpos('upperarm_r');
+    for (let v = 0; v < n; v++) { const c = cls[v]; if (c !== 3 && c !== 4 && c !== 6) continue; if (bindPos[v * 3 + 1] < hipY + 0.05 && c === 3) continue;
+      const sh = bindPos[v * 3] > 0 ? shl : shr; for (let k = 0; k < 3; k++) bindPos[v * 3 + k] = sh.getComponent(k) + (bindPos[v * 3 + k] - sh.getComponent(k)) * build.arms; }
   }
   yield;
   // posing: aim each bone's segment (to its child) at a body-frame direction
@@ -113,7 +125,8 @@ export function* bakeHumanGen(THREE, gltf, build, specList) {
         const m = (d) => (sd === 'r' ? mir(d) : d);
         const arm = sd === 'r' && sp.armR ? sp.armR : A;
         if (arm) { aim('upperarm_' + sd, 'lowerarm_' + sd, sd === 'r' && sp.armR ? arm.up : m(arm.up)); aim('lowerarm_' + sd, 'hand_' + sd, sd === 'r' && sp.armR ? arm.lo : m(arm.lo)); aim('hand_' + sd, 'middle_01_' + sd, sd === 'r' && sp.armR ? arm.hand : m(arm.hand)); }
-        if (Lg) { aim('thigh_' + sd, 'calf_' + sd, m(Lg.th)); aim('calf_' + sd, 'foot_' + sd, m(Lg.ca)); }
+        const LL = sd === 'r' && sp.legR ? sp.legR : Lg, mm = sd === 'r' && sp.legR ? (d) => d : m;
+        if (LL) { aim('thigh_' + sd, 'calf_' + sd, mm(LL.th)); aim('calf_' + sd, 'foot_' + sd, mm(LL.ca)); }
       }
       turn('neck_01', [1, 0, 0], sp.head * 0.5); turn('Head', [1, 0, 0], sp.head * 0.5);
       if (sp.armR) { aim('upperarm_r', 'lowerarm_r', sp.armR.up); aim('lowerarm_r', 'hand_r', sp.armR.lo); aim('hand_r', 'middle_01_r', sp.armR.hand); }
@@ -137,7 +150,11 @@ export function* bakeHumanGen(THREE, gltf, build, specList) {
     }
     for (let v = 0; v < n; v++) out[v * 3 + 1] -= minY;
     geoTmp.setAttribute('position', new THREE.BufferAttribute(out, 3)); geoTmp.computeVertexNormals();
-    P.push(out); N.push(new Float32Array(geoTmp.attributes.normal.array));
+    const nrm = new Float32Array(geoTmp.attributes.normal.array);
+    // the head lit as one round volume (the eye sockets of the base mesh would read as a skull): normals from the head's centre
+    const hd = wpos('Head'); if (hd) { const hx = hd.x * build.scale, hy = hd.y * build.scale - minY + 0.09 * build.head, hz = hd.z * build.scale + 0.02;
+      for (let v = 0; v < n; v++) if (cls[v] === 0) { const dx = out[v * 3] - hx, dy = out[v * 3 + 1] - hy, dz = out[v * 3 + 2] - hz, l = Math.hypot(dx, dy, dz) || 1; nrm[v * 3] = dx / l; nrm[v * 3 + 1] = dy / l; nrm[v * 3 + 2] = dz / l; } }
+    P.push(out); N.push(nrm);
     const h = wpos('hand_r'), mm = wpos('middle_01_r');
     palm.push(h && mm ? [((h.x + mm.x) / 2) * build.scale, ((h.y + mm.y) / 2) * build.scale - minY, ((h.z + mm.z) / 2) * build.scale] : [-0.25, 1.36, 0.4]);
     yield;
