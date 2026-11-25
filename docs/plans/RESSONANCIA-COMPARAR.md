@@ -20,7 +20,7 @@ El software es el mismo en las dos ramas. Sólo cambian las cuatro carpetas de l
    3. Mover `dist\win-unpacked` a `%USERPROFILE%\Desktop\VEATION-Vicente\`.
 4. **Versión del estudio:**
    1. `git switch main`
-   2. `git pull --ff-only`, que debe quedar en 5a09587.
+   2. `git pull --ff-only`. La obra es la de 5a09587; los commits posteriores sólo cambian documentación.
    3. `npm run dist`, que deja el programa en `dist\win-unpacked\`.
 
 `package.json` no cambia, así que no hace falta `npm install`. No se ejecuta ningún instalador.
