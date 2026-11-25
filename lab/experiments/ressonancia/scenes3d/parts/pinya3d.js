@@ -260,14 +260,14 @@ export function create({ THREE, TSL, room, params }) {
       }
       else if (!h && !q.idle && q.stay < 8) { pose = 'stand'; pose2 = 'palm'; mix = clamp01(q.stay / 8); }   // the arm comes down before it goes back
       // a waiting figure (an offered palm, nobody there yet) is a quieter suggestion: dimmer, not fully gathered; with a hand: whole, bright
-      const held = q.stroke !== null || q.locked || q.charge > 0.05, wk = held ? 1 : 0.45, wf = 1;   // waiting: dimmer but whole (AD: no blurry half-gathered discs)
+      const held = q.stroke !== null || q.locked || q.charge > 0.05, wk = 1, wf = 1;   // one body material (AD): whole and untinted; the palm's glow says which is offered
       { // THE PALM IS THE TARGET (QA draws nothing for kind 'palm'): an offered palm glows softly (warm), the charge brightens it, active =
         // gold, held = a short gold flash; then the figure walks back into the ring
         const offered = q.idle && !q.charge ? 0.22 : 0, ch = q.charge > 0.01 ? 0.25 + 0.75 * q.charge : 0;
         const k = Math.max(offered, ch * (q.stroke !== null || q.idle ? 1 : 0.5)) * 0.9 + q.glow * 1.6, g = Math.min(1, (q.tActive || q.charge >= 1 ? 1 : 0) + q.glow * 2);
         palmGlow(tmp.x + w.normal.x * 0.02, q.y, tmp.z + w.normal.z * 0.02, 0.06 + 0.08 * q.charge + 0.1 * q.glow, k * there * q.app, g);
         palmGlow(tmp.x + w.normal.x * 0.02, q.y, tmp.z + w.normal.z * 0.02, 0.28 + 0.12 * q.charge, k * 0.18 * there * q.app, g); }
-      kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: e * wf * there, fmode: 'gather', lod: 'near', pool: held ? 0.35 : 0 });
+      kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: Math.max(e * wf * there, there > 0.95 && e > 0.95 ? 1 : 0), fmode: 'gather', lod: 'near', pool: held ? 0.35 : 0 });
     }
     pgGeo.instanceCount = nPG; PGA.needsUpdate = true; PGC.needsUpdate = true;
     kit.update(dt);
