@@ -514,7 +514,7 @@ export function create(ctx) {
   function placeBodies(dt, inTronc, floorsNow, withScore) {
     if (!kit) return;
     for (const t of towers) for (const s of t.st) s.takenT = s.taken ? (s.takenT || 0) + dt : 0;
-    crownT = castMode === 'crowned' ? crownT + dt : 0;   // the crown: gold runs DOWN from the enxaneta, floor by floor (0.5 s each)
+    crownT = castMode === 'crowned' ? crownT + dt : 0;   // the crown: gold rises from the foot to the enxaneta, floor by floor
     // against the luminous gold air the tower must be a dark-and-gold sculpture: denser, a dark rim, the shadow side to bronze
     { const cw = castMode === 'crowned' ? 1 : 0; crownK += (cw - crownK) * Math.min(1, dt * 1.5); kit.setSplat({ darkRim: 0.9 * crownK, opacity: 1 + 0.5 * crownK }); }
     const lm = withScore ? 'scene' : 'self'; if (lm !== lightMode) { lightMode = lm; kit.setLighting(lm); }
@@ -550,7 +550,7 @@ export function create(ctx) {
         // arrive / leave: the particles gather / scatter (form below), no block movement
         const pose2 = c.enx ? (crowned ? 'raise' : 'stand') : c.pose;
         kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw, pose: c.pose, pose2: c.enx ? pose2 : (c.pose2 || c.pose), mix: c.enx ? (crowned ? 1 : 0) : (c.lv > 0 && S.forming && S.solid < 0.5 ? 1 : (c.mixV || 0)),
-          form: form * (1 - uAway.value), fmode, lod: c.lv > 0 && c.lv <= 3 ? 'mid' : 'far', scale: c.s * SC,   /* the trunk in mid detail (9k splats): it must read as bodies */ build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - (9 - c.lv) * 0.4) / 0.6)) * (c.enx ? 1.6 : 1) : S.flash * 0.35, tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
+          form: form * (1 - uAway.value), fmode, lod: c.lv > 0 && c.lv <= 3 ? 'mid' : 'far', scale: c.s * SC,   /* the trunk in mid detail (9k splats): it must read as bodies */ build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - 0.4 - c.lv * 0.36) / 0.5)) * (c.enx ? 1.6 : 1) : S.flash * 0.35,   /* the gold RISES floor by floor from the foot (0.4–4 s, with VFX's light), the enxaneta last and brightest */ tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
       }
     }
     for (let i = n; i < kit.count; i++) kit.hide(i);
