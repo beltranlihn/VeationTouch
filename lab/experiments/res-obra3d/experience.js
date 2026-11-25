@@ -544,7 +544,7 @@ function frame(dt) {
   // the tower stands on the ground and is seen whole. In crown / festa it stays where the Pom left it; from
   // any other block it goes back to 0: at once if neither is on screen, else eased (≥ 3 s, ≤ 0.3 m/s). m6.maxV = the fastest world translation seen (m/s; it must stay ≤ ~0.3).
   {
-    const T3 = parts.tronc3d, on = T3 && T3.state !== 'off' && (VB === 'tronc' || VB === 'pom');   // 25-11 (Modelado 2514c60): the Pom moves the world (setFocusY), the Tronc no longer does
+    const T3 = parts.tronc3d, on = T3 && T3.state !== 'off' && (VB === 'tronc' || VB === 'pom' || VB === 'fall');   // fall: the square stays where the tower is (no slide against it)   // 25-11 (Modelado 2514c60): the Pom moves the world (setFocusY), the Tronc no longer does
     const prev = m6.y;
     if (on) m6.y = Math.min(0, -(T3.part.rise || 0));                // the near world only goes DOWN (at the Tronc's start rise < 0)
     else if (!M6_KEEP.has(VB)) {
