@@ -535,7 +535,7 @@ export function createScore(nWalls, opt = {}) {
         // counts: one person who fills two walls makes a torre), at least one. It closes when the walls asked NOW (needNow = clamp(walls
         // with hands, 1, needWalls)) have been filled and a filled wall is held for B.hold s. From B.net s the colla closes the gap (named).
         S.pinyaStage = S.t < B.palm ? 'palm' : 'pack';
-        if (S.pinyaStage === 'palm') { if (!offered) { offer({ mode: 'field', kind: 'palm', pairs: true }); offered = true; } for (const t of tgDone) emit('palm'); }
+        if (S.pinyaStage === 'palm') { if (!offered) { offer({ mode: 'field', kind: 'palm', y: [1.0, 1.45], cluster: [2, 3], clusterGap: 2, childY: 1.3 }); offered = true; } for (const t of tgDone) emit('palm'); }
         else if (offered) { TG.clear(); offered = false; }
         let filled0 = 0, hands0 = 0; for (let w = 0; w < W; w++) { if (fullOnce[w]) filled0++; if (S.count[w]) hands0++; }
         S.assist = filled0 >= clamp(hands0, 1, S.needWalls) ? 0 : clamp((S.tp - B.net) / 10, 0, 1);   // the colla only while the walls asked are not filled yet

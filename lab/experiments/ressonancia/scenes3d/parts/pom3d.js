@@ -99,10 +99,10 @@ export function create(ctx) {
 
   // -------------------------------------------------------------------------------------------- the climbers (the studio's splat bodies)
   const NCL = 4;                                                    // dosos ×2, acotxador, enxaneta
-  const kitC = createBodies({ THREE, TSL, room, max: NCL, builds: [2], lods: [0], seed: 31, blend: 'add' });
+  const kitC = createBodies({ THREE, TSL, room, max: NCL, builds: [2], lods: [0], seed: 31, blend: 'alpha' });   // alpha (Modelado): additive splats burnt to white
   object.add(kitC.object);
   kitC.setColors({ shirt: ['lluna', 1.0], skin: ['lluna', 0.75], trousers: ['blau-hora', 1.0], faixa: ['blau-hora', 1.3], hair: ['nit-alta', 1.2], glow: 'or' });
-  kitC.setSplat({ key: 0.8, lit: ['lluna', 0.62], half: ['blau-hora', 0.6], amb: ['nit-alta', 0.5], rim: ['lluna', 0.35], opacity: 0.62, glow: 0.6 });   // cool lluna key (AD #5: only the gold light is warm), cool back, monochrome; gold only at the crown
+  kitC.setSplat({ lit: ['or', 0.8], half: 'bronze', amb: 'tinta', key: 0.9, opacity: 1 });   // small BODIES in or with a bronze half-tone (AD #10), no glow but the crowned enxaneta
 
 
   // -------------------------------------------------------------------------------------------- glows (room frame): the light, the strand, rays
@@ -224,7 +224,7 @@ export function create(ctx) {
     onWallPlane(wi, p, _o0); _h.copy(p); _h.y += h; onWallPlane(wi, _h, _o1);
     const o = OB[obs.length]; o.wall = wi; o.x = _o0.x; o.half = half; o.y0 = Math.min(_o0.y, _o1.y) - 0.1; o.y1 = Math.max(_o0.y, _o1.y) + 0.1; obs.push(o);
   }
-  let splatKey = '', towerW = -1, hopFrom = -1, hopT = 1, standinW = 1, standinT = 0, focusSent = null;
+  let towerW = -1, hopFrom = -1, hopT = 1, standinW = 1, standinT = 0, focusSent = null;
   const arrivedW = [0, 0, 0];                                       // the tower where each climber arrived
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _h = new THREE.Vector3(), _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3();
   // the feet heights (REST frame: the tower not risen) of each climber's floor: the dosos stand on the top of the tronc (F − 2), the
@@ -336,7 +336,6 @@ export function create(ctx) {
       obstacle(wi, _a, 1.75 * sc, 0.32);
       if (active || (k === 3 && raiseK > 0.01)) { _b.copy(_a).addScaledVector(w.normal, 0.05); _b.y += 1.72 * sc; haveLight = true; }   // her raised hand: the light
     }
-    { const sk = stage === 'silence' ? 'silence' : 'gold'; if (sk !== splatKey) { splatKey = sk; kitC.setSplat(sk === 'gold' ? { lit: ['lluna', 0.6], half: ['bronze', 0.8], amb: 'tinta', key: 0.6, opacity: 0.48 } : { lit: ['lluna', 0.55], half: 'blau-hora', amb: 'tinta', key: 0.6, opacity: 0.48 }); } }   // sheet3 grain; a cool key (lit 'or' read as flames in the capture), the bronze half-tone from the gold light; the silence all lluna
     kitC.update(dt);
     if (haveLight && obs.length < OB.length) { _p1.copy(_b); _p1.y -= 0.35; obstacle(towerW, _p1, 0.7, 0.45); }   // the light's burst
     if (!haveLight) _b.set(0, -99, 0);

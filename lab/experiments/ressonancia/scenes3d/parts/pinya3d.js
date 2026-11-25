@@ -232,7 +232,8 @@ export function create({ THREE, TSL, room, params }) {
       if (q.app <= 0 && !go) { q.on = false; kit.hide(q.i); continue; }
       if (q.locked) { q.lockK = Math.min(1, q.lockK + dt / 1.4); q.x += ((q.slot ?? q.x) - q.x) * Math.min(1, dt * 0.8); }
       // place: the palm on the wall plane at (x, y); the body faces into the room
-      const w = walls[q.wall], yaw = Math.atan2(w.normal.x, w.normal.z);
+      const w = walls[q.wall], sgn = Math.sign(q.x || 1), turn = q.idle && q.stroke === null && !q.locked ? 0.45 : 0;   // a waiting figure turns a little towards its ring (AD #10: no shop window)
+      const yaw = Math.atan2(w.normal.x - w.right.x * sgn * turn, w.normal.z - w.right.z * sgn * turn);
       const pp = palmPlace(q, _pose);
       const e = smooth(q.app), lean = 0.04 * q.charge;                         // the weight goes into the hand
       const back = (1 - e) * q.back0 + (q.locked ? 0.12 * q.lockK : 0);
@@ -265,9 +266,8 @@ export function create({ THREE, TSL, room, params }) {
         // gold, held = a short gold flash; then the figure walks back into the ring
         const offered = q.idle && !q.charge ? 0.22 : 0, ch = q.charge > 0.01 ? 0.25 + 0.75 * q.charge : 0;
         const k = Math.max(offered, ch * (q.stroke !== null || q.idle ? 1 : 0.5)) * 0.9 + q.glow * 1.6, g = Math.min(1, (q.tActive || q.charge >= 1 ? 1 : 0) + q.glow * 2);
-        palmGlow(tmp.x + w.normal.x * 0.02, q.y, tmp.z + w.normal.z * 0.02, 0.06 + 0.08 * q.charge + 0.1 * q.glow, k * there * q.app, g);
-        palmGlow(tmp.x + w.normal.x * 0.02, q.y, tmp.z + w.normal.z * 0.02, 0.28 + 0.12 * q.charge, k * 0.18 * there * q.app, g); }
-      kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: Math.max(e * wf * there, there > 0.95 && e > 0.95 ? 1 : 0), fmode: 'gather', lod: 'near', pool: held ? 0.35 : 0 });
+        if (g > 0) palmGlow(tmp.x + w.normal.x * 0.02, q.y, tmp.z + w.normal.z * 0.02, 0.07 + 0.1 * q.glow, k * g * there * q.app, 1); }   // the warm light is the kit's palmGlow; this is only the gold of active / held
+      kit.set(q.i, { palmGlow: (q.charge > 0.01 || q.stroke !== null ? 1 : q.idle ? 0.6 : 0) * there, pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: Math.max(e * wf * there, there > 0.95 && e > 0.95 ? 1 : 0), fmode: 'gather', lod: 'near', pool: held ? 0.35 : 0 });
     }
     pgGeo.instanceCount = nPG; PGA.needsUpdate = true; PGC.needsUpdate = true;
     kit.update(dt);
