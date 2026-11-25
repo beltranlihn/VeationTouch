@@ -181,7 +181,7 @@ function stepBloom(dt) {
   room.setBloom(bloomNow);
 }
 room.setBloom(bloomNow);
-lt('parts'); const guide = createGuide({ THREE, TSL, room });
+lt('parts'); const guide = createGuide({ THREE, TSL, room, studio: P.mode === 'lab' });   // T-069 (Vicente 25-11): rulers and wall IDs only in mode 'lab'
 room.overlay.add(guide.object);   // T-028: the guide is drawn over the final image (after the tiles: the words never break); its materials are depthTest-free
 // compile every material once, now, so a universe arriving later does not stall the room
 // T-057 (prewarmRT): into the strip's format — with no target, compileAsync built pipelines for the canvas that no frame uses
