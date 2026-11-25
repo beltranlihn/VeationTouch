@@ -406,7 +406,7 @@ export function create(ctx) {
         // AD#12: no ring (it read as UI) — dawn dust lifting from the hand: a soft warm glow that drifts up a little as it ages
         const up = vQ.y.sub(age.mul(0.35).min(0.5)), r2u = vQ.x.mul(vQ.x).mul(1.6).add(up.mul(up));
         const dust = exp(r2u.mul(-9.0)).mul(exp(age.mul(-0.6))).mul(0.32).add(halo.mul(0.5));
-        out.assign(vec4(v3(C.sun).mul(0.9).add(v3(C.rose).mul(0.2)), dust.min(0.6)));   void ring;
+        out.assign(vec4(v3(C.sun).mul(0.55).add(v3(C.rose).mul(0.35)), dust.min(0.35)));   void ring;
       }).ElseIf(vK.lessThan(1.5), () => {
         // a GLASS flower (ARTE round 2): a rosette of 6–9 shards — each petal a long irregular kite of clear glass with a bright rim, a
         // little turned from its neighbours, the caught shard's tint on 1 in 3, a cluster of small bright chips at the heart; it opens with `grow`
