@@ -4,6 +4,7 @@
 // Timeline on input.t (the intro, 70 s): 53–64 the motto, one wall after another, 2 s apart (Fuerza · Equilibrio · Valor · Seny, the
 // Catalan under each); 63.8–79 «Ressonància» on every wall (the host sends t = 76 → 79 as it leaves). No «put your hands on the wall» here: nothing
 // counts until the Brasa (analysis #7), and the Brasa says it.
+// 25-11: the Catalan word in the card's italic on its hairlines (the work's one type system), no plates.
 import { typo } from '../typo3d.js';
 
 const MOTTO = [['Fuerza', 'força'], ['Equilibrio', 'equilibri'], ['Valor', 'valor'], ['Seny', 'seny']];
@@ -16,7 +17,7 @@ export function create({ THREE, room }) {
   const motto = room.walls.map((w, i) => {
     const t = typo.text({ placements: [walls[i]], renderOrder: 10, plate: 0, spread: 2.2, depth: 0.4 });
     const [es, ca] = MOTTO[i % MOTTO.length];
-    t.set([{ text: es, font: 'serif', size: 0.5, y: 0.1, track: 0.01, color: INK }, { text: ca, font: 'sans', size: 0.085, y: -0.3, track: 0.4, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
+    t.set([{ text: es, font: 'serif', size: 0.5, y: 0.1, track: 0.01, color: INK }, { text: ca, font: 'italic', size: 0.17, y: -0.3, track: 0.02, alpha: 0.85, color: SOFT, rules: 0.4, rise: true }]);
     t.alpha[0] = 1; object.add(t.object);
     return t;
   });
