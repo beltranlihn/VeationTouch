@@ -303,6 +303,7 @@ export function create(ctx) {
   // per piece, live: turn and its speed, colour (until when), light, gone (fallen), last crossing
   const sleep = new Uint8Array(NC), HL2 = LL / 2, SH2 = LL * 0.37, CU = Float64Array.from(cells, (c) => c.cu), CY = Float64Array.from(cells, (c) => c.cy);
   const paintAt = new Float32Array(NC).fill(-9);   // studio 25-11: when a piece was last painted from rest
+  const rub = new Float32Array(NC);                // studio 25-11: how much a hand has rubbed this piece (the more, the more fall, the wider)
   const phi = new Float32Array(NC), vphi = new Float32Array(NC), colT = new Float32Array(NC).fill(-1), glow = new Float32Array(NC), gone = new Uint8Array(NC), resT = new Float32Array(NC).fill(-9);
   const stData = new Float32Array(TW * TH * 4);
   const stTex = new THREE.DataTexture(stData, TW, TH, THREE.RGBAFormat, THREE.FloatType);
@@ -802,9 +803,10 @@ export function create(ctx) {
     chipAttr.needsUpdate = true;
   }
   // a loose piece (states: 1 falling, 2 at rest, 3 at rest in chips, 4 / 5 going home — 5: its chips gather first); true when it is home
+  const LOOSE_DROP = 0.55;
   function stepLoose(s, dt) {
     if (s.state === 1) {
-      const hh = s.sc.z * 0.1 + 0.008;
+      const hh = s.sc.z * 0.1 + 0.008 - LOOSE_DROP;   // studio 25-11 (Beltrán): they fall ~0.5 m below what the camera sees, so they never pile up on screen
       if (integrateFree(s.p, s.v, s.q, s.w, dt, s, hh)) {
         const iv = -s.v.y;
         s.p.y = hh;
@@ -1062,6 +1064,7 @@ export function create(ctx) {
         lift = 0.15 + c.over * (0.5 + c.r2) + Math.sin(time * 0.31 + c.r1 * 6.28) * 0.12; sc = 1 - 0.55 * c.over;
       } else {
         const cu_ = CU[i], cy_ = CY[i];
+        if (rub[i] > 0) rub[i] *= Math.exp(-dt * 0.25);
         let ds = cu_ - cy_ * 0.6 - idleC, sh = 0;                                     // the idle shimmer: two soft bands going round (a cheap bump, no exp)
         if (ds < -HL2) ds += LL; if (ds < -HL2) ds += LL; if (ds > HL2) ds -= LL;
         if (ds > -3.6 && ds < 3.6) { const u = 1 - (ds * ds) / 12.96; sh = u * u * u; }
@@ -1084,7 +1087,11 @@ export function create(ctx) {
             // studio 25-11 (Beltrán, the SECOND INTENSITY): a hand passing again over pieces it already painted (painted ≥ 1.2 s ago) brings
             // them down — they fall to the floor, and later fly back to their bed at rest (see the return below), unless touched again
             const painted = colT[i] > time;
-            if (painted && !gone[i] && !c.mother && time - paintAt[i] > 1.2 && hsp[k] > 0.12 && dd < 0.14 && goneN < 220 && rnd() < dt * 7) letGo(i, 0.9);
+            // the more a hand rubs the same place, the more falls: each piece keeps the rubbing (a moving hand near it), which widens the
+            // reach (0.37 m → 0.6 m) and speeds the fall; it fades in ~4 s once the hand has gone
+            if (painted && hsp[k] > 0.08) rub[i] = Math.min(3, rub[i] + dt * (1 - dd / 0.3) * (0.6 + hsp[k]));
+            const R2 = 0.14 + 0.22 * Math.min(1, rub[i] / 1.5);
+            if (painted && !gone[i] && !c.mother && time - paintAt[i] > 1.2 && hsp[k] > 0.08 && dd < R2 && goneN < 260 && rnd() < dt * (4 + 8 * rub[i])) letGo(i, 0.9);
             if (!painted) paintAt[i] = time;
             if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { glow[i] = Math.max(glow[i], 1.0 * (1 - dd / 0.3)); vphi[i] += 5; }
           }
@@ -1171,7 +1178,7 @@ export function create(ctx) {
       const s = c.owner;
       if (s.state === 3) {
         if (!c.rest) {
-          const hh = c.s * 0.1 + 0.004;
+          const hh = c.s * 0.1 + 0.004 - LOOSE_DROP;   // studio 25-11: the chips too, below the camera
           if (integrateFree(c.p, c.v, c.q, c.w, dt, s, hh)) { c.p.y = hh; if (-c.v.y > 0.6) { c.v.y *= -0.3; c.v.x *= 0.8; c.v.z *= 0.8; c.w.multiplyScalar(0.5); } else { c.v.y = 0; c.v.multiplyScalar(Math.exp(-dt * 1.4)); c.w.multiplyScalar(Math.exp(-dt * 6)); if (c.v.lengthSq() < 0.002) { c.rest = true; c.from.copy(c.p); } } }
         }
         _s.setScalar(c.s * (1 - smooth(0, 1, leave)));
