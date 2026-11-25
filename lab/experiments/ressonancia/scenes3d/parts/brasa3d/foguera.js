@@ -14,7 +14,7 @@
 
 const NL = 10, NT = 120, NR = 16;          // foguera: sheets, columns, rows
 const NI = 16, NIT = 96;                    // islet: terraces, segments
-export const FOG_D = 0.9;                   // metres beyond the wall (near: it is seen 1.2–1.3 m tall with the apex ≤ 1.65 m)
+export const FOG_D = 1.6;                   // metres beyond the wall (near: it is seen 1.2–1.3 m tall with the apex ≤ 1.65 m)
 export const FOG_X = 1.5;                   // metres to the right of the wall's centre, out of the button's axis (all 4 walls)
 export const NPULSE = 12;
 
@@ -46,7 +46,7 @@ export function createFoguera({ THREE, TSL, room, U, world, ringPoint, hearthS, 
     const c = C[i], f = FR[i], rx = f.y, rz = -f.x, va = Math.atan2(-0.8, 0.6);
     const dx = rx * Math.cos(va) + f.x * Math.sin(va), dz = rz * Math.cos(va) + f.y * Math.sin(va);
     const w = Math.min(i, NW - 1); ringPoint(hearthS[w] + FOG_X + 0.9, 4.2, _v);
-    VS.push(new THREE.Vector4(c.x - f.x * 0.75 + dx * 1.2, c.y - f.y * 0.75 + dz * 1.2, _v.x, _v.z));
+    VS.push(new THREE.Vector4(c.x - f.x * 0.9 + dx * 1.05, c.y - f.y * 0.9 + dz * 1.05, _v.x, _v.z));
   }
   const uVS = uniformArray(VS, 'vec4');
   // per wall live state: x = open left, y = open right, z = core heat, w = lava (0.6 .. 2.5)
@@ -105,7 +105,7 @@ export function createFoguera({ THREE, TSL, room, U, world, ringPoint, hearthS, 
     g.instanceCount = Math.min(4, NW);
     return g;
   })();
-  const SP = 0.05, CARD = 0.025, WB = 0.92;                               // spacing between sheets, card thickness, back sheet half-width
+  const SP = 0.05, CARD = 0.025, WB = 1.0;                               // spacing between sheets, card thickness, back sheet half-width
   const kF = (k) => k.div(NL - 1);
   const sheetW = (k) => float(WB).mul(float(1).sub(kF(k).mul(0.66)));
   // the sheet's top at normalized x (-1..1): an envelope × tongues
@@ -198,12 +198,12 @@ export function createFoguera({ THREE, TSL, room, U, world, ringPoint, hearthS, 
     g.instanceCount = Math.min(4, NW);
     return g;
   })();
-  const TH = 0.022, ISL_BACK = 0.75;
+  const TH = 0.022, ISL_BACK = 0.9;   // the islet's front edge ≥ 1.3 m beyond the wall: ≥ 40 cm of reflection under it
   const VEIN_A = Math.atan2(-0.8, 0.6);                                         // the vein runs back and right, to the ember ring
   // the terrace k's outline radius at angle a (local frame: a = 0 along +right, π/2 towards the eye) and its centre shift (back)
   const isR = (k, a, seed) => {
     const f = k.div(NI);
-    const R = float(1.35).mul(float(1).add(sin(a.mul(2.0).add(seed)).mul(0.11)).add(sin(a.mul(3.0).add(seed.mul(2.3))).mul(0.07)).add(sin(a.mul(7.0).add(seed.mul(4.1))).mul(0.03)));
+    const R = float(1.2).mul(float(1).add(sin(a.mul(2.0).add(seed)).mul(0.11)).add(sin(a.mul(3.0).add(seed.mul(2.3))).mul(0.07)).add(sin(a.mul(7.0).add(seed.mul(4.1))).mul(0.03)));
     const wob = sin(a.mul(5.0).add(k.mul(1.7)).add(seed)).mul(0.035).add(sin(a.mul(11.0).sub(k.mul(2.9))).mul(0.012));
     // the vein's groove: the terraces are notched where it runs (towards the eye, a ≈ π/2)
     const dv = a.sub(VEIN_A), notch = exp(dv.mul(dv).mul(-30.0)).mul(0.08).mul(f);

@@ -137,7 +137,7 @@ export function createFons({ THREE, TSL, room, U, world, ringPoint, heatSample, 
       const bal = select(p.equal(1), balcony(X, xc, Y, Yg), vec4(0, 0, 0, 0));
       const balUnder = bal.x.mul(float(1).sub(step(0.66, fract(Y.sub(d).sub(Yg).div(float(2.4).sub(Yg)).mul(3.0)))));
       const edgeK = max(under, balUnder.mul(0.8)).mul(fk);
-      const edge = mix(EDGE0, EDGE1, smoothstep(0.6, 1.6, fk)).mul(edgeK).mul(0.16);
+      const edge = mix(EDGE0, EDGE1, smoothstep(0.6, 1.6, fk)).mul(min(edgeK, 1.0)).mul(0.6).mul(select(p.lessThan(0.5), float(1), float(0.5)));   // T-063c: the arches' rim at 60 %
       const win = select(p.equal(1), windowAt(xc, Y, wi), float(0)).mul(sol);
       const flick = sin(U.time.mul(1.885).add(wi.mul(2.1))).mul(0.1).add(0.9);
       const winC = WIN.mul(win).mul(0.4).mul(flick).mul(0.35);
@@ -152,9 +152,10 @@ export function createFons({ THREE, TSL, room, U, world, ringPoint, heatSample, 
       }
       If(sol.lessThan(0.5).and(p.lessThan(2.5)), () => { Discard(); });
       // the charcoal planes, lit from below (stronger at the foot), the relief of balconies a shade lighter
-      const lift = exp(Y.sub(Yg).div(-0.35)).mul(fk).mul(0.012);
+      const lift = exp(Y.sub(Yg).div(-0.35)).mul(fk).mul(0.012).mul(select(p.lessThan(0.5), float(2), float(1)));
       const relief = bal.y.mul(0.004).add(bal.z.mul(0.002));
-      const body = pcol(p).mul(0.55).add(EDGE1.mul(lift)).add(relief);
+      const pK = select(p.lessThan(0.5), float(2), select(p.lessThan(1.5), float(1.5), float(1)));   // T-063c: porxos ×2, façades ×1.5
+      const body = min(pcol(p).mul(0.55).mul(pK).add(EDGE1.mul(lift)).add(relief), vec3(0.08, 0.08, 0.08));
       const cold = COLD.mul(topEdge).mul(0.2).mul(0.12).mul(select(p.equal(3), float(1), float(0.25)));
       const plane = body.add(edge).add(winC).add(cold);
       const sky = mix(SKY0, SKY1, smoothstep(1.65, 3.6, Y)).mul(0.9);
