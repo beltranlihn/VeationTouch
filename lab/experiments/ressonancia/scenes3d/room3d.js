@@ -454,7 +454,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       air: { density: 0.014, height: 0.14, heightK: 0.4, start: 3.6, max: 0.8, key: { dir: [1, 0.08, 0], token: 'alba-rosa', k: 0.35 } } },
     fall:    { ev: 0.35, sat: 0.75, contrast: 1.02, lo: 'tinta', loK: 0.3, hi: 'cendra', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.016, height: 0.2, heightK: 0.5, start: 3.6, max: 0.8 } },
-    acta:    { ev: 0.1, sat: 1.15, contrast: 1.05, lo: 'ombra', loK: 0.12, hi: 'cal-fanal', hiK: 0.22, lift: 'ombra', liftK: 0.25, ceil: 0.88, vTop: 0.1, vBot: 0.0, bloom: 0.7, sky: 1,
+    acta:    { ev: 0.35, sat: 1.25, contrast: 1.05, lo: 'ombra', loK: 0.12, hi: 'cal-fanal', hiK: 0.22, lift: 'ombra', liftK: 0.25, ceil: 0.88, vTop: 0.1, vBot: 0.0, bloom: 0.7, sky: 1,
       air: { density: 0.008, height: 0.15, heightK: 0.4, start: 3.6, max: 0.7, key: { dir: [0.6, 0.3, -1], token: 'cal', k: 0.2 } } },
   };
   // ---- the background: a sphere round the eye (r 320 m, inside the far plane), drawn first, without depth: whatever a part draws covers

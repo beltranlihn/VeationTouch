@@ -81,7 +81,7 @@ export const PAL = {
   fall:    { tones: ['cendra', 'brasa', 'tinta'], accent: 'brasa', light: 'cendra', shadow: 'tinta', ink: 'os', luma: 0.20, dark: true,
     story: 'Ash and embers', sky: { top: ['cendra', 0.45], horizon: ['cendra', 0.75], bottom: ['tinta', 1.0] } },
   acta:    { tones: ['cal', 'tinta-text', 'ombra'], accent: 'or', light: 'cal', shadow: 'ombra', ink: 'tinta-text', luma: 0.45, dark: false,
-    story: 'The lime wall in the morning light, written', sky: { top: ['cal', 0.8], horizon: ['cal', 0.95], bottom: ['cal', 0.7] } },   // AD#13: warm lime (the ombra bottom read as a burn); the plinth is drawn
+    story: 'The lime wall in the morning light, written', sky: { top: ['cal', 0.36], horizon: ['cal', 0.44], bottom: ['cal', 0.32] } },   // AD#13: warm lime (the ombra bottom read as a burn); the plinth is drawn
 };
 
 // ---- conversions (no THREE needed)
