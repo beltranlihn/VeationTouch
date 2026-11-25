@@ -1220,7 +1220,7 @@ export function create(ctx) {
   }
   const _hp = new THREE.Vector3(), _ord = Array.from({ length: NL }, (_, i) => i);
   // the festival spots: per castell wall, from 13 m up and 5 m to one side (alternating), 3 m beyond the tower, aimed at its foot
-  const SPOT_K = 2600, SPOT_A = 15 * Math.PI / 180;
+  const SPOT_K = 700, SPOT_A = 15 * Math.PI / 180;   // (the pools: a stage pool, not a floodlit floor — AD m-tronc)
   const shafts = new THREE.Group(); shafts.name = 'plaza:shafts'; object.add(shafts);
   {
     const coneG = new THREE.CylinderGeometry(0.15, 1, 1, 40, 1, true).translate(0, -0.5, 0);   // apex at 0, opening down to y = -1
@@ -1246,7 +1246,7 @@ export function create(ctx) {
   function placeSpots(td, mode = 'tronc') {
     const key = td + mode; if (key === spotTD) return; spotTD = key; spotMode = mode;
     const nw = room.walls.length, cross = mode === 'tronc', n = cross ? Math.min(NSP, nw * 2) : Math.min(NSP, nw);
-    const A = (cross ? 11 : 21) * Math.PI / 180;
+    const A = (cross ? 8 : 18) * Math.PI / 180;
     for (let i = 0; i < NSP; i++) {
       const c = shafts.children[i];
       if (i >= n) { spotP[i].w = 0; c.visible = false; continue; }
@@ -1254,7 +1254,7 @@ export function create(ctx) {
       _sf.copy(w.centre).addScaledVector(w.normal, -td); _sf.y = cross ? 3.2 : 0.6;                       // tronc: the beams cross over the tower
       _ss.copy(_sf).addScaledVector(w.right, side * (cross ? 5.0 : 3.0)).addScaledVector(w.normal, cross ? -4.0 : -1.0); _ss.y = cross ? 13.0 : 9.0;
       _sd.copy(_sf).sub(_ss).normalize();
-      spotP[i].set(_ss.x, _ss.y, _ss.z, cross ? SPOT_K * 2 : SPOT_K * 0.75);   // AD 25-11: the tower's beams ×2 spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
+      spotP[i].set(_ss.x, _ss.y, _ss.z, cross ? SPOT_K : SPOT_K * 1.4);   // the beams read by their shafts (×2), the pools stay small spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
       const len = _ss.distanceTo(_sf) * (cross ? 1.9 : 1.15), rad = len * Math.tan(A);
       c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad, len, rad);
     }

@@ -794,9 +794,9 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       // how far behind the wall: the wall distance in this direction ≈ the nearest wall plane (rectangle room)
       let wd = float(1e3);
       for (const w of walls) { const den = d.x.mul(-w.normal.x).add(d.z.mul(-w.normal.z)).div(max(dist, 1e-3)); const dd = -((w.pa.x - eye.x) * w.normal.x + (w.pa.z - eye.z) * w.normal.z); wd = min(wd, select(den.greaterThan(0.05), float(dd).div(den), float(1e3))); }
-      const behind = dist.sub(wd), band = exp(behind.sub(1.1).div(0.9).pow(2).negate());
+      const behind = dist.sub(wd), band = exp(behind.sub(0.9).div(0.55).pow(2).negate());
       const flick = mx_noise_float(vec3(pw.x.mul(1.3), time.mul(0.4), pw.z.mul(1.3))).mul(0.15).add(0.9);
-      return mix(TERR, CALF, clamp(H, 0, 1)).mul(H.mul(band).mul(flick).mul(1.6));
+      return mix(TERR, CALF, clamp(H.mul(0.5), 0, 1)).mul(H.mul(band).mul(flick).mul(0.9));
     })();
     const ground = new THREE.Mesh(new THREE.CircleGeometry(70, 120).rotateX(-Math.PI / 2), gm); ground.position.y = 0.002; ground.receiveShadow = true;
     field.group.add(ground);
@@ -812,9 +812,9 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     field.group.add(glow);
     // the far square, only suggested: facades as sparse warm points at 26–42 m, dissolving into the haze (the room's air)
     {
-      const NPT = 26000, pos = new Float32Array(NPT * 3); let s0 = 99173; const rn = () => { s0 = (s0 * 1664525 + 1013904223) >>> 0; return s0 / 4294967296; };
+      const NPT = 9000, pos = new Float32Array(NPT * 3); let s0 = 99173; const rn = () => { s0 = (s0 * 1664525 + 1013904223) >>> 0; return s0 / 4294967296; };
       for (let i = 0; i < NPT; i++) {
-        const a = rn() * Math.PI * 2, rad = 26 + rn() * 16, blockA = Math.floor(a / 0.21), hgt = 9 + ((blockA * 7919) % 7);
+        const a = rn() * Math.PI * 2, rad = 26 + rn() * 16, blockA = Math.floor(a / 0.21), hgt = 5 + ((blockA * 7919) % 4);
         let y = rn() * hgt; const wy = (y % 3.2) / 3.2, wa = (a * rad % 2.4) / 2.4;
         if (rn() < 0.55) y = Math.floor(y / 3.2) * 3.2 + 1.2 + (rn() - 0.5) * 0.9;            // windows' rows
         if (rn() < 0.12) y = hgt;                                                             // roof lines
@@ -822,7 +822,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       }
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       const pmat = new THREE.PointsNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-      pmat.colorNode = CALF.mul(0.32).mul(field.k).mul(exp(length(positionWorld.sub(eyeU)).sub(26.0).mul(-0.06)));
+      pmat.colorNode = CALF.mul(0.16).mul(field.k).mul(exp(length(positionWorld.sub(eyeU)).sub(26.0).mul(-0.06)));
       const pts = new THREE.Points(g, pmat); pts.frustumCulled = false; field.group.add(pts);
     }
     field.group.position.set(eye.x, 0, eye.z);
