@@ -34,8 +34,8 @@ the full work and may speak instructions the trailer does not show.
 - 2026-11-25: lab harness, off-screen Electron window, 60 fps at scale 0.5, all ten key moments captured (Desktop «Ressonancia - Trailer»).
 - To do: fps at `?scale=1`, the real engine (`lab-engine.mjs`), the sound with the trailer, the seam P3→P4 with words on screen.
 
-## To confirm (Beltrán)
-Credits and data are drafts: «Una obra de Vicente Manzano», «Dirección creativa: Alma Digital Studio», «Producción: Barcelona XR Lab»,
+## Credits and data
+Approved by Beltrán on 2026-11-25 («Así están bien»): «Una obra de Vicente Manzano», «Dirección creativa: Alma Digital Studio», «Producción: Barcelona XR Lab»,
 «Tecnología interactiva: VEATION Touch», «10 minutos», «de 2 a 15 personas». The Generalitat de Catalunya logo is missing (a line of
 type stands in). The Barcelona XR Lab logo file carries «PALO ALTO»: cleared at runtime.
 
