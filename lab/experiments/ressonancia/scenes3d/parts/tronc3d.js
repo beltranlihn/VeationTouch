@@ -508,7 +508,7 @@ export function create(ctx) {
     kit.uniforms.crack.value = 0.55;
     kit.setSplat({ contact: 1, backAO: 1 });   // one clean warm tone: the half a desaturated terracota (no «veined meat»)   // the one warm ramp (AD); dark gaps where the floors meet
   }
-  let lightMode = '', breathK = 0, crownT = 0, crownK = 0;
+  let lightMode = '', breathK = 0, crownT = 0, crownK = 0, fallT = 0;
   let castMode = 'build', focusY = null;
   // the look per mode (AD #10): the Tronc / crown / bajada warm (cal-foc ramp); the Pom an almost cold silhouette in lluna — only the
   // Pom's gold light (Interacción) is warm there
@@ -533,6 +533,10 @@ export function create(ctx) {
     for (const t of towers) t.st.forEach((s, lv) => { s.downT = castMode === 'down' && scoreFloors != null && lv > scoreFloors && lv > 0 ? (s.downT || 0) + dt : 0; });
     for (const t of towers) { if (t.lvAcc) { t.lvPos = t.lvAcc.map((a) => (a[2] ? { x: a[0] / a[2], z: a[1] / a[2], y: a[3] } : null)); for (const a of t.lvAcc) { a[0] = a[1] = a[2] = 0; a[3] = 1e9; } } }
     crownT = castMode === 'crowned' ? crownT + dt : 0;   // the crown: gold rises from the foot to the enxaneta, floor by floor
+    // THE FALL (setMode('fall'), or fall3d's collapse() on this tower): the same castell comes down — floors dissolve into falling dust from the
+    // top (0.45 s apart, 0.8 s each, ≈ 4 s), the pinya stays, kneeling under it; no plaster sculpture any more
+    const falling = !OLD && (castMode === 'fall' || col.on);
+    fallT = falling ? fallT + dt : 0;
     // against the luminous gold air the tower must be a dark-and-gold sculpture: denser, a dark rim, the shadow side to bronze
     { const cw = castMode === 'crowned' ? 1 : 0; crownK += (cw - crownK) * Math.min(1, dt * 1.5); kit.setSplat({ darkRim: 0.9 * crownK, opacity: 1 + 0.5 * crownK }); }
     const lm = withScore ? 'scene' : 'self'; if (lm !== lightMode) { lightMode = lm; kit.setLighting(lm); }
@@ -544,7 +548,7 @@ export function create(ctx) {
       if (!visT) t.g.position.copy(t.w.centre).addScaledVector(t.w.normal, -TOWER_D).setY(0);
       for (const c of CAST) {
         const i = n++; if (i >= kit.count) break;
-        if ((!visT && !(ringOnly && c.lv === 0)) || col.on) { kit.hide(i); continue; }
+        if (!visT && !(ringOnly && c.lv === 0) && !(falling && t.on)) { kit.hide(i); continue; }
         const S = t.st[c.lv];
         if (castMode === 'top' && c.lv >= 7) { kit.hide(i); continue; }      // the Pom draws its climbers (Interacción); crowned: shown again
         // the bajada (Art Director): a floor taken by baixada3d does not vanish — its bodies dissolve into light (≈ 2.5 s)
@@ -552,14 +556,18 @@ export function create(ctx) {
         // the bajada: the floors still up stay as figures inside the dust (half dissolved) until the score brings them down; a floor that
         // has come down dissolves into light in ~1.5 s
         const down = castMode === 'down' && !OLD, upNow = scoreFloors == null || c.lv <= scoreFloors;
-        const shown = c.lv === 0 || (down ? S.shown !== false && (upNow || (S.downT || 0) < 1.5) : S.shown && (!S.taken || tk < 4.5) && (S.solid > 0.001 || S.forming || S.goneT >= 0 || S.taken));
-        if (!shown || (S.goneT >= 1.6)) { kit.hide(i); continue; }
+        const shown = falling ? (c.lv === 0 || (c.lv <= Math.max(floorsNow, keepFloors) && fallT < (9 - c.lv) * 0.45 + 3.2))
+          : (c.lv === 0 || (down ? S.shown !== false && (upNow || (S.downT || 0) < 1.5) : S.shown && (!S.taken || tk < 4.5) && (S.solid > 0.001 || S.forming || S.goneT >= 0 || S.taken)));
+        if (!shown || (!falling && S.goneT >= 1.6)) { kit.hide(i); continue; }
         // a floor that forms climbs into place with the lift; one that slips drops and goes
         // particles: a forming floor ASSEMBLES from streams (with the lift), a slipping one falls as dust; no body moves as a block
         let dy = 0, form = 1, fmode = 'gather';
         if (c.lv > 0 && S.forming && S.solid < 1) { form = Math.min(1, S.lift * 0.8 + S.solid * 0.6); dy = -(1 - form) * 0.15; }   // the next floor gathers only as the hands lift it   // the next floor hovers half-formed until the hands lift it
         if (S.goneT >= 0) { form = Math.max(0, 1 - S.goneT / 1.4); fmode = 'dust'; }
-        if (down) { if (S.taken) { form = upNow ? Math.max(0.8, 1 - tk / 2.5) : Math.max(0, 0.8 - (S.downT || 0) / 1.5 * 0.8); fmode = 'light'; } else if (!upNow) { form = Math.max(0, 1 - (S.downT || 0) / 1.5); fmode = 'light'; } }
+        if (falling) {
+          if (c.lv > 0) { const k = Math.min(1, Math.max(0, (fallT - (9 - c.lv) * 0.45) / 0.8)); form = 1 - k; fmode = 'dust'; }
+          else form = 1;
+        } else if (down) { if (S.taken) { form = upNow ? Math.max(0.8, 1 - tk / 2.5) : Math.max(0, 0.8 - (S.downT || 0) / 1.5 * 0.8); fmode = 'light'; } else if (!upNow) { form = Math.max(0, 1 - (S.downT || 0) / 1.5); fmode = 'light'; } }
         else if (S.taken) { form = tk < 3.5 ? Math.max(0.5, 1 - tk / 2.5) : Math.max(0, 0.5 - (tk - 3.5) * 0.5); fmode = 'light'; }   // half dissolved, the figure still there, then gone
         // (the pinya stays whole: a form < 1 left particles hanging below the bodies — the «stalactites»)
         const sw = c.lv > 0 && !OLD ? Math.sin(time * 0.45 + t.tw * 1.7) * 0.012 * Math.min(1, c.y / 3) : 0;   // the trunk sways, 1–2 cm, slowly
@@ -727,7 +735,7 @@ export function create(ctx) {
         if (s.goneT >= 4.2 && col.on) s.shown = false;
         U.floor.array[lv].set(s.solid, s.forming, s.goneT, s.flash);
         const vis = s.shown && !s.taken && built && !!t.solid[lv];
-        if (t.solid[lv]) { t.solid[lv].visible = vis && s.solid > 0.001 && s.goneT < 0 && (!kit || col.on); t.grain[lv].visible = vis && (!kit || col.on || (OLD && ((s.forming && s.solid < 1) || s.goneT >= 0 || t.U.lean.value.y > 0.05))); }
+        if (t.solid[lv]) { t.solid[lv].visible = vis && s.solid > 0.001 && s.goneT < 0 && !kit; t.grain[lv].visible = vis && (!kit || (OLD && ((s.forming && s.solid < 1) || s.goneT >= 0 || t.U.lean.value.y > 0.05))); }
       }
       // the lean: a damped spring towards lean·7°, weak trembles it
       let lean = S ? (S.lean?.[t.tw] || 0) : (pr.lean ?? 0) * (t.tw % 2 ? -1 : 1);
