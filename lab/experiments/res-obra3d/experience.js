@@ -188,13 +188,14 @@ function wantedBase(b) {
     case 'intro': return ['plaza', 'atmos', 'castell', 'introtext'];
     case 'brasa': return has('brasa3d') ? ['plaza', 'brasa3d', 'atmos'] : ['plaza', 'atmos'];   // 25-11 (VFX): the square at night, lamps almost off, the fires light the facades (plaza detects 'brasa')
     // 05-plan D5b: the LIT square (plaza.js V8 turns to plaza light by itself in pinya / tronc) behind the crowd and the tower
-    case 'pinya': return has('pinya3d') ? ['pinya3d', 'atmos'] : ['castell', 'atmos'];   // Beltrán 25-11: the Pinya is ABSTRACT (the square dissolves); it re-forms round the tower
+    case 'pinya': return has('pinya3d') ? ['plaza', 'pinya3d', 'atmos'] : ['plaza', 'castell', 'atmos'];   // 25-11 (director): back in the square, a warm-haze mood (VFX); brasa>pinya>tronc keep the world
     case 'tronc': return has('tronc3d') ? ['plaza', 'tronc3d', 'atmos'] : ['plaza', 'castell', 'atmos'];   // T-032 (3D-FE): the assemblage tower carries its own light bodies
     case 'baixada':                                                  // 3D-FE: the group's tower (tronc3d) is brought down floor by floor (3D-PO, takeFloor)
       if (has('tronc3d')) return has('baixada3d') ? ['plaza', 'tronc3d', 'baixada3d'] : ['tronc3d', 'atmos'];   // plaza as a black silhouette against 3D-PO's dawn (far layer)   // director 24-11: no night square over the dawn; 3D-PO hides tronc3d's floors itself
       return has('baixada3d') ? ['plaza', 'castell', 'baixada3d', 'atmos'] : ['plaza', 'castell', 'atmos'];
     case 'pom': return has('pom3d') ? ['plaza', ...castellKept(), 'pom3d'] : ['plaza', 'castell', 'atmos'];   // 25-11 (art direction): the same square at its darkest, the tower 'top', pom3d's climbers and gold light on it
-    case 'crown': case 'festa': return has('festa3d') ? ['festa3d', ...castellKept()] : ['plaza', 'castell', 'atmos'];
+    case 'crown': return ['plaza', ...castellKept()];   // 25-11: the coronation happens in the square (the tower turns gold, gold light on the facades)
+    case 'festa': return has('festa3d') ? ['festa3d', ...castellKept()] : ['plaza', 'castell', 'atmos'];   // crown>festa: the square leaves with its 3D break into festa3d's gold world
     case 'fall': return fallSet;
     case 'acta': return ['actatext', 'atmos'];
     default: return ['atmos'];
