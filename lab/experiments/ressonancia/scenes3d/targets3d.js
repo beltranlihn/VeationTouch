@@ -25,14 +25,15 @@ const DONE = {
   echo: { to: [1.2, 0, 0], secs: 1.2 }, crown: { to: [0, 1.6, 0], secs: 1.4 }, print: { to: [0, 0, -0.02], secs: 2.8 },
   other: { to: [0, 0.5, 0], secs: 1.0 },
 };
-const SKIN_OF = (t, block) => (t.kind === 'fire' || t.kind === 'relay' || block === 'brasa' ? 'brazier' : t.shape === 'pillar' || ['call', 'echo', 'crown'].includes(t.kind) ? 'column'
+const SKIN_OF = (t, block) => (t.shape === 'pillar' || ['call', 'echo', 'crown'].includes(t.kind) ? 'column' : t.kind === 'fire' || t.kind === 'relay' || block === 'brasa' ? 'brazier'
   : t.shape === 'rect' || ['rung', 'foot', 'down'].includes(t.kind) ? 'ashlar' : 'plaque');
 
 export function createTargets3D({ THREE, TSL, room }) {
-  const { uniform, vec3, float, smoothstep, abs, max, mix, step, attribute, positionLocal, normalLocal, uv, length, mx_noise_float } = TSL;
+  const { uniform, vec3, float, smoothstep, abs, max, mix, step, attribute, positionGeometry, normalGeometry, uv, length, mx_noise_float } = TSL;   // geometry, not local: an instanced mesh's local position is already moved
   const object = new THREE.Group(); object.name = 'targets3d';
   const uTime = uniform(0), FLARE = uniform(0), GOLD = vec3(...ACH.lin);
   const LIGHT = uniform(new THREE.Vector3(...chapter('wait').lin.light)), lightNow = chapter('wait').lin.light.slice();   // the chapter's light tone, eased
+  const LIGHTK = uniform(0), FIREK = uniform(0);   // a light chapter (bronze edge on the columns) · the Brasa (the columns are fire)
   const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate));
   const sm = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
   const ceramic = (o) => (room.matter?.ceramic ? room.matter.ceramic(o) : new THREE.MeshStandardNodeMaterial({ color: 0xd8c6a6, roughness: 0.6 }));
@@ -51,26 +52,27 @@ export function createTargets3D({ THREE, TSL, room }) {
     return { mesh, aS, aG, used: 0 };
   }
   const S_ = () => attribute('aS', 'vec4');
-  const yUnit = () => positionLocal.y.add(0.5);   // 0 (bottom) … 1 (top) of a unit geometry centred at 0 (before the instance matrix)
+  const yUnit = () => positionGeometry.y.add(0.5);   // 0 (bottom) … 1 (top) of the unit geometry (positionGeometry: before the instance matrix)
   const addEmissive = (m, node) => { m.emissiveNode = m.emissiveNode ? m.emissiveNode.add(node) : node; };
 
   // ashlar: a bevelled block; the joints (the bevels) light in gold, a gold glow rises up the face
   // masonry: two courses with a joint between them and a staggered vertical joint in each — the JOINTS are what light in gold
   const ashlarMat = ceramic({ color: 'pedra-llum', glaze: 0.2, wear: 0.9, rim: 0.2, hands: 0.3 });
   {
-    const S = S_(), y = yUnit(), x = positionLocal.x;
+    const S = S_(), y = yUnit(), x = positionGeometry.x;
     const course = abs(y.sub(0.5)), vjoint = abs(x.sub(mix(float(-0.18), float(0.22), step(0.5, y))));
-    const joint = max(smoothstep(0.022, 0.008, course), smoothstep(0.018, 0.006, vjoint)).mul(smoothstep(0.3, 0.6, abs(normalLocal.z)));
-    const bevel = smoothstep(0.08, 0.35, float(1).sub(max(max(abs(normalLocal.x), abs(normalLocal.y)), abs(normalLocal.z))));
-    const grain = mx_noise_float(positionLocal.mul(vec3(9.0, 23.0, 9.0))).mul(0.08);   // the stone's bedding, a little darker in streaks
-    ashlarMat.colorNode = ashlarMat.colorNode.mul(vec3(1.06, 0.98, 0.86)).mul(float(0.92).sub(grain)).mul(float(1).sub(joint.mul(0.55))).mul(float(1).sub(bevel.mul(0.15)));
-    const front = smoothstep(0.6, 0.95, normalLocal.z);
+    const joint = max(smoothstep(0.022, 0.008, course), smoothstep(0.018, 0.006, vjoint)).mul(smoothstep(0.3, 0.6, abs(normalGeometry.z)));
+    const bevel = smoothstep(0.08, 0.35, float(1).sub(max(max(abs(normalGeometry.x), abs(normalGeometry.y)), abs(normalGeometry.z))));
+    // the stone: bedding streaks, pitting and a weathered tone that varies over the block — never a clean painted box
+    const grain = mx_noise_float(positionGeometry.mul(vec3(9.0, 23.0, 9.0))).mul(0.12).add(mx_noise_float(positionGeometry.mul(41.0)).mul(0.08)).add(mx_noise_float(positionGeometry.mul(3.1)).mul(0.1));
+    ashlarMat.colorNode = ashlarMat.colorNode.mul(vec3(1.0, 0.9, 0.74)).mul(float(0.56).sub(grain)).mul(float(1).sub(joint.mul(0.55))).mul(float(1).sub(bevel.mul(0.15)));
+    const front = smoothstep(0.6, 0.95, normalGeometry.z);
     const level = mix(S.x, float(1.2), step(0.5, S.z)), rise = smoothstep(level.add(0.02), level.sub(0.06), y);
     const lit = max(joint, bevel.mul(0.6)).mul(step(y, level));                         // the joints fill with gold from the bottom up
     addEmissive(ashlarMat, vec3(...lin('cal-fanal')).mul(0.07).add(GOLD.mul(lit.mul(S.x.mul(2.2).add(S.y.mul(3.0))).add(front.mul(rise).mul(S.y.mul(0.35))).mul(float(1).sub(S.w)))));   // warm: the lamps' light the stone keeps
   }
-  const ashlar = skin(new RoundedBoxGeometry(1, 1, 1, 3, 0.07), ashlarMat, 'ashlar');
-  const plinth = skin(new RoundedBoxGeometry(1, 1, 1, 2, 0.03), ceramic({ color: 'pedra-llum', glaze: 0.15, wear: 0.8, rim: 0.15, hands: 0.15 }), 'corbel');   // a stone shelf from the wall under the block (no bollards)
+  const ashlar = skin(new RoundedBoxGeometry(1, 1, 1, 4, 0.12), ashlarMat, 'ashlar');   // a generous bevel: it catches the light
+  const plinth = skin(new RoundedBoxGeometry(1, 1, 1, 2, 0.03), ceramic({ color: 'ombra', glaze: 0.12, wear: 0.9, rim: 0.02, hands: 0.1 }), 'corbel');   // warm dark stone (not blue)   // a stone shelf from the wall under the block (no bollards)
 
   // brazier: a dark ceramic bowl, embers inside (with the charge), on a slender stand; the flame is a separate light skin
   const bowlGeo = (() => {
@@ -81,15 +83,15 @@ export function createTargets3D({ THREE, TSL, room }) {
   const bowlMat = ceramic({ color: 'carbó', glaze: 0.7, wear: 0.4, rim: 0.08, hands: 0.15, side: THREE.DoubleSide });
   bowlMat.metalness = 0.65;   // dark iron, not clay: the ember is the only warm thing on it
   {
-    const S = S_(), inner = smoothstep(0.36, 0.46, positionLocal.y).mul(step(length(positionLocal.xz), 0.44));   // the coals: only the inner lip / the top of the bowl
-    const flick = mx_noise_float(positionLocal.mul(14.0).add(vec3(0, uTime.mul(1.3), 0))).mul(0.35).add(0.75);
-    const rim = smoothstep(0.42, 0.5, positionLocal.y);                                  // the bowl's lip: metal catching its own ember
+    const S = S_(), inner = smoothstep(0.36, 0.46, positionGeometry.y).mul(step(length(positionGeometry.xz), 0.44));   // the coals: only the inner lip / the top of the bowl
+    const flick = mx_noise_float(positionGeometry.mul(14.0).add(vec3(0, uTime.mul(1.3), 0))).mul(0.35).add(0.75);
+    const rim = smoothstep(0.42, 0.5, positionGeometry.y);                                  // the bowl's lip: metal catching its own ember
     addEmissive(bowlMat, mix(vec3(...lin('brasa')), GOLD, S.z).mul(inner.mul(flick).mul(S.x.mul(1.4).add(S.y.mul(2.2)).add(0.45)))
       .add(vec3(...lin('flama')).mul(rim.mul(float(0.03).add(S.x.mul(0.35)).add(S.y.mul(0.5))))));   // the iron lip catches the ember only as it charges
   }
   const bowl = skin(bowlGeo, bowlMat, 'brazier');
   const standMat = ceramic({ color: 'carbó', glaze: 0.6, wear: 0.5, rim: 0.06, hands: 0.05 }); standMat.metalness = 0.6;
-  { const S = S_(); addEmissive(standMat, vec3(...lin('flama')).mul(smoothstep(0.38, 0.5, positionLocal.y).mul(float(0.01).add(S.x.mul(0.12)).add(S.y.mul(0.2))))); }   // the ember lights the top of its post
+  { const S = S_(); addEmissive(standMat, vec3(...lin('flama')).mul(smoothstep(0.38, 0.5, positionGeometry.y).mul(float(0.01).add(S.x.mul(0.12)).add(S.y.mul(0.2))))); }   // the ember lights the top of its post
   const stand = skin(new THREE.CylinderGeometry(0.5, 0.7, 1, 10), standMat, 'stand');
   // the flame: a light shape (additive) over the bowl; its height grows with the charge (set per instance)
   const flameMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
@@ -99,7 +101,7 @@ export function createTargets3D({ THREE, TSL, room }) {
     const width = float(1).sub(y).mul(0.9).add(0.1).add(n.mul(0.4));
     const body = smoothstep(width, width.mul(0.4), abs(x)).mul(smoothstep(1.0, 0.55, y.add(n.mul(0.3)))).mul(smoothstep(0, 0.08, y));
     const col = mix(vec3(...lin('brasa')), mix(vec3(...lin('flama')), GOLD, S.z), float(1).sub(y).mul(0.8));
-    flameMat.colorNode = col.mul(body).mul(S.x.mul(1.6).add(S.y.mul(2.0)).add(0.15)).mul(float(1).sub(S.w));
+    flameMat.colorNode = TSL.min(col.mul(body).mul(S.x.mul(0.8).add(S.y.mul(0.7)).add(0.2)), vec3(0.75, 0.55, 0.35)).mul(float(1).sub(S.w));   // capped: fire, never a white cone
     flameMat.opacityNode = float(1);
   }
   const flame = skin(new THREE.PlaneGeometry(1, 1), flameMat, 'flame'); flame.mesh.castShadow = false; flame.mesh.receiveShadow = false;
@@ -117,22 +119,30 @@ export function createTargets3D({ THREE, TSL, room }) {
   // column (call, echo, crown): a COLUMN OF LIGHT, not a solid — additive, soft at its edges (it fades where the surface turns away) and
   // at both ends, in the chapter's light tone and faint at rest; the gold rises inside it from the bottom as it charges; it flares when
   // active and on 'wave'. Capped: never white, never a hard silhouette over the scene
-  const columnMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.FrontSide, fog: false });
+  const columnMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.FrontSide, fog: false, blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });   // premultiplied «over»: rgb adds light, alpha darkens
   {
     const S = S_(), y = yUnit(), V = TSL.normalize(TSL.cameraPosition.sub(TSL.positionWorld)), ndv = abs(TSL.dot(TSL.normalize(TSL.normalWorld), V));
-    const body = TSL.pow(ndv, 2.2).mul(smoothstep(0.0, 0.12, y)).mul(smoothstep(1.0, 0.8, y));   // soft: bright on its axis, gone at the edges and the ends
+    const ends = smoothstep(0.0, 0.1, y).mul(smoothstep(1.0, 0.85, y));
+    const body = TSL.pow(ndv, 1.4).mul(ends);                                            // soft: bright on its axis, gone at the edges and ends
+    const rim = smoothstep(0.45, 0.12, ndv).mul(ends);                                   // its silhouette band (only drawn dark on light chapters)
     const level = mix(S.x, float(1.2), step(0.5, S.z)), fill = smoothstep(level.add(0.03), level.sub(0.05), y);
-    const shimmer = mx_noise_float(vec3(positionLocal.x.mul(6.0), y.mul(5.0).sub(uTime.mul(0.6)), positionLocal.z.mul(6.0))).mul(0.25).add(0.85);
-    const rest = LIGHT.mul(0.05), gold = GOLD.mul(fill.mul(float(0.16).add(S.y.mul(0.3)))), flare = GOLD.mul(FLARE.mul(0.22).add(S.y.mul(step(0.5, S.z)).mul(0.12)));
-    columnMat.colorNode = TSL.min(rest.add(gold).add(flare).mul(body).mul(shimmer), vec3(0.6)).mul(float(1).sub(S.w));
-    columnMat.opacityNode = float(1);
+    const shimmer = mx_noise_float(vec3(positionGeometry.x.mul(6.0), y.mul(5.0).sub(uTime.mul(0.6)), positionGeometry.z.mul(6.0))).mul(0.25).add(0.85);
+    const flick = mx_noise_float(vec3(positionGeometry.x.mul(3.0), y.mul(7.0).sub(uTime.mul(2.6)), uTime.mul(0.7))).mul(0.5).add(0.75);   // fire: it licks upward
+    const fireK = FIREK, wobble = mix(shimmer, flick, fireK);
+    // fire (Brasa): flama licking up from the brazier, brighter; light (crown / echo): the chapter's tone, soft. Gold rises inside both
+    const base = mix(LIGHT.mul(0.16), vec3(...lin('flama')).mul(float(0.3).mul(TSL.pow(float(1).sub(y), 0.7))), FIREK);
+    const glow = base.add(GOLD.mul(fill.mul(float(0.3).add(S.y.mul(0.4))))).add(GOLD.mul(FLARE.mul(0.3).add(S.y.mul(step(0.5, S.z)).mul(0.15))));
+    const bronzeA = rim.mul(0.4).mul(LIGHTK);
+    columnMat.colorNode = TSL.min(glow.mul(body).mul(wobble), vec3(0.6)).add(vec3(...lin('bronze')).mul(bronzeA).mul(0.5)).mul(float(1).sub(S.w));
+    columnMat.opacityNode = bronzeA.add(body.mul(0.05)).mul(float(1).sub(S.w));
   }
   const column = skin(new THREE.CylinderGeometry(0.5, 0.5, 1, 24, 1, true), columnMat, 'column'); column.mesh.castShadow = false; column.mesh.receiveShadow = false;
 
   // plaque: a stone slab on the wall; the print glows into it in gold (an oval at its heart) with the charge, and stays when done
   const plaqueMat = ceramic({ color: 'pedra-llum', glaze: 0.3, wear: 0.7, rim: 0.2, hands: 0.3 });   // warm stone (the fallback too: never a grey square)
   {
-    const S = S_(), front = smoothstep(0.6, 0.95, normalLocal.z), d = length(positionLocal.xy.mul(TSL.vec2(1.0, 0.8))), heart = smoothstep(0.42, 0.18, d);
+    const S = S_(), front = smoothstep(0.6, 0.95, normalGeometry.z), d = length(positionGeometry.xy.mul(TSL.vec2(1.0, 0.8))), heart = smoothstep(0.42, 0.18, d);
     addEmissive(plaqueMat, vec3(...lin('cal-fanal')).mul(0.06).add(GOLD.mul(front.mul(heart).mul(S.x.mul(0.9).add(S.y.mul(1.4)).add(S.z.mul(0.3))))));
   }
   const plaque = skin(new RoundedBoxGeometry(1, 1, 1, 2, 0.08), plaqueMat, 'plaque');
@@ -159,7 +169,8 @@ export function createTargets3D({ THREE, TSL, room }) {
   let blockNow = '';
   function update(dt, { targets, block = '', time = 0, on = true, events } = {}) {
     uTime.value = time; blockNow = block;
-    { const L2 = chapter(block).lin.light; for (let k = 0; k < 3; k++) lightNow[k] = ease(lightNow[k], L2[k], dt, 1.5); LIGHT.value.set(lightNow[0], lightNow[1], lightNow[2]); }
+    { const L2 = chapter(block).lin.light; for (let k = 0; k < 3; k++) lightNow[k] = ease(lightNow[k], L2[k], dt, 1.5); LIGHT.value.set(lightNow[0], lightNow[1], lightNow[2]);
+      LIGHTK.value = ease(LIGHTK.value, chapter(block).dark ? 0 : 1, dt, 1.5); FIREK.value = ease(FIREK.value, block === 'brasa' ? 1 : 0, dt, 1.5); }
     shown = ease(shown, on ? 1 : 0, dt, 3);
     if (events) for (const e of events) if (typeof e === 'string' && (e === 'wave' || e.startsWith('wave'))) FLARE.value = 1;
     FLARE.value = Math.max(0, FLARE.value - dt / 1.2);
@@ -205,9 +216,17 @@ export function createTargets3D({ THREE, TSL, room }) {
         if (cs && csN < cs.count) { P3.copy(w.centre).addScaledVector(w.right, p.dx).addScaledVector(w.normal, -bw / 2); cs.set(csN++, P3.x, P3.z, 0.2, 0.5 * sm(p.asm)); }
         put(glowPool, p, 0, 0.01, -bw / 2 - 0.02, 1.4, 1, 1.4);           // the ember's warmth on the ground
       } else if (p.skin === 'column') {                // a column of w × h (its own extent), half sunk in the wall
-        put(column, p, 0, p.y, -0.02, W * 0.7, H, W * 0.7);
+        // it RISES FROM THE FLOOR (never floating) to the top of the score's extent; in Brasa a brazier at its foot feeds the fire
+        const top = p.y + H / 2, cw = Math.min(0.5, W) * 0.75;
+        if (blockNow === 'brasa') {
+          const bw = 0.42, bh = bw * 0.42, bowlY = Math.max(0.55, p.y - H / 2);
+          put(bowl, p, 0, bowlY, -bw / 2 - 0.02, bw, bh, bw);
+          put(stand, p, 0, (bowlY - bh / 2) / 2, -bw / 2 - 0.02, 0.08, bowlY - bh / 2, 0.08);
+          put(glowPool, p, 0, 0.01, -bw / 2 - 0.02, 1.4, 1, 1.4);
+          const fb = bowlY + bh * 0.3; put(column, p, 0, (fb + top) / 2, -bw / 2 - 0.02, cw, top - fb, cw);
+        } else put(column, p, 0, top / 2, -0.04, cw, top, cw);
       } else if (p.kind === 'palm') {                  // the Pinya: warm light on the wall where the palm will meet the hand
-        if (p.charge > 0.01 || p.gold > 0.01 || p.burst > 0) put(palmGlow, p, 0, p.y, 0.005, 0.5, 0.5, 1);   // nothing at rest: the figure's palm IS the target
+        // AD #8: nothing here — the figure's own palm (pinya3d) is the target and glows itself; no ring over the wall
       } else {                                          // a plaque on the wall (the acta's print)
         put(plaque, p, 0, p.y, -0.01, W, H, 0.05);
       }
