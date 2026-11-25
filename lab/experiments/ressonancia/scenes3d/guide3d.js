@@ -331,12 +331,12 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
       const Wd = room.walls[w].width; let best = cand[0], bs = -1e9;
       // Art Director 25-11: the consigna stands ABOVE the targets it refers to (their centre on this wall), when they live under its band
       let sx = 0, sn = 0; for (const g of T) { if (g.wall !== w || (g.y || 1.2) + (g.r || 0.22) >= lineY - CAP * 1.3 - 0.05) continue; sx += typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; sn++; }
-      const near = sn ? [clamp(sx / sn, -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25)] : [];
+      const near = sn ? [clamp(sx / sn, -Wd / 2 + half + 0.45, Wd / 2 - half - 0.45)] : [];
       const all = near.length ? near.concat(cand) : cand;
       for (let k = 0; k < all.length; k++) {
-        let x = clamp(all[k], -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25);
+        let x = clamp(all[k], -Wd / 2 + half + 0.45, Wd / 2 - half - 0.45);
         const hh = HERO_HALF[b] ? HERO_HALF[b] + half : 0;   // the castell stands at the room's centre: seen at the centre of EVERY wall
-        if (hh && Math.abs(x) < hh) x = clamp((x < 0 || (x === 0 && k % 2 === 0) ? -1 : 1) * hh, -Wd / 2 + half + 0.25, Wd / 2 - half - 0.25);
+        if (hh && Math.abs(x) < hh) x = clamp((x < 0 || (x === 0 && k % 2 === 0) ? -1 : 1) * hh, -Wd / 2 + half + 0.45, Wd / 2 - half - 0.45);
         let gap = 9;
         if (S.focus && S.focus.wall === w && typeof S.focus.s === 'number') gap = Math.abs(S.focus.s - lineS0[w] - Wd / 2 - x) - half - 0.9;   // the calling point (the pom's light, the devil): beside it, never on it
         for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < lineY - CAP * 1.3 - 0.05) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
