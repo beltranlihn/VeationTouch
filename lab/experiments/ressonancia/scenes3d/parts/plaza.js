@@ -1398,7 +1398,7 @@ export function create(ctx) {
     festK += (festT - festK) * Math.min(1, dt * 1.2); if (Math.abs(festT - festK) < 1e-3) festK = festT;
     dayK += (dayT - dayK) * Math.min(1, dt * 1.6); if (Math.abs(dayT - dayK) < 1e-3) dayK = dayT;
     if (dayK > 0.001 || festK > 0.001 || blueK > 0.001 || pomK > 0.001 || pinK > 0.001 || crK > 0.001) t = Math.max(30, Math.min(t, 45));
-    const rv = +pr.reveal || 0, shv = +pr.shatter || 0;   // the host drives the break / re-assembly at chapter changes (arrive 1 → 0, leave 0 → 1)
+    const rv = +pr.reveal || 0, shv = blk === 'fall' && !(input.leave > 0) ? 0 : +pr.shatter || 0;   // the fall: the square stays (dark), only the tower falls   // the host drives the break / re-assembly at chapter changes (arrive 1 → 0, leave 0 → 1)
     const tR = rv > 0 ? 8 + 17 * Math.min(1, rv) : shv > 0 ? Math.max(t, 30) : t;
     const tS = shv > 0 ? 46 + 24 * Math.min(1, shv) : pr.noBreak ? Math.min(t, 45.99) : t;   // noBreak: the host breaks it into image tiles instead (T-034)
     const S = tS < 46 ? 0 : tS < 58 ? (tS - 46) / 12 : Math.min(2.6, 1 + ((tS - 58) / 12) * 1.25);

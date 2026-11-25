@@ -77,6 +77,7 @@ export function create(ctx) {
   for (let k = 0; k < NGEO; k++) for (let i = 0; i < PER; i++) shards.push({ mesh: meshes[k], geo: k, i, on: false, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), size: 0, small: false, heat: 0, rest: 0, land: -1e9, tw: 0, col: GLZ[0], seed: R() });
   let nextShard = 0;
   function spawn(p, v, size, small, tw, heat, col) {
+    if (P.shards !== true) return null;   // director 25-11: no solid shards (the tower dissolves into dust: tronc3d's fall); dust, light and embers only
     for (let n = 0; n < shards.length; n++) {
       const s = shards[(nextShard + n) % shards.length];
       if (s.on) continue;
