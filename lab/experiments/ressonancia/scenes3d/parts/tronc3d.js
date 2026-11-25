@@ -500,9 +500,12 @@ export function create(ctx) {
     kit.uniforms.crack.value = 0.55;
     kit.setSplat({ lit: 'porcellana', half: ['pedra-llum', 0.7], amb: ['tinta-ombra', 0.7] });
   }
-  let lightMode = '';
-  let castMode = 'build';
-  function setMode(m) { castMode = m || 'build'; }
+  let lightMode = '', breathK = 0;
+  let castMode = 'build', focusY = null;
+  function setMode(m) { castMode = m || 'build'; if (castMode !== 'top') focusY = null; }
+  // setFocusY(y): y in metres above the plaza floor (the tower unrisen, e.g. trunk(f).yRest): the world lowers (≤ 0.30 m/s) so that
+  // height sits at the eye's level, in the reach band; null gives the ground back
+  function setFocusY(y) { focusY = y == null ? null : +y; }
   const _bp = new THREE.Vector3();
   function placeBodies(dt, inTronc, floorsNow, withScore) {
     if (!kit) return;
@@ -517,6 +520,7 @@ export function create(ctx) {
         const i = n++; if (i >= kit.count) break;
         if ((!visT && !(ringOnly && c.lv === 0)) || col.on) { kit.hide(i); continue; }
         const S = t.st[c.lv];
+        if (castMode === 'top' && c.lv >= 7) { kit.hide(i); continue; }      // the Pom draws its climbers (Interacción); crowned: shown again
         const shown = c.lv === 0 || (S.shown && !S.taken && (S.solid > 0.001 || S.forming || S.goneT >= 0));
         if (!shown || (S.goneT >= 1.6)) { kit.hide(i); continue; }
         // a floor that forms climbs into place with the lift; one that slips drops and goes
@@ -623,7 +627,8 @@ export function create(ctx) {
     pull += ((rewarding || (leave > 0 && pull > 0.01) ? 1 : 0) - pull) * ease(0.6, dt);
     if (pull > 0.001) target += (TOWER_H * SC * 0.5 - 1.2 - target) * smooth(0, 1, pull);
     target = Math.max(0, target);                     // 25-11 (director): the world only goes DOWN (the room rises); never up, never floating
-    if (!inTronc || col.on) target = rise;
+    if (focusY != null && !OLD && !col.on) target = Math.max(0, focusY - (room.eye.y || 1.6));   // Pom: the climbed floor in the reach band (setFocusY)
+    else if (!inTronc || col.on) target = rise;
     // entering / reset: the room starts on the ground and eases (≤ 0.30 m/s) to its height — a snap only when asked (fall3d) or at 0
     if (snapNext || ((reset || floorsPrev < 0 || (inTronc && !wasIn)) && target < 0.01)) { rise = target; riseV = 0; snapNext = false; }
     else if (floorsPrev < 0 || (inTronc && !wasIn)) { rise = Math.max(0, Math.min(rise, target)); riseV = 0; }
@@ -818,6 +823,10 @@ export function create(ctx) {
     }
     dAttr.needsUpdate = true;
     floorsPrev = floors;
+    if (kit) {   // the Pom's silence: the particles breathe (≈ 0.15 Hz, size and light)
+      const sil = S && S.pomStage === 'silence' ? 1 : 0; breathK += (sil - breathK) * Math.min(1, dt * 0.8);
+      const b = Math.sin(time * 0.94) * breathK; kit.setSplat({ size: 1 + 0.07 * b, key: 1 + 0.12 * b });
+    }
     placeBodies(dt, inTronc, floors, !!S);
   }
   function nearestTower(wi, showT) {
@@ -858,7 +867,7 @@ export function create(ctx) {
     world.updateMatrixWorld(true);
     const y0 = world.matrixWorld.elements[13];
     const lvOf = (L, i) => (!OLD && CLV[i] ? { yc: (CLV[i].y0 + CLV[i].y1) / 2, h: CLV[i].y1 - CLV[i].y0 } : L);
-    return towers.filter((t) => t.on).map((t) => ({ tower: t.tw, built: t.built, floors: LV.map((L0, i) => { const L = lvOf(L0, i); return { i, name: NAMES[i].toLowerCase(), y: y0 + L.yc * SC, h: L.h * SC, taken: !!t.st[i].taken, gone: !!t.st[i].gone }; }) }));
+    return towers.filter((t) => t.on).map((t) => ({ tower: t.tw, built: t.built, foot: { x: t.g.position.x, z: t.g.position.z }, floors: LV.map((L0, i) => { const L = lvOf(L0, i); return { i, name: NAMES[i].toLowerCase(), y: y0 + L.yc * SC, h: L.h * SC, taken: !!t.st[i].taken, gone: !!t.st[i].gone }; }) }));
   }
 
   // trunk(floor, tower?) → { x, z, y, r, h, tower } in WORLD metres: the axis of the tower at that floor (y = its feet, r = the radius of
@@ -869,7 +878,7 @@ export function create(ctx) {
     world.updateMatrixWorld(true);
     const y0 = world.matrixWorld.elements[13], th = t.theta || 0;
     const phi = Math.atan2(t.w.normal.x, t.w.normal.z), d = -Math.sin(th) * L.y * SC;   // the lean shifts the axis along the tower's x
-    return { x: t.g.position.x + Math.cos(phi) * d, z: t.g.position.z - Math.sin(phi) * d, y: y0 + L.y * SC * Math.cos(th), r: L.r * SC, h: L.h * SC, tower: t.tw };
+    return { x: t.g.position.x + Math.cos(phi) * d, z: t.g.position.z - Math.sin(phi) * d, y: y0 + L.y * SC * Math.cos(th), yRest: L.y * SC, r: L.r * SC, h: L.h * SC, tower: t.tw };
   }
   function setParams(p) { if (p && p !== P) Object.assign(P, p); }
   function dispose() {
@@ -882,7 +891,7 @@ export function create(ctx) {
     labGeo.dispose(); tickGeo.dispose(); lineGeo.dispose();
   }
   const api = {
-    object, update, setParams, dispose, impacts, setMode, kit, towerD: TOWER_D, scale: SC, trunk,
+    object, update, setParams, dispose, impacts, setMode, setFocusY, kit, towerD: TOWER_D, scale: SC, trunk,
     get rise() { return rise; },
     collapse, restore, takeFloor, giveFloor, levels,
     get collapsing() { return { on: col.on, t: col.t, mode: col.mode, duration: col.dur }; },
