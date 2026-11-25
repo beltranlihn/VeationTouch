@@ -1270,7 +1270,7 @@ export function create(ctx) {
   const _hp = new THREE.Vector3(), _ord = Array.from({ length: NL }, (_, i) => i);
   // the festival spots: per castell wall, from 13 m up and 5 m to one side (alternating), 3 m beyond the tower, aimed at its foot
   const SPOT_K = 1100, SPOT_A = 15 * Math.PI / 180;   // (the pools: a stage pool, not a floodlit floor — AD m-tronc)
-  const shafts = new THREE.Group(); shafts.name = 'plaza:shafts'; object.add(shafts);
+  const shafts = new THREE.Group(); shafts.name = 'plaza:shafts'; object.add(shafts); const uShaftOn = uniform(0);
   const uDust = uniform(0); let dustObj = null;
   {
     const ND = 4000, dm = new THREE.SpriteNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
@@ -1300,7 +1300,7 @@ export function create(ctx) {
       const rr = length(E0.add(Vr.mul(sc)).sub(bS.add(bD.mul(tc)))), Rb = max(tc.mul(bT), 0.05);
       const prof = exp(rr.div(Rb).pow(2).mul(-2.2)).mul(smoothstep(0.0, 1.5, tc)).mul(float(1).sub(smoothstep(bL.mul(0.8), bL, tc))).mul(mix(1.0, 0.5, clamp(tc.div(bL), 0, 1)));
       const breathe = sin(uTime.mul(0.35).add(i * 1.7)).mul(0.12).add(0.88);
-      m.colorNode = SPC.mul(prof).mul(uFest).mul(0.05).mul(uShaftK).mul(breathe);
+      m.colorNode = SPC.mul(prof).mul(uFest).mul(0.05).mul(uShaftK).mul(uShaftOn).mul(breathe);
       m.userData.beam = { bS, bD, bT, bL };
       const cone = new THREE.Mesh(coneG, m); cone.renderOrder = 6; cone.frustumCulled = false;
       shafts.add(cone);
@@ -1419,9 +1419,9 @@ export function create(ctx) {
     blueK += ((blk === 'baixada' && pr.blueHour !== false ? 1 : 0) - blueK) * Math.min(1, dt * 1.2);   // AD plan B: the blue hour, not a silhouette
     const silK = blueK > 0.5 || blk === 'fall' ? 0 : Math.max(0, Math.min(1, pr.silhouette ?? 0));   // the fall happens in the night square (it breaks as the tower falls), not a silhouette uSil.value = silK; sky.visible = silK < 0.5; floor0.visible = silK < 0.5; object.position.y = -(pr.silDrop ?? 0) * silK;   // params.silDrop (m): the silhouette sinks so its rooftops sit low on the walls, the sky above
     if (Array.isArray(pr.skyTint)) uSkyTint.value.fromArray(pr.skyTint); else uSkyTint.value.set(1, 1, 1);
-    const envK = (pr.env ?? 1) * reveal * dark; for (const m of envMats) m.envMapIntensity = envK;
+    const envK = Math.max(0.002, (pr.env ?? 1) * reveal * dark); for (const m of envMats) m.envMapIntensity = envK;   // never exactly 0 (a 0 → x change can rebuild the pipelines)
     const moonK = (pr.moon ?? 1) * reveal * dark;
-    moon.intensity = 0.32 * moonK * (pr.moonKey ?? 1); hemi.intensity = 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1));   // the moon's key also fills the shadows with a cool sky
+    moon.intensity = Math.max(1e-3, 0.32 * moonK * (pr.moonKey ?? 1)); hemi.intensity = Math.max(1e-3, 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1)));   // the moon's key also fills the shadows with a cool sky
     if (keyS) { const k = `${moon.position.x.toFixed(2)},${moon.position.y.toFixed(2)},${moon.position.z.toFixed(2)},${uS.value.toFixed(3)},${object.position.y.toFixed(2)},${object.visible}`; if (k !== shadowKey) { shadowKey = k; keyS.dirty(); } }
     uBlue.value = blueK;
     uArr.value = (input.leave ?? 0) < 0.01 && (input.arrive ?? 1) < 0.999 ? 1 : 0;
@@ -1439,7 +1439,7 @@ export function create(ctx) {
     if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, Math.max(input.state?.progress ?? 0, (input.state?.t ?? 0) / 45)));   // AD#14: the lamps go out visibly over the chapter (by time too) object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 0.7 - 0.5 * pg; uStars.value *= 0.4 * (1 - pg);
       hemi.color.setRGB(0.42, 0.55, 0.95); hemi.groundColor.setRGB(0.18, 0.14, 0.2); hemi.intensity = Math.max(hemi.intensity, 0.55 + 0.35 * pg); moon.color.setRGB(0.95, 0.7, 0.7); moon.intensity = Math.max(moon.intensity, 0.35 + 0.3 * pg); blueProg = pg; } else blueProg = 0;
     uDawn.value = blueK * smooth01((blueProg - 0.1) / 0.85);   // the blue hour: a cool sky fill, a rose dawn key;   // the lamps go out as the tower comes down
-    uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low' && blk !== 'festa';   // festa (perf): no shafts
+    uDay.value = dayK; uFest.value = festK; uShaftOn.value = festK > 0.002 && blk !== 'festa' ? 1 : 0; shafts.visible = room.quality !== 'low';   // always drawn (no first-show compile); off by uShaftOn; festa (perf): none
     stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
     if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'crown' ? 'crown' : blk === 'festa' ? 'festa' : 'tronc');
     if (crK > 0.01) { uSpotC.value.lerp(_gold, crK); uShaftK.value = 2.2 + 1.2 * crK; uWin.value = Math.max(uWin.value, 0.9); crT += dt;
@@ -1452,7 +1452,7 @@ export function create(ctx) {
       dustK = crK * smooth01((crT - 4.0) / 1.5) * (1 - smooth01((crT - 15) / 4));
       uWin.value *= 0.35; moon.intensity *= 0.35; hemi.intensity *= 0.35;   // the square dims ~65 % (AD#9): the gold towers are the light
     } else { crT = 0; dustK = 0; uPulseK.value = 0; for (const v of tlVec) v.w = 0; }
-    uDust.value = dustK; if (dustObj) { dustObj.visible = dustK > 0.003; dustObj.count = blk === 'festa' ? 1500 : 4000; }   // festa (perf): fewer motes; none when out   // CORONATION (AD#5): gold light bathes the tower, the facades and the haze
+    uDust.value = dustK; if (dustObj) { dustObj.visible = true; dustObj.count = dustK > 0.003 ? (blk === 'festa' ? 1500 : 4000) : 1; }   // always drawn (no first-show compile); 1 mote when off   // festa (perf): fewer motes; none when out   // CORONATION (AD#5): gold light bathes the tower, the facades and the haze
     if (festK > 0) {                                                  // the festival night: the square's own night, richer and deeper
       uWin.value = Math.max(uWin.value, festK * 0.9); uFog.value = Math.max(uFog.value, 0.0065); uWet.value = Math.max(uWet.value, 0.8);
       uSky.value = Math.max(uSky.value, festK);   // (AD#6: no moon / sky / env boost — they were the milky veil; the night grade is the Pinya's)

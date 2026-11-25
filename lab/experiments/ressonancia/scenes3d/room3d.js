@@ -842,7 +842,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
 
   function stepPorx(dt) {
     const v = porx.k.value + (porx.to - porx.k.value) * (1 - Math.exp(-dt * 1.2));
-    porx.k.value = Math.abs(v - porx.to) < 0.003 ? porx.to : v; porx.group.visible = porx.k.value > 0.003;
+    porx.k.value = Math.abs(v - porx.to) < 0.003 ? porx.to : v; porx.group.visible = true;   // always drawn (dithered out at 0): compiled from the start, no first-show hitch
   }
 
   // ---- THE GROUND THAT GOES ON (plan 05 V4; 04 §1.5): a floor at y = 0 at REAL scale, so the room's floor seems to continue into the image.
@@ -885,7 +885,8 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     keyLights.add(light);
     return { light, off() { keyLights.delete(light); }, dirty() { light.userData.shadowDirty = true; } };
   }
-  function shadowsOnce() { for (const L of keyLights) if (L.intensity > 0 && (!L.userData.shadowStatic || L.userData.shadowDirty)) { L.shadow.needsUpdate = true; L.userData.shadowDirty = false; } }
+  // (a static map is rendered when dirty even at intensity 0: its depth materials compile during the host's warm-up, not when the light rises)
+  function shadowsOnce() { for (const L of keyLights) if (L.userData.shadowStatic ? L.userData.shadowDirty : L.intensity > 0) { L.shadow.needsUpdate = true; L.userData.shadowDirty = false; } }
 
   // ---- contact shadows (plan 05 V3; 04 §2.3): what makes a thing STAND. One InstancedMesh of soft discs flat on the floor (+4 mm), in the
   // chapter's shadow colour (never black), no air. set(i, x, z, radius, k) — k 0..1 (0.5–0.7 under a figure); clear(i); the mesh goes
