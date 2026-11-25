@@ -35,7 +35,7 @@
 // (springs and waves on the CPU, the pose in the vertex stage). No floor reflection (was a second copy of the mosaic), no shadows.
 import { createScore } from '../../score.js';
 
-const GROUT_H = 0.008, MEDALLIONS = false;   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
+const GROUT_H = 0.008, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
 
 export function create(ctx) {
   const { THREE, TSL, room, params } = ctx;
@@ -306,7 +306,7 @@ export function create(ctx) {
   // has turbulence (their paths curl); each one tilts with its speed and goes back on its own spring (its own stiffness and damping: they
   // overshoot a little and settle one after another). Behind a tile away from its bed: the night (the hole mask). Offsets live in
   // offTex (du, dv, dn metres; w unused), applied in the vertex stage along the piece's own tangents.
-  const WIND = true, W_SIG2 = 2 * 0.36 * 0.36, W_GAIN = 5.5, W_MAX = 0.55;
+  const WIND = true, W_SIG2 = 2 * 0.29 * 0.29, W_GAIN = 5.5, W_MAX = 0.55;
   const offData = new Float32Array(TW * TH * 4), offTex = new THREE.DataTexture(offData, TW, TH, THREE.RGBAFormat, THREE.FloatType);
   offTex.magFilter = offTex.minFilter = THREE.NearestFilter; offTex.generateMipmaps = false; offTex.needsUpdate = true;
   const wOff = new Float32Array(NC * 3), wVel = new Float32Array(NC * 3), wOn = new Uint8Array(NC);
@@ -928,7 +928,7 @@ export function create(ctx) {
   function land(pos, under, hold) {
     const ros = under >= 0 ? cells[under].ros : -1, onHeart = under >= 0 && cells[under].mother;
     launch(hit.cu, hit.cy, 1, 2.6, 7, hold, ros);
-    if (knock(hit.cu, hit.cy, onHeart ? 0.7 : 0.5, onHeart ? 26 : 18, 1, time)) fx('hit', pos, onHeart ? 0.9 : 0.6, 0);
+    if (knock(hit.cu, hit.cy, (onHeart ? 0.7 : 0.5) * HR, onHeart ? 20 : 13, 1, time)) fx('hit', pos, onHeart ? 0.9 : 0.6, 0);
   }
 
   // ------------------------------------------------------------------------------------------- the stand-in score (study page)
@@ -1098,23 +1098,23 @@ export function create(ctx) {
           const dist = Math.sqrt(dd), x = (dist - paR[k]) / 0.55;
           if (x > -2.6 && x < 2.6) {
             const b = paAmp[k] * Math.exp(-x * x); bump += b; if (b > 0.6) n++;
-            if (p.hold > 0 && !c.keep && dist < p.reach && dist < 1.1 + 0.3 * c.r1 && (p.ros < 0 || p.ros === c.ros || dist < 0.7 + 0.3 * c.r1) && x < 0.3 && b > 0.1 && colT[i] < time + p.hold) colT[i] = time + p.hold * (0.75 + 0.5 * c.r2);   // T-058b: ~1.1–1.4 m round the hand, 30 % stay pastel
+            if (p.hold > 0 && !c.keep && dist < p.reach && dist < (1.1 + 0.3 * c.r1) * HR && (p.ros < 0 || p.ros === c.ros || dist < (0.7 + 0.3 * c.r1) * HR) && x < 0.3 && b > 0.1 && colT[i] < time + p.hold) colT[i] = time + p.hold * (0.75 + 0.5 * c.r2);   // T-058b: ~1.1–1.4 m round the hand, 30 % stay pastel
           }
         }
         for (let k = 0; k < nh; k++) {                                                   // under a hand: at once
           let d = cu_ - hcu[k]; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; const dy = cy_ - hcy[k], dd = d * d + dy * dy;
-          if (WIND && dd < 0.55 && hsp[k] > 0.05 && !gone[i]) {                        // the gust: along the hand's own motion
+          if (WIND && dd < 0.36 * HR2 && hsp[k] > 0.05 && !gone[i]) {                        // the gust: along the hand's own motion
             const f = Math.exp(-dd / W_SIG2) * W_GAIN * Math.min(1.4, hsp[k]) * (0.7 + 0.6 * c.r1) * dt, o3 = i * 3;
             wVel[o3] += hvu[k] * f; wVel[o3 + 1] += hvv[k] * f; wVel[o3 + 2] += Math.hypot(hvu[k], hvv[k]) * f * 0.35; wOn[i] = 1;
           }
-          if (dd < 0.3) {
+          if (dd < 0.3 * HR2) {
             // studio 25-11 (Beltrán, the SECOND INTENSITY): a hand passing again over pieces it already painted (painted ≥ 1.2 s ago) brings
             // them down — they fall to the floor, and later fly back to their bed at rest (see the return below), unless touched again
             const painted = colT[i] > time;
             // the more a hand rubs the same place, the more falls: each piece keeps the rubbing (a moving hand near it), which widens the
             // reach (0.37 m → 0.6 m) and speeds the fall; it fades in ~4 s once the hand has gone
-            if (painted && hsp[k] > 0.08) rub[i] = Math.min(3, rub[i] + dt * (1 - dd / 0.3) * (0.6 + hsp[k]));
-            const R2 = 0.14 + 0.22 * Math.min(1, rub[i] / 1.5);
+            if (painted && hsp[k] > 0.08) rub[i] = Math.min(3, rub[i] + dt * (1 - dd / (0.3 * HR2)) * (0.6 + hsp[k]));
+            const R2 = (0.14 + 0.22 * Math.min(1, rub[i] / 1.5)) * HR2;
             if (painted && !gone[i] && !c.mother && time - paintAt[i] > 1.2 && hsp[k] > 0.08 && dd < R2 && goneN < 260 && rnd() < dt * (4 + 8 * rub[i])) letGo(i, 0.9);
             if (!painted) paintAt[i] = time;
             if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { vphi[i] += 5; }   /* studio 25-11: no glow under a landing hand (was glow 1.0), motion only */
