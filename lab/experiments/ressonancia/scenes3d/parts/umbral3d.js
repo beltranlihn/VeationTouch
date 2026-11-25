@@ -1125,7 +1125,7 @@ export function create(ctx) {
       if (ka < 1 || kl > 0) { lift += (1 - ka) * (1 - ka) * 0.5 + kl * kl * 0.5; /* T-058c: a short flight (the shell is near the wall) */ turn += (1 - ka) * 5 + kl * 4 * (c.r1 - 0.5) * 2; sc *= ka * (1 - kl); }
       if (gone[i]) sc = 0;
       stData[o] = turn % 6.2831853; stData[o + 1] = lift; stData[o + 2] = Math.min(glow[i], 3.5) + kc; stData[o + 3] = sc;
-      if (!c.loose) stampHole(CU[i], CY[i], c.rad * 0.85, Math.max(1 - sc, smooth(0.012, 0.04, lift), Math.abs(Math.sin(turn * 0.5)) * 0.9));   // studio 25-11: the night behind
+      if (!c.loose) stampHole(CU[i], CY[i], c.rad * 1.35, Math.max(1 - sc, smooth(0.012, 0.04, lift), Math.abs(Math.sin(turn * 0.5)) * 0.9));   // studio 25-11: the night behind
     }
     stTex.needsUpdate = true; if (maskDirty) maskTex.needsUpdate = true;
 

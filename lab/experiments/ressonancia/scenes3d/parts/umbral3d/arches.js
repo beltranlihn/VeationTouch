@@ -327,7 +327,7 @@ export function createArches(ctx, opt = {}) {
   const shadow = new THREE.Mesh(sgeo, smat); shadow.frustumCulled = false; shadow.renderOrder = 2;
 
   const object = new THREE.Group(); object.name = 'umbral3d.arches';
-  object.add(mesh, shadow);
+  object.add(mesh);   // studio 25-11 (Beltrán): no floor shadow — on the night ground its sand tone read as a beam of light behind each foot
 
   // ------------------------------------------------------------------------------------------- life
   let time = 0, rv = 0;
