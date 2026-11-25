@@ -30,6 +30,7 @@ export function create({ THREE, TSL, room, params }) {
   const NCROWD = Math.min(160, perWall * NW);
   const kit = createBodies({ THREE, TSL, room, max: NPALM + NCROWD });
   object.add(kit.object);
+  kit.setSplat({ key: 0.72, lit: ['cal-fanal', 0.72], half: ['terracota', 0.62] });   // warmer and lower-lit: the bodies survive the Pinya grade and bloom (director 25-11)
   // ---- THE FIGURE'S OWN PALM GLOWS while a hand charges it (AD #8; it replaces targets3d's ring for kind 'palm'): a small gold light in
   //      the palm, on the wall plane, growing with the charge, a flash when it is held
   const { Fn, attribute, varying, vec4, positionGeometry, modelViewMatrix, cameraProjectionMatrix, dot, exp, max } = TSL;
