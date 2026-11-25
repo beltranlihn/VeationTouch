@@ -48,6 +48,7 @@ export const CUES = {
   'assist:on:brasa': { alias: 'relay:assist' },
   'ach:lap': { voice: 'v-brasa-lap', where: 'room', energy: 'lift', text: 'El fuego da la vuelta', place: 'all', kind: 'ach' },
   'tg:charge': { voice: 'v-hold', where: 'ach', energy: 'soft', text: null, kind: 'hint' },                                   // the first target charging, once a pass
+  'nudge': { voice: 'v-hold', where: 'busy', energy: 'soft', text: null, kind: 'hint', repeat: true, cooldown: 45 },   // 22 s without progress nor voice (sound's clock)
   'stage:brasa:call': { voice: 'v-brasa-2', where: 'room', energy: 'soft', text: 'Todos a la vez', place: 'all', kind: 'task' },
   'call:late': { voice: 'v-brasa-hold', where: 'focus', energy: 'soft', text: 'Posad la mano', place: 'focus', kind: 'task' },   // a call open 8 s (sound's clock)
   'ach:wave': { voice: { 1: 'v-brasa-wave' }, only: 'brasa', where: 'room', energy: 'lift', text: WAVE_NAME, place: 'ach', kind: 'ach', repeat: true },   // the festa's waves: text only

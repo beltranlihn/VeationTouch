@@ -288,7 +288,7 @@ export default async function start(host) {
     let dest = voiceBus;
     if (wall >= 0 && voiceWall[wall % NW]) { dest = G(1, voiceWall[wall % NW]); dest.connect(G(0.25, voiceBus)); }
     const h = play(name, { gain: L.voice, dest, at }); if (!h) return false;
-    vo = { h, end: h.end, name, wall, at, kind }; if (once && !name.startsWith('v-wait')) saidThisPass.add(name);
+    vo = { h, end: h.end, name, wall, at, kind }; lastSaidClock = S.clock; if (once && !name.startsWith('v-wait')) saidThisPass.add(name);
     const from = Math.max(t, at - 0.35);
     duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(L.duck, from, 0.15); duck.gain.setTargetAtTime(1, h.end + 0.3, 0.7);
     genDuck.offset.cancelScheduledValues(t); genDuck.offset.setTargetAtTime(L.genDuck, from, 0.15); genDuck.offset.setTargetAtTime(1, h.end + 0.3, 0.7);
@@ -907,7 +907,8 @@ export default async function start(host) {
     else if (block === 'pom' && p === 'aleta') aletaSwell((T.aleta?.window || 8) / pace);   // the voice: cue aleta (+0.6 s «Levantad la vuestra»)   // l'aleta (24-11): the group decides when; a swell rises under the window, the crown lands on the trigger
     else if (block === 'pinya' && p === 'reward') { play('s-crack', { gain: 0.26, at: t + 4.5 }); riser(t + 2.5, 2, 0.03); }
   }
-  let callAt = -1, nearSaid = false;
+  const NUDGE = new Set(['brasa', 'pinya', 'tronc', 'festa', 'baixada']);
+  let callAt = -1, nearSaid = false, lastSaidClock = 0, lastAchClock = 0;
   function onEvent(ev) {
     const i = ev.indexOf(':'), k = i < 0 ? ev : ev.slice(0, i), arg = i < 0 ? '' : ev.slice(i + 1), t = now();
     if (k === 'block') enterBlock(arg);
@@ -915,6 +916,7 @@ export default async function start(host) {
     // N4: the script (cues.js) — after the block / phase has been entered, so a line sees its world
     const ck = cueKey(ev, S); if (ck) { try { cue(ck, arg); } catch (e) { console.error('ressonancia-sound: cue', ev, e); } }
     if (ev === 'stage:brasa:call') callAt = S.clock; else if (k === 'ach' && arg === 'wave') callAt = -1;
+    if (k === 'ach' || k === 'stage' || k === 'block') lastAchClock = S.clock;
     if (k === 'block' || k === 'phase' || k === 'hint' || k === 'stage' || k === 'assist' || k === 'focus') return;
     if (k === 'tg') return targetSound(arg, t);
     if (k === 'abandon') { hush(1); for (const name of Object.keys(sets)) musicOff(name, 3); for (const c of Object.values(clouds)) c.on = false; for (const h of [...live]) if (!h.name.endsWith('-loop')) h.stop(2); return; }
@@ -1081,6 +1083,8 @@ export default async function start(host) {
     if (b === 'acta') while (actaCue < ACTA_CUES.length && S.t >= ACTA_CUES[actaCue][0]) cue(ACTA_CUES[actaCue++][1]);   // print · outcome · final
     if (b === 'brasa' && callAt >= 0 && S.stage === 'brasa:call' && S.clock - callAt > CALL_LATE) { callAt = -1; cue('call:late'); }
     if (b === 'pom' && !nearSaid && S.pomStage === 'silence' && (S.climb || 0) > 0.7) { nearSaid = true; cue('pom:near'); }
+    // no 20 s without guidance (25-11): in a block that asks for hands, nothing achieved and nothing said for 22 s → «Dejad la mano sobre la luz.»
+    if (NUDGE.has(b) && ph === 'play' && S.clock - lastAchClock > 22 && S.clock - lastSaidClock > 22) { lastAchClock = S.clock; cue('nudge'); }
     if (!on) return;
     musicKeep(); ambKeep();
     // the threshold: as play reveals the button, glass motes gather (more and brighter); the start ring raises a glass tone
