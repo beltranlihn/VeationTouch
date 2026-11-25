@@ -604,7 +604,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     // the crown's card (Art Director 25-11): on the wall where the crowned tower stands (tronc3d.textObstacles), at its lower side,
     // toward the wall's centre (away from the corners and their lamps); never across a corner
     crownWall = -1;
-    if (b === 'crown') { let big = 0; for (const o of OBST) if ((o.y1 || 0) > 2.0 && (o.half || 0) > big) { big = o.half; crownWall = o.wall; } }
+    if (b === 'crown') { let room0 = -1e9; for (const o of OBST) if ((o.y1 || 0) > 2.0 && o.wall >= 0 && o.wall < NW) { const free = room.walls[o.wall].width / 2 - Math.abs(o.x || 0) - (o.half || 0); if (free > room0) { room0 = free; crownWall = o.wall; } } }   // the wall with the most room beside the tower (the wide ones)
     if (!card.up) for (const t of card.texts) t.P.forEach((P, w) => {
       let side = 0, y = TEXT.card;
       if (b === 'crown') {
