@@ -17,7 +17,9 @@
 // T-048 (SIS, ARTE-3 §3): the instructions come into focus word by word (typo3d 'blur'); rims, plates and words catch the hands' light (room.flash).
 // Nothing is allocated per frame: every mesh is made once; words are laid out only when they change.
 // STUDIO 25-11 (05-plan N5, D7): the words follow cues.js (the script's table) and the room's scale — the instruction (consigna) is
-// ONE line centred at 1.62 m with capitals of 0.18 m (<= 22 characters), its label (a floor's or a climber's name) above it at 0.14 m;
+// ONE line centred at 1.62 m with capitals of 0.18 m (<= 22 characters; two lines beside the castell), set like Vicente's chapter card
+// (Instrument Serif on its hairlines: the work's one type system), its label (a climber's name) above it in the italic at 0.14 m;
+// each wall places it beside the chapter's hero (SPOTS / HERO_HALF) and above the targets it refers to, never on one;
 // the chapter card is centred at 1.95 m and the consigna waits for it to leave; the ink is the chapter's (palette.js PAL[b].ink:
 // bone on the dark chapters, dark ink on the light ones). NO backing plates (director 25-11: they read as dirty patches on the wall):
 // legibility comes from the ink, the size and a tight soft glyph halo. The consigna steps aside from the chapter's hero object
