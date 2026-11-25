@@ -663,10 +663,10 @@ export function create(ctx) {
     if (pull > 0.001) target += (TOWER_H * SC * 0.5 - 1.2 - target) * smooth(0, 1, pull);
     target = Math.max(0, target);                     // 25-11 (director): the world only goes DOWN (the room rises); never up, never floating
     if (castMode === 'top' && !OLD && !col.on) {
-      // the Pom (AD #14): the trunk's top (the dosos' feet) sits at ≤ 3.4 m on the wall, the base leaves through the bottom edge; the
+      // the Pom (AD #14 + director): the trunk's top (the dosos' feet) sits at 2.0 m on the wall, the base leaves through the bottom edge; the
       // climbers go up a trunk that is wholly inside the wall (setFocusY no longer moves it)
       const top = (TRUNK[7]?.y || 5.9) * SC, dW = Math.max(0.5, -_v.copy(walls[0].centre).sub(room.eye).dot(walls[0].normal)), d = dW + TOWER_D;
-      target = Math.max(0.75, top - (room.eye.y + (3.3 - room.eye.y) * d / dW));
+      target = Math.max(0.75, top - (room.eye.y + (2.0 - room.eye.y) * d / dW));   // the dosos' feet at 2.0 m on the wall: the pom de dalt (≈ 1.5 m of children) stays ≤ 3.4 m
     } else if (focusY != null && !OLD && !col.on) {
       target = Math.max(0, focusY - (room.eye.y || 1.6));
       if (target > 0.01) target = Math.max(target, 0.75);      // never a base hanging mid-wall: lowered at all, it leaves through the bottom edge
