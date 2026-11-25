@@ -336,7 +336,7 @@ export function create(ctx) {
       obstacle(wi, _a, 1.75 * sc, 0.32);
       if (active || (k === 3 && raiseK > 0.01)) { _b.copy(_a).addScaledVector(w.normal, 0.05); _b.y += 1.72 * sc; haveLight = true; }   // her raised hand: the light
     }
-    { const sk = stage === 'silence' ? 'silence' : 'gold'; if (sk !== splatKey) { splatKey = sk; kitC.setSplat(sk === 'gold' ? { lit: 'or', half: 'bronze', amb: 'tinta' } : { lit: 'lluna', half: 'blau-hora', amb: 'tinta' }); } }   // Modelado's sheet3: lit by the gold light; the silence in lluna
+    { const sk = stage === 'silence' ? 'silence' : 'gold'; if (sk !== splatKey) { splatKey = sk; kitC.setSplat(sk === 'gold' ? { lit: ['lluna', 0.9], half: 'bronze', amb: 'tinta' } : { lit: 'lluna', half: 'blau-hora', amb: 'tinta' }); } }   // sheet3 grain; a cool key (lit 'or' read as flames in the capture), the bronze half-tone from the gold light; the silence all lluna
     kitC.update(dt);
     if (haveLight && obs.length < OB.length) { _p1.copy(_b); _p1.y -= 0.35; obstacle(towerW, _p1, 0.7, 0.45); }   // the light's burst
     if (!haveLight) _b.set(0, -99, 0);
