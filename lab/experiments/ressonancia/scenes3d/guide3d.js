@@ -96,7 +96,7 @@ export const TEXT = { line: 1.62, lineCap: 0.18, labelCap: 0.14, card: 1.95, max
 const CONSIGNA_X = { brasa: -1.75, tronc: -2.0, baixada: -2.0 };   // ±2.7 hit the plaza's lamp posts and the corners of the narrow walls
 // where the consigna may stand on a wall (m from its centre), in order of preference: beside the chapter's hero, never on a target
 // (S.targets): each wall takes the candidate farthest from its targets (only while its words are not up: words never slide in view)
-const HERO_HALF = { tronc: 1.3, baixada: 1.3, pom: 0.8 };   // the tower stands at the centre of the castell's walls: the text keeps out of it
+const HERO_HALF = { tronc: 1.3, baixada: 1.3, pom: 0.8, wait: 1.25 };   // wait: the doorway arch at every wall's centre   // the tower stands at the centre of the castell's walls: the text keeps out of it
 const SPOTS = { brasa: [-1.75, -2.5, 1.9, 2.5], tronc: [-2.0, 2.0, -2.6, 2.6], baixada: [-2.0, 2.0, -2.6, 2.6], other: [0, -1.7, 1.7, -2.5, 2.5] };
 // the card: the numeral first (0.2 s ahead), the name (caps ≈ 0.31 m), the hairline drawn from the centre out, the value rising
 // from behind its baseline
