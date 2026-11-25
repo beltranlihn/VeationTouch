@@ -41,9 +41,10 @@ export function create({ THREE, TSL, room, params }) {
   for (let w = 0; w < NW && crowd.length < NCROWD; w++) {
     RINGS.forEach((R, ri) => {
       for (let k = 0; k < R.n && crowd.length < NCROWD; k++) {
-        const a = (k / R.n) * Math.PI * 2 + ri * 0.37 + w;
+        const a = (k / R.n) * Math.PI * 2 + ri * 0.37 + w + (rnd() - 0.5) * 0.6 * Math.PI * 2 / R.n;
         crowd.push({ i: NPALM + crowd.length, w, ri, a, r: R.r, pose: R.pose, order: ri / RINGS.length * 0.55 + rnd() * 0.45,
-          build: rnd() < 0.5 ? 0 : 1, scale: 0.95 + rnd() * 0.1, loose: 0.9 + rnd() * 1.6, la: (rnd() - 0.5) * 0.9, alive: 0, tint: 0.9 + rnd() * 0.12, ph: rnd() * 6.28 });
+          build: rnd() < 0.5 ? 0 : 1, scale: 0.92 + rnd() * 0.16, loose: 0.9 + rnd() * 1.6, la: (rnd() - 0.5) * 0.9, alive: 0, tint: 0.9 + rnd() * 0.12, ph: rnd() * 6.28,
+          yj: (rnd() - 0.5) * 0.24, lean: 0.18 + rnd() * 0.22 });   // AD: height ±8 %, yaw and phase variation, heads leaning in by different amounts
       }
     });
   }
@@ -114,11 +115,12 @@ export function create({ THREE, TSL, room, params }) {
       // the pinya is a TIGHT ring in lock round its centre (AD): its place is fixed, it gathers there (form), it never stands loose
       const r = c.r, a = c.a;
       const x = foot.x + Math.cos(a) * r, z = foot.z + Math.sin(a) * r;
-      const yaw = Math.atan2(foot.x - x, foot.z - z);
-      const pose = c.ri < 2 || closedS > 0.5 ? 'lock' : 'carry';
+      const yaw = Math.atan2(foot.x - x, foot.z - z) + c.yj;
+      // a radial ring: arms locked, heads tilted to the centre (lock → carry by each body's own lean), the lean breathing slowly
+      const tilt = c.lean + 0.06 * Math.sin(time * 0.35 + c.ph);
       // particles (25-11): the loose crowd is half air — the pinya assembles as the wall fills, and breathes
-      kit.set(c.i, { pos: [x, 0, z], yaw, pose, pose2: pose, mix: 0, scale: c.scale, build: c.build, tint: [c.tint, c.tint, c.tint], glow: 0,
-        form: al * there, fmode: 'gather', pool: 0 });
+      kit.set(c.i, { pos: [x, 0, z], yaw, pose: 'lock', pose2: 'carry', mix: tilt, scale: c.scale, build: c.build, tint: [c.tint, c.tint, c.tint], glow: 0,
+        form: al * there, fmode: 'gather', pool: 0.16 * al * there });   // a warm pool of light under the ring
     }
 
     // ---- hands → wall coordinates
@@ -198,10 +200,13 @@ export function create({ THREE, TSL, room, params }) {
       if (vis <= 0.002) { kit.hide(q.i); continue; }
       let pose = 'palm', pose2 = pp.m > 0 ? 'raise' : 'palm', mix = pp.m;
       if (q.app < 0.999) { pose = 'palm'; pose2 = pp.m > 0 ? 'raise' : 'palm'; mix = pp.m; }   // assembled straight into the offered palm
-      if (q.locked) { pose = 'palm'; pose2 = 'lock'; mix = q.lockK; }
+      if (q.locked) {   // locked shoulder to shoulder — only with a neighbour; alone it stands (AD: no T-posed flankers)
+        const mate = palms.some((o) => o !== q && o.on && o.locked && o.wall === q.wall && Math.abs((o.slot ?? o.x) - (q.slot ?? q.x)) < 0.9);
+        pose = 'palm'; pose2 = mate ? 'lock' : 'stand'; mix = q.lockK;
+      }
       else if (!h && !q.idle && q.stay < 8) { pose = 'stand'; pose2 = 'palm'; mix = clamp01(q.stay / 8); }   // the arm comes down before it goes back
       // a waiting figure (an offered palm, nobody there yet) is a quieter suggestion: dimmer, not fully gathered; with a hand: whole, bright
-      const held = q.stroke !== null || q.locked || q.charge > 0.05, wk = held ? 1 : 0.45, wf = held ? 1 : 0.8;
+      const held = q.stroke !== null || q.locked || q.charge > 0.05, wk = held ? 1 : 0.45, wf = 1;   // waiting: dimmer but whole (AD: no blurry half-gathered discs)
       kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: e * wf * there, fmode: 'gather', lod: 'near', pool: held ? 0.35 : 0 });
     }
     kit.update(dt);
