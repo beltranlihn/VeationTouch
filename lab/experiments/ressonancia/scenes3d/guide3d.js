@@ -319,7 +319,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
   const line = typo.slot({ placements: typo.onWalls(room, TEXT.line), renderOrder: 23, outDur: 0.5, plate: 0, halo: 0.3, spread: 2.4, flash: room.flash });
   // move a slot's words along each wall (only while nothing is up: words never slide in view)
   const lineBase = typo.onWalls(room, TEXT.line), rightOf = room.walls.map((w) => w.right.clone());
-  let lineY = TEXT.line; const cardBase = typo.onWalls(room, TEXT.card);
+  let lineY = TEXT.line, crownWall = -1; const cardBase = typo.onWalls(room, TEXT.card);
   const placeX = (sl, x) => { for (const t of sl.texts) t.P.forEach((P, w) => { const xx = typeof x === 'number' ? x : x[w]; if (sl === line) lineCurX[w] = xx; P.mesh.position.copy(lineBase[w].position).addScaledVector(rightOf[w], xx).setY(lineY); }); };
   // N7: the consigna TRAVELS with the Brasa's relay — on the devil's wall it follows the fire along the wall (eased, never past the
   // corners); the other walls keep their place. lineS0: where each wall starts along the perimeter (the score's s).
@@ -593,8 +593,21 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     line.want(L ? 'l|' + lineNonce + '|' + (S.stage || '') + '|' + L.join('|') : '', L ? lineItems(L) : null);   // a consigna lives within its stage
     // 25-11: no plates; a tight soft halo (lighter on the light chapters, where the ink is dark)
     for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : (chapter(b).luma || 0) > 0.25 || b === 'wait' ? 0.55 : 0.35; }   // bone over a lit plaza (crown, festa): a fuller soft shadow under the letters
-    if (!card.up) { for (const t of card.texts) t.P.forEach((P, w) => { const side = b === 'crown' ? Math.min(2.1, room.walls[w].width / 2 - 1.7) : 0; P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], side); }); }   // beside the crowned castell (seen at the centre of every wall), never across a corner (the P3→P4 seam)
-    { let fwc = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // no calling wall yet: the wall with the most hands
+    // the crown's card (Art Director 25-11): on the wall where the crowned tower stands (tronc3d.textObstacles), at its lower side,
+    // toward the wall's centre (away from the corners and their lamps); never across a corner
+    crownWall = -1;
+    if (b === 'crown') { let big = 0; for (const o of OBST) if ((o.y1 || 0) > 2.0 && (o.half || 0) > big) { big = o.half; crownWall = o.wall; } }
+    if (!card.up) for (const t of card.texts) t.P.forEach((P, w) => {
+      let side = 0, y = TEXT.card;
+      if (b === 'crown') {
+        const Wd = room.walls[w].width, lim = Wd / 2 - 1.15 - 0.45; y = 1.7;
+        const o = OBST.find((q) => q.wall === w && (q.y1 || 0) > 2.0);
+        if (o) { const l = o.x - o.half - 1.2, r = o.x + o.half + 1.2; side = Math.abs(l) <= lim && (Math.abs(l) <= Math.abs(r) || Math.abs(r) > lim) ? l : Math.abs(r) <= lim ? r : clamp(l, -lim, lim); }
+        else side = Math.min(2.1, lim);
+      }
+      P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], side).setY(y);
+    });
+    { let fwc = crownWall >= 0 ? crownWall : S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // the crown: the tower's wall; no calling wall yet: the wall with the most hands
       if (fwc < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fwc = w; } }); }   // the card too: 100 % on the wall that calls, 30 % elsewhere
       card.step(dtT, { hold, gate: waveGate, mask: fwc >= 0 ? (w) => (w === fwc ? 1 : 0.3) : null, lead: fwc >= 0 ? (w) => (w === fwc ? 0 : 0.6) : null }); }
     // the wait's words come with the button (reveal) and thin out as the hands start the pass
