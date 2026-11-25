@@ -29,6 +29,7 @@
 // arrive: night shards drift in from the dark, burst into gold, their particles fly onto the plate; the plate opens cell by cell.
 // leave: the field freezes (0–0.15), then the sand and gold shards fall slowly like rain; the plate goes dark cell by cell.
 // Read-only: part.resonance (what is shown, 0..1), part.bloom (0..1).
+import { lin as palLin } from '../palette.js';
 import { canEmit } from '../emit.js';                 // only the room instance posts to the sound (the viewer would double every hit)
 const MAXH = 16, MAXI = 16, MAXM = 4, MAXS = 32;
 const NP_GPU = 600000, NP_GL = 300000, NSH = 2400;
@@ -38,7 +39,7 @@ const smoother = (v) => { const s = clamp01(v); return s * s * s * (s * (s * 6 -
 const ss = (a, b, v) => smoother((v - a) / (b - a));
 function rng(seed) { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
-export function create({ THREE, TSL, room, params }) {
+export function create({ THREE, TSL, room, params, parts }) {
   const P = params || {};
   const num = (k, d) => { const v = Number(P[k]); return Number.isFinite(v) ? v : d; };
   const {
@@ -617,6 +618,36 @@ export function create({ THREE, TSL, room, params }) {
   sm.colorNode = Fn(() => { const r = length(uv().sub(0.5)).mul(2.0); return vec4(vCol.mul(exp(r.mul(r).mul(-4.5))), 1); })();
   const sand = new THREE.Sprite(sm); sand.count = NP; sand.frustumCulled = false; sand.renderOrder = 2;
   object.add(sand);
+  // ---- AD#8: FESTA IN THE SQUARE — when the host shows the plaza with this part, the plate world goes and the same wave field draws
+  // GOLD RIPPLES ON THE WET PAVING: each wall's field (perimeter s × height y) is laid on the floor behind that wall (distance back ×
+  // 0.5 → field height), contour lines of the wave in gold with a soft glow, fading with distance; additive over the plaza's floor.
+  const floorLayer = new THREE.Group(); floorLayer.name = 'festa:floor'; object.add(floorLayer); floorLayer.visible = false;
+  {
+    const P_OR = vec3(...palLin('or')), P_ORC = vec3(...palLin('or-clar'));
+    const fm = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const vSD = varying(attribute('aSD', 'vec2'));
+    fm.colorNode = Fn(() => {
+      const s = wrapS(vSD.x), d = vSD.y, q = fieldUV(s, clamp(d.mul(0.5).add(0.15), 0.0, HG));
+      const D = field.sample(q), h = D.x;
+      const lines = exp(fract(h.mul(7.0)).sub(0.5).mul(fract(h.mul(7.0)).sub(0.5)).div(-0.012)).mul(smoothstep(0.015, 0.12, abs(h)));
+      const glow = smoothstep(0.02, 0.5, abs(h)).mul(0.35);
+      const fade = smoothstep(0.0, 0.4, d).mul(float(1).sub(smoothstep(6.0, 11.0, d)));
+      return vec4(mix(P_OR, P_ORC, lines).mul(lines.mul(0.9).add(glow)).mul(fade).mul(U.arrive).mul(float(1).sub(U.leave)), 1);
+    })();
+    const _p = new THREE.Vector3();
+    walls.forEach((w, wi) => {
+      const nu = Math.max(30, Math.round(w.width / 0.12)), nd = 60, pos = [], sd = [], idx = [];
+      for (let j = 0; j <= nd; j++) for (let i = 0; i <= nu; i++) { const u = i / nu, d = 11 * (j / nd) ** 1.3; room.wallPoint(wi, u, 0, _p).addScaledVector(w.normal, -d); pos.push(_p.x, 0.012, _p.z); sd.push(cum[wi] + u * w.width, d); }
+      for (let j = 0; j < nd; j++) for (let i = 0; i < nu; i++) { const a = j * (nu + 1) + i; idx.push(a, a + 1, a + nu + 2, a, a + nu + 2, a + nu + 1); }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('aSD', new THREE.Float32BufferAttribute(sd, 2)); g.setIndex(idx);
+      const m = new THREE.Mesh(g, fm); m.frustumCulled = false; m.renderOrder = 3; floorLayer.add(m);
+    });
+  }
+  let inPlazaF = null;
+  function setInPlazaF(on) {
+    if (on === inPlazaF) return; inPlazaF = on; floorLayer.visible = on;
+    object.traverse((o) => { if (o === object || o === floorLayer || o.parent === floorLayer) return; if (o.isMesh || o.isSprite || o.isPoints) o.visible = !on; });
+  }
 
   // ------------------------------------------------------------------ shards: night mirrors (arrival), gold (leaving)
   const shardG = new THREE.BufferGeometry();
@@ -825,7 +856,7 @@ export function create({ THREE, TSL, room, params }) {
     for (let w = 0; w < NW; w++) { const j = w * 3 * 4, o = w * 4; hpA[o] = pcA[j]; hpA[o + 1] = pcA[j + 1]; hpA[o + 2] = pcA[j + 2]; hpA[o + 3] = pcA[j + 3] * (pcS[j + 3] > 0.02 ? 1 : 0); hpQ[o] = pcQ[j]; hpQ[o + 1] = pcQ[j + 1]; hpQ[o + 2] = pcQ[j + 2]; hpQ[o + 3] = pcQ[j + 3]; }
     for (let w = 0; w < halos.length; w++) {         // T-053: the soft halo behind each wall's hero sphere (≤ 0.16: it sits beside the button's zone)
       const j = w * 3 * 4; _hp.set(pcA[j], pcA[j + 1], pcA[j + 2]); room.placeHalo(halos[w], _hp, 1.1);
-      halos[w].set({ intensity: 0.16 * pcS[j + 3] * (1 - smoother(leave / 0.5)) }); halos[w].mesh.visible = pcS[j + 3] > 0.01;
+      halos[w].set({ intensity: 0.16 * pcS[j + 3] * (1 - smoother(leave / 0.5)) }); halos[w].mesh.visible = !inPlazaF && pcS[j + 3] > 0.01;
     }
     hoopGeo.getAttribute('aHA').needsUpdate = true; hoopGeo.getAttribute('aHQ').needsUpdate = true;
     for (const k of ['aPA', 'aPS']) pcGeo.getAttribute(k).needsUpdate = true;
@@ -1120,6 +1151,7 @@ export function create({ THREE, TSL, room, params }) {
     U.nHU.value = nh;
     U.cw.value = inCrown ? 0.7 * U.crownOn.value : 0;   // T-053: the crown's env — warm below, the garlands softer: luminous and clean
     U.arrive.value = arrive; U.leave.value = leave; U.freeze.value = freeze;
+    setInPlazaF(!!parts?.plaza?.object?.visible && P.inPlaza !== false);   // AD#8: festa in the square (the floor of gold ripples)
     // the growth from the tower: restarts when the part comes in, ~16 s to fill the walls (faster with the resonance)
     if (arrive < 0.05) growT = 0; else growT += dt * (1 + 1.5 * Math.min(1, U.Ve.value + (U.bloom.value || 0)));
     U.grow.value = (P.growFrom ?? true) === false ? 30 : 0.5 + 12.5 * smoother(growT / 16);
