@@ -197,12 +197,12 @@ export function create(ctx) {
       Nn.crossVectors(Tu, Tv).normalize(); if (Nn.x * P0.x + Nn.z * P0.z > 0) Nn.negate();      // towards the public
       // what it is: kind at rest (0 bone, 1 mirror, 2 graphite) and its glaze
       const u = rnd(), vein = Math.abs(Math.sin(cu * 0.31 + 1.7 * Math.sin(cy * 0.55 + cu * 0.07)));
-      let kind = s.mother ? (u < 0.4 ? 1 : 0) : (vein < 0.06 ? 1 : u < 0.07 ? 1 : u < 0.2 ? 2 : 0);
+      let kind = s.mother ? 0 : (vein < 0.04 ? 1 : u < 0.2 ? 2 : 0);   // AD#12: no mirror mothers (the chrome gems); a thin mirror vein only
       // its rosette: the nearest mother piece; its glaze: the rosette's family, in rings round the heart
       let ros = 0, rd = 1e9; mothers.forEach((M, k) => { const d = Math.hypot(wrapU(cu - M.cu), cy - M.y); if (d < rd) { rd = d; ros = k; } });
       const fam = FAMILY[mothers[ros].fam], bandN = Math.floor(rd / 0.62 + rnd() * 0.3);
       let col = s.mother ? fam[0] : rnd() < 0.08 ? fam[3] : bandN % 3 === 0 ? fam[1] : bandN % 3 === 1 ? fam[2] : fam[0];
-      if (loose) { col = rnd() < 0.5 ? BONE : GRAPHITE; kind = rnd() < 0.3 ? 1 : 0; }
+      if (loose) { col = rnd() < 0.5 ? BONE : GRAPHITE; kind = 0; }
       const tone = rr(0.78, 1.12), id = cells.length, idRnd = rnd();
       const inAx = rr(-0.7, 0.7);                                                        // the axis of its turn: in the surface, near the vertical
       ax.copy(Tv).normalize().multiplyScalar(Math.cos(inAx)).addScaledVector(e1.copy(Tu).normalize(), Math.sin(inAx)).normalize();
