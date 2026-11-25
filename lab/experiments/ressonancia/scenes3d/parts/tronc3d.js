@@ -506,7 +506,12 @@ export function create(ctx) {
   }
   let lightMode = '', breathK = 0, crownT = 0, crownK = 0;
   let castMode = 'build', focusY = null;
-  function setMode(m) { castMode = m || 'build'; if (castMode !== 'top') focusY = null; }
+  // the look per mode (AD #10): the Tronc / crown / bajada warm (cal-foc ramp); the Pom an almost cold silhouette in lluna — only the
+  // Pom's gold light (Interacción) is warm there
+  const WARM = kit ? { lit: 'cal-foc', half: kit.tok('terracota').map((v, i) => v * 0.28 + kit.tok('cal-foc')[i] * 0.42), amb: 'tinta-ombra' } : null;
+  const COLD = { lit: ['lluna', 0.62], half: ['blau-hora', 0.55], amb: 'tinta' };
+  function setLook(look) { if (kit) kit.setSplat(look === 'pom' ? COLD : WARM); }
+  function setMode(m) { castMode = m || 'build'; if (castMode !== 'top') focusY = null; setLook(castMode === 'top' ? 'pom' : 'warm'); }
   // setFocusY(y): y in metres above the plaza floor (the tower unrisen, e.g. trunk(f).yRest): the world lowers (≤ 0.30 m/s) so that
   // height sits at the eye's level, in the reach band; null gives the ground back
   function setFocusY(y) { focusY = y == null ? null : +y; }
@@ -927,7 +932,7 @@ export function create(ctx) {
     labGeo.dispose(); tickGeo.dispose(); lineGeo.dispose();
   }
   const api = {
-    object, update, setParams, dispose, impacts, setMode, setFocusY, kit, towerD: TOWER_D, scale: SC, trunk, textObstacles,
+    object, update, setParams, dispose, impacts, setMode, setLook, setFocusY, kit, towerD: TOWER_D, scale: SC, trunk, textObstacles,
     get rise() { return rise; },
     collapse, restore, takeFloor, giveFloor, levels,
     get collapsing() { return { on: col.on, t: col.t, mode: col.mode, duration: col.dur }; },
