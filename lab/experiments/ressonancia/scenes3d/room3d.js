@@ -480,7 +480,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     if (c.bottom) bg.to.bottom = [...c.bottom]; if (c.top) bg.to.top = [...c.top]; bg.to.horizon = [...(c.horizon || c.top || bg.to.horizon)];
     if (c.gain != null) bg.gain.value = c.gain;
     bg.name = typeof what === 'string' ? what : 'custom';
-    if (typeof what === 'string' && c.grade !== false) { setGrade(what, { now: c.now }); setAir(what); airSweep(scene); porx.to = PORX_ON.has(what) ? 1 : 0; field.to = FIELD_ON.has(what) ? 1 : 0; }
+    if (typeof what === 'string' && c.grade !== false) { setGrade(what, { now: c.now }); setAir(what); airSweep(scene); porx.to = PORX_ON.has(what) ? 1 : 0; porx.lit.value = what === 'crown' || what === 'festa' ? 1 : 0; field.to = FIELD_ON.has(what) ? 1 : 0; }
     if (c.now) for (const key of ['bottom', 'horizon', 'top']) bg[key].value.fromArray(bg.to[key]);
   }
   function stepBackground(dt) {
@@ -729,7 +729,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // Present in intro, brasa, pinya, tronc, baixada (setBackground sets it); room.setPorxada(0..1) overrides. It comes and goes by a
   // dissolve of fragments (screen-door), the work's language. In the scene root: the same frame in both worlds of a transition.
   const PORX_ON = new Set(['intro', 'brasa', 'pinya', 'tronc', 'pom', 'crown', 'baixada']);   // (pinya is the abstract field: no porch)
-  const porx = { k: uniform(0), to: 0, group: new THREE.Group() };
+  const porx = { k: uniform(0), to: 0, group: new THREE.Group(), lit: uniform(0) };
   porx.group.name = 'room:porxada';
   {
     const pm = ceramic({ color: [0.012, 0.011, 0.013], glaze: 0.2, wear: 0.6, rim: 0.1, hands: 0.5, env: 0.25 });
@@ -738,7 +738,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     pm.colorNode = Fn(() => {
       const h = fract(sin(dot(floor(screenCoordinate.xy.div(3)), vec2(12.9898, 78.233))).mul(43758.5453));
       If(h.greaterThan(porx.k), () => { Discard(); });
-      return baseCol.mul(G.shadow.mul(6.0).add(0.4));          // the chapter's shadow tone, very dark
+      return baseCol.mul(G.shadow.mul(6.0).add(0.4)).mul(mix(float(1), float(11), porx.lit));   // the chapter's shadow tone, very dark; lit bronze stone in the gold chapters
     })();
     const colG = new THREE.BoxGeometry(0.42, 6.0, 0.42).translate(0, 3.0, 0);
     for (let i = 0; i < walls.length; i++) {
