@@ -733,7 +733,7 @@ export function createScore(nWalls, opt = {}) {
           // 25-11 (D3b): a crown-target above every hand (≤ 12) and one on every wall at 1.5 m: raising a hand onto it counts too
           const A = T.aleta; offer({ mode: 'manual', kind: 'crown' });
           let k = 0; for (const o of S.strokes) { if (k++ >= 12) break; const y0 = o.y || 1.2; const c0 = y0 + (y0 < 1.15 ? 0.25 : 0.3), c1 = y0 < 1.15 ? Math.max(c0 + 0.4, 1.55) : Math.min(2.25, Math.max(c0 + 0.5, A.top)); TG.place({ wall: o.wall, dx: o.dx, shape: 'pillar', w: 0.45, y0: c0, y1: c1, kind: 'crown' }); }   // a column of light from just above the hand: raise it along (a low hand, a child's: within her reach)
-          for (let w = 0; w < W; w++) TG.place({ wall: w, dx: 0, shape: 'pillar', w: 0.5, y0: 1.3, y1: 2.15, kind: 'crown' });
+          for (let w = 0; w < W; w++) TG.place({ wall: w, dx: (w % 2 ? -1 : 1) * Math.min(1.7, LEN[w] / 2 - 0.8), shape: 'pillar', w: 0.5, y0: 1.3, y1: 2.15, kind: 'crown' });   // off the wall's centre: the tower stands there
         }
       } else if (S.phase === 'aleta') {
         // l'aleta (24-11, plan step 1): the enxaneta raises her hand; every hand that rises ≥ `rise` above where it was when the window
