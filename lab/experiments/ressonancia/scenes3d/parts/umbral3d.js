@@ -301,6 +301,16 @@ export function create(ctx) {
   }
   const NC = cells.length, TW = 128, TH = Math.max(1, Math.ceil(NC / TW));
   // per piece, live: turn and its speed, colour (until when), light, gone (fallen), last crossing
+  // studio 25-11 (Beltrán, after webgpu.toys/myriad) — THE WIND (experiment; WIND = false = as before): a moving hand is a gust, not a touch.
+  // The tiles near it come off their bed and slide WITH the hand (its velocity, in the shell's own (cu, v) metres), leaving a wake; the air
+  // has turbulence (their paths curl); each one tilts with its speed and goes back on its own spring (its own stiffness and damping: they
+  // overshoot a little and settle one after another). Behind a tile away from its bed: the night (the hole mask). Offsets live in
+  // offTex (du, dv, dn metres; w unused), applied in the vertex stage along the piece's own tangents.
+  const WIND = true, W_SIG2 = 2 * 0.36 * 0.36, W_GAIN = 5.5, W_MAX = 0.55;
+  const offData = new Float32Array(TW * TH * 4), offTex = new THREE.DataTexture(offData, TW, TH, THREE.RGBAFormat, THREE.FloatType);
+  offTex.magFilter = offTex.minFilter = THREE.NearestFilter; offTex.generateMipmaps = false; offTex.needsUpdate = true;
+  const wOff = new Float32Array(NC * 3), wVel = new Float32Array(NC * 3), wOn = new Uint8Array(NC);
+  let windDirty = false;
   const sleep = new Uint8Array(NC), HL2 = LL / 2, SH2 = LL * 0.37, CU = Float64Array.from(cells, (c) => c.cu), CY = Float64Array.from(cells, (c) => c.cy);
   const paintAt = new Float32Array(NC).fill(-9);   // studio 25-11: when a piece was last painted from rest
   const rub = new Float32Array(NC);                // studio 25-11: how much a hand has rubbed this piece (the more, the more fall, the wider)
@@ -375,7 +385,9 @@ export function create(ctx) {
       const local = positionLocal.sub(aC_).mul(st.w).mul(doorK(wc));
       normalLocal.assign(rotA(normalLocal, aAx_, c, s));
       const inward = normalize(vec3(aC_.x, 0, aC_.z)).mul(uPush.negate());          // 'start': the world closes in round the eye
-      return aC_.add(rotA(local, aAx_, c, s)).add(aN_.mul(st.y)).add(inward);
+      const ow = textureLoad(offTex, ivec2(ix, iy)), th_ = normalize(vec3(aN_.z, 0, aN_.x.negate()).add(vec3(1e-5, 0, 0))), tv_ = cross(aN_, th_);
+      const wind = th_.mul(ow.x).add(tv_.mul(ow.y)).add(aN_.mul(ow.z));                // studio 25-11: the wind's offset (sign of th_ fixed on the CPU)
+      return aC_.add(rotA(local, aAx_, c, s)).add(aN_.mul(st.y)).add(inward).add(wind);
     })();
     const face = aInf_.y, vKind = varying(ld(1).w), r = varying(ld(0).w), vGl = varying(ld(3).xyz), vRest = varying(ld(4).xyz), packed = varying(st.z);
     const top = float(1).sub(step(0.5, face)), back = step(0.5, face).mul(float(1).sub(step(1.5, face))), side = step(1.5, face);
@@ -442,6 +454,8 @@ export function create(ctx) {
     hit.p.set(eye.x + dx * t, eye.y + dy * t, eye.z + dz * t);
     return hit;
   }
+  // studio 25-11 (the wind): which way a wall's «right» runs in cu (+1 / −1)
+  const wallSgn = walls.map((w) => { const P = new THREE.Vector3().copy(w.centre).setY(1.3); surfHit(P); const a = hit.cu; surfHit(P.addScaledVector(w.right, 0.2)); const d = hit.cu - a; return d - Math.round(d / LL) * LL >= 0 ? 1 : -1; });
 
   // =========================================================================================== loose shards (instanced): mobiles, fallen pieces, far arcs
   // tile geometry: an irregular polygon, extruded thick with a rounded bevel, bent like a piece of a vase; group 0 = the face, 1 = back and sides
@@ -918,7 +932,7 @@ export function create(ctx) {
   // ------------------------------------------------------------------------------------------- state
   let time = 0, emptyT = 99, ghostAt = 2.5, rot = 0, heroRot = 0, ringSpin = 0, exploded = -1, revealV = 0, startV = 0, idleC = 0, wasRevealed = false, figT0 = -1, figK = 0, cascades = 0, crossings = 0, goneN = 0, pushV = 0, wasWait = true;
   const figAt = Array.from({ length: NW }, () => ({ cu: 0, cy: 0 }));
-  const MAXH = 12, hcu = new Float32Array(MAXH), hcy = new Float32Array(MAXH), hfresh = new Uint8Array(MAXH), hsp = new Float32Array(MAXH);   // hsp: studio 25-11, the hand's speed (m/s)
+  const MAXH = 12, hcu = new Float32Array(MAXH), hcy = new Float32Array(MAXH), hfresh = new Uint8Array(MAXH), hsp = new Float32Array(MAXH), hvu = new Float32Array(MAXH), hvv = new Float32Array(MAXH);   // hsp: studio 25-11, the hand's speed (m/s)
   const HOLD = Array.from({ length: 16 }, () => ({ stroke: null, seen: -9, t0: 0, cu: 0, cy: 0, next: 0, ros: -1, lu: 0, lv: 0 }));
   function holdOf(stroke) {
     let free = null;
@@ -996,7 +1010,7 @@ export function create(ctx) {
         // a hand in the threshold (there is no mosaic there) plays the edge of the door nearest to it
         const da = hy < DOOR_H ? DOOR_A * Math.pow(1 - hy / DOOR_H, 1 / DOOR_P) : 0;
         if (Math.abs(hx) < da + 0.12) surfHit(_v3.copy(h.pos).addScaledVector(w.right, (hx < 0 ? -1 : 1) * (da + 0.38) - hx)); else surfHit(h.pos);
-        if (nh < MAXH) { hcu[nh] = hit.cu; hcy[nh] = hit.cy; hfresh[nh] = fresh ? 1 : 0; hsp[nh] = speed; nh++; }
+        if (nh < MAXH) { hcu[nh] = hit.cu; hcy[nh] = hit.cy; hfresh[nh] = fresh ? 1 : 0; hsp[nh] = speed; hvu[nh] = h.vx * wallSgn[h.wall] * 1.15; hvv[nh] = h.vy * 1.15; nh++; }
         if (nh <= HL) { const l = handLights[nh - 1]; l.position.copy(hit.p).multiplyScalar(0.9); l.position.y = hit.p.y + 0.15; l.intensity += (HAND_LIGHT * arrive * (1 - leave) - l.intensity) * (1 - Math.exp(-dt * 18)); }   // studio 25-11: brighter (was 2.0)
         if (nh <= uHandP.length) { const U = uHandP[nh - 1].value; U.set(hit.p.x, hit.p.y, hit.p.z, U.w + ((fresh ? 1.4 : 1) * arrive * (1 - leave) - U.w) * (1 - Math.exp(-dt * 25))); }
         const under = nearest(hit.cu, hit.cy), ros = under >= 0 ? cells[under].ros : -1;
@@ -1083,6 +1097,10 @@ export function create(ctx) {
         }
         for (let k = 0; k < nh; k++) {                                                   // under a hand: at once
           let d = cu_ - hcu[k]; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; const dy = cy_ - hcy[k], dd = d * d + dy * dy;
+          if (WIND && dd < 0.55 && hsp[k] > 0.05 && !gone[i]) {                        // the gust: along the hand's own motion
+            const f = Math.exp(-dd / W_SIG2) * W_GAIN * Math.min(1.4, hsp[k]) * (0.7 + 0.6 * c.r1) * dt, o3 = i * 3;
+            wVel[o3] += hvu[k] * f; wVel[o3 + 1] += hvv[k] * f; wVel[o3 + 2] += Math.hypot(hvu[k], hvv[k]) * f * 0.35; wOn[i] = 1;
+          }
           if (dd < 0.3) {
             // studio 25-11 (Beltrán, the SECOND INTENSITY): a hand passing again over pieces it already painted (painted ≥ 1.2 s ago) brings
             // them down — they fall to the floor, and later fly back to their bed at rest (see the return below), unless touched again
@@ -1106,7 +1124,21 @@ export function create(ctx) {
         }
         if (g > glow[i]) glow[i] += (g - glow[i]) * Math.min(1, dt * 6);
         // asleep (T-058, ~14k pieces): nothing moves it and it is home — its last pose stays in the texture, skip it
-        if (settled && !figOn && sh === 0 && bump === 0 && g === 0 && glow[i] < 0.002 && !gone[i]) {
+        if (WIND && wOn[i]) {                                                          // springs home on its own stiffness, through curling air
+          const o3 = i * 3, ks = 6 + 6 * c.r2, cs = 2.4 + 1.4 * c.r1;
+          let ux = wOff[o3], uy = wOff[o3 + 1], uz = wOff[o3 + 2], vx = wVel[o3], vy = wVel[o3 + 1], vz = wVel[o3 + 2];
+          const sp = Math.hypot(vx, vy), tq = time * 0.9 + c.r1 * 6.28;
+          vx += (-ks * ux - cs * vx + sp * 2.2 * Math.sin(uy * 7 + tq) ) * dt;           // curl-like turbulence, only while it travels
+          vy += (-ks * uy - cs * vy + sp * 2.2 * Math.cos(ux * 7 - tq * 1.3)) * dt;
+          vz += (-ks * 1.6 * uz - cs * vz) * dt;
+          ux += vx * dt; uy += vy * dt; uz += vz * dt;
+          const L = Math.hypot(ux, uy); if (L > W_MAX) { ux *= W_MAX / L; uy *= W_MAX / L; }
+          if (uz < 0) { uz = 0; if (vz < 0) vz = 0; } if (uz > 0.25) uz = 0.25;
+          wOff[o3] = ux; wOff[o3 + 1] = uy; wOff[o3 + 2] = uz; wVel[o3] = vx; wVel[o3 + 1] = vy; wVel[o3 + 2] = vz;
+          const oo = i * 4; offData[oo] = ux; offData[oo + 1] = uy; offData[oo + 2] = uz; windDirty = true;
+          if (ux * ux + uy * uy + uz * uz < 1e-7 && vx * vx + vy * vy + vz * vz < 1e-6) { wOn[i] = 0; wOff.fill(0, o3, o3 + 3); wVel.fill(0, o3, o3 + 3); offData[oo] = offData[oo + 1] = offData[oo + 2] = 0; }
+        }
+        if (settled && !figOn && sh === 0 && bump === 0 && g === 0 && glow[i] < 0.002 && !gone[i] && !wOn[i]) {
           const tg = col * Math.PI, e = phi[i] - tg;
           if (e < 0.002 && e > -0.002 && vphi[i] < 0.003 && vphi[i] > -0.003) {
             if (!sleep[i]) { sleep[i] = 1; phi[i] = tg; vphi[i] = 0; glow[i] = 0; stData[o] = (tg * 2) % 6.2831853; stData[o + 1] = 0; stData[o + 2] = col ? 8 : 0; stData[o + 3] = 1; }
@@ -1124,10 +1156,12 @@ export function create(ctx) {
       const aAt = settled ? 0 : 0.5 * ((c.th / (Math.PI * 2) + c.r1 * 0.22) % 1), ka = settled ? 1 : smooth(aAt, aAt + 0.42, arrive), kl = settled ? 0 : smooth(c.r2 * 0.45, c.r2 * 0.45 + 0.5, leave);
       if (ka < 1 || kl > 0) { lift += (1 - ka) * (1 - ka) * 0.5 + kl * kl * 0.5; /* T-058c: a short flight (the shell is near the wall) */ turn += (1 - ka) * 5 + kl * 4 * (c.r1 - 0.5) * 2; sc *= ka * (1 - kl); }
       if (gone[i]) sc = 0;
+      if (WIND && wOn[i]) { const o3 = i * 3; turn += Math.min(1.3, Math.hypot(wVel[o3], wVel[o3 + 1]) * 1.6) * (c.r1 < 0.5 ? -1 : 1); }   // it tilts with its speed
       stData[o] = turn % 6.2831853; stData[o + 1] = lift; stData[o + 2] = Math.min(glow[i], 3.5) + kc; stData[o + 3] = sc;
+      if (WIND && wOn[i]) { const o3 = i * 3; stampHole(CU[i], CY[i], c.rad * 1.35, smooth(0.015, 0.06, Math.hypot(wOff[o3], wOff[o3 + 1]) + wOff[o3 + 2])); }
       if (!c.loose) stampHole(CU[i], CY[i], c.rad * 1.35, Math.max(1 - sc, smooth(0.012, 0.04, lift), Math.abs(Math.sin(turn * 0.5)) * 0.9));   // studio 25-11: the night behind
     }
-    stTex.needsUpdate = true; if (maskDirty) maskTex.needsUpdate = true;
+    stTex.needsUpdate = true; if (maskDirty) maskTex.needsUpdate = true; if (windDirty) { offTex.needsUpdate = true; windDirty = false; }
 
     // ---- the fallen pieces of the serpentine
     const vis0 = arrive * (1 - smooth(0, 0.6, leave));
