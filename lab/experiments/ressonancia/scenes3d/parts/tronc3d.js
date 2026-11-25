@@ -54,7 +54,7 @@ export function create(ctx) {
   // 25-11 framing (director): the castell at HUMAN scale, close — its pinya on the floor of the square, the floor line low on the wall,
   // the forming floor in the reach band (1.0–2.0 m on the wall); the room rises with it (M6). fall3d's private tower keeps the old frame.
   const OLD = lone() || P.towerScale === 2.5;
-  const SC = P.towerScale ?? (OLD ? 2.5 : 1.0), TOWER_D = P.towerD ?? (OLD ? 6.5 : 2.3);
+  const SC = P.towerScale ?? (OLD ? 2.5 : 1.0), TOWER_D = P.towerD ?? (OLD ? 6.5 : 1.25);   // 25-11 (AD): the baixos almost life-size, the floor line ≈ 0.45 m on the wall
   const FORM_Y = OLD ? 4.3 : 1.35, FORM_Y0 = OLD ? 4.3 : 1.45;
 
   // -------------------------------------------------------------------------------------------- shared uniforms
@@ -460,16 +460,17 @@ export function create(ctx) {
   // (fall3d: while the castell falls the porcelain sculpture is shown, it is what breaks) — but its solid meshes are not drawn.
   // Layout in castell metres (× SC in the tower's frame, like the sculpture): a pinya of three rings + a folre, a tronc of three per tier,
   // the dosos, the acotxador, the enxaneta. Mode (setMode): build (Tronc) · top (Pom: the same castell) · crowned (the enxaneta's arm up) · down.
-  const CAST = [], CLV = [];      // CLV: the bodies' own levels (y0, y1 in castell metres), for levels() in the human-scale mode
+  const CAST = [], CLV = [], TRUNK = [];      // CLV: the bodies' own levels (y0, y1 in castell metres), for levels() in the human-scale mode
   {
     const r3 = rng(4401);
     // 25-11 (Art Director): the lower floors life-size in the foreground, the tower growing to ~3.4 m on the wall by COMPRESSING the
     // upper floors (a forced perspective: each tier ×PERSP), never shrinking the whole tower; no room-rise in this mode
-    const PERSP = OLD ? 1 : 0.72;
+    const PERSP = OLD ? 1 : 0.7;
     const tier = [1.05, 1.02, 1.02, 1.02, 1.02, 1.02].map((v, L) => v * Math.pow(PERSP, L));
     let feet = 0;
     for (let L = 0; L < 6; L++) {
       const s = tier[L], R0 = 0.33 * Math.max(0.55, s);
+      TRUNK[L + 1] = { y: feet, r: R0 + 0.18 * s, h: 1.342 * s };
       for (let j = 0; j < 3; j++) { const a = Math.PI / 2 + (j * TAU) / 3; CAST.push({ lv: L + 1, x: Math.cos(a) * R0, z: Math.sin(a) * R0, y: feet, yaw: Math.atan2(Math.cos(a), Math.sin(a)), pose: 'lock', s, build: 0 }); }
       feet += 1.342 * s + 0.03;
     }
@@ -478,6 +479,7 @@ export function create(ctx) {
     const dsY = feet + (1.286 * 0.8 + 0.03) * pd;
     CAST.push({ lv: 8, x: 0, z: -0.06 * pa, y: dsY, yaw: 0, pose: 'carry', s: 0.66 * pa, build: 2 });
     CAST.push({ lv: 9, x: 0, z: -0.02 * pe, y: OLD ? Math.max(dsY + 0.42, 9.8) : dsY + 0.42 * pa, yaw: 0, pose: 'stand', pose2: 'raise', s: 0.62 * pe, build: 2, enx: true });
+    TRUNK[7] = { y: feet, r: 0.3 * Math.max(0.5, pd), h: 1.286 * 0.8 * pd }; TRUNK[8] = { y: dsY, r: 0.2 * pa, h: 0.9 * pa }; TRUNK[9] = { y: dsY + 0.42 * pa, r: 0.15 * pe, h: 1.1 * pe };
     for (const c of CAST) { const L = CLV[c.lv] || (CLV[c.lv] = { y0: 1e9, y1: -1e9 }); L.y0 = Math.min(L.y0, c.y); L.y1 = Math.max(L.y1, c.y + 1.7 * c.s); }
     const ringN = [10, 16, 22];
     for (let i = 0; i < 3; i++) {
@@ -526,6 +528,8 @@ export function create(ctx) {
         const lx = c.x * SC, ly = (c.y + dy) * SC, lz = c.z * SC;
         const tx = lx * ct - ly * st, ty = lx * st + ly * ct;                       // the lean (tower frame, about its z)
         _bp.set(t.g.position.x + cp * tx + sp * lz, ty, t.g.position.z - sp * tx + cp * lz);
+        // the pinya opens towards the room: nobody of it stands in front of (or on) the wall plane — the audience is its front
+        if (c.lv === 0 && (_bp.x - t.w.centre.x) * t.w.normal.x + (_bp.z - t.w.centre.z) * t.w.normal.z > -0.3) { kit.hide(i); continue; }
         const away = uAway.value;
         // arrive / leave: the particles gather / scatter (form below), no block movement
         const pose2 = c.enx ? (crowned ? 'raise' : 'stand') : c.pose;
@@ -614,7 +618,7 @@ export function create(ctx) {
     }
 
     // ---- the rise: the room climbs with the forming floor (lift: the forming floor sits at the hands); reward: drawn back, all of it
-    const fl = Math.min(NL - 1, floors + 1), riseOn = pr.rise ?? (OLD ? 1 : 0);
+    const fl = Math.min(NL - 1, floors + 1), riseOn = OLD ? (pr.rise ?? 1) : 0;   // human scale: the tower is framed by its forced perspective, the room does not rise
     let target = (LV[fl].yc * SC - (liftOn ? FORM_Y : FORM_Y0)) * riseOn;
     pull += ((rewarding || (leave > 0 && pull > 0.01) ? 1 : 0) - pull) * ease(0.6, dt);
     if (pull > 0.001) target += (TOWER_H * SC * 0.5 - 1.2 - target) * smooth(0, 1, pull);
@@ -857,6 +861,16 @@ export function create(ctx) {
     return towers.filter((t) => t.on).map((t) => ({ tower: t.tw, built: t.built, floors: LV.map((L0, i) => { const L = lvOf(L0, i); return { i, name: NAMES[i].toLowerCase(), y: y0 + L.yc * SC, h: L.h * SC, taken: !!t.st[i].taken, gone: !!t.st[i].gone }; }) }));
   }
 
+  // trunk(floor, tower?) → { x, z, y, r, h, tower } in WORLD metres: the axis of the tower at that floor (y = its feet, r = the radius of
+  // the bodies' ring, h = its height); for climbers (Pom). Without `tower`: the first tower on screen. null when there is none.
+  function trunk(floor, tower = -1) {
+    const t = tower >= 0 ? towers[tower] : towers.find((q) => q.on);
+    const L = TRUNK[Math.max(1, Math.min(9, floor | 0))]; if (!t || !L) return null;
+    world.updateMatrixWorld(true);
+    const y0 = world.matrixWorld.elements[13], th = t.theta || 0;
+    const phi = Math.atan2(t.w.normal.x, t.w.normal.z), d = -Math.sin(th) * L.y * SC;   // the lean shifts the axis along the tower's x
+    return { x: t.g.position.x + Math.cos(phi) * d, z: t.g.position.z - Math.sin(phi) * d, y: y0 + L.y * SC * Math.cos(th), r: L.r * SC, h: L.h * SC, tower: t.tw };
+  }
   function setParams(p) { if (p && p !== P) Object.assign(P, p); }
   function dispose() {
     try { fxBc?.close(); } catch { /* closed */ }
@@ -868,7 +882,7 @@ export function create(ctx) {
     labGeo.dispose(); tickGeo.dispose(); lineGeo.dispose();
   }
   const api = {
-    object, update, setParams, dispose, impacts, setMode, kit, towerD: TOWER_D, scale: SC,
+    object, update, setParams, dispose, impacts, setMode, kit, towerD: TOWER_D, scale: SC, trunk,
     get rise() { return rise; },
     collapse, restore, takeFloor, giveFloor, levels,
     get collapsing() { return { on: col.on, t: col.t, mode: col.mode, duration: col.dur }; },

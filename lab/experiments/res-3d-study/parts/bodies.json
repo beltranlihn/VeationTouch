@@ -1,5 +1,5 @@
 [
-  { "key": "depth", "label": "Bodies: distance behind the wall", "type": "number", "min": 0.3, "max": 4, "step": 0.05, "default": 1.0, "unit": "m" },
+  { "key": "depth", "label": "Bodies: distance behind the wall", "type": "number", "min": 0.05, "max": 4, "step": 0.05, "default": 0.15, "unit": "m" },
   { "key": "pose", "label": "Bodies: pose", "type": "select", "default": "all", "options": [["all", "All five"], ["stand", "Stand"], ["palm", "Palm"], ["lock", "Locked"], ["carry", "Carrying"], ["raise", "Arm raised"]] },
   { "key": "crack", "label": "Bodies: crackle", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 0.35 },
   { "key": "rim", "label": "Bodies: rim", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 0.35 },

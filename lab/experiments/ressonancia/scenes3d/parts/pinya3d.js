@@ -19,7 +19,7 @@ import { createBodies } from '../bodykit.js';
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
 const NPALM = 18;            // figures for hands (16) + waiting ones
-const RINGS = [{ r: 0.85, n: 9, pose: 'lock' }, { r: 1.42, n: 14, pose: 'carry' }, { r: 2.0, n: 17, pose: 'carry' }];
+const RINGS = [{ r: 0.7, n: 9, pose: 'lock' }, { r: 1.15, n: 14, pose: 'lock' }, { r: 1.6, n: 19, pose: 'carry' }];   // a TIGHT mass, shoulder to shoulder, arms to the centre
 
 export function create({ THREE, TSL, room, params }) {
   const P = params || {};

@@ -21,6 +21,7 @@
 // hands' flash. Colours are the approved palette (05 §2.7); `opt.colors` overrides them (palette.js when it exists).
 import { bakeBodyGen, pose as skeleton, V } from './parts/pinya3d/body.js';
 import { lin as palLin } from './palette.js';
+import { loadHumanBases, bakeHumanGen, HUMAN_POSES, HUMAN_BUILDS } from './bodykit-gltf.js';
 
 // ---------------------------------------------------------------------------------------------------------------- palette (05 §2.7)
 // palette.js tokens (or [token, k] or linear [r, g, b]); skin = 'bisque' = terracota lifted half-way to cal-foc. Pinya by default;
@@ -87,7 +88,8 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [9000, 2000], blend: splatBlend = 'add', spots = null } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [12000, 2400], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
+  const splatOnlyLodMesh = false;
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;
   const C = { ...BODY_COLORS, ...colors };
@@ -205,11 +207,11 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   const plMesh = new THREE.Mesh(plGeo, plMat); plMesh.frustumCulled = false; plMesh.renderOrder = -4; plMesh.name = 'bodykit:pools'; object.add(plMesh);
   const CS = room?.contactShadows ? room.contactShadows(max) : null;   // the room's contact discs (the chapter's shadow colour); the kit draws the cast
   if (CS) object.add(CS.mesh);
-  let csUsed = 0, fakeCast = true;
+  let csUsed = 0, fakeCast = false;   // 25-11 (AD): no fake cast shadow — a warm light pool + the dark contact disc
   // 'self': lit by the kit alone (no scene light) + its own soft cast shadow · 'scene': a chapter with a real key and shadow map (the
   // lit square: room.keyShadow) — the albedo takes the real light, the self light becomes a fill, the fake cast shadow goes
   function setLighting(mode = 'self') {
-    if (mode === 'scene') { uSelf.value = 0.35; uAlb.value = 0.95; fakeCast = false; } else { uSelf.value = 1; uAlb.value = 0.35; fakeCast = true; }
+    if (mode === 'scene') { uSelf.value = 0.35; uAlb.value = 0.95; } else { uSelf.value = 1; uAlb.value = 0.35; }
   }
 
   // ================================================================================================ SPLATS (25-11: «the body is light that
@@ -231,6 +233,9 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   const quad = new THREE.PlaneGeometry(2, 2);
   const SPN = spots?.pos?.length ? Math.min(8, spots.pos.length) : 0;
   const SPP = SPN ? TSL.uniformArray(spots.pos, 'vec4') : null, SPD = SPN ? TSL.uniformArray(spots.dir, 'vec4') : null, uSpotK = uniform(0.00025);   // plaza SPOT_K ≈ 2600 → ≈ 0.65 at the beam's heart
+  // the human base: per bone class [density, max depth inside (m), aura share] — wide thorax and pelvis (core 28–32 cm), thick thighs,
+  // thin forearms, hands and feet at 30–40 %, the head lighter (no bulb)
+  const CLS = [[0.72, 0.07, 0.04], [1.0, 0.13, 0.08], [0.9, 0.075, 0], [0.62, 0.04, 0.08], [0.35, 0.012, 0.12], [0.35, 0.015, 0], [0.45, 0.028, 0.1]];
   function partOf(p, reg, s) {        // rest pose (A-pose): density weight, max depth inside (m)
     const x = Math.abs(p[0]), y = p[1];
     if (reg < 0.5 && y < 1.3 * s) return [0.25, 0.01];                // hands
@@ -256,9 +261,11 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       const x = rnd() * acc; let lo = 0, hi = tri - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cdf[m] < x) lo = m + 1; else hi = m; }
       let u = rnd(), v = rnd(); if (u + v > 1) { u = 1 - u; v = 1 - v; }
       const w0 = 1 - u - v, vi = idx[lo * 3 + (w0 >= u && w0 >= v ? 0 : u >= v ? 1 : 2)];
-      const [wt, dmax] = partOf([R0[vi * 3], R0[vi * 3 + 1], R0[vi * 3 + 2]], vAux[vi * 4 + 2], s);
+      const [wt, dmax, auraP] = r.cls ? CLS[r.cls[vi]] : [...partOf([R0[vi * 3], R0[vi * 3 + 1], R0[vi * 3 + 2]], vAux[vi * 4 + 2], s), 0.05];
       if (rnd() > wt) continue;
-      const ty = rnd(), kind = ty < 0.7 ? 0 : ty < 0.95 ? 0.5 : 1;
+      // aura only on the upper body (shoulders, arms, hands, a little on the head): the dust leaves from where the weight is carried
+      const upper = R0[vi * 3 + 1] > 1.0, ty = rnd(), aP = upper ? auraP : 0;
+      const kind = ty < aP ? 1 : ty < aP + 0.7 * (1 - aP) ? 0 : 0.5;
       const depth = kind === 0 ? -Math.pow(rnd(), 0.6) * dmax : kind === 0.5 ? -0.006 * rnd() : 0.15 + rnd() * 0.1;
       pick.push([lo, w0, u, v, vi, kind, depth]); k++;
     }
@@ -319,7 +326,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // home: inside the volume (core), on the skin, or off it (aura, falling slowly and fading on its cycle)
     const t = uTime, ph = rr.mul(61.7);
     const auraT = fract(t.mul(0.05).add(rr.mul(7.0)));
-    pl = pl.add(nl.mul(depth)).add(vec3(0, auraT.mul(-0.3).mul(aura), 0));
+    pl = pl.add(nl.mul(depth)).add(vec3(auraT.mul(0.14), auraT.mul(-0.32), auraT.mul(-0.05)).mul(aura));   // the aura falls slowly and drifts to one side
     // the slow spring round home (1–2 cm, 0.2–0.4 Hz), the breath of the torso
     const hz = fract(rr.mul(5.3)).mul(0.2).add(0.2).mul(6.2832);
     const drift = vec3(sin(t.mul(hz).add(ph)), sin(t.mul(hz.mul(0.83)).add(ph.mul(1.7))), sin(t.mul(hz.mul(1.13)).add(ph.mul(2.3)))).mul(jit.mul(0.01).add(0.008)).mul(uDrift);
@@ -340,8 +347,10 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const toCam = normalize(cameraPosition.sub(C)), facing = dot(nW, toCam);
     const right = normalize(cross(vec3(0, 1, 0), toCam).add(vec3(0.0001, 0, 0))), upv = cross(toCam, right);
     const vis = mix(smoothstep(-0.35, 0.1, facing), float(1), core.max(aura)).max(away);     // skin splats behind the body are culled; core and aura are volume
-    const size = mix(mix(float(0.015), float(0.03), jit), mix(float(0.04), float(0.08), jit), aura).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.45);
-    const r0 = size.mul(2).mul(vis);
+    // crisp grain: core 1–2 cm, skin 3–5 cm, aura 6–10 cm (faint)
+    const skin = step(0.25, kind).mul(float(1).sub(aura));
+    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.03), float(0.05), jit), skin).add(aura.mul(mix(float(0.06), float(0.1), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.35);
+    const r0 = size.mul(1.6).mul(vis);
     const q = positionGeometry.xy;
     m.positionNode = C.add(right.mul(q.x.mul(r0))).add(upv.mul(q.y.mul(r0)));
     // light: warm high key from the upper left of the eye + cool backlight; shadow falls to ~17 % and into the night
@@ -365,7 +374,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       colr = colr.add(uLit.mul(sp.mul(uSpotK)).mul(mix(float(0.6), float(1), AX.y)));
     }
     colr = colr.add(uColor.glow.mul(B2.w).mul(0.9)).add(uColor.glow.mul(uSGlow));
-    const opa = mix(mix(float(0.1), float(0.12), step(0.25, kind)), float(0.05), aura).mul(lod === 0 ? 1 : 1.6);
+    const opa = (splatBlend === 'add' ? mix(mix(float(0.1), float(0.12), skin), float(0.05), aura) : mix(mix(float(0.5), float(0.24), skin), float(0.05), aura)).mul(lod === 0 ? 1 : 1.3);
     const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura);
     const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(float(1).sub(away.mul(0.6))), 'vSplA');
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
@@ -395,11 +404,19 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   const readyP = new Promise((r) => { resolveReady = r; });
   const jobs = [];
   for (const b of builds) for (const l of lods) jobs.push({ b, l });
+  // the human base (Quaternius CC0) — loaded at once; the SDF body (body.js) only if it cannot be loaded
+  let bases = null, basesFailed = !human;
+  if (human) loadHumanBases(THREE).then((g) => { bases = g; }, (e) => { basesFailed = true; console.info('bodykit: human base meshes not loaded, SDF bodies instead (' + (e?.message || e) + ')'); });
+  const humanCache = {};
   function* bakeAll() {
     const specs = [REST, ...POSES.map((k) => POSE_SPECS[k])];
+    while (!bases && !basesFailed) yield;
     for (const { b, l } of jobs) {
       const B = BUILDS[b], L = LODS[l];
-      const r = yield* bakeBodyGen(B, REST, specs, { grid: L.grid, detail: L.detail, seed: seed + b * 31 + l * 7, shards: L.shards });
+      const useH = !!bases;
+      if (useH && l > 0 && !splatOnlyLodMesh) { /* one mesh bake per build: the LODs differ only by their splat count */ }
+      const r = useH ? (humanCache[b] || (humanCache[b] = yield* bakeHumanGen(THREE, bases[HUMAN_BUILDS[b].base], HUMAN_BUILDS[b], [null, ...POSES.map((k) => HUMAN_POSES[k])])))
+        : yield* bakeBodyGen(B, REST, specs, { grid: L.grid, detail: L.detail, seed: seed + b * 31 + l * 7, shards: L.shards });
       yield;
       const n = r.n, rows = Math.ceil(n / TW), NP = POSES.length;
       const data = new Uint16Array(TW * rows * 2 * NP * 4), toH = THREE.DataUtils.toHalfFloat;
@@ -414,8 +431,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       const tex = new THREE.DataTexture(data, TW, rows * 2 * NP, THREE.RGBAFormat, THREE.HalfFloatType);
       tex.minFilter = tex.magFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.needsUpdate = true;
       // geometry: rest positions (bounds, and the attribute three expects), per-vertex aux
-      const aux = new Float32Array(n * 4), aux2 = new Float32Array(n * 4), R0 = r.P[0], hc = skeleton(REST, B).headC, hk = B.head ?? 1;
-      for (let v = 0; v < n; v++) {
+      const aux = r.aux ? r.aux : new Float32Array(n * 4), aux2 = r.aux2 ? r.aux2 : new Float32Array(n * 4), R0 = r.P[0], hc = skeleton(REST, B).headC, hk = B.head ?? 1;
+      for (let v = 0; v < n && !r.aux; v++) {
         const p = [R0[v * 3], R0[v * 3 + 1], R0[v * 3 + 2]];
         aux[v * 4] = r.aAux[v * 4]; aux[v * 4 + 1] = r.aAux[v * 4 + 1]; aux[v * 4 + 2] = regionOf(p, r.aAux2[v * 4 + 3], B); aux[v * 4 + 3] = r.aAux2[v * 4];
         aux2[v * 4] = r.aAux2[v * 4 + 1]; aux2[v * 4 + 1] = r.aAux2[v * 4 + 2];
