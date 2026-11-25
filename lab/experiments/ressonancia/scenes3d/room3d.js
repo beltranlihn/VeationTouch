@@ -446,7 +446,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       air: { density: 0.016, height: 0.16, heightK: 0.5, start: 6, max: 0.82 } },
     pom:     { ev: 0.45, sat: 0.85, contrast: 1.02, lo: 'nit-alta', loK: 0.35, hi: 'lluna', hiK: 0.1, lift: 'nit-alta', liftK: 0.35, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.0112, height: 0.2, heightK: 0.5, start: 3.6, max: 0.75 } },
-    crown:   { ev: 0.55, sat: 0.95, contrast: 1.1, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.88, vTop: 0.15, vBot: 0.15, bloom: 1, sky: 1,
+    crown:   { ev: 0.4, sat: 0.95, contrast: 1.12, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.88, vTop: 0.15, vBot: 0.15, bloom: 1, sky: 1,
       air: { density: 0.008, height: 0.12, heightK: 0.3, start: 6, max: 0.6 } },   // a gold burst inside the night
     festa:   { ev: 0.35, sat: 0.95, contrast: 1.05, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.88, vTop: 0.2, vBot: 0.15, bloom: 1, sky: 1,
       air: { density: 0.008, height: 0.12, heightK: 0.3, start: 6, max: 0.6 } },

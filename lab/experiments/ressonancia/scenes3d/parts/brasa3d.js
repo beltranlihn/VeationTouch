@@ -421,7 +421,7 @@ export function create({ THREE, TSL, room, params, parts }) {
     return meshes;
   })();
   let cursor = 0, nE = 0, whiteN = 0;
-  const sparkGain = () => Math.max(0, Number(P.sparks ?? 1)) * 0.7;   // AD#5: −30 %
+  const sparkGain = () => Math.max(0, Number(P.sparks ?? 1)) * 0.5;   // AD#5/#7: −50 %
   // n sparks from (px,py,pz) within `spread` m, along dir (+ cone), speed vmin..vmax, life lmin..lmax, heat, gravity scale, drag, inherited velocity
   function emit(n, px, py, pz, spread, dx, dy, dz, cone, vmin, vmax, lmin, lmax, heat, g, drag, ix = 0, iy = 0, iz = 0) {
     n = Math.floor(n * sparkGain());
@@ -989,7 +989,7 @@ export function create({ THREE, TSL, room, params, parts }) {
     const age = fract(t.mul(r1.mul(0.8).add(0.75)).add(r2.mul(17.0)));
     const tongue = mx_noise_float(vec3(A.x.mul(0.7).add(r3.mul(3.0)), t.mul(1.6), A.z.mul(0.7))).mul(0.35).add(0.75);
     const hgt = B.x.mul(grow).mul(tongue).mul(mix(float(1), float(0.22), emb)).mul(min(str.mul(1.6), 1.0));
-    const lat = r3.sub(0.5).mul(B.y).mul(float(1).sub(age.mul(0.75)));          // wide at the root, a tongue at the top
+    const lat = r3.sub(0.5).mul(B.y).mul(pow(float(1).sub(age), 1.6));            // wide at the root, tapering to a point (AD#7)
     const dep = r4.sub(0.5).mul(0.35).mul(float(1).sub(age.mul(0.6)));
     const sway = age.mul(age).mul(0.2);
     const right = vec3(C.x, 0, C.y), back = vec3(C.y, 0, C.x.negate());
