@@ -46,7 +46,7 @@ export const TIMES = {                       // seconds
   hand: { size: 0.12, base: 6, span: 2 },   // the default hand width (m), how slowly a hand's baseline follows it (s), the narrowest packing window (m)
   crown: 25,
   festa: { min: 60, target: 76, max: 84, free: 24, echo: 52, travel: 3, ghost: 12, echoLife: 8, calls: 4, gap: 0.8, lead: 1.0, pause: 2.5, callMax: 7, fracs: [0.35, 0.45, 0.55, 0.65] },   // 25-11: free (rings) → echo (targets that wait) → 4 calls → bloom
-  baixada: { min: 30, target: 40, max: 50, empty: 10, net: 12, drop: 3, rungs: [1.55, 1.15, 0.8, 0.45], kidRungs: [1.3, 0.9, 0.5], coda: 8 },   // coda: free play once it is down, before the acta   // 25-11: ladders down, two floors each (net: the clock lowers it in the last 12 s)
+  baixada: { min: 30, target: 40, max: 50, empty: 10, net: 12, drop: 3, rungs: [1.45, 1.2, 0.95], kidRungs: [1.25, 1.0, 0.8], coda: 8, keepOut: [{ dx0: -1.0, dx1: 1.0 }] },   // AD #12: blocks within 0.9–1.5 m, lit top to bottom; the tower and its figures kept clear   // coda: free play once it is down, before the acta   // 25-11: ladders down, two floors each (net: the clock lowers it in the last 12 s)
   fall: 12, acta: 40,
 };
 
@@ -826,14 +826,14 @@ export function createScore(nWalls, opt = {}) {
         TG.clear(); downT = 0; go('baixada');
       }
     } else if (S.block === 'baixada') {
-      // La bajada = BRING IT DOWN on LADDERS (25-11, D3b, plan 05 §4.3, A16, B7). Ladders that go DOWN (1.5 → 1.2 → 0.9 → 0.6 m; a
-      // child's 1.3 → 1.0 → 0.7): each one held rung by rung (≈ 1 s a rung: the charge sets the pace, no speed is judged) brings two
+      // La bajada = BRING IT DOWN on LADDERS (25-11, D3b, plan 05 §4.3, A16, B7). Ladders of blocks that go DOWN (1.45 → 1.2 → 0.95 m; a
+      // child's 1.25 → 1.0 → 0.8; ≥ 1.3 m from the tower): each one held rung by rung (≈ 1 s a rung: the charge sets the pace, no speed is judged) brings two
       // floors down. It CRACKS only when the room lets go in the middle of a ladder (no wall held for linger + 1 s): two floors drop at
       // once; B.drop of those in a row = carregat. The clock lowers it only as a net in the last B.net s (named); the last floor never
       // comes down before `min`.
       const anyHeld = S.held.some((v) => v);
       if (S.t < dt * 1.5) { crackedThis = false; dropT = 0; S.descents = 0; S.dropped = 0; downT = 0; cracksB = 0; offered = false; }
-      if (!offered) { offer({ mode: 'ladder', kind: 'down', shape: 'rect', w: 0.6, h: 0.4, rungs: B.rungs, kidRungs: B.kidRungs }); offered = true; }
+      if (!offered) { offer({ mode: 'ladder', kind: 'down', shape: 'rect', w: 0.6, h: 0.4, rungs: B.rungs, kidRungs: B.kidRungs, keepOut: B.keepOut }); offered = true; }
       if (emptyFor >= B.empty / 2 && S.floors > 2 && S.warn !== 'fall') { S.warn = 'fall'; emit('warn:fall'); }   // half the deadline: it creaks
       if (!anyHeld && emptyFor >= B.empty && S.floors > 2) { fall('carregat'); return S; }
       for (let w = 0; w < W; w++) if (S.count[w]) S.band[w] += (S.yMed[w] - S.band[w]) * (1 - Math.exp(-dt * 6));
