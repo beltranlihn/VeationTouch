@@ -124,13 +124,27 @@ export function createTargets(opt = {}) {
     return null;
   }
   function spotOnWall(w, side) {
-    const r = spec && spec.r > 0 ? spec.r : TG.r, [y0, y1] = band(), lim = LEN[w] / 2 - TG.corner;
+    const r = spec && spec.r > 0 ? spec.r : TG.r, [y0, y1] = band(), lim = LEN[w] / 2 - TG.corner, cg = spec && spec.cluster ? spec.clusterGap || 2 : 0;
     for (let k = 0; k < 14; k++) {
       let dx = (rnd() * 2 - 1) * lim; if (side) dx = side * Math.abs(dx) * 0.9 + side * 0.1 * lim;
       const y = y0 + (y1 - y0) * rnd();
+      if (cg && k < 10) { const s = sOf(w, dx); let near = false; for (const t of list) if (t.state !== 'done' && Math.abs(cd(t.s, s)) < cg) { near = true; break; } if (near) continue; }   // clusters ≥ clusterGap apart
       if (free(w, dx, y, r)) return { w, dx, y };
     }
     return null;
+  }
+  // 25-11 (AD): spec.cluster = [min, max]: a seed's cluster — its siblings 0.6–1.0 m from it on the same wall, at heights varied within
+  // the band (one of them at a child's height, ≤ childY)
+  function addCluster(t) {
+    if (!spec || !spec.cluster || t.mode !== 'field') return;
+    const [a, b] = spec.cluster, n = a + Math.floor(rnd() * (b - a + 1)), [y0, y1] = band(), childY = spec.childY || 1.3;
+    let last = t;
+    for (let k = 1; k < n && !full(); k++) {
+      const y = k === 1 ? y0 + (Math.min(childY, y1) - y0) * rnd() : y0 + (y1 - y0) * rnd();
+      const sp = spotNear(last.s, y, 0.6, 1.0, k % 2 ? 1 : -1, true, last.id) || spotNear(t.s, y, 0.6, 1.0, k % 2 ? -1 : 1, true, t.id);
+      if (!sp) break;
+      last = make(sp.w, sp.dx, sp.y, { cluster: t.id }); t.cluster = t.id;
+    }
   }
 
   // ---- the people: hands sorted along the room; a person = hands within 1.6 m of her first one
@@ -346,6 +360,7 @@ export function createTargets(opt = {}) {
           const t = make(w, sp.dx, R0[0], { chain: ++chainSeq, link: 0, rung: 0 }); ladderSeq++; inner.get(t.id).kid = R0 !== (spec.rungs || TG.rungs);
         } else {
           const sp = spotOnWall(w, 0); if (!sp) continue;
+          if (m === 'field' && spec.cluster) { addCluster(make(sp.w, sp.dx, sp.y)); continue; }
           const t = make(w, sp.dx, sp.y, m === 'chain' ? { chain: ++chainSeq } : {}); if (m === 'chain') inner.get(t.id).dir = rnd() < 0.5 ? -1 : 1;
         }
       }
@@ -359,7 +374,7 @@ export function createTargets(opt = {}) {
         for (const w of spec.walls) { let c = 0, hn = 0; for (const t of list) if (t.wall === w && t.state !== 'done') c++; for (const h of handBuf) if (h.wall === w) hn++; const v = (c + 1) / (hn + 1); if (v < bv) { bv = v; bw = w; } }
         if (bw < 0) break;
         const sp = spotOnWall(bw, 0); if (!sp) break;
-        make(sp.w, sp.dx, sp.y); alive++;
+        const t0 = make(sp.w, sp.dx, sp.y); alive++; if (spec.cluster) { const n0 = list.length; addCluster(t0); alive += list.length - n0; }
       }
     }
     return api;

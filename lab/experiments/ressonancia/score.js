@@ -504,7 +504,7 @@ export function createScore(nWalls, opt = {}) {
         S.touched += downs;
         const C = S.call;
         if (S.brasaStage === 'spark') {
-          if (!offered) { offer({ mode: 'field', kind: 'fire', pairs: true }); offered = true; }
+          if (!offered) { offer({ mode: 'field', kind: 'fire', y: [0.9, 1.4], cluster: [2, 3], clusterGap: 2, childY: 1.3 }); offered = true; }   // braziers in small clusters of 2–3, heights varied (AD)
           for (const t of tgDone) if (!firedW[t.wall]) { firedW[t.wall] = true; firedN++; achieve('fire', firedN, t.wall, 'group', t.s, t.y); }
           let withHands = 0; for (let w = 0; w < W; w++) if (S.held[w]) withHands++;
           const wantFires = Math.min(4, Math.max(1, withHands));
