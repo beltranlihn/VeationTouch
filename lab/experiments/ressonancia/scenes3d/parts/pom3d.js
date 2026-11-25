@@ -313,8 +313,11 @@ export function create(ctx) {
     { const om = leap > 0 ? 7 : 2.2, acc = om * om * (rawY - climbY) - 2 * om * climbV; climbV += acc * dt; climbY += climbV * dt; }
     leap = Math.max(0, leap - dt / 0.9); slide = Math.max(0, slide - dt / 1.2);
     // the tower frames her: the height where she is lands in the reach band (tronc3d 'top' mode lowers the world ≤ 0.30 m/s)
-    { const T = tronc(); if (T && typeof T.setFocusY === 'function' && (!S || S.block === 'pom')) { const fy = Math.round((climbY + 0.55) * 20) / 20; if (fy !== focusSent) { focusSent = fy; T.setFocusY(fy); } } }
+    { const T = tronc(); if (T && typeof T.setFocusY === 'function' && (!S || S.block === 'pom')) { const fy = Math.round((Math.max(climbY, rawY) + 0.55) * 20) / 20; /* the world aims at where she is going */ if (fy !== focusSent) { focusSent = fy; T.setFocusY(fy); } } }
     const T0 = tronc(), rise = T0 ? T0.rise || 0 : 0;
+    // she never outruns the world (it lowers ≤ 0.30 m/s): her feet stay ≤ 1.45 m on the wall, inside the reach band — a fast climb (many
+    // relays, a late «Go to», l'aleta) waits for the world; a leap still shows within that headroom
+    if (T0 && typeof T0.setFocusY === 'function') { const capY = rise + 1.45; if (climbY > capY) { climbY = capY; climbV = Math.min(climbV, 0.3); } }
     uLift.value = climbY; uA.value = 1.6; uCityY.value = -climbY * CITYK; city.position.y = -climbY * CITYK;
     // ---- l'aleta / the crown
     const aleta = phase === 'aleta' || (S && S.block === 'crown');
