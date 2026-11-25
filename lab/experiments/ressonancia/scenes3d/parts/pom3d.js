@@ -194,10 +194,18 @@ export function create(ctx) {
   // -------------------------------------------------------------------------------------------- the tower (tronc3d's, or a ghost)
   // trunk(floor, tower) → { x, z, y (feet, world), yRest, r, h }; the ghost: a tower 1.25 m behind the wall's centre, floors of 1.34 m
   const tronc = () => { const t = ctx.parts && ctx.parts.tronc3d; return t && typeof t.trunk === 'function' ? t : null; };
+  let guarded = 0;
   const ghost = { x: 0, z: 0, y: 0, yRest: 0, r: 0.42, h: 1.34, tower: 0 };
   function trunkAt(floor, wi) {
     const T = tronc();
-    if (T) { const q = T.trunk(floor, wi); if (q) return q; }
+    if (T) {
+      const q = T.trunk(floor, wi);
+      if (q) {   // a guard: an axis far from where the tower stands (1.25 m behind the wall's centre) is not trusted — x, z from the wall, y as given
+        const w = walls[wi], D = T.towerD || 1.25, ex = w.centre.x - w.normal.x * D, ez = w.centre.z - w.normal.z * D;
+        if (!(Math.hypot(q.x - ex, q.z - ez) <= 1.2)) { guarded++; return { x: ex, z: ez, y: q.y, yRest: q.yRest, r: q.r, h: q.h, tower: wi }; }
+        return q;
+      }
+    }
     const w = walls[wi]; ghost.x = w.centre.x - w.normal.x * 1.25; ghost.z = w.centre.z - w.normal.z * 1.25; ghost.yRest = ghost.y = (Math.max(1, floor) - 1) * 1.34; ghost.tower = wi;
     return ghost;
   }
@@ -417,7 +425,7 @@ export function create(ctx) {
     }
     for (const p of pool) if (p.seen !== frame) p.stroke = null;
     hGeo.instanceCount = nHS; HAA.needsUpdate = true; HBA.needsUpdate = true; HDA.needsUpdate = true;
-    if (stats) { stats.climbY = climbY; stats.leap = leap; stats.slide = slide; stats.stage = stage; stats.floors = F; stats.tower = towerW; stats.rise = rise; }
+    if (stats) { stats.climbY = climbY; stats.leap = leap; stats.slide = slide; stats.stage = stage; stats.floors = F; stats.tower = towerW; stats.rise = rise; stats.guarded = guarded; }
   }
   function setParams() { /* read live in update() */ }
   function dispose() { for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); kitC.dispose(); try { fxBc?.close(); } catch { /* closed */ } }
