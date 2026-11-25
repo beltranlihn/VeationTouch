@@ -426,7 +426,7 @@ function stepReform(e, dt) {
   else if (R.t < RF.brk + RF.hold + RF.form) { const k = smooth((R.t - RF.brk - RF.hold) / RF.form); R.sh = 1 - k; R.leave = 0; R.arrive = k; }
   else e.reform = null;
 }
-const m6 = { y: 0, v: 0, maxV: 0 }, M6_KEEP = new Set(['pom', 'crown', 'festa']);   // M6: the near world's offset in the Tronc (below)
+const m6 = { y: 0, v: 0, maxV: 0 }, M6_KEEP = new Set(['crown', 'festa']);   // M6: the near world's offset in the Tronc (below)
 const prof = { m: {}, max(k, v) { if (!(this.m[k] >= v)) this.m[k] = v; }, reset() { this.m = {}; } };   // lab: the slowest CPU time per step since reset
 const input = { time: 0, t: 0, dt: 0, progress: 0, hands: [], downs, ups, params: null, state: S, events: frameEvents, arrive: 1, leave: 0, acta };
 function frame(dt) {
@@ -535,11 +535,11 @@ function frame(dt) {
     if (e.reform) { input.leave = e.reform.leave; input.arrive = e.reform.arrive; }   // plaza in lit / festive mode reads only a leave as a break (VFX)
     const p0 = performance.now(); e.part.update(dt, input); prof.max(e.name, performance.now() - p0);
   }
-  // 05-plan M6 (Modelado) «the room rises»: in the Tronc the near world (plaza, porxada) goes down with tronc3d's rise, so the tower
-  // stands on the ground and is seen whole. In pom / crown / festa it stays where the Tronc left it (the castell's 'top' view); from
+  // 05-plan M6 (Modelado) «the room rises»: in the Tronc and the Pom the near world (plaza, porxada) goes down with tronc3d's rise, so
+  // the tower stands on the ground and is seen whole. In crown / festa it stays where the Pom left it; from
   // any other block it goes back to 0: at once if neither is on screen, else eased (≥ 3 s, ≤ 0.3 m/s). m6.maxV = the fastest world translation seen (m/s; it must stay ≤ ~0.3).
   {
-    const T3 = parts.tronc3d, on = T3 && T3.state !== 'off' && VB === 'tronc';
+    const T3 = parts.tronc3d, on = T3 && T3.state !== 'off' && (VB === 'tronc' || VB === 'pom');   // 25-11 (Modelado 2514c60): the Pom moves the world (setFocusY), the Tronc no longer does
     const prev = m6.y;
     if (on) m6.y = Math.min(0, -(T3.part.rise || 0));                // the near world only goes DOWN (at the Tronc's start rise < 0)
     else if (!M6_KEEP.has(VB)) {
