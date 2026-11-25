@@ -35,7 +35,7 @@
 // (springs and waves on the CPU, the pose in the vertex stage). No floor reflection (was a second copy of the mosaic), no shadows.
 import { createScore } from '../../score.js';
 
-const GROUT_H = 0.008;   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
+const GROUT_H = 0.008, MEDALLIONS = false;   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
 
 export function create(ctx) {
   const { THREE, TSL, room, params } = ctx;
@@ -180,7 +180,7 @@ export function create(ctx) {
       const cu = rr(0, LL), y = rr(0.35, 3.2) + SHIFT;
       if (!seen(cu, y) || inDoor(cu, y) || !fits(cu, y, 0.5)) continue;
       const s = put(cu, y, rr(0.2, 0.24), true); n++;
-      if (rnd() < 0.4) { s.round = true; s.Rm = rr(0.05, 0.065); }
+      if (rnd() < 0.4 && MEDALLIONS) { s.round = true; s.Rm = rr(0.05, 0.065); }   // studio 25-11 (Beltrán): no round medallions — all mosaic
     }
     // the size: ~0.08 m (physical) up to 2.9 m (on the wall: up to ~2.2 m), growing to ~0.2 m at the top; zones a little finer / coarser
     const fine = (cu, v) => { const y = yOf(v); return (0.06 + 0.05 * smooth(1.95, 2.6, y) + 0.06 * smooth(2.9, 3.9, v)) * (0.9 + 0.2 * (0.5 + 0.5 * Math.sin(cu * (4 / RM) + 1.3 * Math.sin(v * 0.7)))); };   // T-058c: ~6 cm on the wall in the hands' band, ~10 cm above 2.2 m, ~15 cm in the vault
@@ -210,7 +210,7 @@ export function create(ctx) {
       if (af < 0) continue;                                                             // an arch: open
       let loose = 0;
       if (s.y > H) { continue; }   // T-058b (ART): nothing off the wall at rest   // ART: (almost) nothing floats at rest
-      else if (!s.mother && (rnd() < 0.002 || (H - s.y < 0.12 && rnd() < 0))) continue;   // T-069 (ART): no ragged crest any more (its holes read as white gaps); rnd() still drawn: same layout   // a missing piece; a ragged crest
+      else if (!s.mother && (rnd() < 0.002 && MEDALLIONS || (H - s.y < 0.12 && rnd() < 0))) continue;   // studio 25-11: no missing pieces either (rnd() still drawn: same layout)   // T-069 (ART): no ragged crest any more (its holes read as white gaps); rnd() still drawn: same layout   // a missing piece; a ragged crest
       const R0 = s.mother ? 0.34 : s.ri * 1.25 + 0.03;
       let poly = []; const a0 = rr(0, 6.28);
       for (let k = 0; k < 8; k++) poly.push([Math.cos(a0 + k * 0.7854) * R0, Math.sin(a0 + k * 0.7854) * R0]);
