@@ -56,7 +56,7 @@ export function lines(S, acta, learned = false, warn = '') {
   const b = S.block;
   // the chapter card is a LAYER (the score listens under it): 4 s, high, and the invitation of the play is already there below it
   const cardNow = S.phase === 'title' && CARDS[b] && S.tp < CARD_S ? CARDS[b] : null;
-  const out = linesPlay(S, acta, learned, warn);
+  const out = linesPlay(S, acta, false, warn);   // 25-11: the consigna stays while its stage asks (it dims when the group is doing it; «learned» no longer hides it)
   if (cardNow) out.card = cardNow;
   return out;
 }
