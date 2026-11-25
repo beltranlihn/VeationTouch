@@ -15,6 +15,7 @@
 //     'close' → everyone locks; the walls of the structure keep their pinya, the others loosen.
 // Study (no input.state): params fill, closed, arrive, leave, density, depth, pack, floor. One waiting figure per wall.
 import { createBodies } from '../bodykit.js';
+import { lin } from '../palette.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
@@ -29,6 +30,26 @@ export function create({ THREE, TSL, room, params }) {
   const NCROWD = Math.min(160, perWall * NW);
   const kit = createBodies({ THREE, TSL, room, max: NPALM + NCROWD });
   object.add(kit.object);
+  // ---- THE FIGURE'S OWN PALM GLOWS while a hand charges it (AD #8; it replaces targets3d's ring for kind 'palm'): a small gold light in
+  //      the palm, on the wall plane, growing with the charge, a flash when it is held
+  const { Fn, attribute, varying, vec4, positionGeometry, modelViewMatrix, cameraProjectionMatrix, dot, exp, max } = TSL;
+  const OR = lin('or'), NPG = 24, pgA = new Float32Array(NPG * 4), pgC = new Float32Array(NPG * 4);
+  const pgGeo = new THREE.InstancedBufferGeometry();
+  pgGeo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3)); pgGeo.setIndex([0, 1, 2, 0, 2, 3]);
+  const PGA = new THREE.InstancedBufferAttribute(pgA, 4), PGC = new THREE.InstancedBufferAttribute(pgC, 4);
+  PGA.setUsage(THREE.DynamicDrawUsage); PGC.setUsage(THREE.DynamicDrawUsage); pgGeo.setAttribute('pgA', PGA); pgGeo.setAttribute('pgC', PGC); pgGeo.instanceCount = 0;
+  const pgMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
+  {
+    const a = attribute('pgA', 'vec4'), c = attribute('pgC', 'vec4'), mv = modelViewMatrix.mul(vec4(a.xyz, 1));
+    const sz = max(a.w, mv.z.negate().mul(0.004));
+    pgMat.vertexNode = cameraProjectionMatrix.mul(vec4(mv.xy.add(positionGeometry.xy.mul(sz)), mv.z, mv.w));
+    const vQ = varying(positionGeometry.xy), vC = varying(c.xyz);
+    pgMat.colorNode = Fn(() => { const d2 = dot(vQ, vQ); return vec4(vC.mul(exp(d2.mul(-7)).add(exp(d2.mul(-60)).mul(1.2))), 1); })();
+    pgMat.fog = false;
+  }
+  const pgMesh = new THREE.Mesh(pgGeo, pgMat); pgMesh.frustumCulled = false; pgMesh.renderOrder = 9; object.add(pgMesh);
+  let nPG = 0;
+  const palmGlow = (x, y, z, s, k) => { if (nPG >= NPG || k <= 0.003) return; const o = nPG * 4; pgA[o] = x; pgA[o + 1] = y; pgA[o + 2] = z; pgA[o + 3] = s; pgC[o] = OR[0] * k; pgC[o + 1] = OR[1] * k; pgC[o + 2] = OR[2] * k; nPG++; };
   // the floor in the study only (in the work the lit square brings its own, with the key shadow)
   let floor = null;
   if (room.ground) { floor = room.ground({ color: 'cal-foc' }); floor.mesh.visible = false; object.add(floor.mesh); }
@@ -164,6 +185,7 @@ export function create({ THREE, TSL, room, params }) {
 
     // ---- per palm figure (a figure that joined the ring keeps its place there; when no figure is free, the oldest of them is lent
     //      back — it fades out of the ring and gathers at the new hand)
+    nPG = 0;
     for (const q of palms) {
       if (!q.on) { kit.hide(q.i); continue; }
       if (there <= 0.001) { q.join = 0; q.on = false; kit.hide(q.i); continue; }   // the block is gone: the joined ones go with it
@@ -238,8 +260,11 @@ export function create({ THREE, TSL, room, params }) {
       else if (!h && !q.idle && q.stay < 8) { pose = 'stand'; pose2 = 'palm'; mix = clamp01(q.stay / 8); }   // the arm comes down before it goes back
       // a waiting figure (an offered palm, nobody there yet) is a quieter suggestion: dimmer, not fully gathered; with a hand: whole, bright
       const held = q.stroke !== null || q.locked || q.charge > 0.05, wk = held ? 1 : 0.45, wf = 1;   // waiting: dimmer but whole (AD: no blurry half-gathered discs)
+      { const k = (q.charge > 0.02 ? (0.15 + 0.85 * q.charge) * (q.stroke !== null || q.idle ? 1 : 0.5) : 0) * 0.9 + q.glow * 1.6;   // the palm: on the wall plane
+        palmGlow(tmp.x + w.normal.x * 0.02, q.y, tmp.z + w.normal.z * 0.02, 0.05 + 0.08 * q.charge + 0.1 * q.glow, k * there * q.app); }
       kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: e * wf * there, fmode: 'gather', lod: 'near', pool: held ? 0.35 : 0 });
     }
+    pgGeo.instanceCount = nPG; PGA.needsUpdate = true; PGC.needsUpdate = true;
     kit.update(dt);
   }
 
@@ -254,7 +279,7 @@ export function create({ THREE, TSL, room, params }) {
     for (const q of palms) if (q.on && q.app > 0.05 && !q.join) OB.push({ wall: q.wall, x: q.x + 0.25, half: 0.38, y0: 0, y1: Math.min(2.1, Math.max(q.y + 0.35, 1.5)) });
     return OB;
   }
-  function dispose() { kit.dispose(); }
+  function dispose() { kit.dispose(); pgGeo.dispose(); pgMat.dispose(); }
   if (typeof window !== 'undefined') window.__pinya3d = { kit, palms, crowd, get ready() { return kit.isReady; } };
   return { object, update, setParams() {}, dispose, impacts: [], kit, textObstacles };
 }

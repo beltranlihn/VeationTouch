@@ -346,6 +346,15 @@ export function create(ctx) {
     nG = 0;
     glow(_b.x, _b.y, _b.z, 0.07 + 0.03 * relayK, OR[0] * 2.4 * lightW, OR[1] * 2.4 * lightW, OR[2] * 2.4 * lightW);
     glow(_b.x, _b.y, _b.z, 0.45, OR[0] * 0.28 * lightW * relayK, OR[1] * 0.28 * lightW * relayK, OR[2] * 0.28 * lightW * relayK);
+    // AD #8: the silence fills the room — on every other wall a faint echo of the climbing light at the same height, on that wall's
+    // tower (or where it would stand: 1.25 m behind the wall's centre), breathing slowly; never more than a reflection in the air
+    if (haveLight) for (let wi = 0; wi < NW; wi++) {
+      if (wi === towerW) continue;
+      const w = walls[wi], q = trunkAt(1, wi), br = 0.75 + 0.25 * Math.sin(time * 0.9 + wi * 1.7), k = lightW * br;
+      const ex = q.x + w.normal.x * ((q.r || 0.42) + 0.25), ez = q.z + w.normal.z * ((q.r || 0.42) + 0.25);
+      glow(ex, _b.y, ez, 0.85, OR[0] * 0.07 * k, OR[1] * 0.07 * k, OR[2] * 0.07 * k);
+      glow(ex, _b.y, ez, 0.05, OR[0] * 0.45 * k, OR[1] * 0.45 * k, OR[2] * 0.45 * k);
+    }
     if (halo) { room.placeHalo(halo, _b, 1.2); halo.set({ intensity: 0.12 * lightW * (0.6 + 0.4 * relayK) }); }
     // the strand: from the hand that holds the light (on the wall) to her hand, a few gold motes drifting along a soft arc
     let holderHand = null;
