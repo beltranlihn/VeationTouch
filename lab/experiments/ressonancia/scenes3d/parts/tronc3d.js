@@ -526,7 +526,8 @@ export function create(ctx) {
   // height sits at the eye's level, in the reach band; null gives the ground back
   function setFocusY(y) { focusY = y == null ? null : +y; }
   const _bp = new THREE.Vector3();
-  function placeBodies(dt, inTronc, floorsNow, withScore, scoreFloors) {
+  function placeBodies(dt, inTronc, floorsNow, withScore, scoreFloors, blockNow) {
+    const lightLod = castMode === 'crowned' && blockNow === 'festa';   // perf: in the festa the crowned towers are background — far detail (≈ −45 % splats)
     if (!kit) return;
     for (const t of towers) for (const s of t.st) s.takenT = s.taken ? (s.takenT || 0) + dt : 0;
     for (const t of towers) t.st.forEach((s, lv) => { s.downT = castMode === 'down' && scoreFloors != null && lv > scoreFloors && lv > 0 ? (s.downT || 0) + dt : 0; });
@@ -575,7 +576,7 @@ export function create(ctx) {
         // what is drawn is what trunk() / levels() report (the Pom's climbers sit on it)
         if (c.lv > 0) { const A = t.lvAcc || (t.lvAcc = Array.from({ length: 10 }, () => [0, 0, 0, 1e9])); const a = A[c.lv]; a[0] += _bp.x; a[1] += _bp.z; a[2]++; a[3] = Math.min(a[3], _bp.y); }
         kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw - ra, pose: c.pose, pose2: c.enx ? pose2 : (c.pose2 || c.pose), mix: c.enx ? (crowned ? 1 : 0) : (c.lv > 0 && S.forming && S.solid < 0.5 ? 1 : (c.mixV || 0)),
-          form: form * (1 - uAway.value), fmode, lod: c.lv >= 1 ? 'mid' : 'far', scale: c.s * SC,   /* the trunk in mid detail (9k splats): it must read as bodies */ build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - 0.4 - c.lv * 0.36) / 0.5)) * (c.enx ? 1.6 : 1) : S.flash * 0.35,   /* the gold RISES floor by floor from the foot (0.4–4 s, with VFX's light), the enxaneta last and brightest */ tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
+          form: form * (1 - uAway.value), fmode, lod: c.lv >= 1 && !lightLod ? 'mid' : 'far', scale: c.s * SC,   /* the trunk in mid detail (9k splats): it must read as bodies */ build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - 0.4 - c.lv * 0.36) / 0.5)) * (c.enx ? 1.6 : 1) : S.flash * 0.35,   /* the gold RISES floor by floor from the foot (0.4–4 s, with VFX's light), the enxaneta last and brightest */ tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
       }
     }
     for (let i = n; i < kit.count; i++) kit.hide(i);
@@ -876,7 +877,7 @@ export function create(ctx) {
       const sil = S && S.pomStage === 'silence' ? 1 : 0; breathK += (sil - breathK) * Math.min(1, dt * 0.8);
       const b = Math.sin(time * 0.94) * breathK; kit.setSplat({ size: 1 + 0.07 * b, key: lookKey * (1 + 0.12 * b) });
     }
-    placeBodies(dt, inTronc, floors, !!S, S ? S.floors : null);
+    placeBodies(dt, inTronc, floors, !!S, S ? S.floors : null, S ? S.block : '');
   }
   function nearestTower(wi, showT) {
     let best = -1, bd = 1e9; for (let j = 0; j < NW; j++) { if (!showT(j)) continue; let d = Math.abs((PER[j] + walls[j].width / 2) - (PER[wi] + walls[wi].width / 2)); d = Math.min(d, perim - d); if (d < bd) { bd = d; best = j; } }
