@@ -620,17 +620,19 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
       } else {   // the other cards: the clearest of centre / left / right, away from pillars and the parts' heroes above 1.6 m
         const Wd = room.walls[w].width, lim = Wd / 2 - 1.3 - 0.45, TT = Array.isArray(S.targets) ? S.targets : [];
         let bs = -1e9;
-        for (const [k, c0] of [0, -1.8, 1.8].entries()) {
+        const cands = [0, -1.8, 1.8]; for (let x = -lim; x <= lim; x += 0.3) cands.push(x);   // + a sweep: lamps and the tower leave gaps anywhere
+        for (const [k, c0] of cands.entries()) {
           const x = clamp(c0, -lim, lim); let gap = 9;
           for (const g of TT) if (g.wall === w && (PILLAR.has(g.kind) || (g.y || 1.2) + (g.r || 0.22) > 1.6)) gap = Math.min(gap, Math.abs((typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2) - x) - 1.3 - (g.r || 0.22));
           for (const o of OBST) if (o.wall === w && (o.y1 ?? 3) > 1.6) gap = Math.min(gap, Math.abs((o.x || 0) - x) - 1.3 - (o.half || 0.5));
-          const sc = Math.min(gap, 0.3) - k * 0.05; if (sc > bs) { bs = sc; side = x; }
+          const sc = Math.min(gap, 0.3) - (k < 3 ? k * 0.05 : 0.2); if (sc > bs) { bs = sc; side = x; }
         }
       }
       P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], side).setY(y);
     });
     { let fwc = crownWall >= 0 ? crownWall : S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // the crown: the tower's wall; no calling wall yet: the wall with the most hands
-      if (fwc < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fwc = w; } }); }   // the card too: 100 % on the wall that calls, 30 % elsewhere
+      if (fwc < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fwc = w; } }); }
+      if (fwc < 0) fwc = 0;   // nobody on any wall: one wall still carries the card in full (Art Director 25-11), the others an echo   // the card too: 100 % on the wall that calls, 30 % elsewhere
       card.step(dtT, { hold, gate: waveGate, mask: fwc >= 0 ? (w) => (w === fwc ? 1 : 0.3) : null, lead: fwc >= 0 ? (w) => (w === fwc ? 0 : 0.6) : null }); }
     // the wait's words come with the button (reveal) and thin out as the hands start the pass
     const st = b === 'wait' ? Math.min(1, S.start || 0) : 0;
