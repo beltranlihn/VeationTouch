@@ -66,7 +66,13 @@ async function room(opt) {
     title: opt.title || document.title || 'Experiment', fixedStrip: true, backdrop: !!opt.backdrop, view: opt.view || (() => (R.canvas ? stripRect(R.canvas) : bandRect())),
     hint: opt.hint, help: opt.help,
     onSound: (on) => { R.audio?.setOn(on); },
-    onF: () => { R.zoom = ((R.zoom || 0) + 1) % (K.ROOM.walls.length + 1); applyZoom(R); },   // F: one wall large, in turn (25-11, Beltrán)
+    onF: () => {   // F: one wall large, in turn (25-11, Beltrán); at the half-size render it reloads at full size (?scale=1) on that wall
+      R.zoom = ((R.zoom || 0) + 1) % (K.ROOM.walls.length + 1);
+      const u = new URL(location.href), sc = Number(u.searchParams.get('scale')) || 0.5;
+      if (R.zoom) u.searchParams.set('wall', K.ROOM.walls[R.zoom - 1].id); else u.searchParams.delete('wall');
+      if (R.zoom && sc < 1) { u.searchParams.set('scale', '1'); location.replace(u.href); return; }
+      history.replaceState(null, '', u.href); applyZoom(R);
+    },
   });
   addEventListener('resize', () => applyZoom(R));
   R.stage.onGesture(() => { R.audio?.resume(); });
@@ -159,7 +165,7 @@ export async function connectExperience(opt = {}) {
     let last = performance.now(), raf = 0;
     const step = (tNow) => {
       const now = performance.now(), dt = Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
-      if (!canvas) { canvas = fillWindow(); if (canvas) { R.canvas = canvas; canvas.dataset.lkSeen = '1'; } }
+      if (!canvas) { canvas = fillWindow(); if (canvas) { R.canvas = canvas; canvas.dataset.lkSeen = '1'; const wq = q.get('wall'), wi = RM.walls.findIndex((x) => x.id === wq); if (wi >= 0) { R.zoom = wi + 1; applyZoom(R); } } }   // ?wall=P1: start on that wall large (F)
       try { R.stage.step(dt); feed(now); vt._tick(); fn(dt); } catch (e) { console.error(e); }
       raf = requestAnimationFrame(step);
     };
