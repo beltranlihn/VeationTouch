@@ -271,5 +271,8 @@ export function createTargets3D({ THREE, TSL, room }) {
     if (warm > 0) warm--;
   }
   function dispose() { object.traverse((o) => { if (o.material) o.material.dispose(); if (o.geometry) o.geometry.dispose(); }); }
-  return { object, update, dispose, get count() { let n = 0; for (const p of pool) if (p.id) n++; return n; } };
+  // prime(true): every skin drawn (its unused slots are zero-scale) until prime(false) — the host's in-wait renders of the next sets, so
+  // the skins' pipelines exist for THOSE light sets (QA 25-11: the first brazier at intro → Brasa cost a 0.7 s frame)
+  function prime(v) { for (const sk of SKINS) sk.mesh.visible = !!v || sk.used > 0; }
+  return { object, update, dispose, prime, get count() { let n = 0; for (const p of pool) if (p.id) n++; return n; } };
 }
