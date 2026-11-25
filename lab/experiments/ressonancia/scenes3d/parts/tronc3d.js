@@ -498,9 +498,9 @@ export function create(ctx) {
     const fx = kit.tok('faixa'), pl = kit.tok('pedra-llum'), soft = fx.map((v, i) => v * 0.68 + pl[i] * 0.32);   // the faixa a little chalked by the light
     kit.setColors({ shirt: 'porcellana', skin: ['pedra-llum', 1.02], trousers: ['pedra-llum', 0.82], faixa: soft, hair: ['tinta-ombra', 1.6], crack: 'pedra-llum', shadow: 'tinta-ombra' });
     kit.uniforms.crack.value = 0.55;
-    kit.setSplat({ lit: 'cal-foc', half: 'terracota', amb: 'tinta-ombra' });   // the one warm ramp (AD)
+    kit.setSplat({ lit: 'cal-foc', half: 'terracota', amb: 'tinta-ombra', contact: 1 });   // the one warm ramp (AD); dark gaps where the floors meet
   }
-  let lightMode = '', breathK = 0;
+  let lightMode = '', breathK = 0, crownT = 0;
   let castMode = 'build', focusY = null;
   function setMode(m) { castMode = m || 'build'; if (castMode !== 'top') focusY = null; }
   // setFocusY(y): y in metres above the plaza floor (the tower unrisen, e.g. trunk(f).yRest): the world lowers (≤ 0.30 m/s) so that
@@ -510,6 +510,7 @@ export function create(ctx) {
   function placeBodies(dt, inTronc, floorsNow, withScore) {
     if (!kit) return;
     for (const t of towers) for (const s of t.st) s.takenT = s.taken ? (s.takenT || 0) + dt : 0;
+    crownT = castMode === 'crowned' ? crownT + dt : 0;   // the crown: gold runs DOWN from the enxaneta, floor by floor (0.5 s each)
     const lm = withScore ? 'scene' : 'self'; if (lm !== lightMode) { lightMode = lm; kit.setLighting(lm); }
     let n = 0;
     const crowned = castMode === 'crowned';
@@ -542,7 +543,7 @@ export function create(ctx) {
         // arrive / leave: the particles gather / scatter (form below), no block movement
         const pose2 = c.enx ? (crowned ? 'raise' : 'stand') : c.pose;
         kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw, pose: c.pose === 'lock' && c.lv > 0 && S.forming && S.solid < 0.5 ? 'carry' : c.pose, pose2, mix: c.enx ? (crowned ? 1 : 0) : 1,
-          form: form * (1 - uAway.value), fmode, lod: 'far', scale: c.s * SC, build: c.build, glow: S.flash * 0.6 + (c.enx && crowned ? 0.5 : 0), tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
+          form: form * (1 - uAway.value), fmode, lod: 'far', scale: c.s * SC, build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - (9 - c.lv) * 0.5) / 0.8)) : S.flash * 0.35, tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
       }
     }
     for (let i = n; i < kit.count; i++) kit.hide(i);

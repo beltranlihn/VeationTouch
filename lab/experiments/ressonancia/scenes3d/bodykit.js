@@ -231,11 +231,12 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
+  const uContact = uniform(0);
   const SPN = spots?.pos?.length ? Math.min(8, spots.pos.length) : 0;
   const SPP = SPN ? TSL.uniformArray(spots.pos, 'vec4') : null, SPD = SPN ? TSL.uniformArray(spots.dir, 'vec4') : null, uSpotK = uniform(0.00025);   // plaza SPOT_K ≈ 2600 → ≈ 0.65 at the beam's heart
   // the human base: per bone class [density, max depth inside (m), aura share] — wide thorax and pelvis (core 28–32 cm), thick thighs,
   // thin forearms, hands and feet at 30–40 %, the head lighter (no bulb)
-  const CLS = [[0.8, 0.07, 0], [1.0, 0.13, 0.03], [0.9, 0.075, 0], [0.62, 0.04, 0.03], [0.35, 0.012, 0.05], [0.35, 0.015, 0], [0.45, 0.028, 0.04]];
+  const CLS = [[0.6, 0.07, 0], [1.0, 0.13, 0.03], [0.9, 0.075, 0], [0.62, 0.04, 0.03], [0.35, 0.012, 0.05], [0.35, 0.015, 0], [0.45, 0.028, 0.04]];
   function partOf(p, reg, s) {        // rest pose (A-pose): density weight, max depth inside (m)
     const x = Math.abs(p[0]), y = p[1];
     if (reg < 0.5 && y < 1.3 * s) return [0.25, 0.01];                // hands
@@ -362,7 +363,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const tE = normalize(vec3(uEye.x.sub(C.x), 0, uEye.z.sub(C.z))), side = vec3(tE.z, 0, tE.x.negate());
     // one warm ramp by light: tinta (shadow, luma ≈ 0.05–0.10, lost in the night) → terracota (half) → cal-foc (lit, ≤ 0.8)
     const Lk = normalize(side.mul(-0.85).add(vec3(0, 0.85, 0)).add(tE.mul(0.15)));
-    const lk = clamp(dot(nW, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y));
+    const headK = float(1).sub(step(0.25, AX.x)).mul(step(1.35, pl.y));                // the head: no dark band under the jaw, no bulb on top
+    const lk = clamp(dot(nW, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.3)).min(mix(float(1), float(0.82), headK));
     const ramp = mix(mix(uSAmb, uHalf, smoothstep(0.06, 0.42, lk)), uLit, smoothstep(0.42, 0.92, lk)).mul(B2.xyz);
     let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(1.4))).mul(uSKey);
     colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer
@@ -378,11 +380,14 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       }
       colr = colr.add(uLit.mul(sp.mul(uSpotK)).mul(mix(float(0.6), float(1), AX.y)));
     }
-    colr = colr.add(uColor.glow.mul(B2.w).mul(0.9)).add(uColor.glow.mul(uSGlow));
+    // gold (achievement, the crown) REPLACES the ramp, keeping the light: never brighter, never white
+    colr = mix(colr, uColor.glow.mul(mix(float(0.12), float(0.85), lk.pow(1.2))), B2.w.clamp(0, 1)).add(uColor.glow.mul(uSGlow));
+    // contact shade: the feet sink into the shoulders below / the floor — a dark gap between stacked bodies
+    colr = colr.mul(mix(float(1), smoothstep(0.0, 0.45, pl.y).mul(0.65).add(0.35), uContact));
     // dust: each splat faint (0.08–0.15), the volume comes from accumulation; the skin thins outwards (the edge is a density falloff)
     const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : 1.35);
     const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura);
-    const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(float(1).sub(away.mul(0.6))), 'vSplA');
+    const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(mix(float(1).sub(away).pow(2), float(1).sub(away.mul(0.6)), dust.max(riseM))), 'vSplA');   // gathering splats are faint until home (no heaps on the floor)
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
     m.colorNode = vCol;
     m.opacityNode = exp(d2.mul(-4.0)).sub(0.018).max(0).mul(vA);
@@ -392,6 +397,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   function setSplat(o = {}) {
     if (o.size != null) uSize.value = o.size;
     if (o.spot != null) uSpotK.value = o.spot;
+    if (o.contact != null) uContact.value = o.contact;
     if (o.opacity != null) uOpacity.value = o.opacity;
     if (o.drift != null) uDrift.value = o.drift;
     if (o.flow != null) uFlow.value = o.flow;

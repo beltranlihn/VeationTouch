@@ -111,13 +111,13 @@ export function create({ THREE, TSL, room, params }) {
       const al = c.alive;
       if (al < 0.03) { kit.hide(c.i); continue; }                                  // not yet: no body, no dust
       footOf(c.w, D, foot);
-      const r = c.r + (1 - al) * c.loose + (1 - there) * 3.5;
-      const a = c.a + (1 - al) * c.la * 0.4;
+      // the pinya is a TIGHT ring in lock round its centre (AD): its place is fixed, it gathers there (form), it never stands loose
+      const r = c.r, a = c.a;
       const x = foot.x + Math.cos(a) * r, z = foot.z + Math.sin(a) * r;
-      let yaw = Math.atan2(foot.x - x, foot.z - z) + (1 - al) * c.la;
-      const pose = closedS > 0.5 ? 'lock' : c.pose;
+      const yaw = Math.atan2(foot.x - x, foot.z - z);
+      const pose = c.ri < 2 || closedS > 0.5 ? 'lock' : 'carry';
       // particles (25-11): the loose crowd is half air — the pinya assembles as the wall fills, and breathes
-      kit.set(c.i, { pos: [x, 0, z], yaw, pose: 'stand', pose2: pose, mix: al * (0.35 + 0.65 * Math.max(fills[c.w], closedS)), scale: c.scale, build: c.build, tint: [c.tint, c.tint, c.tint], glow: 0,
+      kit.set(c.i, { pos: [x, 0, z], yaw, pose, pose2: pose, mix: 0, scale: c.scale, build: c.build, tint: [c.tint, c.tint, c.tint], glow: 0,
         form: al * there, fmode: 'gather', pool: 0 });
     }
 
@@ -202,7 +202,7 @@ export function create({ THREE, TSL, room, params }) {
       else if (!h && !q.idle && q.stay < 8) { pose = 'stand'; pose2 = 'palm'; mix = clamp01(q.stay / 8); }   // the arm comes down before it goes back
       // a waiting figure (an offered palm, nobody there yet) is a quieter suggestion: dimmer, not fully gathered; with a hand: whole, bright
       const held = q.stroke !== null || q.locked || q.charge > 0.05, wk = held ? 1 : 0.45, wf = held ? 1 : 0.8;
-      kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: e * wf * there, fmode: 'gather', lod: 'near', pool: held ? 0.6 : 0.15 });
+      kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: e * wf * there, fmode: 'gather', lod: 'near', pool: held ? 0.35 : 0 });
     }
     kit.update(dt);
   }
