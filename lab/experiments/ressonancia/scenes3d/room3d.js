@@ -454,7 +454,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       air: { density: 0.014, height: 0.14, heightK: 0.4, start: 3.6, max: 0.8, key: { dir: [1, 0.08, 0], token: 'alba-rosa', k: 0.35 } } },
     fall:    { ev: 0.35, sat: 0.75, contrast: 1.02, lo: 'tinta', loK: 0.3, hi: 'cendra', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.016, height: 0.2, heightK: 0.5, start: 3.6, max: 0.8 } },
-    acta:    { ev: 0.45, sat: 0.95, contrast: 1.03, lo: 'cal', loK: 0.15, hi: 'cal', hiK: 0.12, lift: 'ombra', liftK: 0.25, ceil: 0.88, vTop: 0.1, vBot: 0.0, bloom: 0.7, sky: 1,
+    acta:    { ev: 0.1, sat: 1.15, contrast: 1.05, lo: 'ombra', loK: 0.12, hi: 'cal-fanal', hiK: 0.22, lift: 'ombra', liftK: 0.25, ceil: 0.88, vTop: 0.1, vBot: 0.0, bloom: 0.7, sky: 1,
       air: { density: 0.008, height: 0.15, heightK: 0.4, start: 3.6, max: 0.7, key: { dir: [0.6, 0.3, -1], token: 'cal', k: 0.2 } } },
   };
   // ---- the background: a sphere round the eye (r 320 m, inside the far plane), drawn first, without depth: whatever a part draws covers
@@ -470,7 +470,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     // ACTA (AD#13): lime in a raking morning light — a soft sweep of light across each wall from one side, a fine plaster grain, and a
     // clean ombra plinth below the floor line
     const az = atan(d.z, d.x), rake = sin(az.mul(4.0).add(0.6)).mul(0.5).add(0.5), grain = fract(sin(dot(floor(d.xy.mul(900.0)), vec2(12.9898, 78.233))).mul(43758.5453)).sub(0.5).mul(0.025);
-    const plinth = smoothstep(-0.30, -0.34, y);
+    const plinth = float(0);   // (a direction-based plinth curves on the flat walls and read as a burn: off)
     const acta = base.mul(rake.mul(0.35).add(0.75).add(grain)).mul(float(1).sub(plinth)).add(vec3(...palLin('ombra')).mul(plinth));
     return mix(base, acta, actaK);
   };
