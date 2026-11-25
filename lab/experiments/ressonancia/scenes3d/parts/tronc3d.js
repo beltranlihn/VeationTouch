@@ -485,13 +485,13 @@ export function create(ctx) {
     CAST.push({ lv: 9, x: 0, z: -0.02 * sE, y: OLD ? Math.max(dsY + 0.42, 9.8) : dsY + 0.62 * sA, yaw: 0, pose: 'stand', pose2: 'raise', s: sE, build: 2, enx: true });
     TRUNK[7] = { y: feet, r: 0.3 * sD / 0.8, h: 1.286 * sD }; TRUNK[8] = { y: dsY, r: 0.2 * sA / 0.66, h: 1.36 * sA }; TRUNK[9] = { y: dsY + 0.62 * sA, r: 0.15 * sE / 0.62, h: 1.7 * sE };
     for (const c of CAST) { const L = CLV[c.lv] || (CLV[c.lv] = { y0: 1e9, y1: -1e9 }); L.y0 = Math.min(L.y0, c.y); L.y1 = Math.max(L.y1, c.y + 1.7 * c.s); }
-    const ringN = OLD ? [10, 16, 22] : [12];      // two tight rings (+ the folre): the splat budget goes to the tower
+    const ringN = OLD ? [10, 16, 22] : [9];       // human scale: one ring, no folre — the trunk must read above it (AD)      // two tight rings (+ the folre): the splat budget goes to the tower
     for (let i = 0; i < ringN.length; i++) {
-      const rad = 0.73 + i * 0.44 + 0.1, off = 0.31 + i * 0.17;
+      const rad = (OLD ? 0.73 : 0.95) + i * 0.44 + 0.1, off = 0.31 + i * 0.17;
       for (let j = 0; j < ringN[i]; j++) {
         const a = off + ((j + (r3() - 0.5) * 0.2) * TAU) / ringN[i], s = 0.94 + r3() * 0.1, rr = rad + (r3() - 0.5) * 0.05;
         CAST.push({ lv: 0, x: Math.cos(a) * rr, z: Math.sin(a) * rr, y: 0, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), pose: 'carry', s, build: r3() < 0.5 ? 0 : 1, ring: i });
-        if (i === 0) { const rf = rr - 0.04; CAST.push({ lv: 0, x: Math.cos(a) * rf, z: Math.sin(a) * rf, y: 1.313 * s + 0.03, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), pose: 'carry', s: 0.95, build: 0, folre: true }); }
+        if (i === 0 && OLD) { const rf = rr - 0.04; CAST.push({ lv: 0, x: Math.cos(a) * rf, z: Math.sin(a) * rf, y: 1.313 * s + 0.03, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)), pose: 'carry', s: 0.95, build: 0, folre: true }); }
       }
     }
   }
