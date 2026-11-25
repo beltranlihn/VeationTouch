@@ -66,6 +66,7 @@ async function room(opt) {
     title: opt.title || document.title || 'Experiment', fixedStrip: true, backdrop: !!opt.backdrop, view: opt.view || (() => (R.canvas ? stripRect(R.canvas) : bandRect())),
     hint: opt.hint, help: opt.help,
     onSound: (on) => { R.audio?.setOn(on); },
+    panning: () => !!R.zoom,                                                     // F zoom: a press drags the view (kit: no hand)
     onF: () => {   // F: one wall large, in turn (25-11, Beltrán); at the half-size render it reloads at full size (?scale=1) on that wall
       R.zoom = ((R.zoom || 0) + 1) % (K.ROOM.walls.length + 1);
       const u = new URL(location.href), sc = Number(u.searchParams.get('scale')) || 0.5;
@@ -75,6 +76,22 @@ async function room(opt) {
     },
   });
   addEventListener('resize', () => applyZoom(R));
+  // one wall large (F): press and drag sideways to slide along the room; on release it settles on the nearest wall (P3 ↔ P4 wraps)
+  addEventListener('pointerdown', (e) => {
+    if (!R.zoom || !R.canvas || e.button !== 0 || e.target.closest?.('.lk-help,.lk-params,.lk-vol')) return;
+    R.drag = { x0: e.clientX, left0: parseFloat(R.canvas.style.left) || 0 }; R.canvas.style.transition = 'none';
+  }, true);
+  addEventListener('pointermove', (e) => { if (R.drag && (e.buttons & 1)) R.canvas.style.left = (R.drag.left0 + e.clientX - R.drag.x0) + 'px'; }, true);
+  const endDrag = (e) => {
+    if (!R.drag) return; const d = R.drag; R.drag = null;
+    if (Math.abs(e.clientX - d.x0) < 4) return;
+    const b = R.canvas.getBoundingClientRect(), S = K.ROOM.strip, centre = ((innerWidth / 2 - b.left) / b.width) * S.width;
+    const W = K.ROOM.walls; let i = W.findIndex((w) => centre >= w.x && centre < w.x + w.w);
+    if (i < 0) i = centre < 0 ? W.length - 1 : 0;
+    R.zoom = i + 1; R.canvas.style.transition = 'left 0.28s ease-out'; applyZoom(R);
+    const u = new URL(location.href); u.searchParams.set('wall', W[i].id); history.replaceState(null, '', u.href);
+  };
+  addEventListener('pointerup', endDrag, true); addEventListener('pointercancel', endDrag, true);
   R.stage.onGesture(() => { R.audio?.resume(); });
   shared = R;
   return R;

@@ -151,6 +151,7 @@
         if (hit && bd < 0.45) releaseHand(hit.key); else addHand('pin' + (pinSeq++), p.s, p.t, { pinned: true });
         return;
       }
+      if (opt.panning?.()) return;                                     // one wall large (F): a press drags the view, not a hand
       if (HOVER && e.pointerType === 'mouse') return;                  // ?hover: the mouse is already a hand while it is over the strip
       releaseDemo(); addHand('p' + e.pointerId, p.s, p.t);
     });
@@ -159,6 +160,7 @@
     const HOVER = q.has('hover');
     addEventListener('pointermove', (e) => {
       const key = 'p' + e.pointerId;
+      if (HOVER && e.pointerType === 'mouse' && (e.buttons & 1) && opt.panning?.()) { releaseHand(key); return; }   // dragging the view: no hand
       if (HOVER && e.pointerType === 'mouse' && !e.target.closest?.('.lk-help,.lk-params,.lk-vol,[data-lk-ignore]')) {
         const p = fromEvent(e); lastInput = performance.now();
         if (!p.ok) { releaseHand(key); return; }

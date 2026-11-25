@@ -302,6 +302,7 @@ export function create(ctx) {
   const NC = cells.length, TW = 128, TH = Math.max(1, Math.ceil(NC / TW));
   // per piece, live: turn and its speed, colour (until when), light, gone (fallen), last crossing
   const sleep = new Uint8Array(NC), HL2 = LL / 2, SH2 = LL * 0.37, CU = Float64Array.from(cells, (c) => c.cu), CY = Float64Array.from(cells, (c) => c.cy);
+  const paintAt = new Float32Array(NC).fill(-9);   // studio 25-11: when a piece was last painted from rest
   const phi = new Float32Array(NC), vphi = new Float32Array(NC), colT = new Float32Array(NC).fill(-1), glow = new Float32Array(NC), gone = new Uint8Array(NC), resT = new Float32Array(NC).fill(-9);
   const stData = new Float32Array(TW * TH * 4);
   const stTex = new THREE.DataTexture(stData, TW, TH, THREE.RGBAFormat, THREE.FloatType);
@@ -324,6 +325,7 @@ export function create(ctx) {
 
   const { Fn, attribute, uniform, varying, textureLoad, ivec2, int, float, vec3, vec4, modelWorldMatrix, normalize, mix, step, sin, cos, cross, dot, floor, mod, exp, abs, smoothstep, max, positionLocal, normalLocal, positionWorld, instancedBufferAttribute, fract } = TSL;
   const uBed = uniform(1), uPush = uniform(0), uDoor = uniform(1), PUSH = 1.4;
+  const HAND_POOL = 0, HAND_LIGHT = 0.5;   // studio 25-11 (Beltrán: «baja la luz que emite la mano, trabajemos por movimiento»): pool off (was 0.55), light 0.5 (was 3.6; Vicente's 2.0)
   const uHandP = Array.from({ length: 6 }, () => uniform(new THREE.Vector4(0, -9, 0, 0)));   // studio 25-11: the hands' points on the mosaic (w = strength)   // T-058c: 'start' closes the shell 1.4 m in (was 2.8 with the far serpentine)
   // THE THRESHOLDS: at the centre of every wall the mosaic opens in a tall arch (Gaudí's: straight jambs, a pointed round head) — cut
   // where the wall LOOKS, not in the mosaic: the serpentine turns and its pieces fold away as they reach the door and grow back past it.
@@ -395,7 +397,7 @@ export function create(ctx) {
     let pool = float(0);                                                                    // studio 25-11: where a hand is, the mosaic warms at once
     for (const u of uHandP) { const d = positionWorld.sub(u.xyz); pool = pool.add(exp(dot(d, d).mul(-1 / (2 * 0.32 * 0.32))).mul(u.w)); }
     m.emissiveNode = vec3(1.0, 0.92, 0.78).mul(side.mul(0.3).add(top.add(back).mul(0.03))).mul(g).add(vGl.mul(glazed.mul(0.07))).mul(float(1).sub(quiet))
-      .add(vec3(1.0, 0.72, 0.42).mul(col).mul(pool.min(1.4).mul(0.55))).add(fill);
+      .add(vec3(1.0, 0.72, 0.42).mul(col).mul(pool.min(1.4).mul(HAND_POOL))).add(fill);
     return m;
   }
   const heroMesh = new THREE.Mesh(heroGeo, heroMaterial()); heroMesh.frustumCulled = false; hero.add(heroMesh);
@@ -914,7 +916,7 @@ export function create(ctx) {
   // ------------------------------------------------------------------------------------------- state
   let time = 0, emptyT = 99, ghostAt = 2.5, rot = 0, heroRot = 0, ringSpin = 0, exploded = -1, revealV = 0, startV = 0, idleC = 0, wasRevealed = false, figT0 = -1, figK = 0, cascades = 0, crossings = 0, goneN = 0, pushV = 0, wasWait = true;
   const figAt = Array.from({ length: NW }, () => ({ cu: 0, cy: 0 }));
-  const MAXH = 12, hcu = new Float32Array(MAXH), hcy = new Float32Array(MAXH), hfresh = new Uint8Array(MAXH);
+  const MAXH = 12, hcu = new Float32Array(MAXH), hcy = new Float32Array(MAXH), hfresh = new Uint8Array(MAXH), hsp = new Float32Array(MAXH);   // hsp: studio 25-11, the hand's speed (m/s)
   const HOLD = Array.from({ length: 16 }, () => ({ stroke: null, seen: -9, t0: 0, cu: 0, cy: 0, next: 0, ros: -1, lu: 0, lv: 0 }));
   function holdOf(stroke) {
     let free = null;
@@ -992,8 +994,8 @@ export function create(ctx) {
         // a hand in the threshold (there is no mosaic there) plays the edge of the door nearest to it
         const da = hy < DOOR_H ? DOOR_A * Math.pow(1 - hy / DOOR_H, 1 / DOOR_P) : 0;
         if (Math.abs(hx) < da + 0.12) surfHit(_v3.copy(h.pos).addScaledVector(w.right, (hx < 0 ? -1 : 1) * (da + 0.38) - hx)); else surfHit(h.pos);
-        if (nh < MAXH) { hcu[nh] = hit.cu; hcy[nh] = hit.cy; hfresh[nh] = fresh ? 1 : 0; nh++; }
-        if (nh <= HL) { const l = handLights[nh - 1]; l.position.copy(hit.p).multiplyScalar(0.9); l.position.y = hit.p.y + 0.15; l.intensity += (3.6 * arrive * (1 - leave) - l.intensity) * (1 - Math.exp(-dt * 18)); }   // studio 25-11: brighter (was 2.0)
+        if (nh < MAXH) { hcu[nh] = hit.cu; hcy[nh] = hit.cy; hfresh[nh] = fresh ? 1 : 0; hsp[nh] = speed; nh++; }
+        if (nh <= HL) { const l = handLights[nh - 1]; l.position.copy(hit.p).multiplyScalar(0.9); l.position.y = hit.p.y + 0.15; l.intensity += (HAND_LIGHT * arrive * (1 - leave) - l.intensity) * (1 - Math.exp(-dt * 18)); }   // studio 25-11: brighter (was 2.0)
         if (nh <= uHandP.length) { const U = uHandP[nh - 1].value; U.set(hit.p.x, hit.p.y, hit.p.z, U.w + ((fresh ? 1.4 : 1) * arrive * (1 - leave) - U.w) * (1 - Math.exp(-dt * 25))); }
         const under = nearest(hit.cu, hit.cy), ros = under >= 0 ? cells[under].ros : -1;
         // QA (T-058c): the LiDAR may drop a still hand and give it a new stroke ~every 2 s — a landing within ~0.15 m (on the wall) of a hand
@@ -1078,7 +1080,14 @@ export function create(ctx) {
         }
         for (let k = 0; k < nh; k++) {                                                   // under a hand: at once
           let d = cu_ - hcu[k]; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; const dy = cy_ - hcy[k], dd = d * d + dy * dy;
-          if (dd < 0.3) { if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { glow[i] = Math.max(glow[i], 1.0 * (1 - dd / 0.3)); vphi[i] += 5; } }
+          if (dd < 0.3) {
+            // studio 25-11 (Beltrán, the SECOND INTENSITY): a hand passing again over pieces it already painted (painted ≥ 1.2 s ago) brings
+            // them down — they fall to the floor, and later fly back to their bed at rest (see the return below), unless touched again
+            const painted = colT[i] > time;
+            if (painted && !gone[i] && !c.mother && time - paintAt[i] > 1.2 && hsp[k] > 0.12 && dd < 0.14 && goneN < 220 && rnd() < dt * 7) letGo(i, 0.9);
+            if (!painted) paintAt[i] = time;
+            if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { glow[i] = Math.max(glow[i], 1.0 * (1 - dd / 0.3)); vphi[i] += 5; }
+          }
         }
         if (n >= 2 && time - resT[i] > 3) { resT[i] = time; glow[i] = 1.1; vphi[i] += 6 * (c.r2 < 0.5 ? -1 : 1); crossings++; }   // two fronts meet here
         let col = colT[i] > time ? 1 : 0, g = startGlow * (0.4 + 0.6 * c.r1);
@@ -1117,7 +1126,7 @@ export function create(ctx) {
     const vis0 = arrive * (1 - smooth(0, 0.6, leave));
     for (const b of bodies) {
       if (b.cell < 0) { meshes[b.mesh].setMatrixAt(b.idx, _m.makeScale(0, 0, 0)); continue; }
-      if (stepLoose(b, dt)) { const i = b.cell; b.cell = -1; gone[i] = 0; goneN--; glow[i] = 1.4; vphi[i] += 6; colT[i] = Math.max(colT[i], time + hold); meshes[b.mesh].setMatrixAt(b.idx, _m.makeScale(0, 0, 0)); continue; }
+      if (stepLoose(b, dt)) { const i = b.cell; b.cell = -1; gone[i] = 0; goneN--; glow[i] = 0.8; vphi[i] += 6; colT[i] = time; /* studio 25-11: it comes back reset, at rest (was painted again) */ meshes[b.mesh].setMatrixAt(b.idx, _m.makeScale(0, 0, 0)); continue; }
       let vis = vis0; if (b.state === 3) vis = 0; if (b.state === 5) vis *= smooth(0.6, 1.4, b.timer);
       _s.copy(b.sc).multiplyScalar(vis);
       meshes[b.mesh].setMatrixAt(b.idx, _m.compose(b.p, b.q, _s));
