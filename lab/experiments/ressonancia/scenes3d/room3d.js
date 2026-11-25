@@ -442,11 +442,11 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       air: { density: 0.012, height: 0.22, heightK: 0.6, start: 4.5, max: 0.7 } },   // smoke: dark, the fires light it (no colour veil)
     pinya:   { ev: 0.3, sat: 0.95, contrast: 1.08, lo: 'blau-plaça', loK: 0.4, hi: 'cal-foc', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.016, height: 0.18, heightK: 0.55, start: 6, max: 0.82 } },   // Beltrán 25-11: the festival night, spots through haze
-    tronc:   { ev: 0.25, sat: 0.92, contrast: 1.08, lo: 'tinta-ombra', loK: 0.4, hi: 'porcellana', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 0.5, sky: 1,
+    tronc:   { ev: 0.3, sat: 0.95, contrast: 1.08, lo: 'blau-plaça', loK: 0.4, hi: 'porcellana', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 0.5, sky: 1,
       air: { density: 0.016, height: 0.16, heightK: 0.5, start: 6, max: 0.82 } },
     pom:     { ev: 0.3, sat: 0.85, contrast: 1.02, lo: 'nit-alta', loK: 0.35, hi: 'lluna', hiK: 0.1, lift: 'nit-alta', liftK: 0.35, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.0112, height: 0.2, heightK: 0.5, start: 3.6, max: 0.75 } },
-    crown:   { ev: 0.4, sat: 0.95, contrast: 1.05, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.88, vTop: 0.15, vBot: 0.15, bloom: 1, sky: 1,
+    crown:   { ev: 0.75, sat: 0.95, contrast: 1.05, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.88, vTop: 0.15, vBot: 0.15, bloom: 1, sky: 1,
       air: { density: 0.008, height: 0.12, heightK: 0.3, start: 6, max: 0.6 } },   // a gold burst inside the night
     festa:   { ev: 0.35, sat: 0.95, contrast: 1.05, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.88, vTop: 0.2, vBot: 0.15, bloom: 1, sky: 1,
       air: { density: 0.008, height: 0.12, heightK: 0.3, start: 6, max: 0.6 } },

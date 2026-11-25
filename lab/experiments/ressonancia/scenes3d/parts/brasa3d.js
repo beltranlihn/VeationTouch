@@ -995,8 +995,8 @@ export function create({ THREE, TSL, room, params, parts }) {
     const right = vec3(C.x, 0, C.y), back = vec3(C.y, 0, C.x.negate());
     const p = A.xyz.add(right.mul(lat.add(sin(t.mul(2.7).add(r2.mul(40.0)).add(age.mul(4.0))).mul(sway)))).add(back.mul(dep)).add(vec3(0, age.mul(hgt), 0));
     const size = float(0.07).add(r4.mul(0.09)).mul(float(1).sub(age.mul(0.45))).mul(grow.mul(0.6).add(0.4)).mul(mix(float(1), float(0.6), emb));
-    const T = pow(float(1).sub(age), 1.2).mul(1.45).mul(min(str, 1.2)).mul(mix(float(1), float(0.55), emb));
-    const E = smoothstep(0.0, 0.07, age).mul(pow(float(1).sub(age), 1.6)).mul(0.11).mul(str);
+    const T = pow(float(1).sub(age), 1.2).mul(1.05).mul(min(str, 1.2)).mul(mix(float(1), float(0.55), emb));   // AD#6: flama, not white
+    const E = smoothstep(0.0, 0.07, age).mul(pow(float(1).sub(age), 1.6)).mul(0.075).mul(str);
     m.vertexNode = select(str.greaterThan(0.01), billboard(p, size, size.mul(2.6)), HIDE);
     const vC = varying(fireRamp(T).mul(E));
     const q = uv().sub(0.5);

@@ -829,7 +829,8 @@ export function create(ctx) {
         ins.addAssign(FC.mul(L.w.mul(integ).mul(0.0035).mul(max(uNightK, uPinya))));
       });
     });
-    ins.addAssign(roomSky(dir).mul(Tr.oneMinus()).mul(uFest.mul(0.45)));
+    // CORONATION (AD#6): a burst — the square's air turns to or-clar light, thicker with distance, bathing everything
+    ins.addAssign(vec3(...palLin('or-clar')).mul(float(1).sub(exp(max(dist.sub(3.5), 0).mul(-0.07)))).mul(uCrown).mul(0.55));
     // PINYA (AD#5): a low heavy warm haze that swallows the square up to ~2 m — above it only silhouettes and lit windows
     If(uPinya.greaterThan(0.01), () => {
       const low = smoothstep(2.6, 0.2, Pw.y), thick = float(1).sub(exp(max(dist.sub(4.0), 0).mul(-0.11)));
@@ -1271,7 +1272,7 @@ export function create(ctx) {
       const len = _ss.distanceTo(_sf) * (cross ? 1.9 : 1.15), rad = len * Math.tan(A);
       c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad, len, rad);
     }
-    uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C); uShaftK.value = cross ? 1.6 : 1.0;
+    uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C); uShaftK.value = cross ? 3.0 : 1.0;
   }
   placeSpots(2.3);
   // VFX 25-11: the Brasa's fires light the square. setFires(list, posOf(item) → Vector3, kOf(item) → 0..~1.2); the first NFI count
@@ -1377,11 +1378,10 @@ export function create(ctx) {
     uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low';
     stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
     if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'crown' ? 'crown' : 'tronc');
-    if (crK > 0.01) { uSpotC.value.lerp(_gold, crK); uShaftK.value = 2 + 1.5 * crK; uWin.value = Math.max(uWin.value, 0.9); }   // CORONATION (AD#5): gold light bathes the tower, the facades and the haze
+    if (crK > 0.01) { uSpotC.value.lerp(_gold, crK); uShaftK.value = 3 + 1.5 * crK; uWin.value = Math.max(uWin.value, 0.9); hemi.color.setRGB(1.0, 0.8, 0.5); hemi.groundColor.setRGB(0.5, 0.35, 0.15); hemi.intensity = Math.max(hemi.intensity, 1.4 * crK); moon.color.setRGB(1.0, 0.82, 0.5); moon.intensity = Math.max(moon.intensity, 1.6 * crK); }   // CORONATION (AD#5): gold light bathes the tower, the facades and the haze
     if (festK > 0) {                                                  // the festival night: the square's own night, richer and deeper
       uWin.value = Math.max(uWin.value, festK * 0.9); uFog.value = Math.max(uFog.value, 0.0065); uWet.value = Math.max(uWet.value, 0.8);
-      moon.intensity = Math.max(moon.intensity, 0.32 * festK); hemi.intensity = Math.max(hemi.intensity, 0.3 * festK); uSky.value = Math.max(uSky.value, festK);
-      for (const m of envMats) m.envMapIntensity = Math.max(m.envMapIntensity, 0.7 * festK);
+      uSky.value = Math.max(uSky.value, festK);   // (AD#6: no moon / sky / env boost — they were the milky veil; the night grade is the Pinya's)
     }
     nightK += (((blk === 'brasa' || (!input.state && pr.brasa)) ? 1 : 0) - nightK) * Math.min(1, dt * 1.5); uNightK.value = nightK;
     if (nightK > 0) { uStars.value *= 0.3; uWin.value *= 1 - 0.5 * nightK; moon.intensity *= 1 - 0.4 * nightK; hemi.intensity *= 1 - 0.45 * nightK; for (const m of envMats) m.envMapIntensity *= 1 - 0.6 * nightK; }
