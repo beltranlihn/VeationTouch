@@ -194,3 +194,13 @@ the one light recipe, a halo behind the hero object, `room.flash` on whatever th
   (it is warmed automatically, but every carrier doubles the warm-up).
 - **No first-frame work.** Allocate buffers, geometries and materials in `create()`, not on the first `update` / arrive (the host
   pre-compiles the next block 1.5 s into each block, but only what exists then). Materials created later compile in the frame they show.
+
+## Moving things under TAA: room.reactive(object) (T-070, 25-11, RND)
+At quality high the room resolves with TAA (history over 8 jittered frames, no velocity buffer). Since T-070 the clip is done in a
+tone-mapped YCoCg space (bright sparks no longer widen the box), but colour alone cannot tell a figure crossing a busy ground from
+jittered fine detail: fast-moving things ghost (look translucent, leave a trail). A part opts its MOVING objects out of the history:
+`room.reactive?.(mesh)` (call it after the mesh/group is built; it tags the subtree as it is now, on layer `room.REACTIVE` = 30;
+`room.reactive(mesh, false)` undoes it). Those objects are drawn once more, alone, into a half-resolution mask; there the history is
+all but dropped (`room.taaReactive.value`, 0.85) this frame and the next, so they read solid with no trail (edges as with aa=none).
+Opt in only what moves fast (figures, sparks, falling pieces): every opted-in draw is paid twice. Never static fine detail (it would
+lose its antialiasing). Without TAA the call only tags the layer. Do not use layer 30 for anything else.

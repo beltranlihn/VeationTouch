@@ -535,6 +535,8 @@ export function create({ THREE, TSL, room, params }) {
     return meshes;
   })();
   const DIA = useOldDevils ? null : createDiables({ THREE, TSL, room, world, U, mirP, CHROME, fireRamp, emit, MAXD, ringPoint, eye });
+  if (DIA) for (const m of DIA.meshes) room.reactive?.(m);           // T-070: fast movers drop the TAA history (no ghost)
+  for (const m of [].concat(sparkMesh)) room.reactive?.(m);
   const devils = [];
   for (let i = 0; i < MAXD; i++) devils.push({ on: false, s: 0, d: DEV_D, dir: 1, spd: 0.7, age: 0, life: 8, k: 0, dis: 0, style: 0, phase: 0, wave: null, h: 1, acc: 0, born: 0, res: i >= MAXD - 4, hop: 0, gain: 1 });
   // T-056: the last 4 slots are the relay's (the runner + up to 3 that run to fetch it); spawnDevil never takes them

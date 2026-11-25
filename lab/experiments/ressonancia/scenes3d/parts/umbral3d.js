@@ -519,7 +519,7 @@ export function create(ctx) {
   const CHIPS = 96, chips = [];
   const chipAttr = new THREE.InstancedBufferAttribute(new Float32Array(CHIPS * 3), 3).setUsage(THREE.DynamicDrawUsage);
   const chipMesh = new THREE.InstancedMesh(tileGeo(4, 0.14, 0.15), [glazeMat(chipAttr), mirrorM], CHIPS);
-  chipMesh.frustumCulled = false; chipMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); object.add(chipMesh);
+  chipMesh.frustumCulled = false; chipMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); object.add(chipMesh); room.reactive?.(chipMesh);   // T-070: the knocked-out pieces fly fast: no TAA ghost
   for (let i = 0; i < CHIPS; i++) chips.push({ on: false, owner: null, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), s: 0.04, rest: false, from: new THREE.Vector3() });
 
   // threads of the mobiles (collapsed when a piece is not hanging)
