@@ -17,7 +17,9 @@ export function create({ THREE, room }) {
   const motto = room.walls.map((w, i) => {
     const t = typo.text({ placements: [walls[i]], renderOrder: 10, plate: 0, spread: 2.2, depth: 0.4 });
     const [es, ca] = MOTTO[i % MOTTO.length];
-    t.set([{ text: es, font: 'serif', size: 0.5, y: 0.1, track: 0.01, color: INK }, { text: ca, font: 'italic', size: 0.17, y: -0.3, track: 0.02, alpha: 0.85, color: SOFT, rules: 0.4, rise: true }]);
+    const items = [{ text: es, font: 'serif', size: 0.5, y: 0.1, track: 0.01, color: INK }];
+    if (ca.toLowerCase() !== es.toLowerCase()) items.push({ text: ca, font: 'italic', size: 0.17, y: -0.3, track: 0.02, alpha: 0.85, color: SOFT, rules: 0.4, rise: true });   // «Valor / valor», «Seny / seny»: once
+    t.set(items);
     t.alpha[0] = 1; object.add(t.object);
     return t;
   });
