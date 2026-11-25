@@ -499,7 +499,7 @@ export function create(ctx) {
   }
   const LAY = { persp: makeLayout(OLD ? 1 : 0.58), full: makeLayout(0.85) };   // the Pom: 15 % compressed (no scale jump from the Tronc)   // ×0.58: the whole 9-floor castell fits ≤ 3.4 m on the wall
   let { CAST, CLV, TRUNK } = LAY.persp;
-  const bodies = P.bodies !== false && !lone();   // fall3d's private tower (parts: {}) falls as the sculpture: no bodies there
+  const bodies = P.bodies !== false;   // also fall3d's private tower: no path ever shows the plaster sculpture again   // fall3d's private tower (parts: {}) falls as the sculpture: no bodies there
   const kit = bodies ? createBodies({ THREE, TSL, room, max: Math.min(400, CAST.length * Math.min(NW, 4)), lods: [1, 2], spots: ctx.parts?.plaza?.spots || null }) : null;   // the square's stage spots light the bodies in their beams
   if (kit) {
     world.add(kit.object);
@@ -535,7 +535,7 @@ export function create(ctx) {
     crownT = castMode === 'crowned' ? crownT + dt : 0;   // the crown: gold rises from the foot to the enxaneta, floor by floor
     // THE FALL (setMode('fall'), or fall3d's collapse() on this tower): the same castell comes down — floors dissolve into falling dust from the
     // top (0.45 s apart, 0.8 s each, ≈ 4 s), the pinya stays, kneeling under it; no plaster sculpture any more
-    const falling = !OLD && (castMode === 'fall' || col.on);
+    const falling = castMode === 'fall' || col.on;
     fallT = falling ? fallT + dt : 0;
     // against the luminous gold air the tower must be a dark-and-gold sculpture: denser, a dark rim, the shadow side to bronze
     { const cw = castMode === 'crowned' ? 1 : 0; crownK += (cw - crownK) * Math.min(1, dt * 1.5); kit.setSplat({ darkRim: 0.9 * crownK, opacity: 1 + 0.5 * crownK }); }
