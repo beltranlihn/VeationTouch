@@ -715,6 +715,7 @@ export function create(ctx) {
   const HLC = vec3(...palLin('cal-fanal')).mul(0.7).add(vec3(...palLin('fanal')).mul(0.3));
   const NFI = 8, fireVec = Array.from({ length: NFI }, () => new THREE.Vector4(0, -50, 0, 0)), uFires = uniformArray(fireVec, 'vec4');
   const FC = vec3(...palLin('flama')).mul(1.0).add(vec3(...palLin('brasa')).mul(0.4));   // the colour of the fire's light (palette tokens)
+  const uDawn = uniform(0);
   const uNightK = uniform(0), uBlue = uniform(0), uArr = uniform(0), uPom = uniform(0), uShaftK = uniform(1), uPinya = uniform(0), uCrown = uniform(0);
   const tlVec = Array.from({ length: 4 }, () => new THREE.Vector4(0, -50, 0, 0)), uTL = uniformArray(tlVec, 'vec4'), TLC = vec3(...palLin('or')).mul(1.1);
   // AD#8 the crown as an event: uTLR = the gold pool's radius (m, grows from the tower's foot), uPulse = the two fronts of the light wave
@@ -854,6 +855,8 @@ export function create(ctx) {
         ins.addAssign(TLC.mul(L.w.mul(integ).mul(0.006)));
       });
     });
+    // BAJADA (AD#12): the alba-rosa climbs the upper facades with the chapter (the floor stays cold)
+    ins.addAssign(vec3(...palLin('alba-rosa')).mul(smoothstep(2.0, 11.0, Pw.y)).mul(uDawn).mul(0.22));
     // PINYA (AD#5): a low heavy warm haze that swallows the square up to ~2 m — above it only silhouettes and lit windows
     If(uPinya.greaterThan(0.01), () => {
       const low = smoothstep(2.6, 0.2, Pw.y), thick = float(1).sub(exp(max(dist.sub(4.0), 0).mul(-0.11)));
@@ -1092,7 +1095,7 @@ export function create(ctx) {
     const warm = aCol.mul(tvTint);
     const p = fragProg(aFrag);
     const alive = smoothstep(0.35, 0.0, p);
-    const winE = interior.mul(warm).mul(litR.mul(0.6).add(0.55)).mul(litOn).mul(life).mul(mix(1.1, 1.6, isShop)).mul(uWin);
+    const winE = interior.mul(warm).mul(litR.mul(0.6).add(0.55)).mul(litOn).mul(life).mul(mix(0.7, 0.75, isShop)).mul(uWin);   // AD#12: no flat white shop windows (was 1.1–1.6)
     const dimRoom = surf.mul(0.006).mul(uRev);                       // unlit rooms: almost black, a hint of depth
     // the rose: twelve petals, rings, deep blue and red with amber, faintly lit from inside
     const rq = vec2(uvm.x.sub(aExt.x), uvm.y.sub(aExt.y)), rr0 = length(rq).div(aExt.z), ra = atan(rq.y, rq.x);
@@ -1191,7 +1194,8 @@ export function create(ctx) {
   const skyMat = (() => {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false });
     const dS = normalize(positionWorld.sub(cameraPosition));
-    m.colorNode = mix(skyCol(dS), roomSky(dS), max(max(max(uDay, uNightK), max(uFest.mul(0.85), uBlue)), uPom));
+    const dawnSky = mix(vec3(...palLin('alba-rosa')).mul(0.75), vec3(...palLin('alba-blau')).mul(0.45), smoothstep(0.02, 0.55, dS.y));
+    m.colorNode = mix(mix(skyCol(dS), roomSky(dS), max(max(max(uDay, uNightK), max(uFest.mul(0.85), uBlue)), uPom)), dawnSky, uDawn);   // AD#12: the dawn climbs the sky over the bajada
     return finish(m);
   })();
 
@@ -1433,7 +1437,8 @@ export function create(ctx) {
     if (pomK > 0.01) { uWin.value *= 1 - 0.75 * pomK; uStars.value *= 1 - 0.5 * pomK; moon.intensity *= 1 - 0.6 * pomK; hemi.intensity *= 1 - 0.6 * pomK; uFog.value = Math.max(uFog.value, 0.008 * pomK); }
     if (nightK > 0.01) { moon.color.setRGB(0.36, 0.35, 0.36); moon.intensity *= 1 - 0.6 * nightK; hemi.color.setRGB(0.2, 0.2, 0.24); hemi.intensity *= 1 - 0.5 * nightK; }   // Brasa (AD#5): only the fire gives colour
     if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, input.state?.progress ?? 0)); object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 0.7 - 0.5 * pg; uStars.value *= 0.4 * (1 - pg);
-      hemi.color.setRGB(0.42, 0.55, 0.95); hemi.groundColor.setRGB(0.18, 0.14, 0.2); hemi.intensity = Math.max(hemi.intensity, 0.55 + 0.35 * pg); moon.color.setRGB(0.95, 0.7, 0.7); moon.intensity = Math.max(moon.intensity, 0.35 + 0.3 * pg); blueProg = pg; } else blueProg = 0;   // the blue hour: a cool sky fill, a rose dawn key;   // the lamps go out as the tower comes down
+      hemi.color.setRGB(0.42, 0.55, 0.95); hemi.groundColor.setRGB(0.18, 0.14, 0.2); hemi.intensity = Math.max(hemi.intensity, 0.55 + 0.35 * pg); moon.color.setRGB(0.95, 0.7, 0.7); moon.intensity = Math.max(moon.intensity, 0.35 + 0.3 * pg); blueProg = pg; } else blueProg = 0;
+    uDawn.value = blueK * smooth01((blueProg - 0.1) / 0.85);   // the blue hour: a cool sky fill, a rose dawn key;   // the lamps go out as the tower comes down
     uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low';
     stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
     if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'crown' || blk === 'festa' ? 'crown' : 'tronc');
@@ -1491,7 +1496,7 @@ export function create(ctx) {
       const on = ignite(tR - L.t0, i, time);
       const br = 1 - sm((S - lampD[i] + 0.06) / 0.22);                // it dies when its stone breaks, with a last flicker
       const fl = S > lampD[i] - 0.1 && br > 0.02 ? 0.6 + 0.4 * Math.sin(time * 41 + i) : 1;
-      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK) * (1 - 0.9 * blueProg) * (1 - 0.35 * blueK) * (1 - 0.88 * pomK) * (1 - 0.55 * pinK) * (1 - 0.75 * crK) * (blk === 'festa' ? 0.7 : 1);
+      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK) * (1 - blueK * smooth01((blueProg * 1.2 - ((i * 0.618) % 1) * 0.95) / 0.08)) * (1 - 0.35 * blueK) * (1 - 0.88 * pomK) * (1 - 0.55 * pinK) * (1 - 0.75 * crK) * (blk === 'festa' ? 0.7 : 1);
       L.light.intensity = v * 26;
       lampVec[i].set(L.pos.x, L.pos.y, L.pos.z, v);
     }

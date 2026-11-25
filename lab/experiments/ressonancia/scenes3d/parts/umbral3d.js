@@ -393,14 +393,14 @@ export function create(ctx) {
     s.out.copy(w.normal).multiplyScalar(-1).addScaledVector(w.right, rr(-0.6, 0.6)).normalize();
     band.push(s);
   }
-  const motherKind = () => { const u = rnd(); return u < 0.5 ? 1 : u < 0.85 ? 0 : 2; };
+  const motherKind = () => 0;   // AD#12: a resting mosaic — bone / graphite only (no chrome or glass gems)
   for (const w of walls) {                    // one mobile at each side of the wall: the middle (the threshold, the guide's words ±1.6 m, the button) stays clear
     const half = w.width / 2;
     for (const side of [-1, 1]) {
       const cx = side * rr(2.62, Math.max(2.64, half - 0.62)), d0 = rr(0.45, 0.8);
       hanging(w, cx, rr(2.3, 2.9), d0, rr(0.6, 0.85), motherKind(), true);                                    // the mother piece, high
-      if (rnd() < 0.75) hanging(w, clamp(cx + side * rr(0.3, 0.6), -half + 0.35, half - 0.35), rr(1.5, 1.95), d0 - rr(0.1, 0.25), rr(0.38, 0.52), motherKind(), true);
-      const n = Math.round(rr(2, 3.4));
+      if (false) hanging(w, clamp(cx + side * rr(0.3, 0.6), -half + 0.35, half - 0.35), rr(1.5, 1.95), d0 - rr(0.1, 0.25), rr(0.38, 0.52), motherKind(), true);
+      const n = 0;   // AD#12: fewer moving parts
       for (let i = 0; i < n; i++) {
         const x = clamp(cx + gauss() * 0.45, -half + 0.2, half - 0.2), y = rr(0.75, 1.5);
         if (Math.abs(x) < 1.9) continue;
@@ -420,7 +420,8 @@ export function create(ctx) {
   for (const [R, y, n, dir, ph] of [[12.5, 1.9, 24, 1, 0.4], [16.5, 5.0, 22, -1, 2.1], [21, 8.5, 22, 1, 4.0]]) for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + rr(-0.08, 0.08);
     if (Math.sin(a * 3 + ph) < -0.2) continue;
-    const s = shard('mid', rnd() < 0.6 ? 1 : rnd() < 0.2 ? 2 : 0, rr(0.7, 1.9));
+    if (rnd() < 0.5) continue;   // AD#12: half the far arcs, ceramic only
+    const s = shard('mid', 0, rr(0.7, 1.9));
     Object.assign(s, { R: R + rr(-0.8, 0.8), y: y + rr(-0.8, 0.8), a, dir, axis: new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).normalize(), spin: rr(0.05, 0.2), ph: rr(0, 6.28), arriveAt: rr(0, 0.6) });
     if (s.kind === 0) { s.base = rnd() < 0.6 ? BONE : GRAPHITE; s.color = [...s.base]; }
     mid.push(s);
@@ -943,7 +944,7 @@ export function create(ctx) {
       } else { threadPos[o] = threadPos[o + 3] = s.p.x; threadPos[o + 1] = threadPos[o + 4] = 50; threadPos[o + 2] = threadPos[o + 5] = s.p.z; }
     }
     threadGeo.attributes.position.needsUpdate = true;
-    threadMat.opacity = 0.12 * arrive * (1 - leave);   // T-053 (ARTE r5): the threads at 40 %
+    threadMat.opacity = 0.0;   // AD#12: no vertical threads
 
     // ---- chips
     for (let i = 0; i < CHIPS; i++) {
