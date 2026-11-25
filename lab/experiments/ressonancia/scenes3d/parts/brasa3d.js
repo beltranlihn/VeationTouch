@@ -1739,7 +1739,8 @@ export function create({ THREE, TSL, room, params, parts }) {
     U.flames.value = Number(P.flames ?? 1) * (inPlazaK === true ? 0.55 : 1); U.heat.value = Number(P.heat ?? 1); U.devils.value = Number(P.devils ?? 1) * (0.35 + 0.65 * crowdK);
     // (a crowd: the devils dimmer; the bed too, so many hands are no brighter than ~4)
     U.crowd.value = 0.6 + 0.4 * crowdK;
-    U.haze.value = Number(P.haze ?? 1) * (inPlazaK === true ? 0.35 : 1); U.wait.value = waitK; U.breath.value = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(breathPh * Math.PI * 2)); U.smoke.value = Math.max(0, Number(P.smoke ?? 1)); smokeMesh.visible = U.smoke.value > 0;
+    U.haze.value = Number(P.haze ?? 1) * (inPlazaK === true ? 0.35 : 1);
+    if (inPlazaK === true) shardMesh.visible = arrive < 0.999 || leave > 0.001;   // AD 25-11: no red confetti lying on the paving U.wait.value = waitK; U.breath.value = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(breathPh * Math.PI * 2)); U.smoke.value = Math.max(0, Number(P.smoke ?? 1)); smokeMesh.visible = U.smoke.value > 0;
     updatePlumes(time, level * (1 - cool * 0.5), arrive);
     U.chrome.value = Math.max(0, Number(P.chrome ?? 1)) * (1 - 0.85 * waitK);
     U.refl.value = Math.max(0, Number(P.reflect ?? 1)) * smoother(arrive / 0.6) * (1 - 0.7 * waitK);

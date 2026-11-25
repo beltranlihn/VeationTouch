@@ -715,7 +715,7 @@ export function create(ctx) {
   const HLC = vec3(...palLin('cal-fanal')).mul(0.7).add(vec3(...palLin('fanal')).mul(0.3));
   const NFI = 8, fireVec = Array.from({ length: NFI }, () => new THREE.Vector4(0, -50, 0, 0)), uFires = uniformArray(fireVec, 'vec4');
   const FC = vec3(...palLin('flama')).mul(1.0).add(vec3(...palLin('brasa')).mul(0.4));   // the colour of the fire's light (palette tokens)
-  const uNightK = uniform(0), uBlue = uniform(0);                                         // brasa: 1 = the room's dark sky instead of the moonlit one
+  const uNightK = uniform(0), uBlue = uniform(0), uArr = uniform(0), uPom = uniform(0), uShaftK = uniform(1);                                         // brasa: 1 = the room's dark sky instead of the moonlit one
   // VFX V8: the lit square (0 = the night square … 1 = plaza light). Tones from palette.js (nobody writes a hex)
   const uDay = uniform(0), uDayTone = uniform(new THREE.Vector3(...palLin('porcellana'))), uDayFloor = uniform(new THREE.Vector3(...palLin('pedra-llum'))), uDayAir = uniform(0.015);
   const roomSky = room.sky ? room.sky : () => vec3(0.02, 0.025, 0.04);
@@ -744,8 +744,9 @@ export function create(ctx) {
     const axis = normalize(vec3(r1.sub(0.5), r2.sub(0.5), r3.sub(0.5)).add(vec3(0.0, 0.001, 0.0)));
     const ang = p.mul(r4.mul(1.3).add(0.25)).mul(sign(r5.sub(0.5)));
     const fadeAt = r2.mul(0.85).add(0.95);
-    let sc = max(smoothstep(fadeAt.add(0.35), fadeAt, uS), step(0.93, r3).mul(smoothstep(2.6, 2.0, uS)));
-    if (mirror) sc = sc.mul(smoothstep(d.sub(0.02), d.add(0.12), uS)).mul(max(smoothstep(fadeAt.add(0.6), fadeAt.add(0.2), uS), step(0.7, r3).mul(smoothstep(2.6, 2.1, uS))));
+    // (AD 25-11: while the square RE-FORMS — uArr — no glass panes and no lingering glinters: nothing floats in the sky)
+    let sc = max(smoothstep(fadeAt.add(0.35), fadeAt, uS), step(0.93, r3).mul(smoothstep(2.6, 2.0, uS)).mul(float(1).sub(uArr)));
+    if (mirror) sc = sc.mul(float(1).sub(uArr)).mul(smoothstep(d.sub(0.02), d.add(0.12), uS)).mul(max(smoothstep(fadeAt.add(0.6), fadeAt.add(0.2), uS), step(0.7, r3).mul(smoothstep(2.6, 2.1, uS))));
     const local = positionLocal.sub(c).mul(sc);
     const rotated = rotA(local, axis, ang);
     normalLocal.assign(rotA(normalLocal, axis, ang));
@@ -1149,7 +1150,7 @@ export function create(ctx) {
   const skyMat = (() => {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false });
     const dS = normalize(positionWorld.sub(cameraPosition));
-    m.colorNode = mix(skyCol(dS), roomSky(dS), max(max(uDay, uNightK), max(uFest.mul(0.85), uBlue)));
+    m.colorNode = mix(skyCol(dS), roomSky(dS), max(max(max(uDay, uNightK), max(uFest.mul(0.85), uBlue)), uPom));
     return finish(m);
   })();
 
@@ -1197,7 +1198,7 @@ export function create(ctx) {
   const LIT = { pinya: { dir: [-0.55, 0.42, -0.72], tone: 'cal-foc', floor: 'pedra-llum', key: 'cal-foc', k: 4.2, fill: 0.45, air: 0.01, lamps: 0.6 },
                 tronc: { dir: [0.45, 0.85, -0.35], tone: 'porcellana', floor: 'pedra-llum', key: 'porcellana', k: 5.0, fill: 0.5, air: 0.008, lamps: 0.12 } };
   for (const c of Object.values(LIT)) { c.toneL = palLin(c.tone); c.floorL = palLin(c.floor); c.keyL = palLin(c.key); }
-  let dayK = 0, litCfg = LIT.tronc, nightK = 0, festK = 0, blueK = 0, blueProg = 0;
+  let dayK = 0, litCfg = LIT.tronc, nightK = 0, festK = 0, blueK = 0, blueProg = 0, pomK = 0;
   const hl = Array.from({ length: NHL }, () => ({ stroke: null, k: 0, seen: false, last: -99, pos: new THREE.Vector3(0, -50, 0) }));
   function stepHandLights(dt, time, hands, on) {
     for (const H of hl) H.seen = false;
@@ -1229,7 +1230,7 @@ export function create(ctx) {
       const along = clamp(positionLocal.y.negate(), 0, 1);                      // 0 at the lamp … 1 at the far end
       const core = pow(abs(dot(Nn, Vv)), 2.2);                                    // bright through the middle, soft at the rim
       const breathe = sin(uTime.mul(0.35).add(i * 1.7)).mul(0.12).add(0.88);
-      m.colorNode = SPC.mul(core.mul(smoothstep(0.0, 0.08, along)).mul(float(1).sub(smoothstep(0.75, 1.0, along))).mul(mix(1.0, 0.45, along))).mul(uFest).mul(0.05).mul(breathe);
+      m.colorNode = SPC.mul(core.mul(smoothstep(0.0, 0.08, along)).mul(float(1).sub(smoothstep(0.75, 1.0, along))).mul(mix(1.0, 0.45, along))).mul(uFest).mul(0.05).mul(uShaftK).mul(breathe);
       const cone = new THREE.Mesh(coneG, m); cone.renderOrder = 6; cone.frustumCulled = false;
       shafts.add(cone);
     }
@@ -1253,11 +1254,11 @@ export function create(ctx) {
       _sf.copy(w.centre).addScaledVector(w.normal, -td); _sf.y = cross ? 3.2 : 0.6;                       // tronc: the beams cross over the tower
       _ss.copy(_sf).addScaledVector(w.right, side * (cross ? 5.0 : 3.0)).addScaledVector(w.normal, cross ? -4.0 : -1.0); _ss.y = cross ? 13.0 : 9.0;
       _sd.copy(_sf).sub(_ss).normalize();
-      spotP[i].set(_ss.x, _ss.y, _ss.z, cross ? SPOT_K : SPOT_K * 0.75); spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
+      spotP[i].set(_ss.x, _ss.y, _ss.z, cross ? SPOT_K * 2 : SPOT_K * 0.75);   // AD 25-11: the tower's beams ×2 spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
       const len = _ss.distanceTo(_sf) * (cross ? 1.9 : 1.15), rad = len * Math.tan(A);
       c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad, len, rad);
     }
-    uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C);
+    uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C); uShaftK.value = cross ? 2.0 : 1.0;
   }
   placeSpots(2.3);
   // VFX 25-11: the Brasa's fires light the square. setFires(list, posOf(item) → Vector3, kOf(item) → 0..~1.2); the first NFI count
@@ -1322,7 +1323,7 @@ export function create(ctx) {
     const festT = (blk === 'pinya' || blk === 'tronc') ? 1 : input.state ? 0 : Math.max(0, Math.min(1, +pr.fest || 0));
     festK += (festT - festK) * Math.min(1, dt * 1.2); if (Math.abs(festT - festK) < 1e-3) festK = festT;
     dayK += (dayT - dayK) * Math.min(1, dt * 1.6); if (Math.abs(dayT - dayK) < 1e-3) dayK = dayT;
-    if (dayK > 0.001 || festK > 0.001 || blueK > 0.001) t = Math.max(30, Math.min(t, 45));
+    if (dayK > 0.001 || festK > 0.001 || blueK > 0.001 || pomK > 0.001) t = Math.max(30, Math.min(t, 45));
     const rv = +pr.reveal || 0, shv = +pr.shatter || 0;   // the host drives the break / re-assembly at chapter changes (arrive 1 → 0, leave 0 → 1)
     const tR = rv > 0 ? 8 + 17 * Math.min(1, rv) : shv > 0 ? Math.max(t, 30) : t;
     const tS = shv > 0 ? 46 + 24 * Math.min(1, shv) : pr.noBreak ? Math.min(t, 45.99) : t;   // noBreak: the host breaks it into image tiles instead (T-034)
@@ -1349,6 +1350,11 @@ export function create(ctx) {
     moon.intensity = 0.32 * moonK * (pr.moonKey ?? 1); hemi.intensity = 0.55 * moonK * (1 + 0.45 * ((pr.moonKey ?? 1) - 1));   // the moon's key also fills the shadows with a cool sky
     if (keyS) { const k = `${moon.position.x.toFixed(2)},${moon.position.y.toFixed(2)},${moon.position.z.toFixed(2)},${uS.value.toFixed(3)},${object.position.y.toFixed(2)},${object.visible}`; if (k !== shadowKey) { shadowKey = k; keyS.dirty(); } }
     uBlue.value = blueK;
+    uArr.value = (input.leave ?? 0) < 0.01 && (input.arrive ?? 1) < 0.999 ? 1 : 0;
+    // POM (AD 25-11): the tower in the square at its darkest — lamps almost out, few windows, the room's deep sky, a faint haze
+    pomK += (((blk === 'pom' || (!input.state && pr.pom)) ? 1 : 0) - pomK) * Math.min(1, dt * 1.2); uPom.value = pomK;
+    if (pomK > 0.01) { uWin.value *= 1 - 0.75 * pomK; uStars.value *= 1 - 0.5 * pomK; moon.intensity *= 1 - 0.6 * pomK; hemi.intensity *= 1 - 0.6 * pomK; uFog.value = Math.max(uFog.value, 0.02 * pomK); }
+    if (nightK > 0.01) moon.color.setRGB(0.42, 0.46, 0.55);   // Brasa: the facades away from the fire fall to a cold grey night (tinta), not violet-blue
     if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, input.state?.progress ?? 0)); object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 1 - 0.6 * pg; uStars.value *= 0.4 * (1 - pg); blueProg = pg; } else blueProg = 0;   // the lamps go out as the tower comes down
     uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low';
     stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
@@ -1397,7 +1403,7 @@ export function create(ctx) {
       const on = ignite(tR - L.t0, i, time);
       const br = 1 - sm((S - lampD[i] + 0.06) / 0.22);                // it dies when its stone breaks, with a last flicker
       const fl = S > lampD[i] - 0.1 && br > 0.02 ? 0.6 + 0.4 * Math.sin(time * 41 + i) : 1;
-      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK) * (1 - 0.9 * blueProg);
+      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK) * (1 - 0.9 * blueProg) * (1 - 0.88 * pomK);
       L.light.intensity = v * 26;
       lampVec[i].set(L.pos.x, L.pos.y, L.pos.z, v);
     }

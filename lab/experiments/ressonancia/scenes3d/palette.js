@@ -67,11 +67,11 @@ export const PAL = {
   brasa:   { tones: ['carbó', 'brasa', 'flama'], accent: 'or', light: 'flama', shadow: 'carbó', ink: 'os', luma: 0.15, dark: true,
     story: 'The one chapter of fire over dark', sky: { top: ['tinta', 0.75], horizon: ['blau-plaça', 0.5], bottom: ['tinta', 1.0] } },   // a COOL night: the warm comes only from the fires
   pinya:   { tones: ['cal-foc', 'terracota', 'ombra'], accent: 'faixa', light: 'cal-foc', shadow: 'ombra', ink: 'os', luma: 0.18, dark: true,
-    story: 'The abstract field (director 25-11): a gathering of light in the night — warm pools where people came, a low warm horizon', sky: { top: ['tinta', 0.7], horizon: ['ombra', 1.1], bottom: ['tinta', 0.7] } },   // the abstract field: a warm dark horizon
+    story: 'The abstract field (director 25-11): a gathering of light in the night — warm pools where people came, a low warm horizon', sky: { top: ['tinta', 0.65], horizon: ['tinta', 1.25], bottom: ['tinta', 0.7] } },   // the abstract field: deep night, no band
   tronc:   { tones: ['porcellana', 'pedra-llum', 'tinta-ombra'], accent: 'or', light: 'porcellana', shadow: 'tinta-ombra', ink: 'os', luma: 0.2, dark: true,
     story: 'The castell under the festival spots: porcelain where light falls, blue night and fog elsewhere', sky: { top: ['tinta', 0.75], horizon: ['tinta', 1.7], bottom: ['tinta', 0.8] } },
   pom:     { tones: ['nit-alta', 'blau-hora', 'lluna'], accent: 'or', light: 'lluna', shadow: 'nit-alta', ink: 'os', luma: 0.12, dark: true,
-    story: 'The silence: the square goes out so one light is seen', sky: { top: ['nit-alta', 0.8], horizon: ['blau-hora', 0.7], bottom: ['nit-alta', 0.7] } },
+    story: 'The silence: the square goes out so one light is seen', sky: { top: ['nit-alta', 0.6], horizon: ['nit-alta', 1.25], bottom: ['nit-alta', 0.6] } },
   crown:   { tones: ['or-clar', 'crema', 'bronze'], accent: 'os', light: 'crema', shadow: 'bronze', ink: 'os', luma: 0.32, dark: true,
     story: 'A burst of gold inside the night', sky: { top: ['tinta', 0.9], horizon: ['bronze', 0.9], bottom: ['tinta', 0.9] } },
   festa:   { tones: ['or-clar', 'crema', 'bronze'], accent: 'os', light: 'crema', shadow: 'bronze', ink: 'os', luma: 0.3, dark: true,

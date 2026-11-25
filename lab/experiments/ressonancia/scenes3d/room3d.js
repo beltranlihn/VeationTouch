@@ -438,7 +438,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       air: { density: 0.018, height: 0.22, heightK: 0.5, start: 3.6, max: 0.7 } },
     intro:   { ev: 0.75, sat: 0.95, contrast: 1.0, lo: 'blau-plaça', loK: 0.3, hi: 'cal-fanal', hiK: 0.15, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.03, height: 0.25, heightK: 0.5, start: 3.6, max: 0.75, key: { dir: [0, 0.05, -1], token: 'fanal', k: 0.25 } } },
-    brasa:   { ev: 0.35, sat: 0.95, contrast: 1.06, lo: 'blau-plaça', loK: 0.4, hi: 'flama', hiK: 0.06, lift: 'tinta', liftK: 0.7, ceil: 0.9, vTop: 0.35, vBot: 0.2, bloom: 1, sky: 1,
+    brasa:   { ev: 0.35, sat: 0.85, contrast: 1.06, lo: 'tinta', loK: 0.25, hi: 'flama', hiK: 0.06, lift: 'tinta', liftK: 0.7, ceil: 0.9, vTop: 0.35, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.03, height: 0.22, heightK: 0.6, start: 4.5, max: 0.7 } },   // smoke: dark, the fires light it (no colour veil)
     pinya:   { ev: 0.3, sat: 0.95, contrast: 1.08, lo: 'blau-plaça', loK: 0.4, hi: 'cal-foc', hiK: 0.12, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.04, height: 0.18, heightK: 0.55, start: 6, max: 0.82 } },   // Beltrán 25-11: the festival night, spots through haze
@@ -728,7 +728,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // chapter's shadow token), the one matter, lit by whatever light the world has and by the hands. We look at the square THROUGH it.
   // Present in intro, brasa, pinya, tronc, baixada (setBackground sets it); room.setPorxada(0..1) overrides. It comes and goes by a
   // dissolve of fragments (screen-door), the work's language. In the scene root: the same frame in both worlds of a transition.
-  const PORX_ON = new Set(['intro', 'brasa', 'tronc', 'baixada']);   // (pinya is the abstract field: no porch)
+  const PORX_ON = new Set(['intro', 'brasa', 'tronc', 'pom', 'baixada']);   // (pinya is the abstract field: no porch)
   const porx = { k: uniform(0), to: 0, group: new THREE.Group() };
   porx.group.name = 'room:porxada';
   {
@@ -757,6 +757,15 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   }
   function setPorxada(k = 1) { porx.to = Math.max(0, Math.min(1, k)); }
 
+  const texCache = new Map(), texLoader = new THREE.TextureLoader();
+  const ccTex = (name, map, srgb) => {
+    const key = name + map; if (texCache.has(key)) return texCache.get(key);
+    const t = texLoader.load(new URL(`./assets/cc0/${name}/${name}_${map}_1k.jpg`, import.meta.url).href);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.anisotropy = renderer.getMaxAnisotropy ? Math.min(16, renderer.getMaxAnisotropy() || 8) : 8;
+    texCache.set(key, t); return t;
+  };
+
   // ---- THE FIELD (director 25-11: Pinya is an ABSTRACT world — «a gathering of light in the night»): a dark polished ground that goes on
   // to a low warm glow on the horizon far away, haze in layers (the room's air), and where hands have been (room.heat: the people
   // who came to the wall) warm pools of light lie on the ground just behind the wall, staying ~a minute. Palette pinya (cal-foc,
@@ -769,10 +778,13 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     // the ground: dark, glossy, reflecting the room's environment; the pools are emissive
     const gm = new THREE.MeshStandardNodeMaterial({ metalness: 0, roughness: 0.22 });
     const OMB = vec3(...palLin('ombra')), CALF = vec3(...palLin('cal-foc')), TERR = vec3(...palLin('terracota')), FAIX = vec3(...palLin('faixa'));
-    gm.colorNode = Fn(() => { If(dith().greaterThan(field.k), () => { Discard(); }); return OMB.mul(0.22); })();
+    // wet dark stone (AD 25-11): the slab texture in world metres, darkened; puddles glossier
+    const fUV = positionWorld.xz.div(2.4), slab = texture(ccTex('large_sandstone_blocks', 'diff', true), fUV).rgb;
+    gm.colorNode = Fn(() => { If(dith().greaterThan(field.k), () => { Discard(); }); return slab.mul(OMB.mul(0.5).add(0.02)).mul(0.55); })();
+    gm.normalMap = ccTex('large_sandstone_blocks', 'nor_gl', false);
     const pw = positionWorld;
     gm.roughnessNode = clamp(mx_noise_float(vec3(pw.x.mul(0.25), 1.3, pw.z.mul(0.25))).mul(0.12).add(0.24), 0.14, 0.5);
-    if (envMap) { gm.envMap = envMap; gm.envMapIntensity = 0.55; }
+    if (envMap) { gm.envMap = envMap; gm.envMapIntensity = 0.12; }   // (the env's coloured panels read as pastel blobs on the wet floor)
     gm.emissiveNode = Fn(() => {
       // the pool behind each place where hands were: the print at hand height along that direction, lying 0.3–2.2 m behind the wall
       const d = vec3(pw.x.sub(eye.x), 0, pw.z.sub(eye.z)), dist = length(d);
@@ -784,7 +796,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       for (const w of walls) { const den = d.x.mul(-w.normal.x).add(d.z.mul(-w.normal.z)).div(max(dist, 1e-3)); const dd = -((w.pa.x - eye.x) * w.normal.x + (w.pa.z - eye.z) * w.normal.z); wd = min(wd, select(den.greaterThan(0.05), float(dd).div(den), float(1e3))); }
       const behind = dist.sub(wd), band = exp(behind.sub(1.1).div(0.9).pow(2).negate());
       const flick = mx_noise_float(vec3(pw.x.mul(1.3), time.mul(0.4), pw.z.mul(1.3))).mul(0.15).add(0.9);
-      return mix(TERR, CALF, clamp(H, 0, 1)).mul(H.mul(band).mul(flick).mul(1.6)).add(FAIX.mul(H.mul(band).mul(0.15)));
+      return mix(TERR, CALF, clamp(H, 0, 1)).mul(H.mul(band).mul(flick).mul(1.6));
     })();
     const ground = new THREE.Mesh(new THREE.CircleGeometry(70, 120).rotateX(-Math.PI / 2), gm); ground.position.y = 0.002; ground.receiveShadow = true;
     field.group.add(ground);
@@ -794,10 +806,25 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       const y = positionLocal.y, a = atan(positionLocal.z, positionLocal.x);
       const uneven = mx_noise_float(vec3(cos(a).mul(2.2), sin(a).mul(2.2), time.mul(0.03))).mul(0.5).add(0.6);
       const v = exp(y.div(-1.6)).mul(smoothstep(-0.2, 0.3, y));
-      return mix(TERR, CALF, exp(y.div(-0.5))).mul(v).mul(uneven).mul(0.16).mul(field.k);
+      return mix(TERR, CALF, exp(y.div(-0.5))).mul(v).mul(uneven).mul(0.0).mul(field.k);   // AD 25-11: no glowing band
     })();
     const glow = new THREE.Mesh(new THREE.CylinderGeometry(46, 46, 9, 96, 1, true).translate(0, 4.5, 0), hm); glow.renderOrder = -500; glow.frustumCulled = false;
     field.group.add(glow);
+    // the far square, only suggested: facades as sparse warm points at 26–42 m, dissolving into the haze (the room's air)
+    {
+      const NPT = 26000, pos = new Float32Array(NPT * 3); let s0 = 99173; const rn = () => { s0 = (s0 * 1664525 + 1013904223) >>> 0; return s0 / 4294967296; };
+      for (let i = 0; i < NPT; i++) {
+        const a = rn() * Math.PI * 2, rad = 26 + rn() * 16, blockA = Math.floor(a / 0.21), hgt = 9 + ((blockA * 7919) % 7);
+        let y = rn() * hgt; const wy = (y % 3.2) / 3.2, wa = (a * rad % 2.4) / 2.4;
+        if (rn() < 0.55) y = Math.floor(y / 3.2) * 3.2 + 1.2 + (rn() - 0.5) * 0.9;            // windows' rows
+        if (rn() < 0.12) y = hgt;                                                             // roof lines
+        pos.set([Math.cos(a) * rad, Math.max(0, y), Math.sin(a) * rad], i * 3); void wy; void wa;
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const pmat = new THREE.PointsNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+      pmat.colorNode = CALF.mul(0.32).mul(field.k).mul(exp(length(positionWorld.sub(eyeU)).sub(26.0).mul(-0.06)));
+      const pts = new THREE.Points(g, pmat); pts.frustumCulled = false; field.group.add(pts);
+    }
     field.group.position.set(eye.x, 0, eye.z);
     field.group.visible = false; scene.add(field.group);
   }
@@ -815,14 +842,6 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // CC0 maps of assets/cc0 in world-space UV (one texture tile = `metres`), max anisotropy (the texture gradient IS the floor's depth cue),
   // tinted by a palette token, wet patches (roughness down to `wetRough`), receives the key shadow, takes the air. A disc of `radius` m.
   //   const g = room.ground({ tile: 'old_mosaic_floor', metres: 1.6, color: 'pedra-llum', wet: 0.3 }); part.object.add(g.mesh);
-  const texCache = new Map(), texLoader = new THREE.TextureLoader();
-  const ccTex = (name, map, srgb) => {
-    const key = name + map; if (texCache.has(key)) return texCache.get(key);
-    const t = texLoader.load(new URL(`./assets/cc0/${name}/${name}_${map}_1k.jpg`, import.meta.url).href);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-    t.anisotropy = renderer.getMaxAnisotropy ? Math.min(16, renderer.getMaxAnisotropy() || 8) : 8;
-    texCache.set(key, t); return t;
-  };
   function ground({ tile = 'old_mosaic_floor', metres = 1.6, color = 'pedra-llum', tint = 0.7, wet = 0.25, wetRough = 0.12, radius = 80, y = 0 } = {}) {
     const mat = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
     const tuv = positionWorld.xz.div(metres);

@@ -85,7 +85,7 @@ export function create({ THREE, TSL, room, params }) {
   // ---- sound (wave 2): physical impacts to the sound piece (ressonancia-sound › impact()) on the work's BroadcastChannel; ≤ 16 a second
   let fxBc = null; try { fxBc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { fxBc = null; }
   const fxMsg = { type: 'fx', fx: 'impact', wall: 0, u: 0.5, strength: 0, mat: 'ceramic', kind: 'hit' };
-  let fxN = 0, fxT = 0;
+  let fxN = 0, fxT = 0, growT = 0;
   function fxImpact(wall, u, strength, mat, kind) {                // wall: room.walls index · u: 0..1 along it · strength: 0..1
     if (!fxBc || fxN >= 16 || !canEmit()) return; fxN++;
     fxMsg.wall = wall; fxMsg.u = u < 0 ? 0 : u > 1 ? 1 : u; fxMsg.strength = strength < 0 ? 0 : strength > 1 ? 1 : strength; fxMsg.mat = mat; fxMsg.kind = kind;
@@ -118,7 +118,7 @@ export function create({ THREE, TSL, room, params }) {
     rain: uniform(0), hold: uniform(0), respawn: uniform(0), nFr: uniform(0, 'int'), callT: uniform(-99), callGap: uniform(0.8), callOn: uniform(0), bSize: uniform(1), turn: uniform(0), rise: uniform(0), farK: uniform(1), quiet: uniform(0.3),
     cw: uniform(0), mr: uniform(0.5), frieze: uniform(0), swellA: uniform(1), envLift: uniform(0), lvl: uniform(1), qmax: uniform(0.1), veil: uniform(0.15),
     // arrive / leave
-    arrive: uniform(1), leave: uniform(0), freeze: uniform(0), sandAmt: uniform(1), sandGlow: uniform(1),
+    grow: uniform(30), arrive: uniform(1), leave: uniform(0), freeze: uniform(0), sandAmt: uniform(1), sandGlow: uniform(1),
   };
   const FR = []; for (let i = 0; i < 12; i++) FR.push(new THREE.Vector4());   // echo fronts: (s0 from-wall centre, distance run (m), gen, alpha)
   const uFR = uniformArray(FR, 'vec4');
@@ -326,6 +326,15 @@ export function create({ THREE, TSL, room, params }) {
       col.addAssign(chromeC.mul(float(1).sub(shade.mul(0.6))).mul(U.chrome).mul(U.lvl).mul(U.gain));
     }
     col.addAssign(gold.mul(smoothstep(0.25, 1.0, lvl)).mul(0.07).mul(U.bloom));
+    // AD 25-11: the golden veins GROW FROM THE TOWER — from the foot of each wall's castell (its centre, at the floor) outwards and up,
+    // a gold edge on the growing front; beyond it the plate is still night
+    {
+      const rr = length(vec2(dc, y.mul(1.15)));
+      const grownM = smoothstep(U.grow, U.grow.sub(1.4), rr);
+      col.mulAssign(grownM.mul(0.94).add(0.06));
+      const edgeF = exp(rr.sub(U.grow).div(0.3).pow(2).negate()).mul(smoothstep(0.0, 1.0, U.grow)).mul(float(1).sub(smoothstep(9.0, 12.0, U.grow)));
+      col.addAssign(GOLD2.mul(edgeF).mul(lvl.mul(0.6).add(0.12)).mul(0.5));
+    }
     // light climbs with the resonance
     col.mulAssign(smoothstep(U.ceil.add(1.3), U.ceil.sub(0.9), y).mul(0.88).add(0.12).mul(smoothstep(0.0, 0.2, y)));
     // bands: graded runs, gold / pearl / a rare iridescent hue
@@ -1111,6 +1120,9 @@ export function create({ THREE, TSL, room, params }) {
     U.nHU.value = nh;
     U.cw.value = inCrown ? 0.7 * U.crownOn.value : 0;   // T-053: the crown's env — warm below, the garlands softer: luminous and clean
     U.arrive.value = arrive; U.leave.value = leave; U.freeze.value = freeze;
+    // the growth from the tower: restarts when the part comes in, ~16 s to fill the walls (faster with the resonance)
+    if (arrive < 0.05) growT = 0; else growT += dt * (1 + 1.5 * Math.min(1, U.Ve.value + (U.bloom.value || 0)));
+    U.grow.value = (P.growFrom ?? true) === false ? 30 : 0.5 + 12.5 * smoother(growT / 16);
     U.sandAmt.value = Math.min(1, Math.max(0, num('sand', 1)));
     U.sandGlow.value = Math.max(0, num('sandGlow', 1)) * 1.8 * (1 + 0.5 * bloomEnv) * (GL ? 1.4 : 1) * U.duck.value * (inCrown ? 0.2 + 0.8 * U.rain.value : 0.75);   // T-053: the resting sand is dust, not a speckle over everything
     { const qk = Math.max(0, num('quiet', 1));
