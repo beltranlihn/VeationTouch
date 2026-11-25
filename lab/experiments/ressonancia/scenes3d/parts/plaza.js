@@ -892,7 +892,8 @@ export function create(ctx) {
       Loop(LOOP(uNSP), ({ i }) => {                                   // VFX 25-11: the festival's stage spots (compacted)
         const L = uSpotP.element(i), Dd = uSpotD.element(i);
         const Lv = L.xyz.sub(Pw), d2 = dot(Lv, Lv), Ld = Lv.mul(d2.inverseSqrt());
-        const cone = smoothstep(Dd.w, Dd.w.add(0.035), dot(Ld.negate(), Dd.xyz));
+        const along = dot(Pw.sub(L.xyz), Dd.xyz);
+        const cone = smoothstep(Dd.w, Dd.w.add(0.035), dot(Ld.negate(), Dd.xyz)).mul(smoothstep(22.0, 15.0, along));   // stops past the tower: no light ellipse on the facade behind
         const ndl = max(dot(Nw, Ld), 0);
         const H = normalize(Ld.add(Vw)), spec = f0.mul(pow(max(dot(Nw, H), 0), shin).mul(shin.add(8).mul(1 / (8 * Math.PI))));
         acc.addAssign(SPC.mul(L.w.mul(uFest).mul(cone).div(d2.add(1.0))).mul(ndl).mul(kd.add(spec)));
@@ -1424,7 +1425,8 @@ export function create(ctx) {
     pomK += (((blk === 'pom' || (!input.state && pr.pom)) ? 1 : 0) - pomK) * Math.min(1, dt * 1.2); uPom.value = pomK;
     if (pomK > 0.01) { uWin.value *= 1 - 0.75 * pomK; uStars.value *= 1 - 0.5 * pomK; moon.intensity *= 1 - 0.6 * pomK; hemi.intensity *= 1 - 0.6 * pomK; uFog.value = Math.max(uFog.value, 0.008 * pomK); }
     if (nightK > 0.01) { moon.color.setRGB(0.36, 0.35, 0.36); moon.intensity *= 1 - 0.6 * nightK; hemi.color.setRGB(0.2, 0.2, 0.24); hemi.intensity *= 1 - 0.5 * nightK; }   // Brasa (AD#5): only the fire gives colour
-    if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, input.state?.progress ?? 0)); object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 1 - 0.6 * pg; uStars.value *= 0.4 * (1 - pg); blueProg = pg; } else blueProg = 0;   // the lamps go out as the tower comes down
+    if (blueK > 0.5) { const pg = Math.max(0, Math.min(1, input.state?.progress ?? 0)); object.position.y = 0; sky.visible = true; floor0.visible = true; uWin.value *= 0.7 - 0.5 * pg; uStars.value *= 0.4 * (1 - pg);
+      hemi.color.setRGB(0.42, 0.55, 0.95); hemi.groundColor.setRGB(0.18, 0.14, 0.2); hemi.intensity = Math.max(hemi.intensity, 0.55 + 0.35 * pg); moon.color.setRGB(0.95, 0.7, 0.7); moon.intensity = Math.max(moon.intensity, 0.35 + 0.3 * pg); blueProg = pg; } else blueProg = 0;   // the blue hour: a cool sky fill, a rose dawn key;   // the lamps go out as the tower comes down
     uDay.value = dayK; uFest.value = festK; shafts.visible = festK > 0.002 && room.quality !== 'low';
     stepHandLights(dt, time, input.hands, nightK < 0.5 && uSil.value < 0.5 && (pr.handLight ?? true) !== false);
     if (festK > 0) placeSpots(+(ctx.parts?.tronc3d?.towerD ?? 2.3) || 2.3, blk === 'crown' || blk === 'festa' ? 'crown' : 'tronc');
@@ -1482,7 +1484,7 @@ export function create(ctx) {
       const on = ignite(tR - L.t0, i, time);
       const br = 1 - sm((S - lampD[i] + 0.06) / 0.22);                // it dies when its stone breaks, with a last flicker
       const fl = S > lampD[i] - 0.1 && br > 0.02 ? 0.6 + 0.4 * Math.sin(time * 41 + i) : 1;
-      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK) * (1 - 0.9 * blueProg) * (1 - 0.88 * pomK) * (1 - 0.55 * pinK) * (1 - 0.75 * crK) * (blk === 'festa' ? 0.7 : 1);
+      const v = on * br * fl * L.base * (1 + (pr.handWarm ?? 0.5) * 0.6 * L.warm) * LK * (1 - (1 - (litCfg.lamps ?? 1)) * dayK) * (1 - 0.85 * nightK) * (1 - 0.9 * blueProg) * (1 - 0.35 * blueK) * (1 - 0.88 * pomK) * (1 - 0.55 * pinK) * (1 - 0.75 * crK) * (blk === 'festa' ? 0.7 : 1);
       L.light.intensity = v * 26;
       lampVec[i].set(L.pos.x, L.pos.y, L.pos.z, v);
     }

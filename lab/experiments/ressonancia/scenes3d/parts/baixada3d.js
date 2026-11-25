@@ -270,6 +270,7 @@ export function create(ctx) {
     r: new Float32Array(NSH), g: new Float32Array(NSH), b: new Float32Array(NSH), t: new Float32Array(NSH), fl: new Float32Array(NSH), tw: new Int8Array(NSH), f: new Int8Array(NSH),
     ra: new Float32Array(NSH), ry: new Float32Array(NSH), rr: new Float32Array(NSH), hx: new Float32Array(NSH), hy: new Float32Array(NSH), hz: new Float32Array(NSH),
   };
+  let blueNow = false;   // the blue hour (plan B): the glass is dust
   let rs = 777; const rnd = () => { rs = (rs * 1664525 + 1013904223) >>> 0; return rs / 4294967296; };
   let nextFree = 0;
   function alloc() {
@@ -282,7 +283,7 @@ export function create(ctx) {
     if (alpha <= 0.003) { shard.mesh.setMatrixAt(i, _zero); shard.sCa[i * 4 + 3] = 0; return; }
     _ax.set(S_.ax[i], S_.ay[i], S_.az[i]); if (_ax.lengthSq() < 1e-6) _ax.set(0, 1, 0); _ax.normalize();
     _qt.setFromAxisAngle(_ax, S_.an[i]); _ps.set(S_.x[i], S_.y[i], S_.z[i]);
-    const sd = S_.sd[i], s = S_.s[i] * 0.24; _sc.set(s * (0.6 + 0.5 * ((sd * 7.31) % 1)), s * (0.5 + 0.6 * ((sd * 13.7) % 1)), 1);
+    const sd = S_.sd[i], s = S_.s[i] * (blueNow ? 0.1 : 0.24); _sc.set(s * (0.6 + 0.5 * ((sd * 7.31) % 1)), s * (0.5 + 0.6 * ((sd * 13.7) % 1)), 1);
     _m4.compose(_ps, _qt, _sc); shard.mesh.setMatrixAt(i, _m4);
     shard.sCa[i * 4] = S_.r[i]; shard.sCa[i * 4 + 1] = S_.g[i]; shard.sCa[i * 4 + 2] = S_.b[i]; shard.sCa[i * 4 + 3] = alpha;
     shard.sFa[i * 4] = S_.fl[i]; shard.sFa[i * 4 + 1] = S_.st[i] === 1 || S_.st[i] === 2 ? 1 : 0.3; shard.sFa[i * 4 + 2] = S_.sd[i];
@@ -563,7 +564,7 @@ export function create(ctx) {
     uDomeIn.value = clamp01((arrive - 0.1) / 0.6) * (1 - sm((leave - 0.55) / 0.4));
     // AD 25-11, plan B (pre-approved): THE BLUE HOUR — when the host shows the square with the bajada, the square itself is the world (night,
     // the horizon turning alba-rosa, its lamps going out: plaza.js) and this part keeps only the tower's dust and the flowers
-    const blue = (pr.blueHour ?? true) !== false && !!ctx.parts?.plaza?.object?.visible;
+    const blue = (pr.blueHour ?? true) !== false && !!ctx.parts?.plaza?.object?.visible; blueNow = blue;
     dome.visible = !blue && uDomeIn.value > 0.001; greenhouses.visible = !blue && uWorld.value > 0.02 && (pr.town ?? true) !== false;   // `town` off: the host's square (plaza.js silhouette) draws it instead
     uGain.value = pr.gain ?? 1;
     // ---- hands
