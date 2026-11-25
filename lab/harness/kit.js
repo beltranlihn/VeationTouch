@@ -151,14 +151,27 @@
         if (hit && bd < 0.45) releaseHand(hit.key); else addHand('pin' + (pinSeq++), p.s, p.t, { pinned: true });
         return;
       }
+      if (HOVER && e.pointerType === 'mouse') return;                  // ?hover: the mouse is already a hand while it is over the strip
       releaseDemo(); addHand('p' + e.pointerId, p.s, p.t);
     });
+    // ?hover (25-11, Beltrán): the mouse is a hand just by passing over the strip, as a hand near the wall in the room (no click); left
+    // still over a target it is a still hand; leaving the strip (or the window) lifts it. Touch and pen keep press = hand.
+    const HOVER = q.has('hover');
     addEventListener('pointermove', (e) => {
-      if (!hands.has('p' + e.pointerId)) return;
-      lastInput = performance.now(); const p = fromEvent(e); moveHand('p' + e.pointerId, p.s, p.t);
+      const key = 'p' + e.pointerId;
+      if (HOVER && e.pointerType === 'mouse' && !e.target.closest?.('.lk-help,.lk-params,.lk-vol,[data-lk-ignore]')) {
+        const p = fromEvent(e); lastInput = performance.now();
+        if (!p.ok) { releaseHand(key); return; }
+        if (hands.has(key)) moveHand(key, p.s, p.t); else { releaseDemo(); addHand(key, p.s, p.t); }
+        return;
+      }
+      if (!hands.has(key)) return;
+      lastInput = performance.now(); const p = fromEvent(e); moveHand(key, p.s, p.t);
     });
-    const up = (e) => { lastInput = performance.now(); releaseHand('p' + e.pointerId); };
-    addEventListener('pointerup', up); addEventListener('pointercancel', up);
+    const up = (e) => { if (HOVER && e.pointerType === 'mouse') return; lastInput = performance.now(); releaseHand('p' + e.pointerId); };
+    addEventListener('pointerup', up); addEventListener('pointercancel', (e) => releaseHand('p' + e.pointerId));
+    document.addEventListener('pointerleave', (e) => { if (HOVER) releaseHand('p' + e.pointerId); });
+    addEventListener('blur', () => { if (HOVER) for (const k of [...hands.keys()]) if (k.startsWith('p') && !k.startsWith('pin')) releaseHand(k); });
     function wrapD(d) { return d - Math.round(d); }
 
     // ---- virtual hands at human speed (a hand: ≤ 1 m/s; a walker's sweep 0.7 m/s; rests of 1–4 s). Group size with G.
