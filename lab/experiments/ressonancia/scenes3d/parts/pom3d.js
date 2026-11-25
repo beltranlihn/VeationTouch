@@ -317,7 +317,8 @@ export function create(ctx) {
     const T0 = tronc(), rise = T0 ? T0.rise || 0 : 0;
     // she never outruns the world (it lowers ≤ 0.30 m/s): her feet stay ≤ 1.45 m on the wall, inside the reach band — a fast climb (many
     // relays, a late «Go to», l'aleta) waits for the world; a leap still shows within that headroom
-    if (T0 && typeof T0.setFocusY === 'function') { const capY = rise + 1.45; if (climbY > capY) { climbY = capY; climbV = Math.min(climbV, 0.3); } }
+    // (66e6841: tronc3d frames the Pom tower itself — top ≤ 3.3 m on the wall, setFocusY no longer moves it; trunk() returns that framing,
+    //  so placing her with trunk() keeps her ≤ 3.4 m: no cap needed)
     uLift.value = climbY; uA.value = 1.6; uCityY.value = -climbY * CITYK; city.position.y = -climbY * CITYK;
     // ---- l'aleta / the crown
     const aleta = phase === 'aleta' || (S && S.block === 'crown');
