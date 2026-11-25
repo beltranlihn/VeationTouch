@@ -61,7 +61,7 @@ export function create({ THREE, TSL, room, params = {} }) {
     { text: SENTENCE[1], font: 'serif', size: 0.21, y: 0.07, track: 0.01, color: INK, delay: 0.6 }, { text: SENTENCE[2], font: 'italic', size: 0.21, y: -0.2, track: 0.01, color: INK, rise: true, delay: 0.9 }]);
   credT.t.set([{ text: CREDITS[0], font: 'serif', size: 0.2, y: 0.22, track: 0.04, color: INK }, { text: CREDITS[1], font: 'sans', size: 0.09, y: -0.04, track: 0.1, alpha: 0.75, color: SOFT }, { text: CREDITS[2], font: 'sans', size: 0.082, y: -0.22, track: 0.16, alpha: 0.6, color: SOFT, upper: true, edge: 0.47 }]);
   const lang = params.lang === 'en' ? 'en' : 'es';
-  inviteT.t.set([{ text: INVITE[lang], font: 'sans', size: 0.18 / 0.667, y: 0, track: 0.03, alpha: 1, color: INK, reveal: 'blur' }]);
+  inviteT.t.set([{ text: INVITE[lang], font: 'serif', size: 0.18 / 0.7, y: 0, track: 0.015, alpha: 1, color: INK, rules: 0.32, reveal: 'blur' }]);   // the card's serif on its hairlines
   let labelKey = '';
 
   // ---- the chapters' ribbon under the castell
@@ -218,11 +218,11 @@ export function create({ THREE, TSL, room, params = {} }) {
     contentKey = key;
     const O = OUTCOME[outcome] || OUTCOME.descarregat;
     castellT.t.set([{ text: castell, font: 'serif', size: 0.46 / 0.667, y: 0.16, track: 0.01, color: INK }, { text: O[0], font: 'italic', size: 0.2, y: -0.38, track: 0.02, alpha: 0.95, color: INK, rules: 0.45, rise: true, delay: 0.5 }]);
-    glossT.t.set([{ text: O[1].charAt(0).toUpperCase() + O[1].slice(1), font: 'sans', size: 0.12 / 0.667, y: 0, track: 0.03, alpha: 0.9, color: SOFT }]);
+    glossT.t.set([{ text: O[1].charAt(0).toUpperCase() + O[1].slice(1), font: 'italic', size: 0.12 / 0.7, y: 0, track: 0.02, alpha: 0.92, color: SOFT }]);
     // the line of story: who raised it, and what the colla did (D2: the help is named)
     const story = [hands > 0 ? `Levantado por ${hands} ${hands === 1 ? 'mano' : 'manos'}` : 'Levantado por vuestras manos'];
     if (colla > 0) story.push(`La colla ayudó en ${colla} ${colla === 1 ? 'piso' : 'pisos'}`);
-    statT.t.set(story.map((text, i) => ({ text, font: 'sans', size: 0.12 / 0.667, y: story.length > 1 ? (i ? -0.13 : 0.13) : 0, track: 0.03, alpha: 0.9, color: SOFT, reveal: 'blur', delay: i * 0.3 })));
+    statT.t.set(story.map((text, i) => ({ text, font: 'italic', size: 0.12 / 0.7, y: story.length > 1 ? (i ? -0.13 : 0.13) : 0, track: 0.03, alpha: 0.9, color: SOFT, reveal: 'blur', delay: i * 0.3 })));
     const lk = values.join(',');
     if (lk !== labelKey) { labelKey = lk; for (let k = 0; k < 4; k++) labelT[k].t.set([{ text: VALUES[k][1], font: 'sans', size: 0.13, y: 0, track: 0.14, alpha: 0.35 + 0.6 * values[k], color: INK, upper: true, reveal: 'blur' }]); }
   }
