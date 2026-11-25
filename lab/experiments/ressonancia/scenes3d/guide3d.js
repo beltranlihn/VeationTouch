@@ -113,7 +113,7 @@ const NUM_ES = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete'
 const inWords = (c) => { const t = String(c).replace(/\d+/g, (d) => NUM_ES[+d] ?? d); return t.charAt(0).toUpperCase() + t.slice(1); };   // «3 de 7» → «Tres de siete»
 // Art Director 25-11: per chapter — the brasa above the fire figure and its sparks (1.8 m); the tower's chapters lower and larger,
 // beside the castell; the Pom low and quiet beside the tower in the dark
-const LINE_Y = { brasa: 1.8, pinya: 1.8, tronc: 1.58, baixada: 1.58, pom: 1.45 };   // pinya: over the figures' heads
+const LINE_Y = { brasa: 1.8, pinya: 2.02, tronc: 1.58, baixada: 1.58, pom: 1.45 };   // pinya: clear above the crowd's heads (1.6–1.75 m), Art Director 25-11
 const LINE_CAP = { tronc: 0.22, baixada: 0.22 };
 const splitLine = (t) => { const mid = t.length / 2; let k = -1, d = 1e9; for (let i = 0; i < t.length; i++) if (t[i] === ' ' && Math.abs(i - mid) < d) { d = Math.abs(i - mid); k = i; } return [t.slice(0, k), t.slice(k + 1)]; };
 const longest = (t) => (WRAP && t && t.length > 14 && t.indexOf(' ') > 0 ? Math.max(...splitLine(t).map((x) => x.length)) : (t || '').length);
@@ -338,7 +338,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
         const hh = HERO_HALF[b] ? HERO_HALF[b] + half : 0;   // the castell stands at the room's centre: seen at the centre of EVERY wall
         if (hh && Math.abs(x) < hh) x = clamp((x < 0 || (x === 0 && k % 2 === 0) ? -1 : 1) * hh, -Wd / 2 + half + 0.45, Wd / 2 - half - 0.45);
         let gap = 9;
-        if (S.focus && S.focus.wall === w && typeof S.focus.s === 'number') gap = Math.abs(S.focus.s - lineS0[w] - Wd / 2 - x) - half - 0.9;   // the calling point (the pom's light, the devil): beside it, never on it
+        if (S.focus && S.focus.wall === w && typeof S.focus.s === 'number') gap = Math.abs(S.focus.s - lineS0[w] - Wd / 2 - x) - half - (b === 'pom' ? 1.6 : 0.9);   // the pom's light bursts wide   // the calling point (the pom's light, the devil): beside it, never on it
         for (const g of T) { if (g.wall !== w) continue; const gx = typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2; if ((g.y || 1.2) + (g.r || 0.22) < lineY - CAP * 1.3 - 0.05) continue; gap = Math.min(gap, Math.abs(gx - x) - half - (g.r || 0.22)); }
         const sc = Math.min(gap, 0.4) - k * 0.05 + (near.length && k === 0 ? 0.3 : 0);   // clear of every target that reaches the text's band; above its own targets first
         if (sc > bs) { bs = sc; best = x; }
@@ -570,8 +570,9 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     line.want(L ? 'l|' + L.join('|') : '', L ? lineItems(L) : null);
     // 25-11: no plates; a tight soft halo (lighter on the light chapters, where the ink is dark)
     for (const sl of [card, line, lineOut]) for (const t of sl.texts) { t.U.plate.value = 0; t.U.halo.value = lightCh ? 0.2 : 0.3; }
-    if (!card.up) { const cw = b === 'crown' || b === 'festa' ? (S.castell && S.castell.walls) || [] : []; for (const t of card.texts) t.P.forEach((P, w) => { P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], cw.includes(w) ? 2.3 : 0); }); }   // beside the crowned castell
-    { const fwc = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // the card too: 100 % on the wall that calls, 30 % elsewhere
+    if (!card.up) { const side = b === 'crown' ? 2.1 : 0; for (const t of card.texts) t.P.forEach((P, w) => { P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], side); }); }   // beside the crowned castell (it stands at the centre of every wall)
+    { let fwc = S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // no calling wall yet: the wall with the most hands
+      if (fwc < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fwc = w; } }); }   // the card too: 100 % on the wall that calls, 30 % elsewhere
       card.step(dtT, { hold, gate: waveGate, mask: fwc >= 0 ? (w) => (w === fwc ? 1 : 0.3) : null, lead: fwc >= 0 ? (w) => (w === fwc ? 0 : 0.6) : null }); }
     // the wait's words come with the button (reveal) and thin out as the hands start the pass
     const st = b === 'wait' ? Math.min(1, S.start || 0) : 0;
