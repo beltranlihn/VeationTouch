@@ -502,7 +502,7 @@ export function create(ctx) {
     const fx = kit.tok('faixa'), pl = kit.tok('pedra-llum'), soft = fx.map((v, i) => v * 0.68 + pl[i] * 0.32);   // the faixa a little chalked by the light
     kit.setColors({ shirt: 'porcellana', skin: ['pedra-llum', 1.02], trousers: ['pedra-llum', 0.82], faixa: soft, hair: ['tinta-ombra', 1.6], crack: 'pedra-llum', shadow: 'tinta-ombra' });
     kit.uniforms.crack.value = 0.55;
-    kit.setSplat({ lit: 'cal-foc', half: 'terracota', amb: 'tinta-ombra', contact: 1, backAO: 1 });   // the one warm ramp (AD); dark gaps where the floors meet
+    kit.setSplat({ lit: 'cal-foc', half: kit.tok('terracota').map((v, i) => v * 0.28 + kit.tok('cal-foc')[i] * 0.42), amb: 'tinta-ombra', contact: 1, backAO: 1 });   // one clean warm tone: the half a desaturated terracota (no «veined meat»)   // the one warm ramp (AD); dark gaps where the floors meet
   }
   let lightMode = '', breathK = 0, crownT = 0, crownK = 0;
   let castMode = 'build', focusY = null;
