@@ -481,7 +481,7 @@ export function create(ctx) {
     CAST.push({ lv: 9, x: 0, z: -0.02 * pe, y: OLD ? Math.max(dsY + 0.42, 9.8) : dsY + 0.42 * pa, yaw: 0, pose: 'stand', pose2: 'raise', s: 0.62 * pe, build: 2, enx: true });
     TRUNK[7] = { y: feet, r: 0.3 * Math.max(0.5, pd), h: 1.286 * 0.8 * pd }; TRUNK[8] = { y: dsY, r: 0.2 * pa, h: 0.9 * pa }; TRUNK[9] = { y: dsY + 0.42 * pa, r: 0.15 * pe, h: 1.1 * pe };
     for (const c of CAST) { const L = CLV[c.lv] || (CLV[c.lv] = { y0: 1e9, y1: -1e9 }); L.y0 = Math.min(L.y0, c.y); L.y1 = Math.max(L.y1, c.y + 1.7 * c.s); }
-    const ringN = OLD ? [10, 16, 22] : [10, 16];      // two tight rings (+ the folre): the splat budget goes to the tower
+    const ringN = OLD ? [10, 16, 22] : [12];      // two tight rings (+ the folre): the splat budget goes to the tower
     for (let i = 0; i < ringN.length; i++) {
       const rad = 0.73 + i * 0.44 + 0.1, off = 0.31 + i * 0.17;
       for (let j = 0; j < ringN[i]; j++) {
@@ -885,6 +885,23 @@ export function create(ctx) {
     const phi = Math.atan2(t.w.normal.x, t.w.normal.z), d = -Math.sin(th) * L.y * SC;   // the lean shifts the axis along the tower's x
     return { x: t.g.position.x + Math.cos(phi) * d, z: t.g.position.z - Math.sin(phi) * d, y: y0 + L.y * SC * Math.cos(th), yRest: L.y * SC, r: L.r * SC, h: L.h * SC, tower: t.tw };
   }
+  // textObstacles() → [{ wall, x, half, y0, y1 }] (wall coordinates, m): the tower (or the pinya ring) on each wall, up to its visible top
+  const OB = [], _ob = new THREE.Vector3();
+  function textObstacles() {
+    OB.length = 0;
+    if (!kit || col.on) return OB;
+    world.updateMatrixWorld(true);
+    const y0w = world.matrixWorld.elements[13];
+    for (const t of towers) {
+      const ring = !(t.on && t.g.visible); if (ring && (OLD || keepFloors < 0)) continue;
+      const dW = Math.max(0.5, -_ob.copy(t.w.centre).sub(room.eye).dot(t.w.normal)), k = dW / (dW + TOWER_D);
+      let top = 1.75;
+      if (!ring) for (let lv = 9; lv >= 1; lv--) if (CLV[lv] && t.st[lv].shown && !t.st[lv].taken) { top = CLV[lv].y1 * SC; break; }
+      const Y = top + y0w, onWall = room.eye.y + (Y - room.eye.y) * k;
+      OB.push({ wall: t.tw, x: 0, half: 1.15 * k + 0.2, y0: 0, y1: Math.min(t.w.height || 3.75, Math.max(0.5, onWall)) });
+    }
+    return OB;
+  }
   function setParams(p) { if (p && p !== P) Object.assign(P, p); }
   function dispose() {
     try { fxBc?.close(); } catch { /* closed */ }
@@ -896,7 +913,7 @@ export function create(ctx) {
     labGeo.dispose(); tickGeo.dispose(); lineGeo.dispose();
   }
   const api = {
-    object, update, setParams, dispose, impacts, setMode, setFocusY, kit, towerD: TOWER_D, scale: SC, trunk,
+    object, update, setParams, dispose, impacts, setMode, setFocusY, kit, towerD: TOWER_D, scale: SC, trunk, textObstacles,
     get rise() { return rise; },
     collapse, restore, takeFloor, giveFloor, levels,
     get collapsing() { return { on: col.on, t: col.t, mode: col.mode, duration: col.dur }; },

@@ -207,7 +207,18 @@ export function create({ THREE, TSL, room, params }) {
     kit.update(dt);
   }
 
+  // textObstacles() → [{ wall, x, half, y0, y1 }] (wall coordinates, m): where the bodies are this frame, so the text avoids them
+  const OB = [];
+  function textObstacles() {
+    OB.length = 0;
+    for (let w = 0; w < NW; w++) if (crowd.some((c) => c.w === w && c.alive > 0.1)) {
+      const dW = Math.max(0.5, -tmp.copy(walls[w].centre).sub(room.eye).dot(walls[w].normal)), D = P.depth ?? 3.0, k = dW / (dW + D);
+      OB.push({ wall: w, x: 0, half: (RINGS[RINGS.length - 1].r + 0.3) * k, y0: 0, y1: room.eye.y + (1.75 - room.eye.y) * k });
+    }
+    for (const q of palms) if (q.on && q.app > 0.05) OB.push({ wall: q.wall, x: q.x + 0.25, half: 0.38, y0: 0, y1: Math.min(2.1, Math.max(q.y + 0.35, 1.5)) });
+    return OB;
+  }
   function dispose() { kit.dispose(); }
   if (typeof window !== 'undefined') window.__pinya3d = { kit, palms, crowd, get ready() { return kit.isReady; } };
-  return { object, update, setParams() {}, dispose, impacts: [], kit };
+  return { object, update, setParams() {}, dispose, impacts: [], kit, textObstacles };
 }

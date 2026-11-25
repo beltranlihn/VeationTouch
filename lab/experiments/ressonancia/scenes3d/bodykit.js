@@ -88,7 +88,7 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [30000, 5000], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [30000, 4000], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
   const splatOnlyLodMesh = false;
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;
@@ -328,7 +328,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // home: inside the volume (core), on the skin, or off it (aura, falling slowly and fading on its cycle)
     const t = uTime, ph = rr.mul(61.7);
     const auraT = fract(t.mul(0.05).add(rr.mul(7.0)));
-    pl = pl.add(nl.mul(depth)).add(vec3(auraT.mul(0.14), auraT.mul(-0.32), auraT.mul(-0.05)).mul(aura));   // the aura falls slowly and drifts to one side
+    // far LOD: a crisper body (the outward skin falloff mostly pulled in, no aura): at 4–6 m the fuzz would merge the bodies
+    pl = pl.add(nl.mul(lod === 0 ? depth : depth.min(depth.mul(0.25)))).add(vec3(auraT.mul(0.14), auraT.mul(-0.32), auraT.mul(-0.05)).mul(aura));   // the aura falls slowly and drifts to one side
     // the slow spring round home (1–2 cm, 0.2–0.4 Hz), the breath of the torso
     const hz = fract(rr.mul(5.3)).mul(0.2).add(0.2).mul(6.2832);
     const drift = vec3(sin(t.mul(hz).add(ph)), sin(t.mul(hz.mul(0.83)).add(ph.mul(1.7))), sin(t.mul(hz.mul(1.13)).add(ph.mul(2.3)))).mul(jit.mul(0.01).add(0.008)).mul(uDrift);
@@ -354,7 +355,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const vis = mix(smoothstep(-0.3, 0.1, facing), smoothstep(-0.6, -0.1, facing), core).max(aura).max(away);
     // crisp grain: core 1–2 cm, skin 3–5 cm, aura 6–10 cm (faint)
     const skin = step(0.25, kind).mul(float(1).sub(aura));
-    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.012), float(0.026), jit), skin).add(aura.mul(mix(float(0.012), float(0.022), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.15);
+    const size = mix(mix(float(0.01), float(0.02), jit), mix(float(0.012), float(0.026), jit), skin).add(aura.mul(mix(float(0.012), float(0.022), jit))).mul(sc).mul(uSize).mul(lod === 0 ? 1 : 1.05);
     const r0 = size.mul(1.6).mul(vis);
     const q = positionGeometry.xy;
     m.positionNode = C.add(right.mul(q.x.mul(r0))).add(upv.mul(q.y.mul(r0)));
@@ -386,7 +387,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     colr = colr.mul(mix(float(1), smoothstep(0.0, 0.45, pl.y).mul(0.65).add(0.35), uContact));
     // dust: each splat faint (0.08–0.15), the volume comes from accumulation; the skin thins outwards (the edge is a density falloff)
     const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : 1.35);
-    const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura);
+    const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura).mul(lod === 0 ? float(1) : float(1).sub(aura));
     const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(mix(float(1).sub(away).pow(2), float(1).sub(away.mul(0.6)), dust.max(riseM))), 'vSplA');   // gathering splats are faint until home (no heaps on the floor)
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
     m.colorNode = vCol;
