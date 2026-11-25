@@ -739,7 +739,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   const porx = { k: uniform(0), to: 0, group: new THREE.Group(), lit: uniform(0) };
   porx.group.name = 'room:porxada';
   {
-    const pm = ceramic({ color: [0.012, 0.011, 0.013], glaze: 0.2, wear: 0.6, rim: 0.1, hands: 0.5, env: 0.25 });
+    const pm = ceramic({ color: [0.012, 0.011, 0.013], glaze: 0.2, wear: 0.6, rim: 0.05, hands: 0.06, env: 0.12 });   // (a hand near a corner lit the column into a vertical glare)
     pm.userData.air = false; pm.fog = false;                       // layer 0: crisp and almost black, never hazed
     const baseCol = pm.colorNode;
     pm.colorNode = Fn(() => {
