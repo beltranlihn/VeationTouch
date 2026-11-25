@@ -18,6 +18,8 @@
 //   T-048 (SIS, ARTE-3 §3): bloom at half (BLOOM_K); PALETTE[block] { bottom, top, accent }; setBackground(block | {...}) (a deep gradient,
 //   never #000); flash(positionNode) / flashAt(v) / flashLights («la mano es una linterna»); lightRecipe(), rimNode(), makeHalo(),
 //   placeHalo() (the ONE light recipe and the soft halo behind a hero object). No glitch, no pixel-sorting outside the tile transition.
+//   T-070 (RND): TAA clips in tone-mapped YCoCg; reactive(object[, on]) opts a MOVING object out of the TAA history (layer REACTIVE = 30,
+//   a half-res mask, taaReactive 0.85): figures, sparks, falling tiles read solid instead of ghosted. PARTS.md «Moving things under TAA».
 // Why the interactive things live on the wall plane: that plane is where the projection is exact for EVERY visitor, wherever they
 // stand. Far things (a square, a sky, a tower 10 m away) read well from anywhere; near things bend for a visitor far from the
 // centre. So hands touch the world exactly where they touch the wall; the universe opens behind.
@@ -317,21 +319,56 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // blended with its history, the history clamped to the current 3×3 neighbourhood (no reprojection: the room's eye is still; moving
   // things fall back to the current frame through the clamp). Wraps at the seam like everything else.
   let histA = TAA ? hdr(0, false) : null, histB = TAA ? hdr(0, false) : null;
+  // T-070: the REACTIVE mask. Colour clipping cannot tell a figure walking over a busy ground (the correfoc's devils: dotted bodies,
+  // sparks, gold ripples — the 3×3 box always holds both) from jittered fine detail, and the room has no velocity buffer. So parts
+  // opt in what moves fast: room.reactive(object) puts it (and its subtree, as it is now) on layer REACTIVE; under TAA those objects
+  // are drawn once more, alone, into a half-resolution mask (own materials, no background, the scene's lights), and where this frame's
+  // or last frame's mask covers a pixel the history is all but dropped (taaReactive, 0.85): solid in front, no trail behind. Static
+  // things never opt in, so the vault keeps its full history. Cost: the opted-in objects' draws once more at ¼ the pixels; nothing
+  // is drawn when no opted-in object is visible. Without TAA reactive() only tags the layer (harmless).
+  const REACTIVE = 30, reactiveRoots = new Set(), MW = Math.ceil(RW / 2), MH = Math.ceil(RH / 2);
+  const mrt = () => { const rt = new THREE.RenderTarget(MW, MH, { type: THREE.HalfFloatType, depthBuffer: true }); rt.texture.wrapS = THREE.RepeatWrapping; return rt; };
+  let maskA = TAA ? mrt() : null, maskB = TAA ? mrt() : null, maskOn = false, lightsTagged = false;
+  const taaMask = texture(maskA ? maskA.texture : comp.texture), taaMaskPrev = texture(maskB ? maskB.texture : comp.texture), taaReactive = uniform(0.85), taaMaskK = uniform(0);
+  function reactive(obj, on = true) {
+    obj.traverse((o) => (on ? o.layers.enable(REACTIVE) : o.layers.disable(REACTIVE)));
+    if (on) reactiveRoots.add(obj); else reactiveRoots.delete(obj);
+    lightsTagged = false; return obj;
+  }
   const taaIn = texture(comp.texture), taaHist = texture(histA ? histA.texture : comp.texture), taaK = uniform(1);
   let taaMat = null, taaQuad = null;
   if (TAA) {
     const px = vec2(1 / RW, 1 / RH);
     taaMat = new THREE.NodeMaterial();
     taaMat.fragmentNode = Fn(() => {
-      // T-037: variance clipping (the history is kept inside mean ± 1 σ of the current 3×3, tighter than its min/max box: a cloud of
-      // moving points no longer smears) and a faster answer where the history disagrees with the present (something moved)
-      const p = uv(), cur = clamp(taaIn.sample(p).rgb, vec3(0), vec3(64)).toVar();
-      const m1 = cur.toVar(), m2 = cur.mul(cur).toVar();
-      for (const [a, b] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) { const s = clamp(taaIn.sample(p.add(px.mul(vec2(a, b)))).rgb, vec3(0), vec3(64)); m1.addAssign(s); m2.addAssign(s.mul(s)); }
+      // T-070 (RND): the ghosts were the HDR. The clip box was built in linear HDR, where one spark (5–20) in a 3×3 makes σ several
+      // units wide and the box swallows the background: the history (what was there before a figure walked in) survived at 88 %, so
+      // anything moving — the correfoc's devils, sparks, falling tiles — read translucent. Now every sample is mapped c / (1 + max c)
+      // (Karis; exact inverse below) and into YCoCg, the box is mean ± 1 σ ∩ min/max of the 3×3, and the history is CLIPPED towards
+      // the box centre (keeps its hue) instead of clamped per channel; a large clip (the history disagreed: something moved) answers
+      // with the present. Static fine detail (the vault's tiles, hairlines) sits inside its own box: as stable as before.
+      const p = uv();
+      const tm = (c) => { const k = clamp(c, vec3(0), vec3(64)); return k.div(max(max(k.r, k.g), k.b).add(1)); };
+      const toY = (c) => vec3(dot(c, vec3(0.25, 0.5, 0.25)), dot(c, vec3(0.5, 0, -0.5)), dot(c, vec3(-0.25, 0.5, -0.25)));
+      const cur = toY(tm(taaIn.sample(p).rgb)).toVar();
+      const m1 = cur.toVar(), m2 = cur.mul(cur).toVar(), lo = cur.toVar(), hi = cur.toVar();
+      for (const [a, b] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) {
+        const s = toY(tm(taaIn.sample(p.add(px.mul(vec2(a, b)))).rgb)).toVar();
+        m1.addAssign(s); m2.addAssign(s.mul(s)); lo.assign(min(lo, s)); hi.assign(max(hi, s));
+      }
       const mu = m1.div(9), sg = max(m2.div(9).sub(mu.mul(mu)), vec3(0)).sqrt();
-      const raw = taaHist.sample(p).rgb, hist = clamp(raw, mu.sub(sg), mu.add(sg));
-      const moved = dot(abs(raw.sub(hist)), vec3(0.33)).div(dot(mu, vec3(0.33)).add(0.05));
-      return vec4(mix(hist, cur, clamp(taaK.add(smoothstep(0.1, 1.0, moved).mul(0.5)), 0, 1)), 1);
+      const bLo = max(lo, mu.sub(sg)), bHi = min(hi, mu.add(sg));
+      const ctr = bLo.add(bHi).mul(0.5), ext = max(bHi.sub(bLo).mul(0.5), vec3(1e-4));
+      const raw = toY(tm(taaHist.sample(p).rgb)), v = raw.sub(ctr), r = abs(v.div(ext)), out = max(max(r.x, r.y), r.z);
+      const hist = select(out.greaterThan(1), ctr.add(v.div(out)), raw);
+      const moved = abs(raw.x.sub(hist.x)).add(length(raw.yz.sub(hist.yz))).div(mu.x.add(0.02));       // how far the history was off
+      const mk = (tx, q) => { const c = tx.sample(q); return max(max(c.r, c.g), max(c.b, c.a)); };   // anything drawn there
+      let mm = max(mk(taaMask, p), mk(taaMaskPrev, p));
+      for (const [a, b] of [[-1.5, 0], [1.5, 0], [0, -1.5], [0, 1.5]]) mm = max(mm, max(mk(taaMask, p.add(px.mul(vec2(a, b)))), mk(taaMaskPrev, p.add(px.mul(vec2(a, b))))));
+      const react = clamp(mm.mul(40), 0, 1).mul(taaMaskK).mul(taaReactive);
+      const y = mix(hist, cur, max(clamp(taaK.add(smoothstep(0.05, 0.5, moved).mul(0.7)), 0, 1), react));
+      const t = max(vec3(y.x.add(y.y).sub(y.z), y.x.add(y.z), y.x.sub(y.y).sub(y.z)), vec3(0));         // YCoCg → (tone-mapped) RGB
+      return vec4(t.div(max(float(1).sub(max(max(t.r, t.g), t.b)), 1 / 65)), 1);                       // → linear HDR again
     })();
     taaQuad = new THREE.QuadMesh(taaMat);
   }
@@ -512,6 +549,34 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     }
     target.scissorTest = false; target.viewport.set(0, 0, RW, RH); target.scissor.set(0, 0, RW, RH);
   }
+  // T-070: the reactive mask (see the TAA section). Ping-pongs maskA (this frame) / maskB (last frame); taaMaskK = 0 when neither has
+  // anything (then the pass is skipped altogether).
+  const _layers = new THREE.Layers(), _clr = new THREE.Color();
+  function shown(o) { for (; o; o = o.parent) if (!o.visible) return false; return true; }
+  function maskPass() {
+    let any = false;
+    for (const r of reactiveRoots) if (r.parent && shown(r)) { any = true; break; }
+    if (!any && !maskOn) { taaMaskK.value = 0; return; }
+    const sw = maskA; maskA = maskB; maskB = sw;                    // last frame's mask becomes «prev»
+    taaMask.value = maskA.texture; taaMaskPrev.value = maskB.texture; taaMaskK.value = 1;
+    if (!lightsTagged) { scene.traverse((o) => { if (o.isLight && o.layers.isEnabled(0)) o.layers.enable(REACTIVE); }); lightsTagged = true; }   // the same lights: the same shaders
+    renderer.getClearColor(_clr); const ca = renderer.getClearAlpha(), ac = renderer.autoClear;
+    renderer.setRenderTarget(maskA); renderer.setClearColor(0x000000, 0); maskA.scissorTest = false; renderer.clear();
+    if (any) {
+      maskA.scissorTest = true;
+      for (const w of walls) {
+        const r = w.rect, x0 = Math.round(r.x * RS / 2), x1 = Math.round((r.x + r.w) * RS / 2), y0 = Math.round((H - r.y - r.h) * RS / 2), y1 = Math.round((H - r.y) * RS / 2);
+        maskA.viewport.set(x0, y0, x1 - x0, y1 - y0); maskA.scissor.set(x0, y0, x1 - x0, y1 - y0);
+        if (GL2) { renderer.autoClear = true; } else renderer.autoClear = false;
+        _layers.mask = w.camera.layers.mask; w.camera.layers.set(REACTIVE);
+        renderer.render(scene, w.camera);
+        w.camera.layers.mask = _layers.mask; renderer.autoClear = false;
+      }
+      maskA.scissorTest = false; maskA.viewport.set(0, 0, MW, MH); maskA.scissor.set(0, 0, MW, MH);
+    }
+    renderer.setClearColor(_clr, ca); renderer.autoClear = ac;
+    maskOn = any;                                                    // one more frame after the last one: its «prev» clears the trail
+  }
   function clearTo(target) { if (GL2) return; renderer.setRenderTarget(target); target.scissorTest = false; renderer.setClearColor(clearColor, 1); renderer.clear(); }
   function jitter() {
     const k = TAA ? (taaFrame++ % 8) + 1 : 0;
@@ -537,6 +602,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     overlayCount = overlay.children.length;
     if (overlayCount) { if (img === strip) { renderer.setRenderTarget(strip); renderer.clearDepth(); } views(img, overlay); }   // the overlay never depth-tests against the world
     if (TAA) {
+      maskPass();
       taaIn.value = img.texture; taaHist.value = histA.texture;
       renderer.setRenderTarget(histB); taaQuad.render(renderer); taaK.value = 0.12;
       img = histB; const sw = histA; histA = histB; histB = sw;
@@ -565,5 +631,6 @@ export async function createRoom3D(vt, canvas, opt = {}) {
 
   return { THREE, renderer, scene, overlay, clearColor, walls, eye, hands, wallPoint, render, setBloom,
     // T-048 (SIS): the shared system — see PARTS.md «What the room gives since T-048»
-    PALETTE, setBackground, background: bg, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline };
+    PALETTE, setBackground, background: bg, flash, flashAt, flashLights: flU, FLASH_R: FL_R, lightRecipe, rimNode, makeHalo, placeHalo, setEye, setTiles, tileFront, tiles, envMap, useEnvironment, captureEnvironment, setEnvironment, environment: ENV, ENV_PRESETS, aa: TAA ? 'taa' : (opt.samples ? 'msaa' : 'none'), backend, strip, pipeline,
+    reactive, REACTIVE, taaReactive };   // T-070: room.reactive(object) — moving things opt out of the TAA history (see the TAA section)
 }
