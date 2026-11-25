@@ -40,7 +40,7 @@ const vt = await connectExperience();
 const canvas = document.getElementById('c');
 canvas.width = vt.size.width; canvas.height = vt.size.height;
 const q = new URLSearchParams(location.search);
-const P = Object.assign({ jump: 'none', pace: 1, guide: false, lang: 'es', bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: true, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab', warmSets: true, prewarmRT: true, entranceFirst: false }, vt.params);   // T-057: warmSets / prewarmRT (see 'pre-warming'), false = as before · T-065: entranceFirst (see 'entrance first'), false = as before
+const P = Object.assign({ jump: 'none', pace: 1, guide: false, lang: 'ca', bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: true, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab', warmSets: true, prewarmRT: true, entranceFirst: false }, vt.params);   // T-057: warmSets / prewarmRT (see 'pre-warming'), false = as before · T-065: entranceFirst (see 'entrance first'), false = as before
 // T-052 «modo sala»: in the room (mode 'room', or 'auto' inside the app, which opens the page with ?run=1) the lab's URL switches are
 // ignored, so a stray ?q3 / ?parts / ?tiles can never reach the walls. Read at load: changing `mode` needs a reload (Stop / Play).
 const LAB = P.mode === 'lab' || (P.mode !== 'room' && !q.has('run'));
@@ -544,7 +544,7 @@ function frame(dt) {
   trailerStep(dt);                                                  // TRAILER
   if (following()) {
     if (S.block === 'tronc') S.beat = (link.beat + (((Date.now() - link.ts) / 1000) * link.pace) / score.times.tronc.period) % 1;   // between two messages the pulse keeps moving
-    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: timesNow() }); }
+    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: timesNow(), lang: P.lang }); }   // TRAILER: lang — the voice speaks the trailer's language
     frameEvents.push(...link.events.splice(0));
   } else { score.step(dt * (P.pace || 1), scoreHands); frameEvents.push(...S.events); S.events.length = 0; }
   if ((time - actaAt > 0.5 || S.block !== lastBlock) && S.block !== 'wait' && S.block !== 'intro') { actaAt = time; acta = link.acta && following() ? link.acta : score.acta(); }   // kept through the wait: the acta leaving must not read a reset score

@@ -4,7 +4,7 @@
   "description": "A 3-minute interactive presentation of Ressonància: the entrance mosaic breaks into the night square with the title and the written trailer, the correfoc with the work's data, and the golden resonance with the closing line, credits and logos; then back to the entrance. Hands keep every universe's own response.",
   "entry": "index.html",
   "params": [
-    {"key": "lang", "label": "Language", "type": "select", "default": "es", "options": [["es", "Español"], ["ca", "Català"], ["en", "English"]]},
+    {"key": "lang", "label": "Language (texts and voice)", "type": "select", "default": "ca", "options": [["es", "Español"], ["ca", "Català"], ["en", "English"]]},
     {"key": "trailer.preroll", "label": "Entrance mosaic before the trailer (s)", "type": "number", "min": 3, "max": 60, "step": 1, "default": 12, "unit": "s"},
     {"key": "jump", "label": "Hold a block (rehearsal)", "type": "select", "default": "none", "options": [["none", "— (the trailer runs)"], ["wait", "Entrance"], ["intro", "The square: title"], ["brasa", "Correfoc: data"], ["festa", "Resonance: credits"]]},
     {"key": "guide", "label": "Hand targets and instructions", "type": "bool", "default": false},

@@ -6,7 +6,7 @@
 //   LOCAL WORKAROUND, clearly marked: the runtime has no channel between a visual piece and its sound piece. Every window of the
 //   app loads from the same origin, so this piece posts the score's state on a BroadcastChannel ('ressonancia') after every
 //   step — { type: 'state', ts, pace, s: { ...state, events }, acta } — and the visual follows it. It also accepts
-//   { type: 'ctl', pace?, jump?, times? } (rehearsal: run the score's clock faster, go to a block). Without the channel both pieces still
+//   { type: 'ctl', pace?, jump?, times?, lang? } (rehearsal: run the score's clock faster, go to a block). Without the channel both pieces still
 //   run: each one walks its own score from the same hands. Remove this when the runtime gives the two pieces a link.
 //
 // The sound (NOTES.md has the whole design): contemporary, cinematic, electronic-ambient. Every chapter is its own sound world,
@@ -1109,7 +1109,8 @@ export default async function start(host) {
   // LOCAL WORKAROUND (see the top of the file): the BroadcastChannel to the visual piece.
   let bc = null;
   try { bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { bc = null; }
-  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
+  // 25-11 (studio): ctl.lang — a visual piece may set the voice's language (res-trailer: Catalan by default)
+  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (['es', 'en', 'ca'].includes(m.lang) && m.lang !== P.lang) { P.lang = m.lang; for (const n of VOICE_SET) { buffers.delete(n); peaks.delete(n); failed.delete(n); } Promise.all([...VOICE_SET].map(load)); } if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
   const lastPos = new Map(), hands = [], handPool = [];
   const wallS0 = walls.reduce((a, w, i) => { a.push(i ? a[i - 1] + (walls[i - 1].width || 4) : 0); return a; }, []);   // where each wall starts along the perimeter (m)
   let last = performance.now();

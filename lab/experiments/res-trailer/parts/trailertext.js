@@ -6,7 +6,7 @@
 //   the square (45 s):    presenters → «Ressonància» + subtitle → four lines, one per wall
 //   the correfoc (53 s):  the written trailer, wall after wall → the work's data, two sets of four
 //   the resonance (62 s): the closing line on every wall → credits, one per wall → logos and support
-// Texts: TEXT[lang] below (es by default, en, ca). Everything that is a fact to confirm (names, roles, dates) is in CREDITS / DATA.
+// Texts: TEXT[lang] below (ca by default, es, en). Everything that is a fact to confirm (names, roles, dates) is in CREDITS / DATA.
 import { typo } from '../../ressonancia/scenes3d/typo3d.js';
 
 const INK = [0.78, 0.75, 0.70], SOFT = [0.70, 0.67, 0.62], GOLD = [0.95, 0.80, 0.52];
@@ -103,7 +103,7 @@ export function create({ THREE, room }) {
     L.credits.forEach((t, i) => { const [lab, val] = T.credits[i % 4]; t.set([{ text: lab, font: 'mono', size: 0.09, y: 0.3, track: 0.36, color: SOFT, upper: true, reveal: 'blur' }, { text: val, font: 'serif', size: 0.34, y: -0.02, track: 0.01, color: INK }]); });
     L.support.set([{ text: T.support, font: 'mono', size: 0.1, y: 0, track: 0.3, color: SOFT, upper: true, reveal: 'blur' }]);
   }
-  layout('es');
+  layout('ca');
 
   // ---- logos: one pair per wall (Alma Digital Studio · Barcelona XR Lab), white, on the wall plane
   const logos = [];
