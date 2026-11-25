@@ -375,7 +375,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(lod === 0 ? 1.4 : 2.0))).mul(uSKey);   // far: more contrast, so overlapping bodies part by light and shadow
     colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer
     colr = colr.add(uSRim.mul(pow(float(1).sub(abs(facing)), 4)).mul(smoothstep(1.15, 1.45, pl.y)).mul(float(1).sub(headK)).mul(0.6));   // a thin cool rim on the shoulders (not the jaw)
-    if (room?.flash) colr = colr.add(uLit.mul(room.flash(C)).mul(0.35));
+    // (no hand flash on the bodies: a hand is always near the palm figure and it washed the whole body to white — the palmGlow is the answer)
     // the palm's glow (palmGlow): a warm light held in the right palm, ≥ 35–40 cm, that lights the forearm and the chest («put your hand here»)
     const dP = pl.sub(B4.xyz).length(), pgw = B4.w.mul(exp(dP.mul(dP).mul(-6.0))).mul(1.8);   // ≈ 40 cm, reads at scale 0.5
     colr = colr.add(uPalmCol.mul(pgw).mul(mix(float(0.55), float(1), smoothstep(-0.2, 0.6, dot(nW, rotY(B4.xyz.sub(pl)).normalize())))));
