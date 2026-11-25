@@ -434,28 +434,28 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // vertical darkening; bloom = × the host's bloom; sky = × the background; air = the radial fog (see setAir); key = the light's
   // direction in the air (a lobe of the light's colour in the fog towards it), { dir: [x, y, z], token, k }.
   const GRADE = {
-    wait:    { ev: 0.35, sat: 0.9, contrast: 1.0, lo: 'tinta', loK: 0.3, hi: 'os', hiK: 0.1, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.018, height: 0.22, heightK: 0.5, start: 3.6, max: 0.7 } },
-    intro:   { ev: 0.75, sat: 0.95, contrast: 1.0, lo: 'blau-plaça', loK: 0.3, hi: 'cal-fanal', hiK: 0.15, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.03, height: 0.25, heightK: 0.5, start: 3.6, max: 0.75, key: { dir: [0, 0.05, -1], token: 'fanal', k: 0.25 } } },
-    brasa:   { ev: 0.35, sat: 0.85, contrast: 1.06, lo: 'tinta', loK: 0.25, hi: 'flama', hiK: 0.06, lift: 'tinta', liftK: 0.7, ceil: 0.9, vTop: 0.35, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.03, height: 0.22, heightK: 0.6, start: 4.5, max: 0.7 } },   // smoke: dark, the fires light it (no colour veil)
-    pinya:   { ev: 0.3, sat: 0.95, contrast: 1.08, lo: 'blau-plaça', loK: 0.4, hi: 'cal-foc', hiK: 0.12, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.04, height: 0.18, heightK: 0.55, start: 6, max: 0.82 } },   // Beltrán 25-11: the festival night, spots through haze
-    tronc:   { ev: 0.25, sat: 0.92, contrast: 1.08, lo: 'tinta-ombra', loK: 0.4, hi: 'porcellana', hiK: 0.1, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.04, height: 0.16, heightK: 0.5, start: 6, max: 0.82 } },
-    pom:     { ev: 0.3, sat: 0.85, contrast: 1.02, lo: 'nit-alta', loK: 0.35, hi: 'lluna', hiK: 0.1, lift: 'nit-alta', liftK: 0.6, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.028, height: 0.2, heightK: 0.5, start: 3.6, max: 0.75 } },
-    crown:   { ev: 0.4, sat: 0.95, contrast: 1.05, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.6, ceil: 0.88, vTop: 0.15, vBot: 0.15, bloom: 1, sky: 1,
-      air: { density: 0.02, height: 0.12, heightK: 0.3, start: 6, max: 0.6 } },   // a gold burst inside the night
-    festa:   { ev: 0.35, sat: 0.95, contrast: 1.05, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.6, ceil: 0.88, vTop: 0.2, vBot: 0.15, bloom: 1, sky: 1,
-      air: { density: 0.02, height: 0.12, heightK: 0.3, start: 6, max: 0.6 } },
-    baixada: { ev: 0.55, sat: 0.92, contrast: 1.02, lo: 'albergínia', loK: 0.3, hi: 'alba-rosa', hiK: 0.12, lift: 'albergínia', liftK: 0.6, ceil: 0.88, vTop: 0.15, vBot: 0.15, bloom: 0.7, sky: 1,
-      air: { density: 0.035, height: 0.14, heightK: 0.4, start: 3.6, max: 0.8, key: { dir: [1, 0.08, 0], token: 'alba-rosa', k: 0.35 } } },
-    fall:    { ev: 0.35, sat: 0.75, contrast: 1.02, lo: 'tinta', loK: 0.3, hi: 'cendra', hiK: 0.1, lift: 'tinta', liftK: 0.6, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
-      air: { density: 0.04, height: 0.2, heightK: 0.5, start: 3.6, max: 0.8 } },
-    acta:    { ev: 0.5, sat: 0.82, contrast: 1.03, lo: 'ombra', loK: 0.25, hi: 'cal', hiK: 0.1, lift: 'ombra', liftK: 0.55, ceil: 0.88, vTop: 0.2, vBot: 0.15, bloom: 0.7, sky: 1,
-      air: { density: 0.02, height: 0.15, heightK: 0.4, start: 3.6, max: 0.7, key: { dir: [0.6, 0.3, -1], token: 'cal', k: 0.2 } } },
+    wait:    { ev: 0.35, sat: 0.9, contrast: 1.0, lo: 'tinta', loK: 0.3, hi: 'os', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
+      air: { density: 0.0072, height: 0.22, heightK: 0.5, start: 3.6, max: 0.7 } },
+    intro:   { ev: 0.75, sat: 0.95, contrast: 1.0, lo: 'blau-plaça', loK: 0.3, hi: 'cal-fanal', hiK: 0.15, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
+      air: { density: 0.012, height: 0.25, heightK: 0.5, start: 3.6, max: 0.75, key: { dir: [0, 0.05, -1], token: 'fanal', k: 0.25 } } },
+    brasa:   { ev: 0.35, sat: 0.85, contrast: 1.06, lo: 'tinta', loK: 0.25, hi: 'flama', hiK: 0.06, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.35, vBot: 0.2, bloom: 1, sky: 1,
+      air: { density: 0.012, height: 0.22, heightK: 0.6, start: 4.5, max: 0.7 } },   // smoke: dark, the fires light it (no colour veil)
+    pinya:   { ev: 0.3, sat: 0.95, contrast: 1.08, lo: 'blau-plaça', loK: 0.4, hi: 'cal-foc', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
+      air: { density: 0.016, height: 0.18, heightK: 0.55, start: 6, max: 0.82 } },   // Beltrán 25-11: the festival night, spots through haze
+    tronc:   { ev: 0.25, sat: 0.92, contrast: 1.08, lo: 'tinta-ombra', loK: 0.4, hi: 'porcellana', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.3, vBot: 0.2, bloom: 1, sky: 1,
+      air: { density: 0.016, height: 0.16, heightK: 0.5, start: 6, max: 0.82 } },
+    pom:     { ev: 0.3, sat: 0.85, contrast: 1.02, lo: 'nit-alta', loK: 0.35, hi: 'lluna', hiK: 0.1, lift: 'nit-alta', liftK: 0.35, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
+      air: { density: 0.0112, height: 0.2, heightK: 0.5, start: 3.6, max: 0.75 } },
+    crown:   { ev: 0.4, sat: 0.95, contrast: 1.05, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.88, vTop: 0.15, vBot: 0.15, bloom: 1, sky: 1,
+      air: { density: 0.008, height: 0.12, heightK: 0.3, start: 6, max: 0.6 } },   // a gold burst inside the night
+    festa:   { ev: 0.35, sat: 0.95, contrast: 1.05, lo: 'tinta', loK: 0.3, hi: 'or-clar', hiK: 0.12, lift: 'tinta', liftK: 0.35, ceil: 0.88, vTop: 0.2, vBot: 0.15, bloom: 1, sky: 1,
+      air: { density: 0.008, height: 0.12, heightK: 0.3, start: 6, max: 0.6 } },
+    baixada: { ev: 0.55, sat: 0.92, contrast: 1.02, lo: 'albergínia', loK: 0.3, hi: 'alba-rosa', hiK: 0.12, lift: 'albergínia', liftK: 0.35, ceil: 0.88, vTop: 0.15, vBot: 0.15, bloom: 0.7, sky: 1,
+      air: { density: 0.014, height: 0.14, heightK: 0.4, start: 3.6, max: 0.8, key: { dir: [1, 0.08, 0], token: 'alba-rosa', k: 0.35 } } },
+    fall:    { ev: 0.35, sat: 0.75, contrast: 1.02, lo: 'tinta', loK: 0.3, hi: 'cendra', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
+      air: { density: 0.016, height: 0.2, heightK: 0.5, start: 3.6, max: 0.8 } },
+    acta:    { ev: 0.5, sat: 0.82, contrast: 1.03, lo: 'ombra', loK: 0.25, hi: 'cal', hiK: 0.1, lift: 'ombra', liftK: 0.35, ceil: 0.88, vTop: 0.2, vBot: 0.15, bloom: 0.7, sky: 1,
+      air: { density: 0.008, height: 0.15, heightK: 0.4, start: 3.6, max: 0.7, key: { dir: [0.6, 0.3, -1], token: 'cal', k: 0.2 } } },
   };
   // ---- the background: a sphere round the eye (r 320 m, inside the far plane), drawn first, without depth: whatever a part draws covers
   // it; where nothing is drawn the wall shows the chapter's sky. Three stops (bottom · a horizon band at the eye's height · top), eased
@@ -728,7 +728,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // chapter's shadow token), the one matter, lit by whatever light the world has and by the hands. We look at the square THROUGH it.
   // Present in intro, brasa, pinya, tronc, baixada (setBackground sets it); room.setPorxada(0..1) overrides. It comes and goes by a
   // dissolve of fragments (screen-door), the work's language. In the scene root: the same frame in both worlds of a transition.
-  const PORX_ON = new Set(['intro', 'brasa', 'tronc', 'pom', 'baixada']);   // (pinya is the abstract field: no porch)
+  const PORX_ON = new Set(['intro', 'brasa', 'pinya', 'tronc', 'pom', 'crown', 'baixada']);   // (pinya is the abstract field: no porch)
   const porx = { k: uniform(0), to: 0, group: new THREE.Group() };
   porx.group.name = 'room:porxada';
   {
@@ -770,7 +770,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   // to a low warm glow on the horizon far away, haze in layers (the room's air), and where hands have been (room.heat: the people
   // who came to the wall) warm pools of light lie on the ground just behind the wall, staying ~a minute. Palette pinya (cal-foc,
   // terracota, ombra; faixa). No plaza, no porch. Shown by setBackground for FIELD_ON; it dissolves in / out like the porch.
-  const FIELD_ON = new Set(['pinya']);
+  const FIELD_ON = new Set([]);   // AD#5: Pinya went back to the night square (the field stays available: room.field.set(1))
   const field = { k: uniform(0), to: 0, group: new THREE.Group() };
   field.group.name = 'room:field';
   {

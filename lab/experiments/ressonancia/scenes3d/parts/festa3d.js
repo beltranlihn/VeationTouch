@@ -700,7 +700,7 @@ export function create({ THREE, TSL, room, params }) {
     })();
   }
   const pcMesh = new THREE.Mesh(pcGeo, pcMat); pcMesh.frustumCulled = false; pcMesh.renderOrder = 5;
-  object.add(pcMesh);
+  object.add(pcMesh); pcMesh.visible = false;   // AD#5: the grey floating beads go
   // the hoop of each wall's big sphere (Tronc's): a thin ring of gold that turns with it
   const hpA = new Float32Array(NW * 4), hpQ = new Float32Array(NW * 4);
   const hoopGeo = (() => {
@@ -721,7 +721,7 @@ export function create({ THREE, TSL, room, params }) {
     })();
   }
   const hoopMesh = new THREE.Mesh(hoopGeo, hoopMat); hoopMesh.frustumCulled = false; hoopMesh.renderOrder = 5;
-  object.add(hoopMesh);
+  object.add(hoopMesh); hoopMesh.visible = false;
   const pcs = new Array(NPC);
   {
     // the hierarchy (ARTE, 24-11): per wall ONE sphere Ø 0.6 m (with its hoop), two of Ø 0.3 m and ten beads; homes clear of the quiet zones

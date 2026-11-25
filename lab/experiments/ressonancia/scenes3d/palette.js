@@ -67,7 +67,7 @@ export const PAL = {
   brasa:   { tones: ['carbó', 'brasa', 'flama'], accent: 'or', light: 'flama', shadow: 'carbó', ink: 'os', luma: 0.15, dark: true,
     story: 'The one chapter of fire over dark', sky: { top: ['tinta', 0.75], horizon: ['blau-plaça', 0.5], bottom: ['tinta', 1.0] } },   // a COOL night: the warm comes only from the fires
   pinya:   { tones: ['cal-foc', 'terracota', 'ombra'], accent: 'faixa', light: 'cal-foc', shadow: 'ombra', ink: 'os', luma: 0.18, dark: true,
-    story: 'The abstract field (director 25-11): a gathering of light in the night — warm pools where people came, a low warm horizon', sky: { top: ['tinta', 0.65], horizon: ['tinta', 1.25], bottom: ['tinta', 0.7] } },   // the abstract field: deep night, no band
+    story: 'The night square swallowed by the bonfires\' low warm smoke: silhouettes and lit windows above, the crowd glowing below', sky: { top: ['tinta', 0.7], horizon: ['tinta', 1.3], bottom: ['tinta', 0.8] } },   // AD#5: the night square, a low warm haze below
   tronc:   { tones: ['porcellana', 'pedra-llum', 'tinta-ombra'], accent: 'or', light: 'porcellana', shadow: 'tinta-ombra', ink: 'os', luma: 0.2, dark: true,
     story: 'The castell under the festival spots: porcelain where light falls, blue night and fog elsewhere', sky: { top: ['tinta', 0.75], horizon: ['tinta', 1.7], bottom: ['tinta', 0.8] } },
   pom:     { tones: ['nit-alta', 'blau-hora', 'lluna'], accent: 'or', light: 'lluna', shadow: 'nit-alta', ink: 'os', luma: 0.12, dark: true,

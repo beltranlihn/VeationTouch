@@ -421,7 +421,7 @@ export function create({ THREE, TSL, room, params, parts }) {
     return meshes;
   })();
   let cursor = 0, nE = 0, whiteN = 0;
-  const sparkGain = () => Math.max(0, Number(P.sparks ?? 1));
+  const sparkGain = () => Math.max(0, Number(P.sparks ?? 1)) * 0.7;   // AD#5: −30 %
   // n sparks from (px,py,pz) within `spread` m, along dir (+ cone), speed vmin..vmax, life lmin..lmax, heat, gravity scale, drag, inherited velocity
   function emit(n, px, py, pz, spread, dx, dy, dz, cone, vmin, vmax, lmin, lmax, heat, g, drag, ix = 0, iy = 0, iz = 0) {
     n = Math.floor(n * sparkGain());
@@ -449,7 +449,7 @@ export function create({ THREE, TSL, room, params, parts }) {
     const tot = wts.reduce((x, y) => x + y, 0), cumW = []; let acc = 0; for (const w of wts) { acc += w / tot; cumW.push(acc); }
     // the length of a bone does not matter for the weights of joints pairs at build time: use nominal lengths
     const LEN = [0.42, 0.18, 0.12, 0, 0.36, 0.3, 0.3, 0.27, 0.27, 0.2, 0.45, 0.45, 0.44, 0.44, 0.16, 0.16, 1.6, 0.7, 0.13, 0.13];
-    const w2 = BONES.map((b, i) => (b[0] === b[1] ? 4 * b[2] * b[2] * 3.2 : LEN[i] * (b[2] + b[3]) * 3.2) + 0.002);
+    const w2 = BONES.map((b, i) => (i === 16 || i === 17 ? 0 : (b[0] === b[1] ? 4 * b[2] * b[2] * 3.2 : LEN[i] * (b[2] + b[3]) * 3.2) + 0.002));   // AD#5: no forca pole / bar (it read as a gallows); the hands still spray the carretilles' sparks
     const t2 = w2.reduce((x, y) => x + y, 0); acc = 0; cumW.length = 0; for (const w of w2) { acc += w / t2; cumW.push(acc); }
     for (let i = 0; i < n; i++) {
       const slot = Math.floor(i / PER_DEVIL), x = r(); let b = 0; while (b < cumW.length - 1 && x > cumW[b]) b++;
