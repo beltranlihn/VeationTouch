@@ -636,7 +636,7 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
     { let fwc = crownWall >= 0 ? crownWall : S.focus && S.focus.wall >= 0 && S.focus.wall < NW ? S.focus.wall : -1;   // the crown: the tower's wall; no calling wall yet: the wall with the most hands
       if (fwc < 0 && Array.isArray(S.count)) { let best = 0; S.count.forEach((c, w) => { if (c > best) { best = c; fwc = w; } }); }
       if (fwc < 0) fwc = 0;   // nobody on any wall: one wall still carries the card in full (Art Director 25-11), the others an echo   // the card too: 100 % on the wall that calls, 30 % elsewhere
-      card.step(dtT, { hold, gate: waveGate, mask: fwc >= 0 ? (w) => (w === fwc ? 1 : 0.3) * cardFit[w] : null, lead: fwc >= 0 ? (w) => (w === fwc ? 0 : 0.6) : null }); }
+      card.step(dtT, { hold, gate: waveGate, mask: fwc >= 0 ? (w) => (w === fwc ? 1 : b === 'crown' ? (w === (fwc + 2) % NW ? 0.3 * cardFit[w] : 0) : 0.3) : null,   /* the crown: full on the tower's wall, an echo only on the opposite one (no pair across a corner) */ lead: fwc >= 0 ? (w) => (w === fwc ? 0 : 0.6) : null }); }
     // the wait's words come with the button (reveal) and thin out as the hands start the pass
     const st = b === 'wait' ? Math.min(1, S.start || 0) : 0;
     let gain = b === 'wait' ? 1 - st * st : 1;   // the invitation to play before the reveal, the ring's line after it
