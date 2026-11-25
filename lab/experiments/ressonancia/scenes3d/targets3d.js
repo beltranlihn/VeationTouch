@@ -15,7 +15,7 @@
 // Rest = the stone / the chapter's light tone, no gold; `or` only while charging / active. Done: the object flies to its consequence
 // (DONE by kind) and goes; removed unused: it sinks back. One draw per skin (instanced, 20 slots), nothing allocated per frame.
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { ACH, lin } from './palette.js';
+import { ACH, lin, chapter } from './palette.js';
 
 const MAXT = 20;
 // done → the consequence (m, in the target's frame: x along the wall, y up, z into the room) and seconds
@@ -32,6 +32,7 @@ export function createTargets3D({ THREE, TSL, room }) {
   const { uniform, vec3, float, smoothstep, abs, max, mix, step, attribute, positionLocal, normalLocal, uv, length, mx_noise_float } = TSL;
   const object = new THREE.Group(); object.name = 'targets3d';
   const uTime = uniform(0), FLARE = uniform(0), GOLD = vec3(...ACH.lin);
+  const LIGHT = uniform(new THREE.Vector3(...chapter('wait').lin.light)), lightNow = chapter('wait').lin.light.slice();   // the chapter's light tone, eased
   const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate));
   const sm = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
   const ceramic = (o) => (room.matter?.ceramic ? room.matter.ceramic(o) : new THREE.MeshStandardNodeMaterial({ color: 0xd8c6a6, roughness: 0.6 }));
@@ -105,19 +106,28 @@ export function createTargets3D({ THREE, TSL, room }) {
   const poolMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
   { const S = S_(), q = uv().sub(0.5).mul(2), r2 = q.x.mul(q.x).add(q.y.mul(q.y)); poolMat.colorNode = vec3(...lin('flama')).mul(TSL.exp(r2.mul(-3.5))).mul(float(0.05).add(S.x.mul(0.2)).add(S.y.mul(0.3))).mul(float(1).sub(S.w)); poolMat.opacityNode = float(1); }
   const glowPool = skin(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), poolMat, 'ember-pool'); glowPool.mesh.castShadow = false; glowPool.mesh.receiveShadow = false;
-  // palm (Pinya): a slab of WARM light on the wall — no stone, no frame: light where the figure's palm will meet the hand
+  // palm (Pinya): nothing at rest (the figure's palm IS the target); charging: a faint warm ring that fills with gold
   const palmMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
   { const S = S_(), q = uv().sub(0.5).mul(2), r = TSL.length(q), soft = smoothstep(1.0, 0.35, r), core = smoothstep(0.6, 0.0, r);
-    palmMat.colorNode = mix(vec3(...lin('cal-fanal')), GOLD, S.z).mul(soft.mul(0.06).add(core.mul(S.x.mul(0.25).add(S.y.mul(0.45))))).mul(float(1).sub(S.w)); palmMat.opacityNode = float(1); }
+    // AD #4: no disc — a faint warm ring (r ≤ 0.25 m) at the palm, its arc filling with `or` from the top, clockwise, as it charges
+    const ang = TSL.fract(TSL.atan(q.x, q.y).div(Math.PI * 2).add(1)), arc = step(ang, S.x.max(S.z)), band = smoothstep(0.1, 0.0, abs(r.sub(0.82)));
+    palmMat.colorNode = mix(vec3(...lin('cal-fanal')).mul(0.18), GOLD.mul(float(0.5).add(S.y.mul(0.8))), arc).mul(band).mul(float(1).sub(S.w)); palmMat.opacityNode = float(1); }
   const palmGlow = skin(new THREE.PlaneGeometry(1, 1), palmMat, 'palm'); palmGlow.mesh.castShadow = false; palmGlow.mesh.receiveShadow = false;
 
-  // column: glazed lime that fills with gold light from the bottom up; all flare on 'wave'
-  const columnMat = ceramic({ color: 'os', glaze: 0.6, wear: 0.4, rim: 0.4, hands: 0.4 });
+  // column (call, echo, crown): a COLUMN OF LIGHT, not a solid — additive, soft at its edges (it fades where the surface turns away) and
+  // at both ends, in the chapter's light tone and faint at rest; the gold rises inside it from the bottom as it charges; it flares when
+  // active and on 'wave'. Capped: never white, never a hard silhouette over the scene
+  const columnMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.FrontSide, fog: false });
   {
-    const S = S_(), level = mix(S.x, float(1.2), step(0.5, S.z)), fill = smoothstep(level.add(0.015), level.sub(0.04), yUnit());
-    addEmissive(columnMat, GOLD.mul(fill.mul(S.x.mul(0.5).add(S.y.mul(1.6)).add(0.12)).add(FLARE.mul(0.9)).mul(float(1).sub(S.w))));
+    const S = S_(), y = yUnit(), V = TSL.normalize(TSL.cameraPosition.sub(TSL.positionWorld)), ndv = abs(TSL.dot(TSL.normalize(TSL.normalWorld), V));
+    const body = TSL.pow(ndv, 2.2).mul(smoothstep(0.0, 0.12, y)).mul(smoothstep(1.0, 0.8, y));   // soft: bright on its axis, gone at the edges and the ends
+    const level = mix(S.x, float(1.2), step(0.5, S.z)), fill = smoothstep(level.add(0.03), level.sub(0.05), y);
+    const shimmer = mx_noise_float(vec3(positionLocal.x.mul(6.0), y.mul(5.0).sub(uTime.mul(0.6)), positionLocal.z.mul(6.0))).mul(0.25).add(0.85);
+    const rest = LIGHT.mul(0.05), gold = GOLD.mul(fill.mul(float(0.16).add(S.y.mul(0.3)))), flare = GOLD.mul(FLARE.mul(0.22).add(S.y.mul(step(0.5, S.z)).mul(0.12)));
+    columnMat.colorNode = TSL.min(rest.add(gold).add(flare).mul(body).mul(shimmer), vec3(0.6)).mul(float(1).sub(S.w));
+    columnMat.opacityNode = float(1);
   }
-  const column = skin(new THREE.CylinderGeometry(0.5, 0.5, 1, 20, 1), columnMat, 'column');
+  const column = skin(new THREE.CylinderGeometry(0.5, 0.5, 1, 24, 1, true), columnMat, 'column'); column.mesh.castShadow = false; column.mesh.receiveShadow = false;
 
   // plaque: a stone slab on the wall; the print glows into it in gold (an oval at its heart) with the charge, and stays when done
   const plaqueMat = ceramic({ color: 'pedra-llum', glaze: 0.3, wear: 0.7, rim: 0.2, hands: 0.3 });   // warm stone (the fallback too: never a grey square)
@@ -149,6 +159,7 @@ export function createTargets3D({ THREE, TSL, room }) {
   let blockNow = '';
   function update(dt, { targets, block = '', time = 0, on = true, events } = {}) {
     uTime.value = time; blockNow = block;
+    { const L2 = chapter(block).lin.light; for (let k = 0; k < 3; k++) lightNow[k] = ease(lightNow[k], L2[k], dt, 1.5); LIGHT.value.set(lightNow[0], lightNow[1], lightNow[2]); }
     shown = ease(shown, on ? 1 : 0, dt, 3);
     if (events) for (const e of events) if (typeof e === 'string' && (e === 'wave' || e.startsWith('wave'))) FLARE.value = 1;
     FLARE.value = Math.max(0, FLARE.value - dt / 1.2);
@@ -196,7 +207,7 @@ export function createTargets3D({ THREE, TSL, room }) {
       } else if (p.skin === 'column') {                // a column of w × h (its own extent), half sunk in the wall
         put(column, p, 0, p.y, -0.02, W * 0.7, H, W * 0.7);
       } else if (p.kind === 'palm') {                  // the Pinya: warm light on the wall where the palm will meet the hand
-        put(palmGlow, p, 0, p.y, 0.005, W * 1.3, H * 1.3, 1);
+        if (p.charge > 0.01 || p.gold > 0.01 || p.burst > 0) put(palmGlow, p, 0, p.y, 0.005, 0.5, 0.5, 1);   // nothing at rest: the figure's palm IS the target
       } else {                                          // a plaque on the wall (the acta's print)
         put(plaque, p, 0, p.y, -0.01, W, H, 0.05);
       }
