@@ -233,11 +233,17 @@ export function create(ctx) {
   const stats = typeof window !== 'undefined' ? (window.__pom3d = { figures: NCL, splats: () => kitC.splatCount, climbY: 0, leap: 0, slide: 0, stage: '', tower: -1 }) : null;
 
   // the climber's place on the tower of wall wi, at rest-height y: on the face of the trunk towards the room, `side` m across it
+  // trunk() gives the tower AS DRAWN (c39cb8e: its bodies' mean, their feet): find the two floors around yRest and interpolate the axis,
+  // the radius and the drawn height between them
+  const _q0 = { x: 0, z: 0, y: 0, yRest: 0, r: 0 };
   function onTower(wi, yRest, side, out) {
-    const T = tronc(), rise = T ? T.rise || 0 : 0;
-    const f = Math.max(1, Math.min(9, Math.floor(yRest / 1.34) + 1)), q = trunkAt(f, wi), w = walls[wi];
-    const r = (q.r || 0.42) + 0.22;
-    out.set(q.x + w.normal.x * r + w.right.x * side, yRest - rise, q.z + w.normal.z * r + w.right.z * side);
+    const w = walls[wi];
+    let f = 1, q0 = trunkAt(1, wi), a = { ...q0 };
+    for (f = 2; f <= 9; f++) { const q1 = trunkAt(f, wi); if (q1.yRest > yRest || f === 9) { const b = q1; const span = Math.max(1e-3, b.yRest - a.yRest), k = Math.max(0, Math.min(1.5, (yRest - a.yRest) / span));
+      _q0.x = a.x + (b.x - a.x) * Math.min(1, k); _q0.z = a.z + (b.z - a.z) * Math.min(1, k); _q0.y = a.y + (b.y - a.y) * k; _q0.r = (a.r || 0.42) + ((b.r || 0.42) - (a.r || 0.42)) * Math.min(1, k); break; }
+      a = { ...q1 }; }
+    const r = _q0.r + 0.22;
+    out.set(_q0.x + w.normal.x * r + w.right.x * side, _q0.y, _q0.z + w.normal.z * r + w.right.z * side);
     return out;
   }
 
@@ -312,7 +318,7 @@ export function create(ctx) {
     obs.length = 0;
     for (let k = 0; k < NCL; k++) {
       const who = k < 2 ? 0 : k - 1;
-      const sc = k === 3 ? 0.6 : k === 2 ? 0.68 : 0.76;
+      const sc = k === 3 ? 0.56 : k === 2 ? 0.6 : 0.64;   // children (the kit takes the child build below 0.82)
       if (who > climber && !done) { kitC.hide(k); continue; }
       const active = who === climber && !done;
       const wi = active ? towerW : arrivedW[who] ?? towerW, side = k === 0 ? -0.24 : k === 1 ? 0.24 : 0;
