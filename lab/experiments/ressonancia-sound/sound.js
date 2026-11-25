@@ -364,7 +364,7 @@ export default async function start(host) {
     g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(k, at + 0.04); g.gain.linearRampToValueAtTime(0, at + dur);
     n.start(at, Math.random() * 1.5, dur + 0.05);
   }
-  let dragAt = -9; const NOCHIME = () => {};   // studio 25-11: the last time a hand dragged (s, wall clock)
+  let dragAt = -9, dragOn = false; const NOCHIME = () => {};   // studio 25-11: the last time a hand dragged (s, wall clock)
   function impact(m) {
     if (!running() || !(m.wall >= 0 && m.wall < NW)) return;
     const wt = performance.now() / 1000; if (wt - impactWin > 1) { impactWin = wt; impactN = 0; } if (++impactN > 20) return;
@@ -373,7 +373,7 @@ export default async function start(host) {
     const wallId = walls[m.wall].id, u = clamp(+m.u || 0.5, 0, 1), k = clamp(+m.strength || 0.3, 0, 1), t = now() + 0.004;
     const mat = IMPACT_MAT[m.mat] ? m.mat : 'ceramic', parts = IMPACT_MAT[mat], deg = clamp(Math.floor(u * 5), 0, 4);
     // studio 25-11 (Beltrán): in the entrance the chimes ring only while someone touches and drags; untouched, only the bed and the clicks
-    const md = S.block !== 'wait' || wt - dragAt < 0.6 ? modal : NOCHIME;
+    const md = S.block !== 'wait' || wt - dragAt < 0.25 ? modal : NOCHIME;
     const scale = STONE_BLOCKS.has(S.block) ? MINOR_PENTA : MAJOR_PENTA;
     const size = +m.size > 0 ? +m.size : rand(0.1, 0.35), sizeOct = size > 0.3 ? -12 : size < 0.15 ? 12 : 0;      // big pieces lower, small ones higher
     const mm = IMPACT_BASE[mat] + scale[(deg + Math.floor(Math.random() * 3)) % 5] + (m.kind === 'floor' || m.kind === 'hit' ? sizeOct : 0);
@@ -1135,6 +1135,30 @@ export default async function start(host) {
       seen.add(h.stroke); hands.push(o);
     }
     for (const k of lastPos.keys()) if (!seen.has(k)) lastPos.delete(k);
+    // studio 25-11 (Beltrán): in the entrance a DRAGGING hand brushes many tiles at once — a rain of small chimes along its way, as
+    // many as its speed (≈ 13 a second at 0.5 m/s), each a short ceramic / glass strike where the hand is; when no hand drags any more
+    // (≈ 0.2 s), every chime still ringing is let go in ~0.2 s (only the reverb's tail remains)
+    if (S.block === 'wait' && running()) {
+      let any = false;
+      for (const o of hands) {
+        if (o.speed < 0.12) continue;
+        any = true; const p = lastPos.get(o.stroke); if (!p) continue;
+        p.ph = (p.ph || 0) + dt * Math.min(1.6, o.speed) * 26;
+        let n = 0;
+        while (p.ph >= 1 && n < 4) {
+          p.ph -= 1; n++;
+          const W = walls[o.wall], u = clamp(0.5 + o.dx / (W.width || 4), 0, 1), t = now() + Math.random() * 0.03;
+          const m = 79 + MAJOR_PENTA[Math.floor(Math.random() * 5)] + (Math.random() < 0.35 ? 12 : 0);
+          modal(t, midiHz(m), (0.005 + 0.009 * Math.random()) * P.effects, handVoice(W.id, u, 0.9, 0.35), Math.random() < 0.6 ? CERAMIC : GLASS);
+        }
+      }
+      if (any) dragOn = true;
+      else if (dragOn && wt - dragAt > 0.2) {
+        dragOn = false; const t = now();
+        for (const v of voices) { v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(0, t, 0.06); }
+        voices.length = 0;
+      }
+    }
     score.step(dt * pace, hands);
     const events = S.events.splice(0);
     for (const ev of events) { try { onEvent(ev); } catch (e) { console.error('ressonancia-sound:', ev, e); } }
