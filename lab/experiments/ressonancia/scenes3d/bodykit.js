@@ -227,7 +227,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   // them fall with gravity. Nothing radial, nothing fast.
   const splatSets = [];   // { build, lod, N, rows, tex, bodyTex, bodyData, geo, mesh, count }
   const uSize = uniform(1), uOpacity = uniform(1), uDrift = uniform(1), uFlow = uniform(1), uStreak = uniform(0);
-  const uLit = uniform(new THREE.Vector3(...palLin('cal-foc', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.45 + palLin('cal-foc')[i] * 0.4)));   // terracota, desaturated towards the lime
+  const uLit = uniform(new THREE.Vector3(...palLin('cal-foc', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.22 + palLin('cal-foc')[i] * 0.5)));   // terracota, desaturated towards the lime
   const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
@@ -368,7 +368,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const headK = float(1).sub(step(0.25, AX.x)).mul(step(1.35, pl.y));                // the head: no dark band under the jaw, no bulb on top
     // the core is volume: it takes the light of a normal turned half towards the eye (no dark specks from inner points of the far side)
     const nL = normalize(mix(nW, toCam, core.mul(0.55)));
-    const lk = clamp(dot(nL, Lk).mul(0.62).add(0.38), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.4)).min(mix(float(1), float(0.72), headK));   // the head never brighter than the torso
+    const lk0 = clamp(dot(nL, Lk).mul(0.62).add(0.38), 0, 1);   // one clean tone: no per-splat AO noise; far bodies a little smoother (no mottling)
+    const lk = (lod === 0 ? lk0 : mix(lk0, float(0.55), 0.2)).max(headK.mul(0.4)).min(mix(float(1), float(0.72), headK));   // the head never brighter than the torso
     const ramp = mix(mix(uSAmb, uHalf, smoothstep(0.06, 0.42, lk)), uLit, smoothstep(0.42, 0.92, lk)).mul(B2.xyz);
     let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(lod === 0 ? 1.4 : 2.0))).mul(uSKey);   // far: more contrast, so overlapping bodies part by light and shadow
     colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer
