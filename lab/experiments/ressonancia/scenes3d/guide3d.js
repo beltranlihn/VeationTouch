@@ -609,6 +609,15 @@ export function createGuide({ THREE, TSL, room, fine = false, rings = false, gho
         const o = OBST.find((q) => q.wall === w && (q.y1 || 0) > 2.0);
         if (o) { const l = o.x - o.half - 1.2, r = o.x + o.half + 1.2; side = Math.abs(l) <= lim && (Math.abs(l) <= Math.abs(r) || Math.abs(r) > lim) ? l : Math.abs(r) <= lim ? r : clamp(l, -lim, lim); }
         else side = Math.min(2.1, lim);
+      } else {   // the other cards: the clearest of centre / left / right, away from pillars and the parts' heroes above 1.6 m
+        const Wd = room.walls[w].width, lim = Wd / 2 - 1.3 - 0.45, TT = Array.isArray(S.targets) ? S.targets : [];
+        let bs = -1e9;
+        for (const [k, c0] of [0, -1.8, 1.8].entries()) {
+          const x = clamp(c0, -lim, lim); let gap = 9;
+          for (const g of TT) if (g.wall === w && (PILLAR.has(g.kind) || (g.y || 1.2) + (g.r || 0.22) > 1.6)) gap = Math.min(gap, Math.abs((typeof g.dx === 'number' ? g.dx : g.s - lineS0[w] - Wd / 2) - x) - 1.3 - (g.r || 0.22));
+          for (const o of OBST) if (o.wall === w && (o.y1 ?? 3) > 1.6) gap = Math.min(gap, Math.abs((o.x || 0) - x) - 1.3 - (o.half || 0.5));
+          const sc = Math.min(gap, 0.3) - k * 0.05; if (sc > bs) { bs = sc; side = x; }
+        }
       }
       P.mesh.position.copy(cardBase[w].position).addScaledVector(rightOf[w], side).setY(y);
     });
