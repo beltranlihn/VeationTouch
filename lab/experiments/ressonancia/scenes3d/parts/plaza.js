@@ -1287,11 +1287,17 @@ export function create(ctx) {
     const coneG = new THREE.CylinderGeometry(0.15, 1, 1, 40, 1, true).translate(0, -0.5, 0);   // apex at 0, opening down to y = -1
     for (let i = 0; i < NSP; i++) {
       const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
-      const Vv = normalize(cameraPosition.sub(positionWorld)), Nn = normalize(normalWorld);
-      const along = clamp(positionLocal.y.negate(), 0, 1);                      // 0 at the lamp … 1 at the far end
-      const core = pow(abs(dot(Nn, Vv)), 3.0);   // a defined beam: bright core, quick fall-off to the rim                                    // bright through the middle, soft at the rim
+      // AD#11: a VOLUMETRIC gaussian beam, the same from any angle — the distance between the view ray and the beam's axis, against the
+      // beam's radius there (the old Fresnel core turned narrow cones into hard-edged bright slabs)
+      const bS = uniform(new THREE.Vector3()), bD = uniform(new THREE.Vector3(0, -1, 0)), bT = uniform(0.05), bL = uniform(10);
+      const E0 = cameraPosition, Vr = normalize(positionWorld.sub(E0)), w0 = E0.sub(bS);
+      const bb = dot(Vr, bD), dd = dot(Vr, w0), ee = dot(bD, w0), den = max(float(1).sub(bb.mul(bb)), 1e-4);
+      const sc = bb.mul(ee).sub(dd).div(den), tc = ee.sub(bb.mul(dd)).div(den);
+      const rr = length(E0.add(Vr.mul(sc)).sub(bS.add(bD.mul(tc)))), Rb = max(tc.mul(bT), 0.05);
+      const prof = exp(rr.div(Rb).pow(2).mul(-2.2)).mul(smoothstep(0.0, 1.5, tc)).mul(float(1).sub(smoothstep(bL.mul(0.8), bL, tc))).mul(mix(1.0, 0.5, clamp(tc.div(bL), 0, 1)));
       const breathe = sin(uTime.mul(0.35).add(i * 1.7)).mul(0.12).add(0.88);
-      m.colorNode = SPC.mul(core.mul(smoothstep(0.0, 0.08, along)).mul(float(1).sub(smoothstep(0.75, 1.0, along))).mul(mix(1.0, 0.45, along))).mul(uFest).mul(0.03).mul(uShaftK).mul(breathe);
+      m.colorNode = SPC.mul(prof).mul(uFest).mul(0.05).mul(uShaftK).mul(breathe);
+      m.userData.beam = { bS, bD, bT, bL };
       const cone = new THREE.Mesh(coneG, m); cone.renderOrder = 6; cone.frustumCulled = false;
       shafts.add(cone);
     }
@@ -1319,7 +1325,8 @@ export function create(ctx) {
       _sd.copy(_sf).sub(_ss).normalize();
       spotP[i].set(_ss.x, _ss.y, _ss.z, (cross ? SPOT_K * 1.6 : SPOT_K * 1.4) * (crown ? 1.4 : 1));   // the beams read by their shafts (×2), the pools stay small spotD[i].set(_sd.x, _sd.y, _sd.z, Math.cos(A));
       const len = _ss.distanceTo(_sf) * (cross ? 1.12 : 1.05), rad = len * Math.tan(AV);   // the shaft ends at the tower (past it, the cone came towards the eye: a veil)
-      c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad, len, rad);
+      c.visible = true; c.position.copy(_ss); c.quaternion.setFromUnitVectors(_yN, _sd); c.scale.set(rad * 2.5, len, rad * 2.5);   // the mesh only holds the volume
+      const bm = c.material.userData.beam; if (bm) { bm.bS.value.copy(_ss); bm.bD.value.copy(_sd); bm.bT.value = Math.tan(AV); bm.bL.value = len; }
     }
     uNSP.value = n; uSpotC.value.fromArray(cross ? TRONC_C : PINYA_C); uShaftK.value = cross ? 2.2 : 1.0;
   }
