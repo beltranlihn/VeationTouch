@@ -1,5 +1,17 @@
 // Ressonància — 3D part "brasa3d": I. Brasa, the FIRE universe (contract: ../PARTS.md, chapter in ../../GUION.md).
 //
+// T-063 «fuego esculpido» (ARTE-BRASA.md; backup brasa3d.T063.js.bak): one protagonist per wall and a clean world.
+//   brasa3d/foguera.js  the foguera (10 cut-paper shells, fake museum light, only the core glows) on a terraced charcoal islet with ONE
+//                       lava vein, 3.3 m beyond each wall's centre, mirrored in the water. Contour lines (the islet's cut edges + fine
+//                       lines on the water) are 8 % ember at rest and run with light from contour pulses: a landing hand, the relay's
+//                       feet, the call's tok·tok·TOK (2 m, 2 m, the whole room); waves light them through the heat field. A held hand
+//                       opens the shells on its side and raises the lava; the TOK opens them all.
+//   brasa3d/fons.js     «la plaça»: a Catalan square in 4 cut-out planes (12/16/20/26 m), lit only from below, with its own sky.
+//   brasa3d/diables.js  DIA's sculpted correfocs (T-064); params.useOldDevils = true brings back the particle devils below.
+//   Switches: params.foguera / fons / fogHalo / contours (false = off), vases / flames / smoke / hazeSprites / dust (default off now:
+//   the chrome drops, sprite flames, smoke, haze sprites and background dust are gone), oldShards / oldTiles (the big red plates).
+//   The sections below are unchanged unless marked T-063.
+//
 // What it draws (everything emissive; the room host does bloom + ACES)
 //   The ember ring   a bed of coals on the square's floor all round the room, 4–8 m beyond the walls (one mesh, radial from the eye,
 //                    so it is continuous across the corners and the strip's ends). Coals = world-space noise (lumps, glowing cracks,
@@ -33,6 +45,10 @@
 //   params.waveEvery (s, automatic waves), params.autoWave (two hands within 0.9 s make a wave, as the score does).
 // Sizes in metres; nothing allocated per frame; no readPixels.
 
+import { createFoguera, FOG_D } from './brasa3d/foguera.js';
+import { createFons } from './brasa3d/fons.js';
+import { createDiables } from './brasa3d/diables.js';
+
 const NC = 512;                         // heat cells round the perimeter
 const NSP = 131072;                     // sparks
 const MAXE = 64;                        // emitters per frame
@@ -53,7 +69,7 @@ export function create({ THREE, TSL, room, params }) {
     Fn, uniform, uniformArray, instancedArray, instanceIndex, attribute, varying, positionWorld, positionGeometry, uv, texture,
     vec2, vec3, vec4, float, int, uint, If, Loop, sin, cos, exp, mix, clamp, smoothstep, max, min, abs, sqrt, floor, fract, pow,
     dot, normalize, length, select, hash, modelViewMatrix, cameraProjectionMatrix, cameraWorldMatrix, cameraPosition, Discard,
-    mx_noise_float, mx_fractal_noise_float, cross, reflect, step, atan,
+    mx_noise_float, mx_fractal_noise_float, cross, reflect, step, atan, fwidth,
   } = TSL;
   const object = new THREE.Group();
   object.name = 'brasa3d';
@@ -220,6 +236,18 @@ export function create({ THREE, TSL, room, params }) {
   // quaternion rotation (tiles)
   const rotQ = (q, v) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2.0));
 
+  // ------------------------------------------------------------------------------------------------ 0. T-063: the foguera, its islet, la plaça
+  // (brasa3d/foguera.js, brasa3d/fons.js; ARTE-BRASA §a §d §f). Built first: the floor's contour lines share the foguera's pulses.
+  const T63 = { fog: P.foguera !== false, fons: P.fons !== false, halo: P.fogHalo !== false, cont: P.contours !== false };   // T-063 pieces (each can be switched off)
+  const fog = !T63.fog ? null : createFoguera({ THREE, TSL, room, U, world, ringPoint, hearthS, heatSample, mirP, CHROME, eye });
+  const fons = !T63.fons ? null : createFons({ THREE, TSL, room, U, world, ringPoint, heatSample, mirP, eye });
+  const fogHalo = [];
+  if (T63.halo && fog && room.makeHalo && room.placeHalo) for (const c of fog.centres) {   // the warm halo behind each foguera (ARTE-BRASA §b: #3A1A0E, r 2 m)
+    const h = room.makeHalo({ color: [1, 0.42, 0.2], radius: 2.4, intensity: 0 }); world.add(h.mesh);
+    room.placeHalo(h, c, 1.5); fogHalo.push(h);
+  }
+  const CONT0 = vec3(1.0, 0.195, 0.01), CONT1 = vec3(1.0, 0.33, 0.046);          // #FF7A1A → #FF9A3D (linear)
+
   // ------------------------------------------------------------------------------------------------ 1. the floor and the ember bed
   const floorMesh = (() => {
     const sList = [];
@@ -275,7 +303,17 @@ export function create({ THREE, TSL, room, params }) {
       const cosT = max(dot(Nn, V), 0.0), F = float(0.78).add(pow(float(1).sub(cosT), 5.0).mul(0.22));
       const Pl = vec3(xz.x, 0.0, xz.y);
       const farK = float(1).sub(smoothstep(3.0, 4.5, abs(d.sub(6.0))).mul(0.5));   // far from the fire: near-black metal with silver edges
-      const liquid = envFire(Pl, R, false).mul(farK).add(skyEnv(R).mul(mix(float(0.5), float(1), farK))).mul(F).mul(CHROME).mul(U.refl).mul(float(1).sub(U.earth.mul(0.55)));
+      const liquid = envFire(Pl, R, false).mul(farK).add(skyEnv(R).mul(mix(float(0.5), float(1), farK))).mul(F).mul(CHROME).mul(U.refl).mul(float(1).sub(U.earth.mul(0.55))).toVar();
+      // T-063 (ARTE-BRASA §a §d, ref 06): fine contour lines on the water, 8 % ember at rest; hands, the relay's feet and the call
+      // run light along them (fog.pulseT); waves through the heat field. 1–1.5 px (fwidth), faded where they would crowd.
+      if (T63.cont) If(d.lessThan(13.0).and(d.greaterThan(0.6)), () => {
+        const lvl = mx_noise_float(vec3(xz.x.mul(0.15), 1.7, xz.y.mul(0.15))).add(mx_noise_float(vec3(xz.x.mul(0.41), 5.3, xz.y.mul(0.41))).mul(0.3)).mul(6.0);
+        const dl = abs(fract(lvl.add(0.5)).sub(0.5)), fw = fwidth(lvl);
+        const line = float(1).sub(smoothstep(fw.mul(0.55), fw.mul(1.25), dl)).mul(smoothstep(0.4, 0.18, fw));
+        const pu = fog ? fog.pulseT(xz) : float(0);
+        const k = float(0.08).add(pu).add(hs.r.mul(4 * 0.12)).add(hs.g.mul(4 * 0.25)).mul(smoothstep(0.6, 1.4, d)).mul(smoothstep(13.0, 9.0, d));
+        liquid.addAssign(mix(CONT0, CONT1, min(pu, 1.0)).mul(line).mul(k).mul(float(1).sub(U.wait)).mul(float(Number(P.contours ?? 1))));
+      });
       const island = band.mul(pud).mul(smoothstep(0.32, 0.64, coal)).mul(float(1).sub(U.wait)).add(U.wait.mul(band));
       const outC = mix(liquid, col, max(island, float(1).sub(U.chrome)));
       return outC.mul(float(1).sub(smoothstep(0.55, 1.0, U.leave)));
@@ -435,7 +473,8 @@ export function create({ THREE, TSL, room, params }) {
     [4, 6, 0.055, 0.045, 1], [5, 7, 0.055, 0.045, 1], [6, 8, 0.042, 0.032, 1.05], [7, 9, 0.042, 0.032, 1.05], [10, 11, 0.09, 0.09, 1],
     [10, 12, 0.085, 0.06, 0.95], [11, 13, 0.085, 0.06, 0.95], [12, 14, 0.058, 0.04, 0.95], [13, 15, 0.058, 0.04, 0.95], [14, 16, 0.04, 0.03, 0.9],
     [15, 17, 0.04, 0.03, 0.9], [18, 19, 0.02, 0.02, 0.3], [20, 21, 0.016, 0.016, 0.3], [3, 22, 0.03, 0.006, 1.3], [3, 23, 0.03, 0.006, 1.3]];
-  const devilMesh = (() => {
+  const useOldDevils = P.useOldDevils === true;   // T-063/T-064: the sculpted correfocs of brasa3d/diables.js (DIA); true = the particle devils below
+  const devilMesh = !useOldDevils ? [] : (() => {
     const r = rng(77), n = MAXD * PER_DEVIL;
     const aJ = new Float32Array(n * 4), aD = new Float32Array(n * 4), aS = new Float32Array(n * 4);
     const wts = BONES.map(([a, b, ra, rb]) => (a === b ? 4 * ra * ra * 3.2 : 0.4 * (ra + rb)) + 0.004);   // ~ area
@@ -483,6 +522,7 @@ export function create({ THREE, TSL, room, params }) {
     }
     return meshes;
   })();
+  const DIA = useOldDevils ? null : createDiables({ THREE, TSL, room, world, U, mirP, CHROME, fireRamp, emit, MAXD, ringPoint, eye });
   const devils = [];
   for (let i = 0; i < MAXD; i++) devils.push({ on: false, s: 0, d: DEV_D, dir: 1, spd: 0.7, age: 0, life: 8, k: 0, dis: 0, style: 0, phase: 0, wave: null, h: 1, acc: 0, born: 0, res: i >= MAXD - 4, hop: 0, gain: 1 });
   // T-056: the last 4 slots are the relay's (the runner + up to 3 that run to fetch it); spawnDevil never takes them
@@ -566,8 +606,8 @@ export function create({ THREE, TSL, room, params }) {
       const s = r() * PER, d = RING0 - 0.2 + (RING1 - RING0 + 0.4) * r();
       ringPoint(s, d, _v);
       aRest[i * 4] = _v.x; aRest[i * 4 + 1] = 0.015 + r() * 0.03; aRest[i * 4 + 2] = _v.z; aRest[i * 4 + 3] = s;
-      const big = r() < 0.12 ? 1.8 : 1;
-      aSd[i * 4] = (0.07 + 0.22 * r() * r()) * big; aSd[i * 4 + 1] = r(); aSd[i * 4 + 2] = r(); aSd[i * 4 + 3] = r();
+      const big = P.oldShards ? (r() < 0.12 ? 1.8 : 1) : 1;   // T-063 (ARTE-BRASA §a): embers ≤ 6 cm, no red plates
+      aSd[i * 4] = P.oldShards ? (0.07 + 0.22 * r() * r()) * big : 0.025 + 0.035 * r() * r(); aSd[i * 4 + 1] = r(); aSd[i * 4 + 2] = r(); aSd[i * 4 + 3] = r();
       aFl[i * 4] = Math.min(0.97, ignTh(s) + 0.02 + r() * 0.1);                    // lands when its stretch of the ring catches
       aFl[i * 4 + 1] = 6 + r() * 12;                                               // starts this high
       aFl[i * 4 + 2] = (r() - 0.5) * 3; aFl[i * 4 + 3] = (r() - 0.5) * 3;          // drift while falling
@@ -696,7 +736,7 @@ export function create({ THREE, TSL, room, params }) {
   // Drawn as one instanced slab (per-instance position/scale, quaternion, state from the CPU each frame) + its mirror in the liquid.
   const NT = 240, ND = 220;
   const tA = new Float32Array(NT * 4), tQ = new Float32Array(NT * 4), tS = new Float32Array(NT * 4);
-  const GLAZE = [[0.024, 0.006, 0.004], [0.03, 0.008, 0.005], [0.04, 0.011, 0.006], [0.026, 0.007, 0.004], [0.022, 0.012, 0.01]];   // crust #2A0C08   // crust #2A0C08, a few with red glaze
+  const GLAZE = P.oldTiles ? [[0.024, 0.006, 0.004], [0.03, 0.008, 0.005], [0.04, 0.011, 0.006], [0.026, 0.007, 0.004], [0.022, 0.012, 0.01]] : [[0.016, 0.014, 0.013], [0.012, 0.011, 0.01], [0.02, 0.017, 0.015], [0.014, 0.012, 0.011], [0.018, 0.012, 0.01]];   // T-063: charcoal   // crust #2A0C08   // crust #2A0C08, a few with red glaze
   const glazeT = (k) => { let c = vec3(...GLAZE[0]); for (let i = 1; i < GLAZE.length; i++) c = select(k.greaterThan(i - 0.5), vec3(...GLAZE[i]), c); return c; };
   // a hot surface lit by the fire: the light from the ring (out and down), from the liquid below, and its glossy reflection
   const glossEnv = (P, R) => envFire(P, R, false).add(skyEnv(R)).mul(select(R.y.greaterThan(0), float(1), float(0)))
@@ -880,6 +920,8 @@ export function create({ THREE, TSL, room, params }) {
     }
   }
 
+
+  farGroup.visible = P.vases === true;   // T-063 (ARTE-BRASA §a §f): the chrome drops are replaced by la plaça (brasa3d/fons.js); params.vases = true brings them back
 
   // ------------------------------------------------------------------------------------------------ 5e. low haze over the liquid (T-029)
   // 320 wide, flat, soft sprites 9–45 m out, 0.2–2.6 m over the liquid, drifting slowly round; lit red by the fire (stronger near the
@@ -1110,6 +1152,7 @@ export function create({ THREE, TSL, room, params }) {
   }
 
   // ---- T-029: the liquid, the tiles, the drops (CPU)
+  let prevCt = -99, tokNow = false, relayPulseT = 0;
   const HANG = 0, _cw = [0, 0, 0, 0]; let callOnK = 0, nHang = 0, farAcc = 0, lift = 0, liftV = 0, splashN = 0, trailT = 0, impacts = 0;
   const fx = []; for (let i = 0; i < 16; i++) fx.push({ t: -1, wall: 0, u: 0, force: 0 });   // 'fx:impact' for the sound (wave 2)
   let fxI = 0;
@@ -1134,7 +1177,7 @@ export function create({ THREE, TSL, room, params }) {
     t.pos.copy(t.rest); t.pos.y -= lift; t.vel.set(0, 0, 0);
     t.q.setFromAxisAngle(_ax.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(), Math.random() * 6.3);
     t.w.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(0.12 + 0.4 * Math.random());
-    { const z = Math.random(); t.scale = z < 0.15 ? 0.26 + 0.1 * Math.random() : z < 0.5 ? 0.13 + 0.07 * Math.random() : 0.06 + 0.04 * Math.random(); }   // 1 : 3 : 9
+    { const z = Math.random(); t.scale = !P.oldTiles ? 0.035 + 0.03 * z : z < 0.15 ? 0.26 + 0.1 * Math.random() : z < 0.5 ? 0.13 + 0.07 * Math.random() : 0.06 + 0.04 * Math.random(); }   // T-063: chips ≤ 6 cm (was 1 : 3 : 9 up to 36 cm)
     t.mode = 1; t.heat = 0.15; t.delay = 0; t.bounced = 0; t.seed = Math.random(); t.glaze = Math.floor(Math.random() * 5);
     t.appear = 0.15 + 0.8 * Math.random(); t.born = time;
   }
@@ -1321,6 +1364,7 @@ export function create({ THREE, TSL, room, params }) {
       if (cornerEv) { let bi = 0, bd = 1e9; for (let i = 0; i < NW; i++) { const d = Math.abs(wrapC(RL.s - cum[i])); if (d < bd) { bd = d; bi = i; } } cornerFlare(bi, time); }
       RL.vel += (ds / Math.max(dt, 1e-3) - RL.vel) * (1 - Math.exp(-dt / 0.25));
       runner.s = RL.s; runner.d = dR;
+      relayPulseT -= dt; if (relayPulseT <= 0) { relayPulseT = 0.3; ringPoint(RL.s, dR, _v); fog?.pulse(_v.x, _v.z, 1.0, time); }   // T-063: the contours light under its feet
       if (Math.abs(RL.vel) > 0.1) runner.dir = RL.vel > 0 ? 1 : -1;
       runner.spd = Math.min(3.4, Math.abs(RL.vel) * (1 + dR / 3.5));   // the gait: world speed
       RL.trailK = Math.min(1, RL.trailK + dt / 0.8);
@@ -1432,6 +1476,7 @@ export function create({ THREE, TSL, room, params }) {
         slot.flash = cont ? slot.flash : 1; slot.jet = cont ? 0 : 0.6;
         if (!cont) {
           newDown = true;
+          ringPoint(s0, 5.0, _v); fog?.pulse(_v.x, _v.z, 2.5, time);   // T-063: the contour lines nearest the hand light up
           { const W = walls[h.wall]; _v.copy(h.pos).addScaledVector(W.normal, -0.5); addRipple(_v.x, _v.z, 0.014, time); }
           const n = h.normal, wk = 1 - 0.75 * waitK;
           emit(Math.max(24, 60 * gH) * wk, h.pos.x - n.x * 0.03, h.pos.y - lift, h.pos.z - n.z * 0.03, 0.03, -n.x * 0.4, 0.9, -n.z * 0.4, 0.8, 1.0, 3.0, 0.4, 0.9, 1.6, 0.6, 1.2);   // a small burst at the hand, at once
@@ -1511,6 +1556,13 @@ export function create({ THREE, TSL, room, params }) {
         const n = Math.round(Number(P.call)), per = 4; ct = ((time % per) + per) % per - 2.4; gap = 0.8; on = 1;
         if (n >= 3) cw[0] = cw[1] = cw[2] = cw[3] = 1; else { cw[1] = 1; if (n === 2) cw[3] = 0.5; }
       }
+      // T-063 (ARTE-BRASA §d): tok · tok · TOK run from every foguera along the contour lines (2 m, 2 m, the whole room); the TOK opens the shells
+      tokNow = false;
+      if (on) for (const th of [-2 * gap, -gap, 0]) if (prevCt < th && ct >= th && ct - prevCt < 1) {
+        if (fog) for (const c of fog.centres) fog.pulse(c.x, c.z, th === 0 ? 40 : 2, time);
+        if (th === 0) tokNow = true;
+      }
+      prevCt = on ? ct : -99;
       callOnK += ((on ? 1 : 0) - callOnK) * (1 - Math.exp(-dt / 0.3));
       U.callT.value = ct; U.callGap.value = gap; U.callOn.value = callOnK * (1 - leave); U.callW.value.set(cw[0], cw[1], cw[2], cw[3]);
     }
@@ -1553,7 +1605,7 @@ export function create({ THREE, TSL, room, params }) {
     cool += (coolT - cool) * (1 - Math.exp(-dt * 2));
 
     // ---- ambient sparks off the ring, the awake column, the leave motes, the landing puffs
-    farAcc += dt * 16 * arrive * (1 - waitK) * (1 - leave) * (0.4 + 0.6 * level);   // a few embers drifting up in the depth (12–40 m out)
+    farAcc += dt * 16 * Number(P.dust ?? 0) * arrive * (1 - waitK) * (1 - leave) * (0.4 + 0.6 * level);   // a few embers drifting up in the depth (12–40 m out)
     while (farAcc >= 1) { farAcc -= 1; ringPoint(Math.random() * PER, 12 + Math.random() * 28, _v); emit(3, _v.x, 0.2 + Math.random() * Math.random() * 9, _v.z, 0.6, 0, 1, 0, 0.6, 0.2, 0.9, 5, 9, 1.5, -0.14, 0.5); }   // embers drifting high in the depth: the upper half lives
     if (waitK > 0.5) {                                              // the wait: now and then a single ember leaves the line
       ambAcc += dt * 2.5 * waitK;
@@ -1612,6 +1664,7 @@ export function create({ THREE, TSL, room, params }) {
       if (dv.dis >= 1) { dv.on = false; ds.set(0, 0, 0, 0); continue; }
       const tw = ringPoint(dv.s, dv.d, _v2);
       if (!dv.res) dv.s += dv.dir * dv.spd * dt * tw / (tw + dv.d);      // spd is metres per second on the square's floor (the relay's devils are moved by stepRelay)
+      if (DIA) { addHeat(dyn, dv.s, dt * 0.5, 0.7); continue; }           // T-064: DIA owns gait, pose and the carretilles
       dv.stride = Math.min(0.55, 0.16 + dv.spd * 0.12);
       dv.phase += dt * Math.PI * 2 * Math.min(3.0, Math.max(1.3, 0.9 + dv.spd * 0.6));
       pose(dv, time);
@@ -1632,8 +1685,15 @@ export function create({ THREE, TSL, room, params }) {
       }
     }
 
+    if (DIA) DIA.update(dt, time, devils);
+
     // ---- the tiles and drops
     stepTiles(dt, time, arrive, leave);
+    // ---- T-063: the foguera (hands open it, the lava rises, the TOK), la plaça
+    fog?.update(dt, time, waitK < 0.5 ? hs : [], walls, cum, tokNow ? 1 : 0);
+    fons?.update(dt, tokNow);
+    { const on = waitK < 0.98; if (fog) for (const m of fog.meshes) m.visible = on; if (fons) for (const m of fons.meshes) m.visible = on;
+      const hk = 0.08 * (1 - waitK) * clamp01((arrive - 0.2) / 0.6) * (1 - clamp01((leave - 0.2) / 0.5)); for (const h of fogHalo) { h.set({ intensity: hk }); h.mesh.visible = hk > 0.002; } }
 
     // ---- the heat field -> texture
     const kd = Math.exp(-dt / 3.2), kf = Math.exp(-dt / 0.7);
@@ -1646,10 +1706,10 @@ export function create({ THREE, TSL, room, params }) {
     // ---- uniforms
     U.time.value = time % 3000; U.dt.value = dt; U.level.value = level; U.arrive.value = arrive; U.leave.value = leave;
     U.contract.value = contract; U.cool.value = cool; U.earth.value = Math.max(contract, smoother(leave / 0.5)); U.awake.value = awakeEnv * (1 - cool);
-    U.flames.value = Number(P.flames ?? 1); U.heat.value = Number(P.heat ?? 1); U.devils.value = Number(P.devils ?? 1) * (0.35 + 0.65 * crowdK);
+    U.flames.value = Number(P.flames ?? 0); for (const m of flameMesh) m.visible = U.flames.value > 0;   // T-063: no sprite flames (ARTE-BRASA §b NUNCA) U.heat.value = Number(P.heat ?? 1); U.devils.value = Number(P.devils ?? 1) * (0.35 + 0.65 * crowdK);
     // (a crowd: the devils dimmer; the bed too, so many hands are no brighter than ~4)
     U.crowd.value = 0.6 + 0.4 * crowdK;
-    U.haze.value = Number(P.haze ?? 1); U.wait.value = waitK; U.breath.value = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(breathPh * Math.PI * 2)); U.smoke.value = Math.max(0, Number(P.smoke ?? 1)); smokeMesh.visible = U.smoke.value > 0;
+    U.haze.value = Number(P.haze ?? 1); U.wait.value = waitK; U.breath.value = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(breathPh * Math.PI * 2)); U.smoke.value = Math.max(0, Number(P.smoke ?? 0)); hazeMesh.visible = Number(P.hazeSprites ?? 0) > 0;   // T-063: no smoke, no haze sprites smokeMesh.visible = U.smoke.value > 0;
     updatePlumes(time, level * (1 - cool * 0.5), arrive);
     U.chrome.value = Math.max(0, Number(P.chrome ?? 1)) * (1 - 0.85 * waitK);
     U.refl.value = Math.max(0, Number(P.reflect ?? 1)) * smoother(arrive / 0.6) * (1 - 0.7 * waitK);
@@ -1664,12 +1724,13 @@ export function create({ THREE, TSL, room, params }) {
     room.renderer.compute(sparkCompute);
   }
 
-  if (typeof window !== 'undefined') window.__brasa = { breath: () => U.breath.value, wait: () => waitK, puffs: () => puffCount, roots: () => devils.map((d, i) => (d.on && d.dis === 0 ? [i, JV[i * NJ].x, JV[i * NJ].z, d.wave ? 1 : 0] : null)).filter(Boolean), devils: () => devils.filter((d) => d.on).length, callT: () => U.callT.value, lift: () => lift, impacts: () => impacts, fx: () => fx.filter((f) => f.t >= 0), tiles: () => tiles.reduce((a, t) => { a[t.mode]++; return a; }, [0, 0, 0, 0, 0]), waves: () => waves.filter((w) => w.on).length, emitters: () => nE, white: () => whiteN, relay: () => ({ on: RL.on, s: RL.s, hop: RL.hopK < 1, jumps: RL.jumps, corners: RL.corners, assist: RL.assist, lap: lapCells.reduce((a, b) => a + b, 0) / NC, full: RL.full, helpers: [1, 2, 3].filter((j) => devils[MAXD - 1 - j].on).length }) };
+  if (typeof window !== 'undefined') window.__brasa = { breath: () => U.breath.value, wait: () => waitK, puffs: () => puffCount, roots: () => devils.map((d, i) => (d.on && d.dis === 0 ? (DIA ? (DIA.root(i, _v), [i, _v.x, _v.z, d.wave ? 1 : 0]) : [i, JV[i * NJ].x, JV[i * NJ].z, d.wave ? 1 : 0]) : null)).filter(Boolean), devils: () => devils.filter((d) => d.on).length, callT: () => U.callT.value, lift: () => lift, impacts: () => impacts, fx: () => fx.filter((f) => f.t >= 0), tiles: () => tiles.reduce((a, t) => { a[t.mode]++; return a; }, [0, 0, 0, 0, 0]), waves: () => waves.filter((w) => w.on).length, emitters: () => nE, white: () => whiteN, relay: () => ({ on: RL.on, s: RL.s, hop: RL.hopK < 1, jumps: RL.jumps, corners: RL.corners, assist: RL.assist, lap: lapCells.reduce((a, b) => a + b, 0) / NC, full: RL.full, helpers: [1, 2, 3].filter((j) => devils[MAXD - 1 - j].on).length }) };
   return {
     object,
     update,
     setParams(p) { if (p && p !== P) Object.assign(P, p); },
     dispose() {
+      fog?.dispose(); fons?.dispose(); DIA?.dispose(); for (const h of fogHalo) h.mesh.material.dispose();
       for (const m of [floorMesh, ...flameMesh, ...sparkMesh, ...devilMesh, shardMesh, smokeMesh, airMesh, ...tileMesh, ...dropMesh, ...farMesh, hazeMesh]) { m.geometry.dispose(); m.material.dispose(); }
       for (const h of heroHalo) h.mesh.material.dispose();   // (the halo's plane is the room's, shared)
       heatTex.dispose();

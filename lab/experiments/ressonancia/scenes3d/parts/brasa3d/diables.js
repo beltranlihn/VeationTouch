@@ -2,9 +2,10 @@
 //
 // What it is (spec: lab/estudio/ARTE-BRASA.md §c): a readable fire devil of 1.75 m (1.85 m with the horns), drawn as a SCULPTED body,
 // not a cloud. Per figure:
-//   Body       26 tapered capsules on a procedural 30-joint skeleton (CPU): torso, hood with a peak, two 12 cm horns (two segments
-//              each, curving out and up), a coat to mid-leg, arms, legs, feet; charcoal #23201E, lit by the cold rim #9FB4C8 (true
-//              from every wall camera) and by its own fire (the carretilles above it, the ember ring below), with thin glowing seams.
+//   Body       26 tapered capsules on a procedural 30-joint skeleton (CPU): torso, hood with a peak, two 14 cm horns (two segments
+//              each, curving out and up, warming to the tip), two slit ember eyes, a coat to mid-leg (open hem), arms, legs, feet;
+//              charcoal #23201E, lit by the cold rim #9FB4C8 (true from every wall camera) and by its own fire (the carretilles
+//              above it, the ember ring below), with thin glowing seams.
 //              The forca (2.1 m, held at 60–75° over the head, a V of two prongs) and the two carretilles (Ø 8 cm, white-hot) are
 //              capsules of the same mesh.
 //   Needles    3 000 oriented needles (ref 07/08) of 3–5 cm on the body's surface, combed upward and back by the run, glowing
@@ -21,9 +22,9 @@
 //              body will be at mid-stance), two-bone IK legs and arms, torso 12° forward (more when running), knees bent, a full
 //              turn on the spot every 4–5 s with the forca up; facing eased from the real velocity; the relay's leap (slot.hop)
 //              tucks the legs. Everything eased; nothing jitters.
-//   Arrive / leave   ASSEMBLE from embers (the needles fly in from the floor, the body grows from the feet up, the tongues grow);
-//              DISSOLVE into sparks (the top first: the body thins with a burning edge, every tongue peels off, the needles lift
-//              up and apart, a last flash of the carretilles).
+//   Arrive / leave   ASSEMBLE from embers (the needles fly in from the floor, the body builds from the feet up behind a burning
+//              front 15 % of its height wide, the tongues grow); DISSOLVE into sparks (the top first: the front sinks from the
+//              horns, every tongue peels off, the needles lift up and apart, a last flash of the carretilles).
 // Reflection: everything is drawn a second time through `mirP` (BRA's liquid chrome): the solid parts as a transparent copy
 // (opacity 0.6 · U.refl, tinted by CHROME) so they draw OVER the floor (which writes no depth), the light parts additive.
 //
@@ -127,10 +128,10 @@ export function createDiables(ctx) {
   // the body's build / burn factor at a point (assemble from the feet up, dissolve from the top down) and its burning edge
   const bodyGrow = (py, ds, h) => {
     const yRel = clamp(py.sub(ds.w).div(h.mul(1.85)), 0, 1);
-    const eA = clamp(ds.x.mul(1.5).sub(yRel.mul(0.5)), 0, 1);
-    const vD = clamp(ds.y.mul(1.7).sub(float(1).sub(yRel).mul(0.7)), 0, 1);
+    const eA = clamp(ds.x.mul(1.35).sub(0.12).sub(yRel).div(0.15), 0, 1);          // a front rising from the feet (15 % of the height wide)
+    const vD = clamp(yRel.sub(float(1.1).sub(ds.y.mul(1.35))).div(0.15), 0, 1);    // a front sinking from the horns
     const g = smoothstep(0, 1, eA).mul(float(1).sub(smoothstep(0, 1, vD)));
-    return { g, edge: float(1).sub(g).mul(select(g.greaterThan(0.001), float(1), float(0))), vD, yRel };
+    return { g, edge: g.mul(float(1).sub(g)).mul(4.0), vD, yRel };                 // edge: the burning band at the front
   };
   // a surface point of a segment: t along, th round, c = polar cos on the caps / spheres
   const surface = (A, B, fr, t, th, c, rad) => {
@@ -198,6 +199,7 @@ export function createDiables(ctx) {
     m.positionNode = pf;
     const vN = varying(mirror ? vec3(nL.x, nL.y.negate(), nL.z) : nL), vW = varying(modelWorldMatrix.mul(vec4(pf, 1)).xyz);
     const vLoc = varying(vec3(positionGeometry.x.mul(rad), t.mul(fr.L).add(cap.mul(rad)), positionGeometry.z.mul(rad)).add(vec3(K4.z.mul(3.7), df.w.mul(11.0), 0)));
+    const vGeo = varying(vec4(positionGeometry.x, cap, positionGeometry.z, K4.z));   // the head's own sphere (segment 3: the eyes)
     const vTop = varying(uJ.element(int(K4.x.mul(NJ).add(19))).xyz.sub(p));   // to the forca's top (the carretilles' light)
     const vK = varying(vec4(K4.y, gr.edge, ds.z, select(J4.w.lessThan(0.01), t, t.mul(0.4))));   // w: along the horn (0 base … 1 tip)
     m.colorNode = (() => {
@@ -215,11 +217,14 @@ export function createDiables(ctx) {
       c = c.add(C.rim.mul(rimT).mul(0.3));
       c = c.add(mix(C.lavaEdge, C.lavaMid, pulse).mul(seam).mul(0.28).mul(select(kind.lessThan(0.5), float(1), float(0))));
       c = c.add(C.lavaMid.mul(flashN(vW)).mul(rimT).mul(0.5));
+      const gd = normalize(vGeo.xyz.mul(vec3(1, 2.6, 1))), onHead = select(abs(vGeo.w.sub(3)).lessThan(0.5), float(1), float(0));   // two ember eyes under the hood
+      const eyes = max(smoothstep(0.978, 0.992, dot(gd, normalize(vec3(0.9, 0.2, 0.4)))), smoothstep(0.978, 0.992, dot(gd, normalize(vec3(0.9, 0.2, -0.4)))));
+      c = c.add(mix(C.lavaMid, C.lavaCore, eyes).mul(eyes.mul(onHead).mul(1.2)));
       const forca = vec3(0.035, 0.022, 0.016).add(C.rim.mul(rimT).mul(0.35)).add(warm.mul(fireLight).mul(0.2));
       const hot = C.sparkHot.mul(sin(U.time.mul(47.0)).mul(0.15).add(2.6));
       const horn = C.char.mul(0.8).add(C.rim.mul(rimT).mul(0.6)).add(warm.mul(fireLight).mul(0.15)).add(mix(C.lavaEdge, C.lavaMid, vK.w).mul(0.35));
       c = select(kind.lessThan(0.5), c, select(kind.lessThan(1.5), forca, select(kind.lessThan(2.5), hot, horn)));
-      c = c.add(C.lavaMid.mul(vK.y).mul(2.2));                                                                     // the burning edge (assemble / dissolve)
+      c = c.add(mix(C.lavaMid, C.lavaCore, vK.y).mul(vK.y).mul(1.6));                                                                     // the burning edge (assemble / dissolve)
       c = c.mul(float(1).sub(U.leave.mul(0.6)));
       return mirror ? c.mul(tint) : c;
     })();
