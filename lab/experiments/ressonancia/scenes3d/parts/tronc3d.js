@@ -502,15 +502,16 @@ export function create(ctx) {
     const fx = kit.tok('faixa'), pl = kit.tok('pedra-llum'), soft = fx.map((v, i) => v * 0.68 + pl[i] * 0.32);   // the faixa a little chalked by the light
     kit.setColors({ shirt: 'porcellana', skin: ['pedra-llum', 1.02], trousers: ['pedra-llum', 0.82], faixa: soft, hair: ['tinta-ombra', 1.6], crack: 'pedra-llum', shadow: 'tinta-ombra' });
     kit.uniforms.crack.value = 0.55;
-    kit.setSplat({ lit: 'cal-foc', half: kit.tok('terracota').map((v, i) => v * 0.28 + kit.tok('cal-foc')[i] * 0.42), amb: 'tinta-ombra', contact: 1, backAO: 1 });   // one clean warm tone: the half a desaturated terracota (no «veined meat»)   // the one warm ramp (AD); dark gaps where the floors meet
+    kit.setSplat({ contact: 1, backAO: 1 });   // one clean warm tone: the half a desaturated terracota (no «veined meat»)   // the one warm ramp (AD); dark gaps where the floors meet
   }
   let lightMode = '', breathK = 0, crownT = 0, crownK = 0;
   let castMode = 'build', focusY = null;
   // the look per mode (AD #10): the Tronc / crown / bajada warm (cal-foc ramp); the Pom an almost cold silhouette in lluna — only the
   // Pom's gold light (Interacción) is warm there
-  const WARM = kit ? { lit: 'cal-foc', half: kit.tok('terracota').map((v, i) => v * 0.28 + kit.tok('cal-foc')[i] * 0.42), amb: 'tinta-ombra' } : null;
+  const WARM = kit ? { lit: 'cal-fanal', half: kit.tok('terracota').map((v, i) => v * 0.34 + kit.tok('cal-foc')[i] * 0.36), amb: ['ombra', 0.8] } : null;   // warm, one tone (no red, no grey)
   const COLD = { lit: ['lluna', 0.62], half: ['blau-hora', 0.55], amb: 'tinta' };
   function setLook(look) { if (kit) kit.setSplat(look === 'pom' ? COLD : WARM); }
+  if (kit) kit.setSplat(WARM);
   function setMode(m) { castMode = m || 'build'; if (castMode !== 'top') focusY = null; setLook(castMode === 'top' ? 'pom' : 'warm'); }
   // setFocusY(y): y in metres above the plaza floor (the tower unrisen, e.g. trunk(f).yRest): the world lowers (≤ 0.30 m/s) so that
   // height sits at the eye's level, in the reach band; null gives the ground back
