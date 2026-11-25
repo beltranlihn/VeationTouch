@@ -88,7 +88,7 @@ function regionOf(p, headW, B) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the kit
-export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [13000, 2600, 6500], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
+export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, colors = {}, material = null, seed = 7, lods = [0, 1], builds = [0, 1, 2], render = 'splat', splats = [13000, 3000, 5500], blend: splatBlend = 'alpha', spots = null, human = true } = {}) {
   const splatOnlyLodMesh = false;
   const { attribute, uniform, vec3, vec4, float, int, ivec2, textureLoad, vertexIndex, Fn, varying, mix, sin, normalize, smoothstep, clamp,
     positionWorld, cameraViewMatrix, cameraPosition, dot, abs, pow, max: tmax, uv, length, exp } = TSL;

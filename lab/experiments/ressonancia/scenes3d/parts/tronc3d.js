@@ -508,7 +508,7 @@ export function create(ctx) {
   let castMode = 'build', focusY = null;
   // the look per mode (AD #10): the Tronc / crown / bajada warm (cal-foc ramp); the Pom an almost cold silhouette in lluna — only the
   // Pom's gold light (Interacción) is warm there
-  const WARM = kit ? { lit: 'cal-fanal', half: kit.tok('terracota').map((v, i) => v * 0.34 + kit.tok('cal-foc')[i] * 0.36), amb: ['ombra', 0.8] } : null;   // warm, one tone (no red, no grey)
+  const WARM = kit ? { lit: kit.tok('cal-fanal').map((v, i) => v * 0.72 + kit.tok('fanal')[i] * 0.28), half: kit.tok('terracota').map((v, i) => v * 0.45 + kit.tok('cal-foc')[i] * 0.25), amb: ['ombra', 0.8] } : null;   // warm enough to survive the plaza's grade (no ash grey)   // warm, one tone (no red, no grey)
   const COLD = { lit: ['lluna', 0.5], half: ['lluna', 0.34], amb: ['tinta', 0.9] };   // an almost-silhouette: lluna grey-blue, low contrast
   function setLook(look) { if (kit) kit.setSplat(look === 'pom' ? COLD : WARM); }
   if (kit) kit.setSplat(WARM);
@@ -561,7 +561,7 @@ export function create(ctx) {
         // what is drawn is what trunk() / levels() report (the Pom's climbers sit on it)
         if (c.lv > 0) { const A = t.lvAcc || (t.lvAcc = Array.from({ length: 10 }, () => [0, 0, 0, 1e9])); const a = A[c.lv]; a[0] += _bp.x; a[1] += _bp.z; a[2]++; a[3] = Math.min(a[3], _bp.y); }
         kit.set(i, { pos: [_bp.x, _bp.y, _bp.z], yaw: phi + c.yaw - ra, pose: c.pose, pose2: c.enx ? pose2 : (c.pose2 || c.pose), mix: c.enx ? (crowned ? 1 : 0) : (c.lv > 0 && S.forming && S.solid < 0.5 ? 1 : (c.mixV || 0)),
-          form: form * (1 - uAway.value), fmode, lod: c.lv > 0 && c.lv <= 3 ? 'mid' : 'far', scale: c.s * SC,   /* the trunk in mid detail (9k splats): it must read as bodies */ build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - 0.4 - c.lv * 0.36) / 0.5)) * (c.enx ? 1.6 : 1) : S.flash * 0.35,   /* the gold RISES floor by floor from the foot (0.4–4 s, with VFX's light), the enxaneta last and brightest */ tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
+          form: form * (1 - uAway.value), fmode, lod: c.lv <= 3 ? 'mid' : 'far', scale: c.s * SC,   /* the trunk in mid detail (9k splats): it must read as bodies */ build: c.build, glow: crowned ? Math.min(1, Math.max(0, (crownT - 0.4 - c.lv * 0.36) / 0.5)) * (c.enx ? 1.6 : 1) : S.flash * 0.35,   /* the gold RISES floor by floor from the foot (0.4–4 s, with VFX's light), the enxaneta last and brightest */ tint: c.tint || (c.tint = [0.9 + 0.1 * ((c.x * 13.7 + c.z * 7.1 + c.lv) % 1 + 1) % 1, 0, 0].map((v, k, a) => a[0] * (k === 2 ? 0.985 : 1))) });
       }
     }
     for (let i = n; i < kit.count; i++) kit.hide(i);
