@@ -227,8 +227,9 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   // them fall with gravity. Nothing radial, nothing fast.
   const splatSets = [];   // { build, lod, N, rows, tex, bodyTex, bodyData, geo, mesh, count }
   const uSize = uniform(1), uOpacity = uniform(1), uDrift = uniform(1), uFlow = uniform(1), uStreak = uniform(0);
-  const uLit = uniform(new THREE.Vector3(...palLin('cal-fanal').map((v, i) => v * 0.85 + palLin('terracota')[i] * 0.15))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.4 + palLin('cal-foc')[i] * 0.32)));   // warm (sheet3), the half tone a soft terracota   // terracota, desaturated towards the lime
-  const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
+  // the lit tone warm enough to stay warm through the chapters' grade and bloom; the half tone a soft terracota
+  const uLit = uniform(new THREE.Vector3(...palLin('cal-fanal').map((v, i) => v * 0.62 + palLin('fanal')[i] * 0.3))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.4 + palLin('cal-foc')[i] * 0.32)));   // warm (sheet3), the half tone a soft terracota   // terracota, desaturated towards the lime
+  const uSKey = uniform(0.88), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
   const uPalmCol = uniform(new THREE.Vector3(...palLin('cal-fanal', 0.9)));
