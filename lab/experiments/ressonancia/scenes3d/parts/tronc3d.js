@@ -465,7 +465,7 @@ export function create(ctx) {
     const r3 = rng(4401);
     // 25-11 (Art Director): the lower floors life-size in the foreground, the tower growing to ~3.4 m on the wall by COMPRESSING the
     // upper floors (a forced perspective: each tier ×PERSP), never shrinking the whole tower; no room-rise in this mode
-    const PERSP = OLD ? 1 : 0.7;
+    const PERSP = OLD ? 1 : 0.58;   // the whole 9-floor castell fits ≤ 3.4 m on the wall
     const tier = [1.05, 1.02, 1.02, 1.02, 1.02, 1.02].map((v, L) => v * Math.pow(PERSP, L));
     let feet = 0;
     for (let L = 0; L < 6; L++) {
@@ -478,7 +478,7 @@ export function create(ctx) {
     }
     const pd = Math.pow(PERSP, 6), pa = Math.pow(PERSP, 7), pe = Math.pow(PERSP, 8);
     // the pom de dalt is not compressed below a readable size (AD: the enxaneta's raised arm reads at the top, ≤ 3.4 m)
-    const sD = OLD ? 0.8 : Math.max(0.8 * pd, 0.3), sA = OLD ? 0.66 : Math.max(0.66 * pa, 0.27), sE = OLD ? 0.62 : Math.max(0.62 * pe, 0.27);
+    const sD = OLD ? 0.8 : Math.max(0.8 * pd, 0.18), sA = OLD ? 0.66 : Math.max(0.66 * pa, 0.16), sE = OLD ? 0.62 : Math.max(0.62 * pe, 0.18);
     for (const sg of [-1, 1]) CAST.push({ lv: 7, x: sg * 0.17 * Math.max(0.5, sD / 0.8), z: 0, y: feet, yaw: Math.atan2(-sg, 0), pose: 'lock', s: sD, build: 1 });
     const dsY = feet + 1.286 * sD + 0.03 * sD;
     CAST.push({ lv: 8, x: 0, z: -0.06 * sA, y: dsY, yaw: 0, pose: 'carry', s: sA, build: 2 });
@@ -540,7 +540,8 @@ export function create(ctx) {
         if (S.goneT >= 0) { form = Math.max(0, 1 - S.goneT / 1.4); fmode = 'dust'; }
         if (S.taken) { form = Math.max(0, 1 - tk / 2.5); fmode = 'light'; }
         if (c.lv === 0) form = 0.97 + 0.03 * Math.sin(time * 0.4 + c.x * 3 + c.z * 2);   // the pinya's mass breathes
-        const lx = c.x * SC, ly = (c.y + dy) * SC, lz = c.z * SC;
+        const sw = c.lv > 0 && !OLD ? Math.sin(time * 0.45 + t.tw * 1.7) * 0.012 * Math.min(1, c.y / 3) : 0;   // the trunk sways, 1–2 cm, slowly
+        const lx = (c.x + sw) * SC, ly = (c.y + dy) * SC, lz = c.z * SC;
         const tx = lx * ct - ly * st, ty = lx * st + ly * ct;                       // the lean (tower frame, about its z)
         _bp.set(t.g.position.x + cp * tx + sp * lz, ty, t.g.position.z - sp * tx + cp * lz);
         // the pinya opens towards the room: nobody of it stands in front of (or on) the wall plane — the audience is its front
@@ -661,7 +662,7 @@ export function create(ctx) {
     const evL = input.events || [], liftE = inTronc && evL.includes && evL.includes('lift');
 
     // ---- per tower
-    const showT = (i) => (structure ? !!structure[i] : i < nw);
+    const showT = (i) => (!OLD ? true : structure ? !!structure[i] : i < nw);   // 25-11 (AD): the castell on every wall, same hierarchy
     for (const t of towers) {
       t.on = showT(t.tw);
       const U = t.U;

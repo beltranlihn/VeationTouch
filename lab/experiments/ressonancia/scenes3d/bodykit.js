@@ -205,7 +205,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
     plMat.colorNode = uPool.mul(exp(d2.mul(-3.0)).sub(0.05).max(0)).mul(pa.w); }
   const plMesh = new THREE.Mesh(plGeo, plMat); plMesh.frustumCulled = false; plMesh.renderOrder = -4; plMesh.name = 'bodykit:pools'; object.add(plMesh);
-  const CS = room?.contactShadows ? room.contactShadows(max) : null;   // the room's contact discs (the chapter's shadow colour); the kit draws the cast
+  const CS = room?.contactShadows ? room.contactShadows(max, { color: 'tinta' }) : null;   // the room's contact discs (the chapter's shadow colour); the kit draws the cast
   if (CS) object.add(CS.mesh);
   let csUsed = 0, fakeCast = false;   // 25-11 (AD): no fake cast shadow — a warm light pool + the dark contact disc
   // 'self': lit by the kit alone (no scene light) + its own soft cast shadow · 'scene': a chapter with a real key and shadow map (the
@@ -227,7 +227,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   // them fall with gravity. Nothing radial, nothing fast.
   const splatSets = [];   // { build, lod, N, rows, tex, bodyTex, bodyData, geo, mesh, count }
   const uSize = uniform(1), uOpacity = uniform(1), uDrift = uniform(1), uFlow = uniform(1), uStreak = uniform(0);
-  const uLit = uniform(new THREE.Vector3(...palLin('cal-foc', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota', 1.0)));
+  const uLit = uniform(new THREE.Vector3(...palLin('cal-foc', 1.0))), uHalf = uniform(new THREE.Vector3(...palLin('terracota').map((v, i) => v * 0.6 + palLin('cal-foc')[i] * 0.25)));   // terracota, desaturated towards the lime
   const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
@@ -366,7 +366,9 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // one warm ramp by light: tinta (shadow, luma ≈ 0.05–0.10, lost in the night) → terracota (half) → cal-foc (lit, ≤ 0.8)
     const Lk = normalize(side.mul(-0.85).add(vec3(0, 0.85, 0)).add(tE.mul(0.15)));
     const headK = float(1).sub(step(0.25, AX.x)).mul(step(1.35, pl.y));                // the head: no dark band under the jaw, no bulb on top
-    const lk = clamp(dot(nW, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.4)).min(mix(float(1), float(0.72), headK));   // the head never brighter than the torso
+    // the core is volume: it takes the light of a normal turned half towards the eye (no dark specks from inner points of the far side)
+    const nL = normalize(mix(nW, toCam, core.mul(0.55)));
+    const lk = clamp(dot(nL, Lk).mul(0.62).add(0.32), 0, 1).mul(mix(float(0.8), float(1), AX.y)).max(headK.mul(0.4)).min(mix(float(1), float(0.72), headK));   // the head never brighter than the torso
     const ramp = mix(mix(uSAmb, uHalf, smoothstep(0.06, 0.42, lk)), uLit, smoothstep(0.42, 0.92, lk)).mul(B2.xyz);
     let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(lod === 0 ? 1.4 : 2.0))).mul(uSKey);   // far: more contrast, so overlapping bodies part by light and shadow
     colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer
@@ -391,7 +393,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     // back occlusion (a tower: each body's back faces the others): the back half sinks, so overlapping bodies part by shadow
     colr = colr.mul(mix(float(1), float(0.3), smoothstep(0.1, -0.7, nl.z).mul(uBackAO)));
     // dust: each splat faint (0.08–0.15), the volume comes from accumulation; the skin thins outwards (the edge is a density falloff)
-    const opa = mix(mix(float(0.15), float(0.11).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura).mul(lod === 0 ? 1 : lod === 2 ? 1.2 : 1.5);
+    const opa = mix(mix(float(0.3), float(0.2).mul(float(1).sub(smoothstep(0.0, 0.05, depth))), skin), float(0.06), aura)   // presence: the facade must not show through.mul(lod === 0 ? 1 : lod === 2 ? 1.2 : 1.5);
     const auraFade = mix(float(1), TSL.sin(auraT.mul(3.1416)), aura).mul(lod === 0 ? float(1) : float(1).sub(aura));
     const vCol = varying(colr, 'vSplCol'), vA = varying(vis.mul(uOpacity).mul(opa).mul(auraFade).mul(mix(float(1).sub(away).pow(2), float(1).sub(away.mul(0.6)), dust.max(riseM))), 'vSplA');   // gathering splats are faint until home (no heaps on the floor)
     const qd = uv().sub(0.5).mul(2), d2 = dot(qd, qd);
@@ -518,7 +520,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       if (y < 0.05 && ns < max * 2 - 1) {    // shadows only for bodies standing on the floor
         const lift = Math.max(0, y);
         // contact: round, tight, dark (sB: length, width, offset, soft) — the room's disc when it has them
-        if (CS) CS.set(nc++, x, z, 0.36 * sc, 0.75 * (1 - lift * 8));
+        if (CS) CS.set(nc++, x, z, 0.42 * sc, 0.5 * (1 - lift * 8));   // soft tinta under the feet
         else { shA.array.set([x, z, 0, 1 - lift * 8], ns * 4); shB.array.set([0.7 * sc, 0.62 * sc, 0, 2.6], ns * 4); ns++; }
         // cast: long, soft, away from the key (key at 7.5 m over the centre → length ≈ h · d / (7.5 − h))
         if (!fakeCast) continue;
