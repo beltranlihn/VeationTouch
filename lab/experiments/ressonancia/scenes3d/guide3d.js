@@ -113,7 +113,7 @@ const NUM_ES = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete'
 const inWords = (c) => { const t = String(c).replace(/\d+/g, (d) => NUM_ES[+d] ?? d); return t.charAt(0).toUpperCase() + t.slice(1); };   // «3 de 7» → «Tres de siete»
 // Art Director 25-11: per chapter — the brasa above the fire figure and its sparks (1.8 m); the tower's chapters lower and larger,
 // beside the castell; the Pom low and quiet beside the tower in the dark
-const LINE_Y = { brasa: 1.8, tronc: 1.58, baixada: 1.58, pom: 1.45 };
+const LINE_Y = { brasa: 1.8, pinya: 1.8, tronc: 1.58, baixada: 1.58, pom: 1.45 };   // pinya: over the figures' heads
 const LINE_CAP = { tronc: 0.22, baixada: 0.22 };
 const splitLine = (t) => { const mid = t.length / 2; let k = -1, d = 1e9; for (let i = 0; i < t.length; i++) if (t[i] === ' ' && Math.abs(i - mid) < d) { d = Math.abs(i - mid); k = i; } return [t.slice(0, k), t.slice(k + 1)]; };
 const longest = (t) => (WRAP && t && t.length > 14 && t.indexOf(' ') > 0 ? Math.max(...splitLine(t).map((x) => x.length)) : (t || '').length);
