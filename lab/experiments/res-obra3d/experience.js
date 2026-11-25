@@ -414,6 +414,7 @@ function prewarmNext() {
 let prevBlock = '';
 let time = 0, frames = 0, f0 = performance.now(), fps = 0, lastBlock = '', actaAt = -1, acta = score.acta();
 const frameEvents = [];
+const obstacles = [];   // the parts' text obstacles, gathered every frame for the guide
 // Beltrán 25-11: «the architecture coming apart in 3D» is the work's signature crossing. When the square is on both sides of a change
 // that moves the world, it still BREAKS (leave 0 → 1, shatter 0 → 1, 1.6 s), holds a breath broken (0.5 s) and RE-FORMS in the new
 // light (arrive 0 → 1, shatter 1 → 0, 2 s). Changes where it leaves or arrives break / re-form by themselves (state out / in).
@@ -558,7 +559,11 @@ function frame(dt) {
       ud.m6w = o.position.y;
     }
   }
-  let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
+  // where the live parts do not want words (the tower, the figures…): { wall, x, half, y0, y1 } (m) from part.textObstacles(); the guide
+  // keeps its consignas off them. Reused array, a part that throws is skipped
+  obstacles.length = 0;
+  for (const e of list) { if (e.state === 'off' || typeof e.part.textObstacles !== 'function') continue; try { const o = e.part.textObstacles(); if (Array.isArray(o)) for (const it of o) obstacles.push(it); } catch { /* this part's obstacles are skipped this frame */ } }
+  let p1 = performance.now(); guide.update(dt, { obstacles, state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
   targets3d.update(dt, { targets: S.targets, block: S.block, time, on: P.guide !== false, events: frameEvents });
   p1 = performance.now(); const ib = stepIntroBreak();
   for (const e of list) e.rig.visible = !e.torn;
