@@ -231,6 +231,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
   const uSKey = uniform(1), uSAmb = uniform(new THREE.Vector3(...palLin('tinta', 1.0)));
   const uSRim = uniform(new THREE.Vector3(...palLin('lluna', 0.32))), uSGlow = uniform(0);
   const quad = new THREE.PlaneGeometry(2, 2);
+  const uPalmCol = uniform(new THREE.Vector3(...palLin('cal-fanal', 0.9)));
   const uContact = uniform(0), uBackAO = uniform(0), uDarkRim = uniform(0), uGoldDark = uniform(new THREE.Vector3(...palLin('bronze', 0.6))), uGoldLit = uniform(new THREE.Vector3(...palLin('or-clar', 0.95)));
   const SPN = spots?.pos?.length ? Math.min(8, spots.pos.length) : 0;
   const SPP = SPN ? TSL.uniformArray(spots.pos, 'vec4') : null, SPD = SPN ? TSL.uniformArray(spots.dir, 'vec4') : null, uSpotK = uniform(0.00025);   // plaza SPOT_K ≈ 2600 → ≈ 0.65 at the beam's heart
@@ -294,8 +295,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     }
     const tex = new THREE.DataTexture(data, TW, rows * (2 * NP + 2), THREE.RGBAFormat, THREE.HalfFloatType);
     tex.minFilter = tex.magFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.needsUpdate = true;
-    const bodyData = new Float32Array(4 * max * 4);
-    const bodyTex = new THREE.DataTexture(bodyData, 4, max, THREE.RGBAFormat, THREE.FloatType);
+    const bodyData = new Float32Array(4 * max * 5);
+    const bodyTex = new THREE.DataTexture(bodyData, 5, max, THREE.RGBAFormat, THREE.FloatType);
     bodyTex.minFilter = bodyTex.magFilter = THREE.NearestFilter; bodyTex.generateMipmaps = false; bodyTex.needsUpdate = true;
     const geo = new THREE.InstancedBufferGeometry(); geo.index = quad.index; geo.setAttribute('position', quad.attributes.position); geo.setAttribute('uv', quad.attributes.uv);
     geo.instanceCount = 0;
@@ -312,7 +313,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     m.fog = false;   // the bodies are the subject: the room's air must not wash them to a veil (they are at 2–6 m)
     const NP = POSES.length;
     const ii = int(instanceIndex), bi = ii.div(int(N)), si = ii.mod(int(N));
-    const B0 = textureLoad(bodyTex, ivec2(0, bi)), B1 = textureLoad(bodyTex, ivec2(1, bi)), B2 = textureLoad(bodyTex, ivec2(2, bi)), B3 = textureLoad(bodyTex, ivec2(3, bi));
+    const B0 = textureLoad(bodyTex, ivec2(0, bi)), B1 = textureLoad(bodyTex, ivec2(1, bi)), B2 = textureLoad(bodyTex, ivec2(2, bi)), B3 = textureLoad(bodyTex, ivec2(3, bi)), B4 = textureLoad(bodyTex, ivec2(4, bi));   // B4: the right palm (body-local, of the pose blend), palm glow
     const tx = si.mod(int(TW)), ty = si.div(int(TW));
     const blk = (k) => textureLoad(tex, ivec2(tx, ty.add(k.mul(int(rows)))));
     const pa = int(B1.x).mul(2), pb = int(B1.y).mul(2);
@@ -367,14 +368,17 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     const Lk = normalize(side.mul(-0.85).add(vec3(0, 0.85, 0)).add(tE.mul(0.15)));
     const headK = float(1).sub(step(0.25, AX.x)).mul(step(1.35, pl.y));                // the head: no dark band under the jaw, no bulb on top
     // the core is volume: it takes the light of a normal turned half towards the eye (no dark specks from inner points of the far side)
-    const nL = normalize(mix(nW, toCam, core.mul(0.55)));
-    const lk0 = clamp(dot(nL, Lk).mul(0.62).add(0.38), 0, 1);   // one clean tone: no per-splat AO noise; far bodies a little smoother (no mottling)
+    const nL = normalize(mix(nW, toCam, core.mul(0.3)));   // (0.55 flattened the modelling)
+    const lk0 = clamp(dot(nL, Lk).mul(0.65).add(0.32), 0, 1);   // one clean tone: no per-splat AO noise; far bodies a little smoother (no mottling)
     const lk = (lod === 0 ? lk0 : mix(lk0, float(0.55), 0.2)).max(headK.mul(0.4)).min(mix(float(1), float(0.72), headK));   // the head never brighter than the torso
     const ramp = mix(mix(uSAmb, uHalf, smoothstep(0.06, 0.42, lk)), uLit, smoothstep(0.42, 0.92, lk)).mul(B2.xyz);
     let colr = ramp.mul(mix(float(0.09), float(1), lk.pow(lod === 0 ? 1.4 : 2.0))).mul(uSKey);   // far: more contrast, so overlapping bodies part by light and shadow
     colr = colr.mul(float(1).add(w3.mul(0.08)));                                                  // the faixa: a little warmer
     colr = colr.add(uSRim.mul(pow(float(1).sub(abs(facing)), 4)).mul(smoothstep(1.15, 1.45, pl.y)).mul(float(1).sub(headK)).mul(0.6));   // a thin cool rim on the shoulders (not the jaw)
     if (room?.flash) colr = colr.add(uLit.mul(room.flash(C)).mul(0.35));
+    // the palm's glow (palmGlow): a warm light held in the right palm, ≥ 35–40 cm, that lights the forearm and the chest («put your hand here»)
+    const dP = pl.sub(B4.xyz).length(), pgw = B4.w.mul(exp(dP.mul(dP).mul(-9.0)));
+    colr = colr.add(uPalmCol.mul(pgw).mul(mix(float(0.55), float(1), smoothstep(-0.2, 0.6, dot(nW, rotY(B4.xyz.sub(pl)).normalize())))));
     // the stage spots of the square (plaza.js part.spots, when given): what stands in a beam is lit by it
     if (spots && SPP) {
       let sp = float(0);
@@ -518,7 +522,8 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
       const k = M.count++;
       M.iA.array.set([x, y, z, S[o + 3]], k * 4); M.iB.array.set([S[o + 4], S[o + 5], S[o + 6], sc], k * 4); M.iC.array.set([S[o + 8], S[o + 9], S[o + 10], S[o + 11]], k * 4);
       const SP = splatSets.find((q) => q.build === M.build && q.lod === M.lod);
-      if (SP) { const j = SP.count++, D = SP.bodyData; D.set([x, y, z, S[o + 3], S[o + 4], S[o + 5], S[o + 6], sc, S[o + 8], S[o + 9], S[o + 10], S[o + 11], S[o + 16], S[o + 17], S[o + 15], 0], j * 16); }
+      if (SP) { const j = SP.count++, D = SP.bodyData; D.set([x, y, z, S[o + 3], S[o + 4], S[o + 5], S[o + 6], sc, S[o + 8], S[o + 9], S[o + 10], S[o + 11], S[o + 16], S[o + 17], S[o + 15], 0], j * 20);
+        if (S[o + 19] > 0.001) { const pa = palm(S[o + 4] | 0, S[o + 12] | 0), pb = palm(S[o + 5] | 0, S[o + 12] | 0), m = S[o + 6]; D.set([pa[0] + (pb[0] - pa[0]) * m, pa[1] + (pb[1] - pa[1]) * m, pa[2] + (pb[2] - pa[2]) * m, S[o + 19]], j * 20 + 16); } else D[j * 20 + 19] = 0; }
       if (S[o + 18] > 0.001 && y < 0.05) plA.array.set([x, z, 1.15 * sc, S[o + 18] * S[o + 16]], (np++) * 4);
       if (y < 0.05 && ns < max * 2 - 1) {    // shadows only for bodies standing on the floor
         const lift = Math.max(0, y);
@@ -556,6 +561,7 @@ export function createBodies({ THREE, TSL, room, max = 64, nearDist = 4.6, color
     if (o.scale != null && o.scale < 0.82 && builds.includes(2)) S[b + 12] = 2;   // a small body is a child (child proportions)
     if (o.lod != null) S[b + 13] = o.lod === 'auto' ? -1 : o.lod === 'far' || o.lod === 1 ? 1 : o.lod === 'mid' || o.lod === 2 ? 2 : 0; else if (!S[b + 14]) S[b + 13] = -1;
     if (o.pool != null) S[b + 18] = o.pool;                      // a warm pool of light on the ground under the body (0..1)
+    if (o.palmGlow != null) S[b + 19] = o.palmGlow;               // a warm glow in the right palm (0..1+), lighting the forearm and chest
     if (o.form != null) S[b + 16] = o.form;                      // splats: 0 = scattered ... 1 = assembled
     if (o.fmode != null) S[b + 17] = o.fmode === 'dust' || o.fmode === 1 ? 1 : o.fmode === 'light' || o.fmode === 2 ? 2 : 0;   // 'light': up, into the light   // how they are away: 'gather' (in the air, streaming in) | 'dust' (fallen)
     S[b + 14] = o.visible === false ? 0 : 1;
