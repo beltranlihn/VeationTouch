@@ -66,6 +66,12 @@ export function create({ THREE, TSL, room, params }) {
   }
 
   const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3(), foot = new THREE.Vector3();
+  function freeFig() {
+    const f = palms.find((p) => !p.on); if (f) return f;
+    let old = null; for (const p of palms) if (p.join >= 1 && (!old || p.joinAt < old.joinAt)) old = p;
+    if (old) { old.join = 0; old.on = false; old.app = 0; }
+    return old;
+  }
   const _pose = {};
   let fills = new Array(NW).fill(0), closedS = 0, packK = new Array(NW).fill(0), lockWall = new Array(NW).fill(0);
   let studyPrevFill = new Array(NW).fill(0), mode = '';
@@ -134,7 +140,7 @@ export function create({ THREE, TSL, room, params }) {
     // waiting figures: keep one per offered palm
     for (const wt of waits) {
       let q = palms.find((p) => p.idle && p.tgId === wt.id);
-      if (!q) { q = palms.find((p) => !p.on); if (!q) continue; Object.assign(q, { on: true, idle: true, tgId: wt.id, wall: wt.wall, x: wt.x, y: wt.y, stroke: null, app: 0, contact: 0, charge: 0, stay: 0, glow: 0, locked: false, back: false, wait: 0 }); }
+      if (!q) { q = palms.find((p) => !p.on); if (!q) continue; Object.assign(q, { join: 0, on: true, idle: true, tgId: wt.id, wall: wt.wall, x: wt.x, y: wt.y, stroke: null, app: 0, contact: 0, charge: 0, wasHeld: false, heldT: 0, stay: 0, glow: 0, locked: false, back: false, wait: 0 }); }
       q.wall = wt.wall; q.tx = wt.x; q.ty = wt.y; q.tCharge = wt.charge; q.seen = true;
     }
     for (const q of palms) if (q.idle && !q.stroke && !q.seen && !q.locked) q.idle = false;   // its target is gone: it leaves (stay → retreat)
@@ -143,9 +149,9 @@ export function create({ THREE, TSL, room, params }) {
     for (const h of hx) {
       if (palms.some((q) => q.stroke === h.stroke)) continue;
       let q = palms.find((p) => p.on && p.idle && !p.stroke && p.wall === h.wall && Math.abs(p.x - h.x) < 0.9);
-      if (!q) q = palms.find((p) => !p.on) || palms.filter((p) => p.on && !p.stroke && !p.locked).sort((a, b) => a.stay - b.stay)[0];
+      if (!q) q = freeFig() || palms.filter((p) => p.on && !p.stroke && !p.locked && !p.join).sort((a, b) => a.stay - b.stay)[0];
       if (!q) continue;
-      if (!q.on || q.wall !== h.wall || Math.abs(q.x - h.x) > 0.9) Object.assign(q, { app: 0, x: h.x, y: h.y, wall: h.wall, back0: 0.25, charge: 0, glow: 0, locked: false });   // it ASSEMBLES there (particles stream in), barely steps
+      if (!q.on || q.wall !== h.wall || Math.abs(q.x - h.x) > 0.9) Object.assign(q, { app: 0, x: h.x, y: h.y, wall: h.wall, back0: 0.25, charge: 0, glow: 0, locked: false, wasHeld: false, heldT: 0 });   // it ASSEMBLES there (particles stream in), barely steps
       Object.assign(q, { on: true, idle: false, stroke: h.stroke, held: 1.2, stay: 25, back: false, wait: 0 });
     }
     // pack targets: the figures with a hand on each wall, ordered along it, shoulder to shoulder round its centre
@@ -156,9 +162,24 @@ export function create({ THREE, TSL, room, params }) {
       if (lockWall[w]) for (const q of list) { if (!q.locked) { q.locked = true; q.lockK = 0; q.glow = Math.max(q.glow, 0.6); } }
     }
 
-    // ---- per palm figure
+    // ---- per palm figure (a figure that joined the ring keeps its place there; when no figure is free, the oldest of them is lent
+    //      back — it fades out of the ring and gathers at the new hand)
     for (const q of palms) {
       if (!q.on) { kit.hide(q.i); continue; }
+      if (there <= 0.001) { q.join = 0; q.on = false; kit.hide(q.i); continue; }   // the block is gone: the joined ones go with it
+      // «YOU BECAME PART OF THE PINYA» (director 25-11): a figure whose palm was held walks back into the ring in ~2.6 s (its particles
+      // stream as it goes, its light pool trailing), turns to the centre and locks in with the others; it stays for the block
+      if (q.join > 0) {
+        const was = q.join; q.join = Math.min(2, q.join + dt / 2.6); if (was < 1 && q.join >= 1) q.joinAt = time;
+        const t = smooth(Math.min(1, q.join)), inRing = q.join >= 1;
+        const x = q.fx + (q.jx - q.fx) * t, z = q.fz + (q.jz - q.fz) * t;
+        let dy = q.jyaw - q.fyaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+        const tilt = 0.24 + 0.06 * Math.sin(time * 0.35 + q.i * 1.7);
+        kit.set(q.i, { pos: [x, 0, z], yaw: q.fyaw + dy * t, pose: inRing ? 'lock' : 'stand', pose2: inRing ? 'carry' : 'lock', mix: inRing ? tilt : t, scale: q.js, build: q.jb,
+          glow: q.glow * there, tint: [1, 1, 1], form: there * (1 - 0.45 * Math.sin(Math.PI * Math.min(1, q.join))), fmode: 'gather', lod: 'near', pool: 0.16 + 0.3 * (1 - t) });
+        q.glow = Math.max(0, q.glow - dt * 0.9);
+        continue;
+      }
       const h = q.stroke !== null ? hx.find((e) => e.stroke === q.stroke) : null;
       if (q.stroke !== null && !h) { q.held -= dt; if (q.held <= 0) q.stroke = null; }
       if (h) {
@@ -178,7 +199,8 @@ export function create({ THREE, TSL, room, params }) {
       // charge: the target's own, else the time of contact; the weight loads, the palm warms in gold, held = it stays
       const tc = q.idle || q.stroke !== null ? (q.tCharge ?? 0) : 0;
       const charge = Math.max(tc, q.contact >= 0.99 ? Math.min(1, q.charge + dt / 0.5) : q.charge * Math.max(0, 1 - dt * 0.4));
-      if (q.charge < 1 && charge >= 1) q.glow = 0.6;
+      if (q.charge < 1 && charge >= 1) { q.glow = 0.6; q.heldT = 0; q.wasHeld = true; }
+      if (q.wasHeld && h) q.heldT = (q.heldT || 0) + dt;
       q.charge = charge;
       q.glow = Math.max(0, q.glow - dt * 0.9);   // gold only as a brief flash of achievement (held / locked), never a standing colour
       // arrive / retreat
@@ -197,6 +219,15 @@ export function create({ THREE, TSL, room, params }) {
       tmp.copy(w.centre).addScaledVector(w.right, q.x);
       const ox = tmp.x - X[0] * lx - F[0] * lz + w.normal.x * (lean - back) * 1, oz = tmp.z - X[1] * lx - F[1] * lz + w.normal.z * (lean - back);
       const vis = there * q.app;
+      // held (the palm target done) and then let go — or held 2.5 s: it goes to join the ring (not in the pack stage: those slide and lock)
+      if (!q.join && !q.locked && !packStage && q.wasHeld && q.app > 0.95 && (!h || q.heldT > 2.5)) {
+        footOf(q.wall, D, foot);
+        const n = walls[q.wall].normal, a0 = Math.atan2(n.z, n.x), k = palms.filter((o) => o.join > 0 && o.wall === q.wall).length;
+        const a = a0 + (k % 2 ? 1 : -1) * (0.17 + Math.floor(k / 2) * 0.33), r = 1.55;   // the front arc of a third ring, towards the room
+        Object.assign(q, { wasHeld: false, join: 1e-4, fx: ox, fz: oz, fyaw: yaw, js: pp.s, jb: pp.build, jx: foot.x + Math.cos(a) * r, jz: foot.z + Math.sin(a) * r, stroke: null, idle: false, glow: Math.max(q.glow, 0.4) });
+        q.jyaw = Math.atan2(foot.x - q.jx, foot.z - q.jz);
+        continue;
+      }
       if (vis <= 0.002) { kit.hide(q.i); continue; }
       let pose = 'palm', pose2 = pp.m > 0 ? 'raise' : 'palm', mix = pp.m;
       if (q.app < 0.999) { pose = 'palm'; pose2 = pp.m > 0 ? 'raise' : 'palm'; mix = pp.m; }   // assembled straight into the offered palm
@@ -220,7 +251,7 @@ export function create({ THREE, TSL, room, params }) {
       const dW = Math.max(0.5, -tmp.copy(walls[w].centre).sub(room.eye).dot(walls[w].normal)), D = P.depth ?? 3.0, k = dW / (dW + D);
       OB.push({ wall: w, x: 0, half: (RINGS[RINGS.length - 1].r + 0.3) * k, y0: 0, y1: room.eye.y + (1.75 - room.eye.y) * k });
     }
-    for (const q of palms) if (q.on && q.app > 0.05) OB.push({ wall: q.wall, x: q.x + 0.25, half: 0.38, y0: 0, y1: Math.min(2.1, Math.max(q.y + 0.35, 1.5)) });
+    for (const q of palms) if (q.on && q.app > 0.05 && !q.join) OB.push({ wall: q.wall, x: q.x + 0.25, half: 0.38, y0: 0, y1: Math.min(2.1, Math.max(q.y + 0.35, 1.5)) });
     return OB;
   }
   function dispose() { kit.dispose(); }
