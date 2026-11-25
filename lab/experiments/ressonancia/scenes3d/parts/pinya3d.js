@@ -33,7 +33,7 @@ export function create({ THREE, TSL, room, params }) {
   // ---- THE FIGURE'S OWN PALM GLOWS while a hand charges it (AD #8; it replaces targets3d's ring for kind 'palm'): a small gold light in
   //      the palm, on the wall plane, growing with the charge, a flash when it is held
   const { Fn, attribute, varying, vec4, positionGeometry, modelViewMatrix, cameraProjectionMatrix, dot, exp, max } = TSL;
-  const OR = lin('or'), NPG = 24, pgA = new Float32Array(NPG * 4), pgC = new Float32Array(NPG * 4);
+  const OR = lin('or'), FAN = lin('cal-fanal'), NPG = 24, pgA = new Float32Array(NPG * 4), pgC = new Float32Array(NPG * 4);
   const pgGeo = new THREE.InstancedBufferGeometry();
   pgGeo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3)); pgGeo.setIndex([0, 1, 2, 0, 2, 3]);
   const PGA = new THREE.InstancedBufferAttribute(pgA, 4), PGC = new THREE.InstancedBufferAttribute(pgC, 4);
@@ -49,7 +49,8 @@ export function create({ THREE, TSL, room, params }) {
   }
   const pgMesh = new THREE.Mesh(pgGeo, pgMat); pgMesh.frustumCulled = false; pgMesh.renderOrder = 9; object.add(pgMesh);
   let nPG = 0;
-  const palmGlow = (x, y, z, s, k) => { if (nPG >= NPG || k <= 0.003) return; const o = nPG * 4; pgA[o] = x; pgA[o + 1] = y; pgA[o + 2] = z; pgA[o + 3] = s; pgC[o] = OR[0] * k; pgC[o + 1] = OR[1] * k; pgC[o + 2] = OR[2] * k; nPG++; };
+  // k: strength; g: 0 = the warm cal-fanal of the charge … 1 = the gold of achievement (active, done)
+  const palmGlow = (x, y, z, s, k, g) => { if (nPG >= NPG || k <= 0.003) return; const o = nPG * 4; pgA[o] = x; pgA[o + 1] = y; pgA[o + 2] = z; pgA[o + 3] = s; for (let c = 0; c < 3; c++) pgC[o + c] = (FAN[c] + (OR[c] - FAN[c]) * g) * k; nPG++; };
   // the floor in the study only (in the work the lit square brings its own, with the key shadow)
   let floor = null;
   if (room.ground) { floor = room.ground({ color: 'cal-foc' }); floor.mesh.visible = false; object.add(floor.mesh); }
@@ -156,13 +157,13 @@ export function create({ THREE, TSL, room, params }) {
     for (const h of hands) { const w = walls[h.wall]; hx.push({ stroke: h.stroke, wall: h.wall, x: tmp.copy(h.pos).sub(w.centre).dot(w.right), y: h.pos.y }); }
     // the palm targets (the score's), else one waiting figure per wall at its centre (study / before the targets)
     const tgs = withScore && Array.isArray(st.targets) ? st.targets.filter((t) => t.kind === 'palm' && t.state !== 'done') : null;
-    const waits = tgs ? tgs.map((t) => ({ wall: t.wall % NW, x: t.dx, y: t.y, id: t.id, charge: t.state === 'active' ? 1 : t.charge || 0 }))
+    const waits = tgs ? tgs.map((t) => ({ wall: t.wall % NW, x: t.dx, y: t.y, id: t.id, charge: t.state === 'active' ? 1 : t.charge || 0, active: t.state === 'active' }))
       : (withScore && st.block === 'pinya' && st.pinyaStage === 'pack') ? [] : walls.map((_, w) => ({ wall: w, x: 0, y: 1.25, id: -1 - w, charge: 0 }));
     // waiting figures: keep one per offered palm
     for (const wt of waits) {
       let q = palms.find((p) => p.idle && p.tgId === wt.id);
       if (!q) { q = palms.find((p) => !p.on); if (!q) continue; Object.assign(q, { join: 0, on: true, idle: true, tgId: wt.id, wall: wt.wall, x: wt.x, y: wt.y, stroke: null, app: 0, contact: 0, charge: 0, wasHeld: false, heldT: 0, stay: 0, glow: 0, locked: false, back: false, wait: 0 }); }
-      q.wall = wt.wall; q.tx = wt.x; q.ty = wt.y; q.tCharge = wt.charge; q.seen = true;
+      q.wall = wt.wall; q.tx = wt.x; q.ty = wt.y; q.tCharge = wt.charge; q.tActive = !!wt.active; q.seen = true;
     }
     for (const q of palms) if (q.idle && !q.stroke && !q.seen && !q.locked) q.idle = false;   // its target is gone: it leaves (stay → retreat)
     for (const q of palms) q.seen = false;
@@ -260,8 +261,12 @@ export function create({ THREE, TSL, room, params }) {
       else if (!h && !q.idle && q.stay < 8) { pose = 'stand'; pose2 = 'palm'; mix = clamp01(q.stay / 8); }   // the arm comes down before it goes back
       // a waiting figure (an offered palm, nobody there yet) is a quieter suggestion: dimmer, not fully gathered; with a hand: whole, bright
       const held = q.stroke !== null || q.locked || q.charge > 0.05, wk = held ? 1 : 0.45, wf = 1;   // waiting: dimmer but whole (AD: no blurry half-gathered discs)
-      { const k = (q.charge > 0.02 ? (0.15 + 0.85 * q.charge) * (q.stroke !== null || q.idle ? 1 : 0.5) : 0) * 0.9 + q.glow * 1.6;   // the palm: on the wall plane
-        palmGlow(tmp.x + w.normal.x * 0.02, q.y, tmp.z + w.normal.z * 0.02, 0.05 + 0.08 * q.charge + 0.1 * q.glow, k * there * q.app); }
+      { // THE PALM IS THE TARGET (QA draws nothing for kind 'palm'): an offered palm glows softly (warm), the charge brightens it, active =
+        // gold, held = a short gold flash; then the figure walks back into the ring
+        const offered = q.idle && !q.charge ? 0.22 : 0, ch = q.charge > 0.01 ? 0.25 + 0.75 * q.charge : 0;
+        const k = Math.max(offered, ch * (q.stroke !== null || q.idle ? 1 : 0.5)) * 0.9 + q.glow * 1.6, g = Math.min(1, (q.tActive || q.charge >= 1 ? 1 : 0) + q.glow * 2);
+        palmGlow(tmp.x + w.normal.x * 0.02, q.y, tmp.z + w.normal.z * 0.02, 0.06 + 0.08 * q.charge + 0.1 * q.glow, k * there * q.app, g);
+        palmGlow(tmp.x + w.normal.x * 0.02, q.y, tmp.z + w.normal.z * 0.02, 0.28 + 0.12 * q.charge, k * 0.18 * there * q.app, g); }
       kit.set(q.i, { pos: [ox, 0, oz], yaw, pose, pose2, mix, scale: pp.s, build: pp.build, glow: q.glow * there, tint: [wk, wk, wk], form: e * wf * there, fmode: 'gather', lod: 'near', pool: held ? 0.35 : 0 });
     }
     pgGeo.instanceCount = nPG; PGA.needsUpdate = true; PGC.needsUpdate = true;
