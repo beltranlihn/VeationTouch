@@ -35,6 +35,10 @@
 // (springs and waves on the CPU, the pose in the vertex stage). No floor reflection (was a second copy of the mosaic), no shadows.
 import { createScore } from '../../score.js';
 import { createStory } from './umbral3d/story.js';   // studio 25-11: the continuous story the tiles carry
+// studio 25-11 (Beltrán): THE MOSAIC IS HIS PICTURE — «Prueba On / OFF» (7196 × 912, the room strip) measured shard by shard
+// (lab: watershed on the drawn grout lines, ~7300 shards, ~11 cm): each becomes one tile, at its place, resting in its OFF colour
+// (desaturated sand) and turning to its On colour where a hand plays. SHARDS = null (no file) → the procedural mosaic, as before.
+const SHARDS = await fetch(new URL('./umbral3d/story-shards.json', import.meta.url)).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
 const GROUT_H = 0.008, STORY = false, STORY_REST = 0.82, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
 
@@ -177,7 +181,17 @@ export function create(ctx) {
       }
       return false;
     };
-    for (let t = 0, n = 0; t < 6000 && n < 96; t++) {     // the mothers first (rosette hearts), 40 % of them round medallions
+    if (SHARDS) for (const a of SHARDS.shards) {                                      // his shards, from the wall into the shell
+      const w = walls[a[0]]; if (!w) continue;
+      const xw = (a[1] / w.width) * w.width - w.width / 2, py = (a[2] / 3.75) * w.height;   // the picture is the strip: 3.75 m high
+      const px = w.centre.x + w.right.x * xw, pz = w.centre.z + w.right.z * xw;
+      const dx = px - eye.x, dy = py - eye.y, dz = pz - eye.z, dh = Math.hypot(dx, dz) || 1e-3, th = Math.atan2(dz, dx);
+      let t = 1, v = eye.y + SHIFT; for (let k = 0; k < 8; k++) { t = surfR(th, v) / dh; v = clamp(vOf(eye.y + t * dy), 0, VTOP); }
+      const cu = ((th * RM) % LL + LL) % LL;
+      if (inDoor(cu, v)) continue;
+      const st = put(cu, v, Math.max(0.025, a[3] * t), false); st.on = [a[4], a[5], a[6]]; st.off = [a[7], a[8], a[9]];
+    }
+    for (let t = 0, n = 0; !SHARDS && t < 6000 && n < 96; t++) {     // the mothers first (rosette hearts), 40 % of them round medallions
       const cu = rr(0, LL), y = rr(0.35, 3.2) + SHIFT;
       if (!seen(cu, y) || inDoor(cu, y) || !fits(cu, y, 0.5)) continue;
       const s = put(cu, y, rr(0.2, 0.24), true); n++;
@@ -185,7 +199,7 @@ export function create(ctx) {
     }
     // the size: ~0.08 m (physical) up to 2.9 m (on the wall: up to ~2.2 m), growing to ~0.2 m at the top; zones a little finer / coarser
     const fine = (cu, v) => { const y = yOf(v); return (0.06 + 0.05 * smooth(1.95, 2.6, y) + 0.06 * smooth(2.9, 3.9, v)) * (0.9 + 0.2 * (0.5 + 0.5 * Math.sin(cu * (4 / RM) + 1.3 * Math.sin(v * 0.7)))); };   // T-058c: ~6 cm on the wall in the hands' band, ~10 cm above 2.2 m, ~15 cm in the vault
-    for (let t = 0; t < 600000 && sites.length < 12600; t++) { const cu = rr(0, LL), y = rr(0.0, VTOP); if (!seen(cu, y) || inDoor(cu, y)) continue; const ri = fine(cu, y); if (fits(cu, y, ri)) put(cu, y, ri, false); }
+    for (let t = 0; !SHARDS && t < 600000 && sites.length < 12600; t++) { const cu = rr(0, LL), y = rr(0.0, VTOP); if (!seen(cu, y) || inDoor(cu, y)) continue; const ri = fine(cu, y); if (fits(cu, y, ri)) put(cu, y, ri, false); }
 
     // Voronoi: clip an octagon round each site by the bisectors of its neighbours (periodic in cu); against a round medallion the
     // neighbour grows up to the medallion's rim (a tangent cut), so the fine pieces fit round it as in ref 02
@@ -201,7 +215,7 @@ export function create(ctx) {
     const pos = [], nor = [], inf = [], piece = [];
     const P0 = new THREE.Vector3(), Pu = new THREE.Vector3(), Pv = new THREE.Vector3(), Nn = new THREE.Vector3(), Tu = new THREE.Vector3(), Tv = new THREE.Vector3();
     const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), fn = new THREE.Vector3(), ax = new THREE.Vector3();
-    const mothers = sites.filter((q) => q.mother); mothers.forEach((q, i) => { q.fam = i % 5; });
+    let mothers = sites.filter((q) => q.mother); if (!mothers.length) mothers = sites.filter((q, i) => i % 80 === 0); /* studio 25-11: his shards have no mothers — every 80th is a rosette's heart for the colour waves (geometry unchanged) */ mothers.forEach((q, i) => { q.fam = i % 5; });
     // the rest colour by PATCHES of 0.4–1.2 m (ART: 70 % sand-bone, 30 % cool pastel / clay): two smooth fields, periodic round the room
     const fW = (cu, y) => Math.sin(cu * (17 / RM) + 1.3 * Math.sin(y * 1.9)) + 0.8 * Math.sin(y * 2.7 + cu * (7 / RM) + 2) + 0.5 * Math.sin(cu * (25 / RM) - y * 3.1);
     const fC = (cu, y) => Math.sin(cu * (13 / RM) + 2.1 + 1.1 * Math.sin(y * 1.3 + cu * (3 / RM))) + 0.7 * Math.sin(y * 2.1 - cu * (9 / RM) + 0.4);
@@ -212,7 +226,7 @@ export function create(ctx) {
       let loose = 0;
       if (s.y > H) { continue; }   // T-058b (ART): nothing off the wall at rest   // ART: (almost) nothing floats at rest
       else if (!s.mother && (rnd() < 0.002 && MEDALLIONS || (H - s.y < 0.12 && rnd() < 0))) continue;   // studio 25-11: no missing pieces either (rnd() still drawn: same layout)   // T-069 (ART): no ragged crest any more (its holes read as white gaps); rnd() still drawn: same layout   // a missing piece; a ragged crest
-      const R0 = s.mother ? 0.34 : s.ri * 1.25 + 0.03;
+      const R0 = s.mother ? 0.34 : SHARDS ? s.ri * 1.9 + 0.06 : s.ri * 1.25 + 0.03;   // his shards: room to meet their neighbours (no gaps)
       let poly = []; const a0 = rr(0, 6.28);
       for (let k = 0; k < 8; k++) poly.push([Math.cos(a0 + k * 0.7854) * R0, Math.sin(a0 + k * 0.7854) * R0]);
       const bx = Math.floor((s.cu / LL) * BW), by = byOf(s.y), reach = Math.ceil((2 * R0) / BS), RR = 4 * R0 * R0;
@@ -249,7 +263,7 @@ export function create(ctx) {
       const inAx = rr(-0.7, 0.7);                                                        // the axis of its turn: in the surface, near the vertical
       ax.copy(Tv).normalize().multiplyScalar(Math.cos(inAx)).addScaledVector(e1.copy(Tu).normalize(), Math.sin(inAx)).normalize();
       const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(e1.copy(Tu).normalize(), e2.crossVectors(Nn, e1).normalize(), Nn));
-      const cell = { cu, cy, rad, loose, kind, col, ros, rd, c: P0.clone(), n: Nn.clone(), q, mother: s.mother, round: s.round, over: loose ? (cy - H) / 0.6 : 0, r1: idRnd, r2: rnd(), keep: rnd() < 0.3, th: cu / RM, ax: ax.clone(), rest: null, w: fW(cu, cy), cC: fC(cu, cy), k: fK(cu, cy) };
+      const cell = { cu, cy, rad, loose, kind, col, ros, rd, c: P0.clone(), n: Nn.clone(), q, mother: s.mother, on: s.on, off: s.off, round: s.round, over: loose ? (cy - H) / 0.6 : 0, r1: idRnd, r2: rnd(), keep: rnd() < 0.3, th: cu / RM, ax: ax.clone(), rest: null, w: fW(cu, cy), cC: fC(cu, cy), k: fK(cu, cy) };
       cells.push(cell);
       // the shard: inset for the joint (see GROUT_H), thin (~1.5 cm), a bevel that catches the light; tilted a little
       // T-066: the grout bed sits 8 mm up (GROUT_H): the foot is widened below it (hidden) so that at the grout line the joint is
@@ -304,6 +318,7 @@ export function create(ctx) {
         }
       }
     }
+    if (SHARDS) for (const c of cells) if (c.on) { c.col = c.on; c.rest = c.off; }   // studio 25-11: his colours, On when played, OFF at rest
     for (const c of cells) { if (c.kind === 2) c.rest = GOLD; /* T-069: a pearl piece keeps its patch's colour at rest (its grey-white #DCD6CC read as a hole in the grout) */ if (c.round) c.rest = c.r1 < 0.5 ? PASTEL[3] : PASTEL[4]; }
     // per piece, static (a float texture, PT rows per piece): centre + rnd, turn axis + kind, normal + mother, glaze, rest
     const TW0 = 128, TH0 = Math.max(1, Math.ceil(NCc / TW0)), pd = new Float32Array(TW0 * TH0 * PT * 4);
@@ -417,7 +432,7 @@ export function create(ctx) {
     // half turn, when the public sees the other one. kc = 1: the face shows the glaze
     const kc = step(6, packed), g = packed.sub(kc.mul(8));
     const topCol = mix(vRest, vGl, kc), backCol = mix(vGl, vRest, kc);
-    const quiet = STORY ? float(0) : quietOf(positionWorld);   // studio 25-11: the story runs through (the trailer has no guide words on the entrance)
+    const quiet = STORY || SHARDS ? float(0) : quietOf(positionWorld);   // studio 25-11: the story runs through (the trailer has no guide words on the entrance)
     const body = vec3(0.86, 0.8, 0.7);                                                  // the fired body on the bevel: light, it draws every piece
     let col = topCol.mul(top).add(backCol.mul(back)).add(mix(topCol, body, 0.55).mul(side));
     col = mix(col, CALM.mul(dot(col, LUMW).div(dot(CALM, LUMW)).mul(0.35).add(0.65)), quiet.mul(0.75));   // the quiet zones: only bone / cream, calm

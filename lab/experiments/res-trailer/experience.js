@@ -110,7 +110,7 @@ for (const [name, pr] of loads) {
     for (const l of steady) { room.scene.attach(l); if (l.target) room.scene.attach(l.target); l.userData.hostIntensity = l.intensity; }
     const e = { name, rig, part, params, lights, steady, base: { ...params }, state: 'off', arrive: 0, leave: 0, home: 'wait', clock: 0, progress: 0, fallK: 0 };
     parts[name] = e; byName[name] = part; list.push(e);
-  } catch (err) { console.warn(`res-obra3d: part "${name}" failed to load (${err.message}); skipped`); }
+  } catch (err) { console.warn(`res-obra3d: part "${name}" failed to load (${err.message}); skipped`, err.stack); }
 }
 const has = (n) => !!parts[n];
 // T-057: a steady light is dimmed to 0 while its part is gone and given back its intensity when the part comes back (parts that set the
