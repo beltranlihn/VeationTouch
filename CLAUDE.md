@@ -31,6 +31,10 @@ Producto reutilizable: **nada de una sala concreta va en el código** — todo v
   **Excepción aprobada por el director (2026-11-24): Ressonància** (`res-obra3d` + `ressonancia-sound`, de Vicente, con sus
   módulos de apoyo `ressonancia` y `res-3d-study`) usa samples mp3 propios (voces y stems, ~22 MB) y texto/voz en español
   (inglés en el selector de voz). No es precedente: cualquier otra pieza sigue la regla.
+  Incluye además dos recursos de terceros:
+  - mallas humanas base CC0 de Quaternius («Universal Base Characters», dominio público), de las que salen los cuerpos de
+    partículas: `ressonancia/scenes3d/assets/models/human/` con su `LICENSE-quaternius-CC0.txt`;
+  - voces generadas con ElevenLabs con la voz que eligió Vicente.
 - **`docs/plans/`** = planes de construcción por fases; `MEDIA-SERVER.md` es el del media server (diseño, decisiones del
   director, fases F0–F13 y sus pruebas).
 - **`engine/media/`** = el media server en el motor: biblioteca y copias, shows (rejilla, clips, presets), transporte

@@ -1,0 +1,17 @@
+[
+  { "key": "reveal", "label": "Plaza: reveal override (0 = clock)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
+  { "key": "shatter", "label": "Plaza: shatter override (0 = clock)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 },
+  { "key": "lamps", "label": "Plaza: lamp strength", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "glow", "label": "Plaza: lamp glow in the haze", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "haze", "label": "Plaza: haze density", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "moon", "label": "Plaza: moonlight", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "sky", "label": "Plaza: sky brightness", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "stars", "label": "Plaza: stars", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1 },
+  { "key": "windows", "label": "Plaza: lit windows", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.45 },
+  { "key": "windowGlow", "label": "Plaza: window brightness", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "wet", "label": "Plaza: wet floor", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.75 },
+  { "key": "drift", "label": "Plaza: fragment drift", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "mirror", "label": "Plaza: mirror fragments", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0.45 },
+  { "key": "handWarm", "label": "Plaza: hands warm the lamps", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 0.5 },
+  { "key": "handLamp", "label": "Plaza: a hand lights the nearest lamp (T-056)", "type": "bool", "default": true }
+]

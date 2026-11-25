@@ -1,0 +1,203 @@
+{
+  "id": "ressonancia",
+  "name": "Ressonància",
+  "description": "A castell of light raised by many hands. One living trencadís mosaic round the four walls; the room guides the public through five movements (Brasa, Pinya, Tronc, Pom de dalt, L'aleta) with a hand target and a line of text on every wall.",
+  "entry": "index.html",
+  "params": [
+    {
+      "key": "director",
+      "label": "Mode",
+      "type": "select",
+      "default": "work",
+      "options": [
+        [
+          "work",
+          "The work (guided by the public)"
+        ],
+        [
+          "study",
+          "Study (manual floors)"
+        ]
+      ]
+    },
+    {
+      "key": "jump",
+      "label": "Go to movement",
+      "type": "select",
+      "default": "none",
+      "options": [
+        [
+          "none",
+          "—"
+        ],
+        [
+          "brasa",
+          "I. Brasa"
+        ],
+        [
+          "pinya",
+          "II. Pinya"
+        ],
+        [
+          "tronc",
+          "III. Tronc"
+        ],
+        [
+          "pom",
+          "IV. Pom de dalt"
+        ],
+        [
+          "aleta",
+          "V. L'aleta"
+        ],
+        [
+          "baixada",
+          "Baixada"
+        ]
+      ]
+    },
+    {
+      "key": "guide",
+      "label": "Guidance text",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "key": "pace",
+      "label": "Pace",
+      "type": "number",
+      "min": 0.5,
+      "max": 6,
+      "step": 0.25,
+      "default": 1
+    },
+    {
+      "key": "look",
+      "label": "Look",
+      "type": "select",
+      "default": "ember",
+      "options": [
+        [
+          "ember",
+          "Ember (dark glaze)"
+        ],
+        [
+          "glaze",
+          "Glaze (bone and stone)"
+        ],
+        [
+          "seams",
+          "Seams (lit joints)"
+        ]
+      ]
+    },
+    {
+      "key": "floors",
+      "label": "Study: floors",
+      "type": "number",
+      "min": 0,
+      "max": 9,
+      "step": 1,
+      "default": 7
+    },
+    {
+      "key": "structure",
+      "label": "Study: structure",
+      "type": "select",
+      "default": "towers",
+      "options": [
+        [
+          "towers",
+          "Four towers"
+        ],
+        [
+          "ring",
+          "Rings round the room"
+        ]
+      ]
+    },
+    {
+      "key": "crown",
+      "label": "Study: crown",
+      "type": "bool",
+      "default": false
+    },
+    {
+      "key": "tile",
+      "label": "Tile size",
+      "type": "number",
+      "min": 0.08,
+      "max": 0.3,
+      "step": 0.01,
+      "default": 0.15,
+      "unit": "m"
+    },
+    {
+      "key": "glow",
+      "label": "Hand reach",
+      "type": "number",
+      "min": 0.2,
+      "max": 1,
+      "step": 0.02,
+      "default": 0.45,
+      "unit": "m"
+    },
+    {
+      "key": "fade",
+      "label": "Ember fade",
+      "type": "number",
+      "min": 1,
+      "max": 30,
+      "step": 0.5,
+      "default": 8,
+      "unit": "s"
+    },
+    {
+      "key": "ambience",
+      "label": "Ambience",
+      "type": "number",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "default": 0.6
+    },
+    {
+      "key": "brightness",
+      "label": "Brightness",
+      "type": "number",
+      "min": 0.3,
+      "max": 2,
+      "step": 0.05,
+      "default": 1
+    },
+    {
+      "key": "bloom",
+      "label": "Bloom",
+      "type": "number",
+      "min": 0,
+      "max": 2,
+      "step": 0.05,
+      "default": 1
+    },
+    {
+      "key": "quality",
+      "label": "Quality",
+      "type": "select",
+      "default": "high",
+      "options": [
+        [
+          "low",
+          "Low"
+        ],
+        [
+          "medium",
+          "Medium"
+        ],
+        [
+          "high",
+          "High"
+        ]
+      ]
+    }
+  ]
+}

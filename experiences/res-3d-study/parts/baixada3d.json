@@ -1,0 +1,15 @@
+[
+  {"key": "floors", "label": "Baixada: floors standing (-1 = from progress)", "type": "number", "min": -1, "max": 9, "step": 1, "default": -1},
+  {"key": "maxFloors", "label": "Baixada: floors of the castell", "type": "number", "min": 5, "max": 9, "step": 1, "default": 7},
+  {"key": "cycle", "label": "Baixada: automatic descent loop (0 = off)", "type": "number", "min": 0, "max": 120, "step": 5, "default": 0, "unit": "s"},
+  {"key": "fall", "label": "Baixada: the fall (carregat)", "type": "bool", "default": false},
+  {"key": "fallDelay", "label": "Baixada: the fall starts after (study)", "type": "number", "min": 0, "max": 20, "step": 0.5, "default": 0, "unit": "s"},
+  {"key": "walls", "label": "Baixada: structure walls (stand-in)", "type": "number", "min": 2, "max": 4, "step": 1, "default": 4},
+  {"key": "arrive", "label": "Baixada: arrive (0 = not there, 1 = there)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 1},
+  {"key": "leave", "label": "Baixada: leave (0 = there, 1 = gone)", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0},
+  {"key": "rain", "label": "Baixada: glass trickle", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1},
+  {"key": "gain", "label": "Baixada: brightness", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 1},
+  {"key": "floorH", "label": "Baixada: height of a glass floor", "type": "number", "min": 2, "max": 6, "step": 0.1, "default": 3.6, "unit": "m"},
+  {"key": "town", "label": "Baixada: own square silhouettes (off when plaza.js draws them)", "type": "bool", "default": true},
+  {"key": "lower", "label": "Baixada: the band to bring down (T-042 stand-in)", "type": "bool", "default": false}
+]

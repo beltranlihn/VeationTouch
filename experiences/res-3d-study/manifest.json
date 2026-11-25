@@ -1,0 +1,15 @@
+{
+  "id": "res-3d-study",
+  "name": "Ressonància — 3D study",
+  "description": "Hosts one 3D part of Ressonància alone on the room (?part=<name>): the square, the castell of light, the atmosphere.",
+  "entry": "index.html",
+  "params": [
+    { "key": "progress", "label": "Study: progress", "type": "number", "min": 0, "max": 1, "step": 0.005, "default": 0 },
+    { "key": "t", "label": "Study: sequence time", "type": "number", "min": 0, "max": 80, "step": 0.5, "default": 0, "unit": "s" },
+    { "key": "run", "label": "Run the clock", "type": "bool", "default": true },
+    { "key": "renderer", "label": "Renderer", "type": "select", "default": "auto", "options": [["auto", "Automatic (WebGPU when available)"], ["webgl2", "WebGL2"]] },
+    { "key": "eye", "label": "Eye height", "type": "number", "min": 1.0, "max": 2.0, "step": 0.05, "default": 1.6, "unit": "m" },
+    { "key": "bloom", "label": "Bloom", "type": "number", "min": 0, "max": 2, "step": 0.05, "default": 0.6 },
+    { "key": "exposure", "label": "Exposure", "type": "number", "min": 0.2, "max": 3, "step": 0.05, "default": 1 }
+  ]
+}

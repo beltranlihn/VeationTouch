@@ -49,7 +49,25 @@ software, cargar la obra y correrla con la calibración que ya tiene la sala.
 5. **Servidor de la sala:** el bloque «Aviso para el agente del servidor» de abajo.
 6. **En la sala:** la lista de comprobación de abajo.
 
-## Aviso para el agente del servidor (plantilla)
+## Fase 2 en el servidor (SMODE-CLIENT2), tal como corre desde el 25-11
+
+El servidor ejecuta `dist\win-unpacked\VEATION Touch.exe`, compilado desde el repo. La versión instalada en Program Files
+(1dee353) se guarda para volver atrás. Resolume lee el Spout «VEATION Touch» y la app no abre ventanas de salida. De noche no
+se ejecutan instaladores.
+
+1. **Respaldo:** copiar `%APPDATA%\VEATION Touch` a `%USERPROFILE%\Desktop\VEATION-backup-<fecha>\`. No abrir
+   `settings.json`.
+2. **Actualizar:** cerrar la app (sólo VEATION; Resolume sigue abierto) y ejecutar `git fetch origin`, `git switch main` y
+   `git pull --ff-only`.
+3. **Compilar:** `npm run dist` y abrir `dist\win-unpacked\VEATION Touch.exe`. `package.json` no cambia, así que no hace
+   falta `npm install`.
+4. **Comprobar** que el perfil «Barcelona XR Lab» conserva su calibración, que Spout sigue a 7196×912 sin `Spout GPU path
+   failed`, que los sensores están conectados y que suena por Dante.
+5. **Montar la obra:** en Live, preset con la visual `res-obra3d` (Quality: High) y el sonido `ressonancia-sound` (voz: es).
+   Lanzarlo y esperar ~15 s a que compile.
+6. **Apuntar en NOTAS-SERVIDOR.md:** fps, errores de `engine.log`, si cada toque suena una vez y la altura de una mano real.
+
+Plantilla anterior, para `npm start`:
 
 > Actualiza VEATION Touch a `main` <sha>:
 > - Cierra la app.

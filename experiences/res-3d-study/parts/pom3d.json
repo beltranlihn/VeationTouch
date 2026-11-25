@@ -1,0 +1,104 @@
+[
+ {
+  "key": "climber",
+  "label": "Pom: climber (-1 = from progress)",
+  "type": "number",
+  "min": -1,
+  "max": 2,
+  "step": 1,
+  "default": -1
+ },
+ {
+  "key": "climb",
+  "label": "Pom: climb (-1 = from progress)",
+  "type": "number",
+  "min": -1,
+  "max": 1,
+  "step": 0.01,
+  "default": -1
+ },
+ {
+  "key": "progress",
+  "label": "Pom: progress (stand-in)",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.01,
+  "default": 0.2
+ },
+ {
+  "key": "cycle",
+  "label": "Pom: cycle (s, 0 = off)",
+  "type": "number",
+  "min": 0,
+  "max": 240,
+  "step": 5,
+  "default": 0
+ },
+ {
+  "key": "floors",
+  "label": "Pom: castell floors (stand-in)",
+  "type": "number",
+  "min": 5,
+  "max": 9,
+  "step": 1,
+  "default": 7
+ },
+ {
+  "key": "restless",
+  "label": "Pom: restless (someone moved)",
+  "type": "bool",
+  "default": false
+ },
+ {
+  "key": "aleta",
+  "label": "Pom: l'aleta (-1 off, 0..1)",
+  "type": "number",
+  "min": -1,
+  "max": 1,
+  "step": 0.01,
+  "default": -1
+ },
+ {
+  "key": "arrive",
+  "label": "Pom: arrive (0 = not there, 1 = there)",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.01,
+  "default": 1
+ },
+ {
+  "key": "leave",
+  "label": "Pom: leave (0 = there, 1 = gone)",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.01,
+  "default": 0
+ },
+ {
+  "key": "fallLeave",
+  "label": "Pom: leave into the fall (intent)",
+  "type": "bool",
+  "default": false
+ },
+ {
+  "key": "strata",
+  "label": "Pom: strata of haze (far)",
+  "type": "number",
+  "min": 0,
+  "max": 2,
+  "step": 0.05,
+  "default": 1
+ },
+ {
+  "key": "gold",
+  "label": "Pom: the light (gold)",
+  "type": "number",
+  "min": 0,
+  "max": 2,
+  "step": 0.05,
+  "default": 1
+ }
+]
