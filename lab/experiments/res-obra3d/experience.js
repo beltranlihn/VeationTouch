@@ -195,7 +195,7 @@ function wantedBase(b) {
       return has('baixada3d') ? ['plaza', 'castell', 'baixada3d', 'atmos'] : ['plaza', 'castell', 'atmos'];
     case 'pom': return has('pom3d') ? ['plaza', ...castellKept(), 'pom3d'] : ['plaza', 'castell', 'atmos'];   // 25-11 (art direction): the same square at its darkest, the tower 'top', pom3d's climbers and gold light on it
     case 'crown': return ['plaza', ...castellKept()];   // 25-11: the coronation happens in the square (the tower turns gold, gold light on the facades)
-    case 'festa': return has('festa3d') ? ['festa3d', ...castellKept()] : ['plaza', 'castell', 'atmos'];   // crown>festa: the square leaves with its 3D break into festa3d's gold world
+    case 'festa': return has('festa3d') ? ['plaza', ...castellKept(), 'festa3d'] : ['plaza', 'castell', 'atmos'];   // 25-11: the same square (festa3d paints gold ripples on its wet paving); crown>festa keeps the world
     case 'fall': return fallSet;
     case 'acta': return ['actatext', 'atmos'];
     default: return ['atmos'];
