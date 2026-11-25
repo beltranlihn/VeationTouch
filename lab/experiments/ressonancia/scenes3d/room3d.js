@@ -137,7 +137,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     festa:   { g: 0.3, night: 1, sky: 0, sat: 0.4, tint: hueOf('blau-plaça'), top: [1, 1, 1], bottom: hueOf('or-clar', 0.9), gain: 1.0, panels: true },
     baixada: { g: 0, night: 0, sky: 1, sat: 0.5, tint: [1, 1, 1], top: hueOf('alba-blau', 0.95), bottom: hueOf('alba-rosa', 1), gain: 1.4, panels: false },
     fall:    { g: 0, night: 0.5, sky: 0.6, sat: 0.3, tint: [1, 1, 1], top: hueOf('cendra', 0.6), bottom: hueOf('brasa', 0.4), gain: 0.8, panels: false },
-    acta:    { g: 0, night: 0.3, sky: 0.8, sat: 0.1, tint: hueOf('cal'), top: [1, 1, 1], bottom: hueOf('ombra', 0.7), gain: 1.2, panels: false },
+    acta:    { g: 0, night: 0.3, sky: 0.8, sat: 0.1, tint: hueOf('cal'), top: [1, 1, 1], bottom: hueOf('cal', 0.8), gain: 1.2, panels: false },
   };
   const EU = { g: uniform(1), night: uniform(0), sky: uniform(0), sat: uniform(1), gain: uniform(1), rot: uniform(0),
     tint: uniform(new THREE.Vector3(1, 1, 1)), top: uniform(new THREE.Vector3(1, 1, 1)), bottom: uniform(new THREE.Vector3(1, 1, 1)) };
@@ -276,7 +276,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     // with the host's accents (setTiles({ accentFrom, accentTo })) the light goes from the outgoing chapter's colour to the incoming one's, the film only as a shimmer on it
     const accent = mix(tiles.accentFrom, tiles.accentTo, smoothstep(0.3, 0.7, lp));
     const film = mix(film0, accent.mul(film0.mul(0.7).add(0.5)), tiles.accentK).toVar();
-    const glowC = mix(film, gIn.div(luma(gIn).add(0.25)).mul(0.9), 0.45).mul(tiles.glow).toVar();
+    const glowC = mix(film, gIn.div(luma(gIn).add(0.25)).mul(0.9), 0.45).mul(tiles.glow).mul(0.35).toVar();   // AD#13: no haloed edges
     // --- the slab's face: its image, lit as it turns, a mirror of the room's environment, a glint, a bevel with a thin film
     const eT = float(1).sub(qf.y).mul(S.y), eB = qf.y.mul(S.y), eL = qf.x.mul(S.x), eR = float(1).sub(qf.x).mul(S.x);
     const rim = float(1).sub(smoothstep(0.6, 2.4, min(min(eL, eR), min(eT, eB))));
@@ -288,7 +288,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     const Rl = Vl.sub(nv.mul(dot(Vl, nv).mul(2)));
     const Rw = perWall(cx, 'right').mul(Rl.x).add(vec3(0, 1, 0).mul(Rl.y)).add(perWall(cx, 'back').mul(Rl.z));
     const envC = envMap ? safe(pmremTexture(envMap, Rw, float(0.14)).rgb) : mix(vec3(0.22, 0.1, 0.04), vec3(0.3, 0.4, 0.55), smoothstep(-0.3, 0.5, Rw.y));
-        const mir = zf.mul(sA.mul(sA).mul(2.0).add(select(hc.greaterThan(0.7), float(0.14), float(0.03)))).mul(tiles.mirror);   // half the slabs are mirrors all the way; all of them while they turn
+        const mir = zf.mul(sA.mul(sA).mul(2.0).add(select(hc.greaterThan(0.7), float(0.14), float(0.03)))).mul(tiles.mirror).mul(0.5);   // half the slabs are mirrors all the way; all of them while they turn
     const sweep = fl.mul(1.6).sub(0.3), gl = select(vert, qf.x, qf.y).sub(sweep).div(0.07);
     const glint = exp(gl.mul(gl).negate()).mul(min(sA.mul(sA).mul(40), 1)).mul(0.6).mul(tiles.mirror);
     const face = tile.mul(zf.mul(0.6).mul(float(1).sub(smoothstep(0.1, 0.6, luma(tile)))).add(1)).mul(lam).mul(float(1).sub(mir.mul(0.4))).mul(float(1).sub(lintel)).mul(float(1).sub(shadeBot.mul(zf).mul(0.5)))
@@ -310,7 +310,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     const col = select(inF, face, select(inB, hole, side)).toVar();
     // --- pixel sorting where the front passes: bands 4 or 14 px wide, 0.3–1.2 m long, the image's own colours sorted bright → dark
     const cen0 = c0.add(0.5).div(NB), l0 = clamp(tiles.mix.sub(timeAt(cen0, float(0.5))).div(WD), 0, 1);
-    const fr = sin(l0.mul(Math.PI)).mul(tiles.streaks);
+    const fr = sin(l0.mul(Math.PI)).mul(tiles.streaks).mul(0.0);   // AD#13: no pixel-sort streaks (the vertical white bars read as a video glitch)
     const cidB = floor(pp.x.div(14)), wide = h21(vec2(cidB, 3.5), sd).greaterThan(0.6);
     const cid = select(wide, cidB.add(7000), floor(pp.x.div(4)));
     const Lc = h21(vec2(cid, 1.5), sd).mul(230).add(80), oc = h21(vec2(cid, 2.5), sd).mul(Lc);
@@ -454,7 +454,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
       air: { density: 0.014, height: 0.14, heightK: 0.4, start: 3.6, max: 0.8, key: { dir: [1, 0.08, 0], token: 'alba-rosa', k: 0.35 } } },
     fall:    { ev: 0.35, sat: 0.75, contrast: 1.02, lo: 'tinta', loK: 0.3, hi: 'cendra', hiK: 0.1, lift: 'tinta', liftK: 0.35, ceil: 0.9, vTop: 0.25, vBot: 0.2, bloom: 1, sky: 1,
       air: { density: 0.016, height: 0.2, heightK: 0.5, start: 3.6, max: 0.8 } },
-    acta:    { ev: 0.5, sat: 0.82, contrast: 1.03, lo: 'ombra', loK: 0.25, hi: 'cal', hiK: 0.1, lift: 'ombra', liftK: 0.35, ceil: 0.88, vTop: 0.2, vBot: 0.15, bloom: 0.7, sky: 1,
+    acta:    { ev: 0.45, sat: 0.95, contrast: 1.03, lo: 'cal', loK: 0.15, hi: 'cal', hiK: 0.12, lift: 'ombra', liftK: 0.25, ceil: 0.88, vTop: 0.1, vBot: 0.0, bloom: 0.7, sky: 1,
       air: { density: 0.008, height: 0.15, heightK: 0.4, start: 3.6, max: 0.7, key: { dir: [0.6, 0.3, -1], token: 'cal', k: 0.2 } } },
   };
   // ---- the background: a sphere round the eye (r 320 m, inside the far plane), drawn first, without depth: whatever a part draws covers
@@ -463,9 +463,16 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   const P0 = PALETTE.wait;
   const bg = { bottom: uniform(v3(P0.bottom)), horizon: uniform(v3(P0.horizon)), top: uniform(v3(P0.top)), gain: uniform(opt.background ?? 1), sky: uniform(1),
     to: { bottom: [...P0.bottom], horizon: [...P0.horizon], top: [...P0.top], sky: 1 }, name: 'wait' };
+  const actaK = uniform(0);
   const skyAt = (d) => {                         // d: a unit direction from the eye
     const y = d.y, up = pow(smoothstep(0.0, 0.55, y), 0.8), dn = smoothstep(0.0, -0.4, y);
-    return mix(mix(bg.horizon, bg.top, up), bg.bottom, dn).mul(bg.gain).mul(bg.sky);
+    const base = mix(mix(bg.horizon, bg.top, up), bg.bottom, dn).mul(bg.gain).mul(bg.sky);
+    // ACTA (AD#13): lime in a raking morning light — a soft sweep of light across each wall from one side, a fine plaster grain, and a
+    // clean ombra plinth below the floor line
+    const az = atan(d.z, d.x), rake = sin(az.mul(4.0).add(0.6)).mul(0.5).add(0.5), grain = fract(sin(dot(floor(d.xy.mul(900.0)), vec2(12.9898, 78.233))).mul(43758.5453)).sub(0.5).mul(0.025);
+    const plinth = smoothstep(-0.30, -0.34, y);
+    const acta = base.mul(rake.mul(0.35).add(0.75).add(grain)).mul(float(1).sub(plinth)).add(vec3(...palLin('ombra')).mul(plinth));
+    return mix(base, acta, actaK);
   };
   const bgMat = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false });
   bgMat.colorNode = Fn(() => skyAt(normalize(positionLocal)))();
@@ -480,7 +487,7 @@ export async function createRoom3D(vt, canvas, opt = {}) {
     if (c.bottom) bg.to.bottom = [...c.bottom]; if (c.top) bg.to.top = [...c.top]; bg.to.horizon = [...(c.horizon || c.top || bg.to.horizon)];
     if (c.gain != null) bg.gain.value = c.gain;
     bg.name = typeof what === 'string' ? what : 'custom';
-    if (typeof what === 'string' && c.grade !== false) { setGrade(what, { now: c.now }); setAir(what); airSweep(scene); porx.to = PORX_ON.has(what) ? 1 : 0; porx.lit.value = what === 'crown' || what === 'festa' ? 1 : 0; field.to = FIELD_ON.has(what) ? 1 : 0; }
+    if (typeof what === 'string' && c.grade !== false) { setGrade(what, { now: c.now }); setAir(what); airSweep(scene); porx.to = PORX_ON.has(what) ? 1 : 0; porx.lit.value = what === 'crown' || what === 'festa' ? 1 : 0; actaK.value = what === 'acta' ? 1 : 0; field.to = FIELD_ON.has(what) ? 1 : 0; }
     if (c.now) for (const key of ['bottom', 'horizon', 'top']) bg[key].value.fromArray(bg.to[key]);
   }
   function stepBackground(dt) {

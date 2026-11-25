@@ -1737,7 +1737,7 @@ export function create({ THREE, TSL, room, params, parts }) {
     // ---- uniforms
     U.time.value = time % 3000; U.dt.value = dt; U.level.value = level; U.arrive.value = arrive; U.leave.value = leave;
     U.contract.value = contract; U.cool.value = cool; U.earth.value = Math.max(contract, smoother(leave / 0.5)); U.awake.value = awakeEnv * (1 - cool);
-    U.flames.value = Number(P.flames ?? 1) * (inPlazaK === true ? 0.55 : 1); U.heat.value = Number(P.heat ?? 1); U.devils.value = Number(P.devils ?? 1) * (0.35 + 0.65 * crowdK);
+    U.flames.value = Number(P.flames ?? 1) * (inPlazaK === true ? 0 : 1);   // AD#13: no bed flames in the square (they read as red bars on the paving) U.heat.value = Number(P.heat ?? 1); U.devils.value = Number(P.devils ?? 1) * (0.35 + 0.65 * crowdK);
     // (a crowd: the devils dimmer; the bed too, so many hands are no brighter than ~4)
     U.crowd.value = 0.6 + 0.4 * crowdK;
     U.haze.value = Number(P.haze ?? 1) * (inPlazaK === true ? 0.35 : 1);
