@@ -35,6 +35,7 @@ import { createRoom3D } from '../ressonancia/scenes3d/room3d.js';
 import { createScore, TIMES } from '../ressonancia/score.js';
 import { createGuide } from '../ressonancia/scenes3d/guide3d.js';
 import { createSubtitles } from './subtitles.js';
+import { createHints } from './hints.js';
 import { overrides as tuneOverrides, applyTimes } from '../ressonancia/tuning.js';   // T-052: the score's thresholds as live params
 
 const vt = await connectExperience();
@@ -186,6 +187,7 @@ function stepBloom(dt) {
   room.setBloom(bloomNow);
 }
 room.setBloom(bloomNow);
+const hints = createHints({ THREE, TSL, room });   // 26-11: a hand and a few words per wall, until someone does it there
 const subs = createSubtitles({ THREE, TSL, room }); try { window.__subs = subs; } catch { /* no window */ }                     // studio 26-11: English subtitles over every wall (subtitles.js)
 const TITLE_WALL = 1;                                                // studio 25-11 (Beltrán): P1 opens a window for the title — no start ring there
 // studio 26-11 (Beltrán: «subí los círculos donde se tendrá que apretar»): the start button sits in the picture's round windows, at
@@ -741,6 +743,16 @@ function frame(dt) {
     const ev = e.part.events; if (ev && ev.length) try { bc?.postMessage({ type: 'ev', part: e.name, block: S.block, ev: ev.slice(0, 32) }); } catch { /* alone */ }
     if (time - (e.stAt ?? -9) > 0.25) { e.stAt = time; const pr = e.part.progress?.() ?? e.part.fill?.() ?? (e.part.charge ? { ...e.part.charge(), paint: e.part.paint?.() } : null); if (pr) try { bc?.postMessage({ type: 'st', part: e.name, block: S.block, p: pr }); } catch { /* alone */ } }
   }
+  // studio 26-11 (Beltrán): the hints per wall — after each stage's opening, a hand and two or three words; gone on a wall once someone
+  // does it there, back after `idle` s with nobody doing it on that wall (P['trailer.hints'] = false: none)
+  { let cfg = null;
+    if (P['trailer.hints'] !== false) {
+      if (S.block === 'brasa') cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 12, idle: 15, y: 1.25, dx: -1.8 };   // beside the fire, not on it
+      else if (S.block === 'pinya') cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 11, idle: 15, y: 1.35, dx: -1.8 };   // beside the opening's beings
+      else if (S.block === 'tronc') { const g = parts.torre3d?.part?.progress?.() || {};
+        cfg = g.ending > 0 ? null : g.ready ? { text: 'Hold the light', walls: [0, 2, 3], from: 0, idle: 10, y: 1.75, hold: 1 } : { text: 'Hold your hand', walls: [0, 2, 3], from: 9.5, idle: 15, y: 1.75, hold: 1.5 }; }
+    }
+    hints.update(dt, time, { block: S.block, t: S.t || 0, hands: hs, downs, cfg }); }
   subs.update(dt);
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
   p1 = performance.now(); const ib = stepIntroBreak();
