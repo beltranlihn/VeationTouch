@@ -267,7 +267,7 @@ export function create(ctx) {
     const clip = cameraProjectionMatrix.mul(vec4(mv.xy.add(positionGeometry.xy.mul(size)), mv.z, mv.w));
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
     m.vertexNode = select(E.greaterThan(0.003).and(keep), clip, vec4(0, 0, 2, 1));
-    const pwz = modelWorldMatrix.mul(vec4(pos, 1)).xyz, wv = uWave.w.greaterThan(0).select(exp(length(pwz.xz.sub(uWave.xy)).sub(uWave.w).abs().mul(-1.5)), float(0));
+    const pwz = modelWorldMatrix.mul(vec4(pos, 1)).xyz, wd = length(pwz.xz.sub(uWave.xy)), wv = uWave.w.greaterThan(0).select(exp(wd.sub(uWave.w).abs().mul(-1.5)).add(smoothstep(uWave.w.add(0.5), uWave.w.sub(1.5), wd).mul(0.4)), float(0)).mul(uWave.z);   // the front, and the gold that stays behind it (26-11, Beltrán: «tiñe de dorado todas las partículas»)
     const vCol = varying(colr.mul(E).mul(uGain).mul(uPts.max(0.25).reciprocal().min(2.0)).add(vec3(1.0, 0.66, 0.26).mul(wv.mul(E).mul(0.5))));
     const dd = uv().sub(0.5), gs = exp(dot(dd, dd).mul(-14));
     m.colorNode = vCol.mul(gs); m.fog = false;
@@ -294,7 +294,7 @@ export function create(ctx) {
     const reveal = num(P.reveal, 1), shatter = num(P.shatter, 0) || num(input?.leave, 0);
     const d = E_('dark', P.dark === true ? 1 : P.dark === false ? 0 : num(P.dark, 0));
     uReveal.value = reveal; uShatter.value = shatter; uSil.value = E_('sil', num(P.silhouette, 0)); uFog.value = E_('fog', num(P.fog, 1));
-    if (Array.isArray(P.wave) && P.wave[2] > 0) uWave.value.set(P.wave[0], P.wave[1], 0, P.wave[2]); else uWave.value.w = -1;
+    if (Array.isArray(P.wave) && P.wave[2] > 0) uWave.value.set(P.wave[0], P.wave[1], num(P.waveK, 1), P.wave[2]); else uWave.value.w = -1;
     uPts.value = num(P.points, 1); uGain.value = E_('gain', num(P.pointGain, 0.05)); uBreath.value = E_('breathe', num(P.breathe, 0)); uCurl.value = E_('curl', num(P.curl, 1)); uCool.value = E_('cool', num(P.cool, 0));
     uDark.value = dark ? d : 0;
     uFade.value = smooth(0.58, 1.0, reveal) * (1 - smooth(0.0, 0.45, shatter));
