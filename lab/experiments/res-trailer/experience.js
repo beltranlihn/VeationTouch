@@ -245,6 +245,9 @@ function trailerStep(dt) {
     TRL.tt = TRL.tt < a || TRL.tt >= b ? a : TRL.tt + dt; TRL.seg = k; return;
   }
   TRL.tt += dt;
+  // studio 26-11 (Beltrán, the narrative): the entrance is not timed — it lasts until the public, having uncovered enough of the picture
+  // (paintOpen), holds a button (the score moves to 'intro' and the trailer follows, below). trailer.waitButton = false: the preroll timer
+  if (P['trailer.waitButton'] !== false && S.block === 'wait' && TRL.seg <= 0 && TRL.tt > SG[1][1] - 0.05) TRL.tt = SG[1][1] - 0.05;
   if (TRL.tt >= SG[SG.length - 1][1]) { TRL.tt = 0; TRL.loops++; }
   let i = 0; while (i + 1 < SG.length - 1 && TRL.tt >= SG[i + 1][1]) i++;
   const want = SG[i][0];
@@ -641,6 +644,10 @@ function frame(dt) {
     input.t = t; input.progress = e.progress; input.params = p; input.arrive = e.arrive; input.leave = e.leave;
     const p0 = performance.now(); e.part.update(dt, input); prof.max(e.name, performance.now() - p0);
   }
+  // studio 26-11: the share of the entrance's picture uncovered opens the buttons — this score's reveal and the sound's (it leads)
+  { const pt = parts.umbral3d?.part?.paint?.();
+    if (pt) { const rv = Math.min(1, pt.share / Math.max(0.05, P.paintOpen ?? 0.35)); score.setReveal(rv);
+      if (Math.abs(rv - (link.rvSent ?? -1)) > 0.01 || time - (link.rvAt ?? -9) > 1) { link.rvSent = rv; link.rvAt = time; tell({ reveal: rv }); } } }
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
   p1 = performance.now(); const ib = stepIntroBreak();
   for (const e of list) e.rig.visible = !e.torn;

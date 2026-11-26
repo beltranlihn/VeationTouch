@@ -52,6 +52,10 @@ export function createScore(nWalls, opt = {}) {
   // studio 25/26-11: the start button can be configured (res-trailer): walls with NO button (the title's wall), its height per wall (m)
   // and its reach (m, from its centre). Without them: as before (any hand within T.reveal.button of a wall's centre, any height).
   const BTN = { no: opt.noButton || [], y: opt.buttonY || null, r: opt.buttonR || 0.5 };
+  // studio 26-11 (res-trailer): an EXTERNAL reveal — the share of the entrance's picture the public has uncovered (0..1 of what opens the
+  // buttons). Set (not null), it IS the wait's reveal (the play bank is not used); null = as before.
+  let extReveal = null;
+  function setReveal(v) { extReveal = v == null || !isFinite(v) ? null : Math.max(0, Math.min(1, v)); }
   function setButton(o = {}) { if (Array.isArray(o.noButton)) BTN.no = o.noButton; if (Array.isArray(o.y)) BTN.y = o.y; if (o.r > 0) BTN.r = o.r; }
   const zeros = (v = 0) => Array.from({ length: W }, () => v);
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -342,7 +346,10 @@ export function createScore(nWalls, opt = {}) {
       // What play earns goes into a small bank that pays out at most `rate` a second: two people playing reveal it in ~20–45 s,
       // a big group in no less than ~18 s (time to see the room).
       const R = T.reveal;
-      if (S.reveal < 1) {
+      if (extReveal != null) {
+        const was = S.reveal; S.reveal = extReveal;
+        if (was < 1 && S.reveal >= 1) { revealedAt = now; emit('reveal'); }
+      } else if (S.reveal < 1) {
         revealBank = Math.min(R.bank, revealBank + R.down * Math.min(R.downMax, downs) + dt * R.hold * Math.min(R.holdMax, S.hands) + dt * (R.move || 0) * Math.min(R.holdMax, moving));
         const pay = Math.min(revealBank, (S.solo ? R.soloRate : R.rate) * dt); revealBank -= pay;
         S.reveal = Math.min(1, S.reveal + pay);
@@ -747,5 +754,5 @@ export function createScore(nWalls, opt = {}) {
     if (block === 'baixada') downT = 0;
     go(block);
   }
-  return { state: S, step, acta, jump, times: T, setButton };
+  return { state: S, step, acta, jump, times: T, setButton, setReveal };
 }

@@ -44,7 +44,7 @@ const getJSON = (f) => fetch(new URL(f, import.meta.url)).then((r) => (r.ok ? r.
 const STONES = await getJSON('./umbral3d/story-stones.json');
 const SHARDS = STONES || await getJSON('./umbral3d/story-shards.json');
 
-const GROUT_H = 0.008, ORGANIC = true, STONE_SCALE = 5.5, ARCH_FRAME = false, WK_DOOR = true, STORY = false, STORY_REST = 0.82, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
+const GROUT_H = 0.008, ORGANIC = true, STONE_SCALE = 5.5, ARCH_FRAME = false, WK_DOOR = true, STORY = false, STORY_REST = 0.82, MEDALLIONS = false, HR = 0.78 * 1.3, HR2 = HR * HR;   /* studio 26-11 (Beltrán: «el rango de la mano un 30 % más»): ×1.3 */   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
 
 export function create(ctx) {
   const { THREE, TSL, room, params } = ctx;
@@ -366,7 +366,7 @@ export function create(ctx) {
       const inAx = rr(-0.7, 0.7);                                                        // the axis of its turn: in the surface, near the vertical
       ax.copy(Tv).normalize().multiplyScalar(Math.cos(inAx)).addScaledVector(e1.copy(Tu).normalize(), Math.sin(inAx)).normalize();
       const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(e1.copy(Tu).normalize(), e2.crossVectors(Nn, e1).normalize(), Nn));
-      const cell = { cu, cy, rad, loose, kind, col, ros, rd, c: P0.clone(), n: Nn.clone(), q, mother: s.mother, on: s.on, off: s.off, lip: !!s.lip, round: s.round, over: loose ? (cy - H) / 0.6 : 0, r1: idRnd, r2: rnd(), keep: rnd() < 0.3, th: cu / RM, ax: ax.clone(), rest: null, w: fW(cu, cy), cC: fC(cu, cy), k: fK(cu, cy) };
+      const cell = { vis: s.wp ? s.wy > 0.03 && s.wy < 3.72 : true, cu, cy, rad, loose, kind, col, ros, rd, c: P0.clone(), n: Nn.clone(), q, mother: s.mother, on: s.on, off: s.off, lip: !!s.lip, round: s.round, over: loose ? (cy - H) / 0.6 : 0, r1: idRnd, r2: rnd(), keep: rnd() < 0.3, th: cu / RM, ax: ax.clone(), rest: null, w: fW(cu, cy), cC: fC(cu, cy), k: fK(cu, cy) };
       cells.push(cell);
       // the shard: inset for the joint (see GROUT_H), thin (~1.5 cm), a bevel that catches the light; tilted a little
       // T-066: the grout bed sits 8 mm up (GROUT_H): the foot is widened below it (hidden) so that at the grout line the joint is
@@ -496,6 +496,12 @@ export function create(ctx) {
   const sleep = new Uint8Array(NC), HL2 = LL / 2, SH2 = LL * 0.37, CU = Float64Array.from(cells, (c) => c.cu), CY = Float64Array.from(cells, (c) => c.cy);
   const paintAt = new Float32Array(NC).fill(-9);   // studio 25-11: when a piece was last painted from rest
   const rub = new Float32Array(NC);                // studio 25-11: how much a hand has rubbed this piece (the more, the more fall, the wider)
+  // studio 26-11 (Beltrán, the narrative of the entrance): the room starts desaturated; where the public touches, the picture stays in
+  // colour — they have uncovered that word. Painted stones still play (they move, fall, come back) but come back painted. When a share
+  // PAINT_OPEN of the visible mosaic is painted, the buttons open (the host turns paint() into the score's reveal) and a wave runs
+  // round the room from the last stone painted, painting what was left. A new pass of the entrance starts desaturated again.
+  const PERSIST = true, WAVE_V = 2.6, UP_FROM = 1.7, UP_K = 5;                         // UP: above 1.7 m a hand paints upward much farther (×6 at 2.1 m)
+  let paintedN = 0, lastPaint = -1, waveT0 = -1, waveS = 0;
   const phi = new Float32Array(NC), vphi = new Float32Array(NC), colT = new Float32Array(NC).fill(-1), glow = new Float32Array(NC), gone = new Uint8Array(NC), resT = new Float32Array(NC).fill(-9);
   const stData = new Float32Array(TW * TH * 4);
   const stTex = new THREE.DataTexture(stData, TW, TH, THREE.RGBAFormat, THREE.FloatType);
@@ -737,6 +743,9 @@ export function create(ctx) {
   const PULSES = 20, pulses = Array.from({ length: PULSES }, () => ({ on: false, s: 0, y: 0, t0: 0, amp: 1, speed: 2.6, reach: 0, hold: 0, ros: -1 }));
   let pulseNext = 0;
   const pa = new Int32Array(PULSES), paR = new Float32Array(PULSES), paMax = new Float32Array(PULSES), paMin2 = new Float32Array(PULSES), paAmp = new Float32Array(PULSES);
+  const visN = Math.max(1, cells.reduce((a, c) => a + (c.vis && !c.loose ? 1 : 0), 0));
+  function paintCell(i) { if (colT[i] === Infinity) return; colT[i] = Infinity; if (cells[i].vis && !cells[i].loose) paintedN++; lastPaint = i; }
+  function resetPaint() { colT.fill(-1); paintedN = 0; lastPaint = -1; waveT0 = -1; }
   function launch(s, y, amp, speed, reach, hold, ros = -1) { const p = pulses[pulseNext]; p.ros = ros; pulseNext = (pulseNext + 1) % PULSES; p.on = true; p.s = s; p.y = y; p.t0 = time; p.amp = amp; p.speed = speed; p.reach = reach; p.hold = hold; }
   // a point on a wall → the piece of the serpentine drawn there (the ray from the eye through the hand)
   const hit = { cu: 0, cy: 0, p: new THREE.Vector3() };
@@ -882,7 +891,7 @@ export function create(ctx) {
   const ringMesh = new THREE.InstancedMesh(tileGeo(4, 0.25, 0.02, trap), [glazeMat(ringAttr, uRing), mirrorM], RING_TOTAL);
   ringMesh.frustumCulled = false; ringMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); object.add(ringMesh);
   // the frame's bed: a flush annulus of grout (0.309–0.391 m) the tiles seat on — it comes with the reveal, so the frame reads as one piece
-  const ringWall = walls.map((w) => (!OPEN.length || OPEN.some((o) => o.wi === w.index && o.hw / o.hh < 1.4) ? 1 : 0));   // studio 25-11: the ring only round a round window
+  const ringWall = walls.map(() => 0);   // studio 26-11 (Beltrán: «saca los anillos que marcan el botón, ya daré la referencia»): no ring (was: round the round windows)
   const ringBeds = walls.map((w) => {
     const m = new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(0.765 * 0.9, 0.606 * 0.9, 0.418 * 0.9), transparent: true, opacity: 0, depthWrite: false });   // #D9CFBE-ish joint
     const mesh = new THREE.Mesh(new THREE.RingGeometry(0.309, 0.391, 128, 1), m);
@@ -1232,7 +1241,7 @@ export function create(ctx) {
   // ------------------------------------------------------------------------------------------- state
   let time = 0, emptyT = 99, ghostAt = 2.5, rot = 0, heroRot = 0, ringSpin = 0, exploded = -1, revealV = 0, startV = 0, idleC = 0, wasRevealed = false, figT0 = -1, figK = 0, cascades = 0, crossings = 0, goneN = 0, pushV = 0, wasWait = true;
   const figAt = Array.from({ length: NW }, () => ({ cu: 0, cy: 0 }));
-  const MAXH = 12, hcu = new Float32Array(MAXH), hcy = new Float32Array(MAXH), hfresh = new Uint8Array(MAXH), hsp = new Float32Array(MAXH), hvu = new Float32Array(MAXH), hvv = new Float32Array(MAXH);   // hsp: studio 25-11, the hand's speed (m/s)
+  const MAXH = 12, hhy = new Float32Array(MAXH), hcu = new Float32Array(MAXH), hcy = new Float32Array(MAXH), hfresh = new Uint8Array(MAXH), hsp = new Float32Array(MAXH), hvu = new Float32Array(MAXH), hvv = new Float32Array(MAXH);   // hsp: studio 25-11, the hand's speed (m/s)
   const HOLD = Array.from({ length: 16 }, () => ({ stroke: null, seen: -9, t0: 0, cu: 0, cy: 0, next: 0, ros: -1, lu: 0, lv: 0 }));
   function holdOf(stroke) {
     let free = null;
@@ -1258,7 +1267,7 @@ export function create(ctx) {
       // the host's tiles carry the change of block (its `leave` waits behind them): the way out starts the moment the block is no longer
       // 'wait' — also on a jump — and is forgotten when the part comes back
       if (S.block !== 'wait' && wasWait && exploded < 0) startEv = true;
-      if (S.block === 'wait' && !wasWait) { exploded = -1; pushV = 0; }
+      if (S.block === 'wait' && !wasWait) { exploded = -1; pushV = 0; resetPaint(); }
       wasWait = S.block === 'wait';
     } else if (num(P.reveal, -1) >= 0) { reveal = P.reveal; start = Math.max(0, num(P.start, 0)); }
     else {
@@ -1272,6 +1281,7 @@ export function create(ctx) {
       reveal = own.state.block === 'wait' ? own.state.reveal : 1; start = own.state.block === 'wait' ? own.state.start : 1;
       if (num(P.start, -1) >= 0) start = P.start;
     }
+    if (PERSIST && reveal >= 0.999 && waveT0 < 0 && (!S || S.block === 'wait')) { waveT0 = time; waveS = lastPaint >= 0 ? CU[lastPaint] : CU[0] || 0; }
     revealV += (reveal - revealV) * (1 - Math.exp(-dt * 2.5)); startV += (start - startV) * (1 - Math.exp(-dt * 6));
     const playing = arrive > 0.6 && leave < 0.3;
 
@@ -1310,7 +1320,7 @@ export function create(ctx) {
         // a hand in the threshold (there is no mosaic there) plays the edge of the door nearest to it
         const oh = OPEN.length ? openHalfW(h.wall, hx, hy) : [0, hy < DOOR_H ? DOOR_A * Math.pow(1 - hy / DOOR_H, 1 / DOOR_P) : 0];
         if (oh && openD(h.wall, hx, hy) < 0.12) surfHit(_v3.copy(h.pos).addScaledVector(w.right, oh[0] + (hx < oh[0] ? -1 : 1) * (oh[1] + 0.38) - hx)); else surfHit(h.pos);
-        if (nh < MAXH) { hcu[nh] = hit.cu; hcy[nh] = hit.cy; hfresh[nh] = fresh ? 1 : 0; hsp[nh] = speed; hvu[nh] = h.vx * wallSgn[h.wall] * 1.15; hvv[nh] = h.vy * 1.15; nh++; }
+        if (nh < MAXH) { hhy[nh] = hy; hcu[nh] = hit.cu; hcy[nh] = hit.cy; hfresh[nh] = fresh ? 1 : 0; hsp[nh] = speed; hvu[nh] = h.vx * wallSgn[h.wall] * 1.15; hvv[nh] = h.vy * 1.15; nh++; }
         if (nh <= HL) { const l = handLights[nh - 1]; l.position.copy(hit.p).multiplyScalar(0.9); l.position.y = hit.p.y + 0.15; l.intensity += (HAND_LIGHT * arrive * (1 - leave) - l.intensity) * (1 - Math.exp(-dt * 18)); }   // studio 25-11: brighter (was 2.0)
         if (nh <= uHandP.length) { const U = uHandP[nh - 1].value; U.set(hit.p.x, hit.p.y, hit.p.z, U.w + ((fresh ? 1.4 : 1) * arrive * (1 - leave) - U.w) * (1 - Math.exp(-dt * 25))); }
         const under = nearest(hit.cu, hit.cy), ros = under >= 0 ? cells[under].ros : -1;
@@ -1401,6 +1411,10 @@ export function create(ctx) {
             const f = Math.exp(-dd / W_SIG2) * W_GAIN * Math.min(1.4, hsp[k]) * (0.7 + 0.6 * c.r1) * dt, o3 = i * 3;
             wVel[o3] += hvu[k] * f; wVel[o3 + 1] += hvv[k] * f; wVel[o3 + 2] += Math.hypot(hvu[k], hvv[k]) * f * 0.35; wOn[i] = 1;
           }
+          if (dd >= 0.3 * HR2 && hhy[k] > UP_FROM && dy > 0) {                            // above 1.7 m the hand's colour reaches up the wall
+            const up = 1 + UP_K * Math.min(1, (hhy[k] - UP_FROM) / 0.4), dyu = dy / up;
+            if (d * d + dyu * dyu < 0.3 * HR2 && colT[i] <= time) { paintCell(i); if (hfresh[k] || hsp[k] > 0.08) vphi[i] += 4; }
+          }
           if (dd < 0.3 * HR2) {
             // studio 25-11 (Beltrán, the SECOND INTENSITY): a hand passing again over pieces it already painted (painted ≥ 1.2 s ago) brings
             // them down — they fall to the floor, and later fly back to their bed at rest (see the return below), unless touched again
@@ -1411,8 +1425,12 @@ export function create(ctx) {
             const R2 = (0.14 + 0.22 * Math.min(1, rub[i] / 1.5)) * HR2;
             if (painted && !gone[i] && !c.mother && time - paintAt[i] > 1.2 && hsp[k] > 0.08 && dd < R2 && goneN < 260 && rnd() < dt * (4 + 8 * rub[i])) letGo(i, 0.9);
             if (!painted) paintAt[i] = time;
-            if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { vphi[i] += 5; }   /* studio 25-11: no glow under a landing hand (was glow 1.0), motion only */
+            if (PERSIST) paintCell(i); else if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { vphi[i] += 5; }   /* studio 25-11: no glow under a landing hand (was glow 1.0), motion only */
           }
+        }
+        if (waveT0 >= 0 && colT[i] <= time && !gone[i]) {                                // the wave that opens the buttons paints what was left
+          let dw = cu_ - waveS; if (dw > HL2) dw -= LL; else if (dw < -HL2) dw += LL;
+          if (Math.abs(dw) < (time - waveT0) * WAVE_V) { paintCell(i); vphi[i] += 5 * (c.r2 < 0.5 ? -1 : 1); glow[i] = Math.max(glow[i], 0.35); }
         }
         if (n >= 2 && time - resT[i] > 3) { resT[i] = time; glow[i] = 1.1; vphi[i] += 6 * (c.r2 < 0.5 ? -1 : 1); crossings++; }   // two fronts meet here
         let col = colT[i] > time ? 1 : 0, g = startGlow * (0.4 + 0.6 * c.r1);
@@ -1467,7 +1485,7 @@ export function create(ctx) {
     const vis0 = arrive * (1 - smooth(0, 0.6, leave));
     for (const b of bodies) {
       if (b.cell < 0) { meshes[b.mesh].setMatrixAt(b.idx, _m.makeScale(0, 0, 0)); continue; }
-      if (stepLoose(b, dt)) { const i = b.cell; b.cell = -1; gone[i] = 0; goneN--; vphi[i] += 6; colT[i] = time; /* studio 25-11: it comes back reset, at rest (was painted again) */ meshes[b.mesh].setMatrixAt(b.idx, _m.makeScale(0, 0, 0)); continue; }
+      if (stepLoose(b, dt)) { const i = b.cell; b.cell = -1; gone[i] = 0; goneN--; vphi[i] += 6; if (!PERSIST) colT[i] = time; /* studio 25-11: it came back reset, at rest; 26-11: painted stays painted (PERSIST) */ meshes[b.mesh].setMatrixAt(b.idx, _m.makeScale(0, 0, 0)); continue; }
       let vis = vis0; if (b.state === 3) vis = 0; if (b.state === 5) vis *= smooth(0.6, 1.4, b.timer);
       _s.copy(b.sc).multiplyScalar(vis);
       meshes[b.mesh].setMatrixAt(b.idx, _m.compose(b.p, b.q, _s));
@@ -1575,6 +1593,7 @@ export function create(ctx) {
     object,
     update,
     setParams() { /* read live from params */ },
+    paint: () => ({ share: paintedN / visN, painted: paintedN, of: visN, wave: waveT0 >= 0 }),   // studio 26-11: how much of the picture is uncovered
     touch(wall, x, y) { const w = walls[wall]; surfHit(_v2.copy(w.centre).addScaledVector(w.right, x).setY(y)); land(_v2, nearest(hit.cu, hit.cy), 40); },   // lab checks only: a landing at a point of a wall (x from its centre, y from the floor, m)
     debug: () => ({ arches: arches ? (arches.info || true) : arcErr ? 'error' : 'none', env: envRT ? 'own' : room.envMap ? 'room' : 'none', pieces: NC, verts: heroGeo.attributes.position.count, mothers: cells.filter((c) => c.mother).length, loose: cells.filter((c) => c.loose).length, band: band.length, mid: mid.length, gone: gone.reduce((a, b) => a + b, 0), falling: bodies.filter((s) => s.state === 1).length + band.filter((s) => s.state === 1).length, resting: bodies.filter((s) => s.state >= 2).length, chips: chips.filter((c) => c.on).length, pulses: pulses.filter((p) => p.on).length, coloured: colT.reduce((a, t) => a + (t > time ? 1 : 0), 0), glazed: phi.reduce((a, v) => a + (v > 1.5708 ? 1 : 0), 0), asleep: sleep.reduce((a, v) => a + v, 0), cascades, crossings, figure: figT0 >= 0, fxSent, reveal: revealV, start: startV }),
     dispose() {

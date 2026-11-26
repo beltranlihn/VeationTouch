@@ -22,7 +22,7 @@ export const TEXT = {
            [['Sonido', 'voz y música en 4.1'], ['Tecnología', 'VEATION Touch · LiDAR'], ['Lugar', 'Barcelona XR Lab'], ['Lema', 'Força, equilibri, valor i seny']]],
     closing: ['Cuando los cuerpos resuenan juntos,', 'nace la cultura.'],
     credits: [['Una obra de', 'Vicente Manzano'], ['Dirección creativa', 'Alma Digital Studio'], ['Producción', 'Barcelona XR Lab'], ['Tecnología interactiva', 'VEATION Touch']],
-    support: 'Con el apoyo de la Generalitat de Catalunya',
+    support: 'Con el apoyo de',
   },
   en: {
     presents: ['Barcelona XR Lab  ×  Alma Digital Studio', 'present'],
@@ -33,7 +33,7 @@ export const TEXT = {
            [['Sound', 'voice and music in 4.1'], ['Technology', 'VEATION Touch · LiDAR'], ['Venue', 'Barcelona XR Lab'], ['Motto', 'Força, equilibri, valor i seny']]],
     closing: ['When bodies resonate together,', 'culture is born.'],
     credits: [['A work by', 'Vicente Manzano'], ['Creative direction', 'Alma Digital Studio'], ['Production', 'Barcelona XR Lab'], ['Interactive technology', 'VEATION Touch']],
-    support: 'With the support of the Generalitat de Catalunya',
+    support: 'With the support of',
   },
   ca: {
     presents: ['Barcelona XR Lab  ×  Alma Digital Studio', 'presenten'],
@@ -44,7 +44,7 @@ export const TEXT = {
            [['So', 'veu i música en 4.1'], ['Tecnologia', 'VEATION Touch · LiDAR'], ['Lloc', 'Barcelona XR Lab'], ['Lema', 'Força, equilibri, valor i seny']]],
     closing: ['Quan els cossos ressonen junts,', 'neix la cultura.'],
     credits: [['Una obra de', 'Vicente Manzano'], ['Direcció creativa', 'Alma Digital Studio'], ['Producció', 'Barcelona XR Lab'], ['Tecnologia interactiva', 'VEATION Touch']],
-    support: 'Amb el suport de la Generalitat de Catalunya',
+    support: 'Amb el suport de',
   },
 };
 
@@ -86,7 +86,7 @@ export function create({ THREE, room }) {
   // the resonance (bright gold behind: darker plates)
   L.closing = all(1.85, { plate: 0.62 });
   L.credits = one(1.75, { plate: 0.62 });
-  L.support = all(0.95, { plate: 0.55 });
+  L.support = all(1.12, { plate: 0.55 });   // «amb el suport de», over the Generalitat's logo
   const texts = [L.presents, L.title, L.subtitle, ...L.four, ...L.trailer, ...L.data[0], ...L.data[1], L.closing, ...L.credits, L.support];
   for (const t of texts) { t.alpha.fill(1); object.add(t.object); }
 
@@ -105,22 +105,24 @@ export function create({ THREE, room }) {
   }
   layout('ca');
 
-  // ---- logos: one pair per wall (Alma Digital Studio · Barcelona XR Lab), white, on the wall plane
+  // ---- logos on every wall: Alma Digital Studio · Barcelona XR Lab (1.55 m), and under «amb el suport de» the grant's
+  //      Generalitat de Catalunya · Departament de Cultura (official white PNG from identitatcorporativa.gencat.cat)
   const logos = [];
   const logoMats = [];
   const place = (mesh, i, x, y) => { const pl = typo.onWalls(room, y, x)[i]; mesh.position.copy(pl.position); mesh.quaternion.copy(pl.quaternion); };
   (async () => {
     try {
-      const [alma, xr] = await Promise.all([
+      const [alma, xr, gen] = await Promise.all([
         logoTexture(THREE, new URL('../assets/alma-digital-white.png', import.meta.url).href),
         // the lab's logo as delivered carries a «PALO ALTO» line (its sister lab): cleared here, bottom right
         logoTexture(THREE, new URL('../assets/barcelona-xr-lab-black.png', import.meta.url).href, { invert: true, cut: [[0.62, 0.55, 1, 1]] }),
+        logoTexture(THREE, new URL('../assets/generalitat-cultura-white.png', import.meta.url).href),
       ]);
-      for (const [lg, h, x] of [[alma, 0.3, -1.4], [xr, 0.42, 1.4]]) {
+      for (const [lg, h, x, y] of [[alma, 0.3, -1.4, 1.55], [xr, 0.42, 1.4, 1.55], [gen, 0.17, 0, 0.88]]) {
         const mat = new THREE.MeshBasicMaterial({ map: lg.tex, transparent: true, opacity: 0, depthWrite: false, depthTest: false, toneMapped: false, color: new THREE.Color(...INK) });
         logoMats.push(mat);
         const geo = new THREE.PlaneGeometry(h * lg.aspect, h);
-        room.walls.forEach((w, i) => { const m = new THREE.Mesh(geo, mat); m.renderOrder = 11; m.frustumCulled = false; place(m, i, x, 1.55); m.visible = false; object.add(m); logos.push(m); });
+        room.walls.forEach((w, i) => { const m = new THREE.Mesh(geo, mat); m.renderOrder = 11; m.frustumCulled = false; place(m, i, x, y); m.visible = false; object.add(m); logos.push(m); });
       }
     } catch (err) { console.info('trailertext: logos skipped (' + err.message + ')'); }
   })();
