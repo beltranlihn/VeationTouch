@@ -99,7 +99,8 @@ for (const [name, pr] of loads) {
     if (name === 'umbral3d') { params.mosaic = P.mosaic || 'image'; params.resetAfter = P['trailer.resetAfter'] ?? 60; params.restSat = P.restSat ?? 0.15; }   // studio 25-11: the entrance's stones — one colour each, or his picture printed on them
     if (name === 'brasa3d') { params.devil2 = P.devil2 !== false; params.fons = !parts.plaza3d || P.plaza3d === false; }   // the baked dark square replaces brasa v2's stand-in (fons)   // studio 26-11: the correfoc devil v3 (reload to change)
     if (name === 'atmos') params.demoLamps = false;                // the square's own lamps light the dust
-    if (name === 'plaza') params.glow = 0.3;                       // atmos draws the lamps' glow in the air too
+    if (name === 'plaza') params.glow = 0.3;
+    if (name === 'torre3d' && parts.plaza3d && P.plaza3d !== false) params.backdrop = false;   // the trailer's one square stands behind the tower                       // atmos draws the lamps' glow in the air too
     if (name === 'castell') params.density = DENS[P.quality] ?? 1;
     if (name === 'pinya3d') params.density = DENS[P.quality] ?? 1;
     if (name === 'baixada3d') params.town = false;                // the real square (plaza, silhouette) is the town behind the dawn   // 3D-PI: fewer points at medium / low
@@ -336,7 +337,7 @@ function wanted(b) {
     case 'brasa': return has('brasa3d') ? ['brasa3d', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];   // 26-11: the SAME square goes on (Beltrán: «dentro del mismo mundo»)
     case 'pinya': return has('pinya3d2') ? ['pinya3d2', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];
     case 'acta': return [...(SQ() ? ['plaza3d'] : []), ...(has('castells3d') ? ['castells3d'] : []), ...(has('introp1') && P['trailer.outroText'] !== false ? ['introp1'] : []), 'atmos'];   // the closing (its words: introp1's outro mode, once Título delivers it)   // studio 26-11: the pinya v2
-    case 'tronc': return has('torre3d') ? ['torre3d', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the tower (score block 'tronc')
+    case 'tronc': return has('torre3d') ? ['torre3d', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];   // 26-11: the same square, as points sinking behind the tower   // studio 26-11: the tower (score block 'tronc')
     case 'festa': case 'crown': return has('festa3d') ? ['festa3d', 'atmos', ...T] :   // (26-11: the dust stays through the credits)
                                     ['plaza', 'castell', 'atmos', ...T];
     default: return ['atmos', ...T];
@@ -693,6 +694,11 @@ function frame(dt) {
         const k = sm(0.5, 5.5, serving ? S.t : 9);                    // the particles of the intro turn into the dark square of the fires
         p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.4 * (1 - k) + 0.05 * k; p.breathe = 1 - k; p.cool = 0.5;
       } else if (e.home === 'pinya') { p.dark = 1; p.reveal = 0.55; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6; p.fires = [0, 0, 0, 0]; p.lit = 0; }
+      if (e.home === 'tronc') {   // the tower: points only, no occluder, moved down with the tower's world (its plazaSink parallax)
+        const g = parts.torre3d?.part?.progress?.() || {};
+        p.dark = 1; p.reveal = 0.55; p.occlude = 0; p.pointGain = 0.35; p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0;
+        e.part.object.position.y = (g.worldY || 0) * (1 + (g.plazaSink ?? 0.35));
+      } else e.part.object.position.y = 0;
       const D = P['trailer.outro'] ?? 18;
       if (e.home === 'acta') { const ta = serving ? S.t : 0; p.dark = 0; p.reveal = 0.55; p.occlude = 1; p.pointGain = 0.4 * sm(0, 3, ta); p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.shatter = Math.max(e.leave || 0, sm(D - 5, D - 1.5, ta)); }
       else p.shatter = e.leave || 0;
