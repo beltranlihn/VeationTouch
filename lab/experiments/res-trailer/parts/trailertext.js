@@ -150,9 +150,10 @@ export function create({ THREE, room }) {
       drive(L.subtitle, t, s1 + 14, s1 + 26, 0.8, gi);
       L.four.forEach((x, i) => drive(x, t, s1 + 28 + i * 1.6, s1 + 42, 0.9, gi));
       // the correfoc
-      L.trailer.forEach((x, i) => drive(x, t, s2 + 5 + i * 3.5, s2 + 23, 0.9, g));
-      L.data[0].forEach((x, i) => drive(x, t, s2 + 25 + i * 0.8, s2 + 36.5, 0.8, g));
-      L.data[1].forEach((x, i) => drive(x, t, s2 + 38 + i * 0.8, s2 + 50, 0.8, g));
+      // studio 26-11 (Beltrán: «quítalo del tráiler anterior, deja sólo lo nuevo»): the correfoc's old cards are off too (input.introCards)
+      L.trailer.forEach((x, i) => drive(x, t, s2 + 5 + i * 3.5, s2 + 23, 0.9, gi));
+      L.data[0].forEach((x, i) => drive(x, t, s2 + 25 + i * 0.8, s2 + 36.5, 0.8, gi));
+      L.data[1].forEach((x, i) => drive(x, t, s2 + 38 + i * 0.8, s2 + 50, 0.8, gi));
       // the resonance
       drive(L.closing, t, s3 + 6, s3 + 23, 1.0, g);
       L.credits.forEach((x, i) => drive(x, t, s3 + 25 + i * 1.2, s3 + 44, 0.8, g));
