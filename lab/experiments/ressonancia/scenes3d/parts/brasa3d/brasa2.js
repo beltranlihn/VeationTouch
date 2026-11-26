@@ -98,7 +98,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(90, 90, 1, 1), new THREE.MeshBasicNodeMaterial({ depthWrite: false }));
     floor.rotation.x = -Math.PI / 2;
     const pw = attribute('position', 'vec3');
-    floor.material.colorNode = vec3(0.0032, 0.0026, 0.0022).mul(float(1).sub(U.leave.mul(0.7)));
+    floor.material.colorNode = vec3(0.0032, 0.0026, 0.0022).mul(float(1).sub(U.leave));
     floor.material.transparent = true; floor.material.opacityNode = U.water.mul(float(1).sub(U.leave));   // (the water comes in with a long fade)
     floor.material.fog = false; floor.renderOrder = -2; world.add(floor); floorMesh = floor;
     void pw;
@@ -248,7 +248,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     const Lr = max(live, 0);
     const colr = mix(mix(vec3(0.35, 0.03, 0.01), vec3(1.0, 0.32, 0.06), smoothstep(0.15, 0.6, Lr)), vec3(1.0, 0.86, 0.6), smoothstep(0.75, 1.0, Lr));
     const q = uv().x.sub(0.5);
-    m.colorNode = colr.mul(exp(q.mul(q).mul(-16))).mul(pow(Lr, 1.4).mul(1.5).add(0.05)).mul(G1.mul(0.6).add(0.4)).mul(sin(uNow.mul(19.0).add(B4.w.mul(41.0))).mul(0.12).add(0.88)).mul(float(1).sub(U.leave.mul(0.7)));
+    m.colorNode = colr.mul(exp(q.mul(q).mul(-16))).mul(pow(Lr, 1.4).mul(1.5).add(0.05)).mul(G1.mul(0.6).add(0.4)).mul(sin(uNow.mul(19.0).add(B4.w.mul(41.0))).mul(0.12).add(0.88)).mul(float(1).sub(U.leave));
     m.fog = false;
     const mesh = new THREE.Mesh(tg, m); mesh.frustumCulled = false; mesh.renderOrder = 6; world.add(mesh); room.reactive?.(mesh); lineMesh = mesh;
   }
