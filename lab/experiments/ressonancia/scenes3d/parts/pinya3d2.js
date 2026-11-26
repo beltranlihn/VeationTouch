@@ -465,6 +465,8 @@ export function create({ THREE, TSL, room, params }) {
         s = { wall: h.wall, x, y, being: null, t0: time, last: time, seen: time, n: 0 };
         slotsH.set(h.stroke, s);
         if (!knownStrokes.has(h.stroke) && uLeave.value < 0.5) { s.being = spawn(h.wall, x, Math.max(0.55, Math.min(2.05, y)), {}); }
+        // for the sound: a palm that lands and makes nobody (the room full, the end, the dust) still lands: its light answers it
+        if (!s.being) events.push(`touch:${h.wall}:${Math.max(0, Math.min(1, x / W.width + 0.5)).toFixed(3)}:${y.toFixed(2)}`);
         const g = glows.find((q) => q.stroke === null && q.a < 0.05) || glows.find((q) => q.stroke === null) || glows[0];
         g.stroke = h.stroke; g.a = Math.max(g.a, 0.6);
       }
