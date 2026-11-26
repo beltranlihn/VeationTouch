@@ -172,3 +172,11 @@ At its place:
 - **Every place taken (or the tower up):** a tap still makes a being in the hand. It forms, holds ~0.5 s, then lets go into particles there, rising a little. It does not go to the tower. At most `ghostMax` (10) at once; event `ghost:w:u:y`. Hands no longer fill the extra places round the ronda.
 - **The light:** `goldPerWall` (3) golden points per other wall, scattered along it (≥ 0.95 m apart, clear of the rulers) at 0.9–1.6 m. A tap keeps its beam on for `tapCharge` (2.2 s): one person charges in ~5 taps, several people together faster. Then the immediate burst and wave, as before.
 - Sound: there are no more `charge:` / `uncharge:` events from hands; a tap gives `form:` (a climber), `ghost:` (a being in the hand) or `touch:` (on a golden point, or nothing to make).
+
+## 26-11 (room review of ad5c94c)
+
+- **No automatic charge.** The golden light never charges by itself (the `chargeAssist` / `autoW` path is gone; the JSON param is now unused). Only taps on the golden points charge it.
+- **The gold wave, in two rings.** After the «pum» two rings run out from under her: `waveR(t) = waveRun·t + ½·waveAcc·t²` (2.2 m/s, 1.2 m/s²), the second `waveGap` 1.3 s behind (`uWave2`). Behind the first ring every particle turns gold: bodies (flash per ring, then 0.9 gold), motes (cool light dims under the gold), the stand-in square; `uWave.y` carries the gold left behind (1 → 0.3 through the dissolve). The trailer's square still reads `progress().wave` = [x, z, radius of the first ring].
+- Once the second ring has passed `waveReach` (18 m, the square's far façades) the room stands gold `goldStay` 2.5 s, then `end`; the dissolve is `endTime × endK` (6 × 1.4 = 8.4 s). Study: l'aleta → end ≈ 7.7 s, end → done ≈ 8.9 s. The ruler now fades out with l'aleta.
+- **Stirred beings.** Every hand (not only P1's) stamps the velocity field: a hand held or moving on P4/P2/P3 stirs the particles of the being forming in it (or the ghost); still → slow rise and curl (amount 0.45), moving → dragged with a curl; they settle on the field's spring after the hand lets go.
+- `__torre3d.gold()` now returns `{ wall (index), id, x (m from centre), u (0..1), y (m), w }`.
