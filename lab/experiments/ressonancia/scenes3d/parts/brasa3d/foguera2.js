@@ -277,7 +277,7 @@ export function createFogueres(ctx) {
     m.colorNode = (() => {
       const r2 = dot(vq, vq), rr = TSL.sqrt(r2);
       const fl = sin(U.time.mul(9.0).add(vS.z.mul(17.0))).mul(0.07).add(sin(U.time.mul(3.1).add(vS.z.mul(5.0))).mul(0.08)).add(0.85);
-      const pool = exp(r2.mul(-3.2)).mul(0.16).add(exp(r2.mul(-22.0)).mul(0.22)).mul(smoothstep(0.0, 0.25, vS.x).mul(0.85).add(0.15)).mul(vS.x.mul(0.8).add(0.2)).mul(fl).mul(vS.y.mul(0.8).add(1));
+      const pool = exp(r2.mul(-3.2)).mul(0.16).add(exp(r2.mul(-22.0)).mul(0.22)).mul(smoothstep(0.0, 0.25, vS.x).mul(0.85).add(0.15)).mul(vS.x.mul(0.8).add(0.2)).mul(fl).mul(vS.y.mul(1.8).add(1));
       // the boom: a ring of light running out over the floor (radius uBoom · 16 m), fading
       const ring = exp(rr.sub(uBoom).mul(rr.sub(uBoom)).mul(-180.0)).mul(float(1).sub(uBoom)).mul(select(uBoom.greaterThan(0.001), float(0.5), float(0)));
       const out = select(vS.w.greaterThan(0.5), C.amber.mul(ring), C.orange.mul(pool));
@@ -310,20 +310,21 @@ export function createFogueres(ctx) {
     // the volumetric flames: size with the level (+ the feed's flash, the boom), brightness, the crown's wave
     for (const v of VOL) {
       const i = v.f, T = TYPES[sites[i].type], lv = FS[i].x, fl = FS[i].y, bm = FS[i].z;
-      const L = Math.pow(lv, 0.8) + fl * 0.22 + bm * 0.7;
+      const fk = fl * fl * (3 - 2 * fl);                       // (the feed's flare: a quick swell, a soft fall)
+      const L = Math.pow(lv, 0.8) + fk * 0.34 + bm * 0.7;
       const wave = sites[i].type === 3 ? 0.72 + 0.32 * Math.sin(time * 1.6 - v.ph) : 1;
       const breath = 1 + 0.05 * Math.sin(time * T.beat * 1.57 + v.ph + i);
       const H = (T.H0 + (T.H1 - T.H0) * Math.min(1.25, L)) * v.hk * wave * breath, Wd = (T.W0 + (T.W1 - T.W0) * Math.min(1.2, L)) * 2.2 * v.wk;
       const m = v.F.mesh;
       m.scale.set(Wd, H * 1.25, Wd);
       m.position.set(sites[i].x + v.ox, Y0[sites[i].type] + H * 1.25 * 0.5, sites[i].z + v.oz);
-      v.F.u.bright.value = (0.5 + 0.7 * Math.min(1, lv) + fl * 0.6 + bm * 0.6) * (1 - 0.7 * Number(U.leave.value || 0));
-      v.F.u.magnitude.value = VSTY[sites[i].type].mag + fl * 0.35;
+      v.F.u.bright.value = (0.5 + 0.7 * Math.min(1, lv) + fk * 1.1 + bm * 0.6) * (1 - 0.7 * Number(U.leave.value || 0));
+      v.F.u.magnitude.value = VSTY[sites[i].type].mag + fk * 0.7;
       v.F.update();
     }
   }
   return {
-    meshes, update,
+    meshes, update, vol: VOL,
     setRingCentre(x, z) { uRing.value.set(x, 0, z); },
     light: (i) => lightOf[i],
     info: { look: LOOK, volumeBoxes: VOL.length, drawCalls: meshes.length, flameInstances: NI, baseTris: baseGeos.reduce((a, g) => a + g.index.count / 3, 0) },

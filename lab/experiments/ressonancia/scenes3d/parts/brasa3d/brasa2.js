@@ -375,7 +375,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
           else if (boomAt < 0) target[i] = Math.min(1, target[i] + feedK * (1 + 0.6 * (1 - target[i])));
           events.push('feed:' + i);
           // the fire answers: a burst of sparks up from it
-          emit(120, sites[i].x, 0.6, sites[i].z, 0.4, 0, 1, 0, 0.6, 2.5, 5.5, 0.7, 1.5, 2.0, 0.3, 0.9);
+          emit(320, sites[i].x, 0.7, sites[i].z, 0.45, 0, 1, 0, 0.5, 3.5, 7.5, 0.8, 1.8, 2.3, 0.28, 0.85);
         }
       }
     }
@@ -386,7 +386,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
       if (boomAt < 0 && time - lastFed[i] > 8) target[i] = Math.max(floorL, target[i] - decay * dt);
       if (boomAt >= 0) target[i] = Math.max(target[i], 0.95);
       lvl[i] += (target[i] - lvl[i]) * (1 - Math.exp(-dt / (target[i] > lvl[i] ? 1.6 : 4.0)));
-      flash[i] = Math.max(0, flash[i] - dt / 0.6);
+      flash[i] = Math.max(0, flash[i] - dt / 1.1);                  // (the feed's flare falls back over ~1 s)
     }
     // ---- the boom: when the four burn high enough (or after N feeds), once
     const bAt = Number(P.boomAt ?? 0.72), bFeeds = Number(P.boomFeeds ?? 52);
@@ -418,7 +418,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     U.nE.value = nE;
     if (sparkCompute) room.renderer.compute(sparkCompute);
     object.visible = arrive > 0.001 && leave < 0.999;
-    if (typeof window !== 'undefined') window.__brasa2 = { progress, devils, lvl, feeds: () => feeds, sites, last: { arrive, leave, tb, clock0, block: S?.block, st: S?.t, it: input.t, hands: hands.length, intro: introFired, I, introOn } };
+    if (typeof window !== 'undefined') window.__brasa2 = { progress, devils, lvl, flash, FIRE, feeds: () => feeds, sites, last: { arrive, leave, tb, clock0, block: S?.block, st: S?.t, it: input.t, hands: hands.length, intro: introFired, I, introOn } };
   }
   function progress() {
     const fires = Array.from(lvl, (v, i) => v + (boomAt >= 0 ? 0.25 * Math.sin(Math.PI * Math.min(1, (prevT - boomAt) / 2)) : 0));
