@@ -238,7 +238,7 @@ doJump();
 // play early), a move into the NEXT segment's block jumps the clock there; any other move is put back.
 const TRL = { tt: 0, seg: -1, jumpedAt: -9, loops: 0 };
 const segments = () => {
-  const pre = P['trailer.preroll'] ?? 12, title = 50, fire = 53, res = 62;   // title 50: the intro's 4th line (41 s, ~5.4 s) ends before the correfoc
+  const pre = P['trailer.preroll'] ?? 12, title = 55, fire = 53, res = 62;   // 26-11: the new intro script ends at ~52.6 s   // title 50: the intro's 4th line (41 s, ~5.4 s) ends before the correfoc
   // studio 26-11 (Beltrán): the PINYA after the correfoc — not timed: it lasts until the room is full and the beings have let go (the
   // part's fill().done), at most trailer.pinyaMax s; trailer.pinya = false leaves it out
   const pin = P['trailer.pinya'] === false || !has('pinya3d2') ? 0 : (P['trailer.pinyaMax'] ?? 180);
@@ -567,7 +567,7 @@ function frame(dt) {
   trailerStep(dt);                                                  // TRAILER
   if (following()) {
     if (S.block === 'tronc') S.beat = (link.beat + (((Date.now() - link.ts) / 1000) * link.pace) / score.times.tronc.period) % 1;   // between two messages the pulse keeps moving
-    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: timesNow(), lang: P.lang, button: BUTTON }); }   // TRAILER: lang — the voice speaks the trailer's language
+    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: timesNow(), lang: P.lang, button: BUTTON, intro: 'trailer' }); }   // TRAILER: lang — the voice speaks the trailer's language
     frameEvents.push(...link.events.splice(0));
   } else { score.step(dt * (P.pace || 1), scoreHands); frameEvents.push(...S.events); S.events.length = 0; }
   if ((time - actaAt > 0.5 || S.block !== lastBlock) && S.block !== 'wait' && S.block !== 'intro') { actaAt = time; acta = link.acta && following() ? link.acta : score.acta(); }   // kept through the wait: the acta leaving must not read a reset score
