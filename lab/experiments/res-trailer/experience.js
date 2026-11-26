@@ -42,7 +42,7 @@ const vt = await connectExperience();
 const canvas = document.getElementById('c');
 canvas.width = vt.size.width; canvas.height = vt.size.height;
 const q = new URLSearchParams(location.search);
-const P = Object.assign({ jump: 'none', pace: 1, guide: false, lang: 'ca', bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: true, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab', warmSets: true, prewarmRT: true, entranceFirst: false }, vt.params);   // T-057: warmSets / prewarmRT (see 'pre-warming'), false = as before · T-065: entranceFirst (see 'entrance first'), false = as before
+const P = Object.assign({ jump: 'none', pace: 1, guide: false, lang: 'ca', bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: false, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab', warmSets: true, prewarmRT: true, entranceFirst: false }, vt.params);   // T-057: warmSets / prewarmRT (see 'pre-warming'), false = as before · T-065: entranceFirst (see 'entrance first'), false = as before
 // T-052 «modo sala»: in the room (mode 'room', or 'auto' inside the app, which opens the page with ?run=1) the lab's URL switches are
 // ignored, so a stray ?q3 / ?parts / ?tiles can never reach the walls. Read at load: changing `mode` needs a reload (Stop / Play).
 const LAB = P.mode === 'lab' || (P.mode !== 'room' && !q.has('run'));
@@ -597,7 +597,7 @@ function frame(dt) {
   if (S.block !== lastBlock) {
     prevBlock = lastBlock;
     try { room.setEnvironment?.(S.block); } catch (err) { console.info('res-obra3d: setEnvironment skipped (' + err.message + ')'); }   // RND-F: the shared envMap per block (HDRI / tint), re-baked in place
-    room.setBackground?.(S.block);                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
+    room.setBackground?.(S.block === 'wait' && has('umbral3d') ? { bottom: [0.012, 0.022, 0.066], top: [0.012, 0.022, 0.066], gain: 1 } : S.block);   // 26-11 QA: the mosaic comes back over its own night blue, never a flash of sand                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
     if ((S.block === 'wait' || S.block === 'intro') && parts.baixada3d?.part.releaseTronc) { try { parts.baixada3d.part.releaseTronc(); } catch (err) { console.info('res-obra3d: releaseTronc skipped (' + err.message + ')'); } }   // 3D-PO: a new pass gives the tower's floors back to tronc3d
     if (S.block === 'fall') {
       fallSet = ['atmos']; for (const n of ['plaza', 'castell', 'tronc3d']) if (parts[n] && (parts[n].state === 'on' || parts[n].state === 'in')) fallSet.push(n);   // tronc3d: fall3d (3D-PI) calls its collapse()
@@ -694,7 +694,9 @@ function frame(dt) {
       } else if (e.home === 'brasa') {
         const k = sm(0.5, 5.5, serving ? S.t : 9);                    // the particles of the intro turn into the dark square of the fires
         p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.4 * (1 - k) + 0.05 * k; p.breathe = 1 - k; p.cool = 0.5;
-      } else if (e.home === 'pinya') { p.dark = 1; p.reveal = 0.55; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6; p.fires = [0, 0, 0, 0]; p.lit = 0; }
+      } else if (e.home === 'pinya') {   // (26-11 QA) the correfoc's light dies with its dust, over ~4 s, not in one frame
+        const k = 1 - smooth((serving ? S.t : 9) / 4.5);
+        p.dark = 1; p.reveal = 0.55; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6; p.fires = (e.lastFires || [0, 0, 0, 0]).map((f) => f * k); p.lit = (e.lastLit || 0) * k; }
       if (e.home === 'tronc') {   // the tower: points only, no occluder, moved down with the tower's world (its plazaSink parallax)
         const g = parts.torre3d?.part?.progress?.() || {};
         p.dark = 1; p.reveal = 0.55; p.occlude = 0; p.pointGain = 0.35; p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0;
@@ -731,7 +733,7 @@ function frame(dt) {
     if (bp?.progress) { const g = bp.progress(), ev = bp.events || [];
       if (ev.includes('storm:full')) link.stormFull = true;
       score.setFill(g.total ?? 0); if (Math.abs((g.total ?? 0) - (link.fiSent ?? -1)) > 0.01 || time - (link.fiAt ?? -9) > 1) { link.fiSent = g.total ?? 0; link.fiAt = time; tell({ fill: g.total ?? 0 }); }
-      const pd = parts.plaza3d; if (pd && pd.home === 'brasa') { const k = 1 - (g.storm || 0); pd.params.fires = (g.fires || [0, 0, 0, 0]).map((f) => f * k); pd.params.lit = (g.boom || 0) * k; }
+      const pd = parts.plaza3d; if (pd && pd.home === 'brasa') { const k = 1 - 0.6 * (g.storm || 0); pd.params.fires = (g.fires || [0, 0, 0, 0]).map((f) => f * k); pd.params.lit = (g.boom || 0) * k; pd.lastFires = pd.params.fires.slice(); pd.lastLit = pd.params.lit; }
       if (bp.sound) try { bc?.postMessage({ type: 'brasa', s: bp.sound() }); } catch { /* alone */ } }
     const tp = S.block === 'tronc' ? parts.torre3d?.part : null;
     if (tp?.progress) { const g = tp.progress(), v = Math.min(1, 0.9 * (g.needed ? g.climbers / g.needed : 0) + 0.1 * (g.charge || 0));
@@ -882,6 +884,10 @@ async function bgWarm() {
         if (e.state === 'off') {                                     // (a part already on screen — a sound piece far into its pass — is left alone)
           const u0 = performance.now(); wi.t = tw; wi.params = e.params; const s0 = e.params.shatter; if (e.name === 'plaza') e.params.shatter = sh;
           try { e.part.update(1 / 60, wi); } catch (err) { console.info(`res-obra3d: warm-up of "${e.name}" skipped (${err.message})`); }
+          // 26-11 QA: castells3d, pinya3d2 and torre3d bake their bodies a few ms per update and only then make their meshes — let them
+          // finish here (during the mosaic) so the compile below sees them, instead of a stall when the block arrives
+          const baked = () => { const r = e.part.progress?.()?.readyMs ?? globalThis['__' + e.name]?.readyMs; return r == null || r > 0; };
+          for (let kb = 0; kb < 900 && !baked(); kb++) { await nextFrame(); try { e.part.update(1 / 60, wi); } catch { break; } }
           if (e.name === 'plaza') e.params.shatter = s0;
           const du = performance.now() - u0; worst = Math.max(worst, du); if (du > 30) bg.slow.push([e.name + ':update', Math.round(du)]);
           await nextFrame();
