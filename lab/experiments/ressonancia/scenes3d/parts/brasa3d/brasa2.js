@@ -24,7 +24,12 @@
 //   sound()    → { births [{ wall, u }], devils [{ wall, u, spd }], hands [{ wall, u, slide }], fires [{ wall, level, flash }], feeds,
 //                 boom, storm } this frame: what brasa2/sound.js (the fire's synthesis) plays — the director mounts it in the work's sound
 //   progress() → { fires: [P4, P1, P2, P3] (0..1, above 1 in the boom), total (0..1), devils, feeds, done, boom (0..1) }
-//   events  the array of this frame's events: 'feed:<w>' (wall index), 'boom', 'done', 'storm', 'storm:full', 'intro:strip', 'intro:boom'
+//   events  the array of this frame's events: 'feed:<w>' (wall index), 'boom', 'done', 'storm', 'storm:full', 'intro:strip', 'intro:boom',
+//           'dust' (the exit begins), 'dust:gone'
+//   ENTRY  out of the intro's dust: the fires light one by one from P1 (entryAt 0.4, entryGap 0.9 s), the water fades in over entryWater 6 s
+//   EXIT   leaveTo 'dust' (default; 'cut' = the old way): on leave the storm's sparks settle into a warm floating dust that outlives us by
+//          dustTime 6 s — part.lingering is true meanwhile (keep updating and drawing the part); params.tint [r,g,b] or '#hex' = the dust's
+//          colour, followed with a 1.5 s ease (push it towards the next block's palette)
 //   THE STORM after the boom (stormDelay 3.2 s, stormRamp 4 s; storm false = none): the room fills with sparks and flashes, the rest fades
 //   under them (progress().storm 0..1) — the handover: switch blocks on 'storm:full' (or when you like)
 //   params  intro { strip 0.5, stop 4.0, boom 4.8, run [5, 12] } · feed 0.06 · boomAt 0.72 · boomFeeds 52 · decay 0.004 /s ·
@@ -75,6 +80,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     time: uniform(0), dt: uniform(1 / 60), level: uniform(0), arrive: uniform(1), leave: uniform(0), cool: uniform(0), awake: uniform(0),
     wait: uniform(0), lift: uniform(0), refl: uniform(0), devils: uniform(1), crowd: uniform(1), heat: uniform(1), seed: uniform(0, 'uint'), nE: uniform(0, 'int'),
     plaza: uniform(0.12), sparkK: uniform(1),
+    settle: uniform(0), tint: uniform(new THREE.Vector3(1, 0.62, 0.32)), water: uniform(0),   // the exit to dust · its tint · the entry's water
   };
   const heatData = new Uint8Array(NC * 4);
   const heatTex = new THREE.DataTexture(heatData, NC, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
@@ -82,13 +88,15 @@ export function createBrasa2({ THREE, TSL, room, params }) {
   const heatSample = (s, vertex) => { const t = texture(heatTex, vec2(s.div(PER), 0.5)); return vertex ? t.level(0) : t; };
   const CELL = PER / NC, heatR = new Float32Array(NC), heatG = new Float32Array(NC);
 
+  let floorMesh = null, sparkMeshRef = null, lineMesh = null;
   // ------------------------------------------------------------------------------------------------ 1. the floor: black water (lit only by what burns)
   {
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(90, 90, 1, 1), new THREE.MeshBasicNodeMaterial({ depthWrite: false }));
     floor.rotation.x = -Math.PI / 2;
     const pw = attribute('position', 'vec3');
     floor.material.colorNode = vec3(0.0032, 0.0026, 0.0022).mul(float(1).sub(U.leave.mul(0.7)));
-    floor.material.fog = false; floor.renderOrder = -2; world.add(floor);
+    floor.material.transparent = true; floor.material.opacityNode = U.water.mul(float(1).sub(U.leave));   // (the water comes in with a long fade)
+    floor.material.fog = false; floor.renderOrder = -2; world.add(floor); floorMesh = floor;
     void pw;
   }
 
@@ -128,10 +136,13 @@ export function createBrasa2({ THREE, TSL, room, params }) {
           const dt = U.dt, g = k4.y, v = v4.xyz.toVar(), p = p4.xyz.toVar();
           v.addAssign(vec3(0, g.mul(-9.8).mul(dt), 0));
           v.mulAssign(exp(k4.z.negate().mul(dt)));
+          // (the exit: the sparks settle into a warm floating dust — slowed, lifted a little, swirling, living much longer)
+          v.mulAssign(exp(U.settle.mul(-1.6).mul(dt)));
+          v.addAssign(vec3(sin(p.y.mul(1.9).add(U.time.mul(0.5)).add(k4.w.mul(40.0))).mul(0.25), float(0.16).add(k4.w.mul(0.1)).sub(g.mul(9.8).mul(0.9)), cos(p.y.mul(1.4).add(U.time.mul(0.4)).add(k4.w.mul(23.0))).mul(0.25)).mul(U.settle).mul(dt));
           p.addAssign(v.mul(dt));
           const hot = k4.x.toVar();
           If(p.y.lessThan(0.004).and(v.y.lessThan(0)), () => { p.assign(vec3(p.x, 0.004, p.z)); v.assign(vec3(v.x.mul(0.5), v.y.mul(-0.3), v.z.mul(0.5))); hot.mulAssign(0.82); });
-          p4.assign(vec4(p, p4.w.add(dt))); v4.assign(vec4(v, v4.w)); k4.assign(vec4(hot, k4.yzw));
+          p4.assign(vec4(p, p4.w.add(dt.mul(float(1).sub(U.settle.mul(0.86)))))); v4.assign(vec4(v, v4.w)); k4.assign(vec4(hot, k4.yzw));
         });
       });
       bufP.element(instanceIndex).assign(p4); bufV.element(instanceIndex).assign(v4); bufK.element(instanceIndex).assign(k4);
@@ -152,11 +163,12 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     const c = mix(tail.xyz, head.xyz, along).add(vec3(perp.mul(pg.x.mul(W)).add(dir.mul(pg.y.mul(W))), 0));
     m.vertexNode = select(alive, cameraProjectionMatrix.mul(vec4(c, 1)), vec4(0, 0, 2, 1));
     const E = float(0.011).div(W).mul(float(1).div(L.div(W.mul(5.0)).add(1))).mul(2.2);
-    const vC = varying(fireRamp(T).mul(E)), vA = varying(along);
+    const fc = fireRamp(T).mul(E), lum = dot(fc, vec3(0.3, 0.55, 0.15));
+    const vC = varying(mix(fc, U.tint.mul(lum).mul(1.6), U.settle.mul(0.85)).mul(float(1).sub(U.settle.mul(0.45)))), vA = varying(along);   // (the dust: dimmer, in the tint)
     const q = uv().sub(0.5);
     m.colorNode = vC.mul(exp(q.x.mul(q.x).mul(-14))).mul(mix(float(0.3), float(1), vA)).mul(U.sparkK);   // (the sparks outlive the fade: the storm is theirs)
     m.fog = false;
-    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 5; world.add(mesh); room.reactive?.(mesh);
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 5; world.add(mesh); room.reactive?.(mesh); sparkMeshRef = mesh;
   }
   let cursor = 0, nE = 0;
   function emit(n, px, py, pz, spread, dx, dy, dz, cone, vmin, vmax, lmin, lmax, heat, g, drag, ix = 0, iy = 0, iz = 0) {
@@ -234,7 +246,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     const q = uv().x.sub(0.5);
     m.colorNode = colr.mul(exp(q.mul(q).mul(-16))).mul(pow(Lr, 1.4).mul(1.5).add(0.05)).mul(G1.mul(0.6).add(0.4)).mul(sin(uNow.mul(19.0).add(B4.w.mul(41.0))).mul(0.12).add(0.88)).mul(float(1).sub(U.leave.mul(0.7)));
     m.fog = false;
-    const mesh = new THREE.Mesh(tg, m); mesh.frustumCulled = false; mesh.renderOrder = 6; world.add(mesh); room.reactive?.(mesh);
+    const mesh = new THREE.Mesh(tg, m); mesh.frustumCulled = false; mesh.renderOrder = 6; world.add(mesh); room.reactive?.(mesh); lineMesh = mesh;
   }
   const TR = new Map();                       // id → { pts ring, head, prev, vel, last, acc, seen, gone }
   // a point of the wall plane (perimeter s, height y), a little into the scene
@@ -281,12 +293,14 @@ export function createBrasa2({ THREE, TSL, room, params }) {
 
   // ------------------------------------------------------------------------------------------------ 7. state
   let storm = 0, stormOn = false, stormFull = false;
+  let settle = 0, dustT = -1, dustOn = false, dustGone = false, lingering = false;   // the exit to dust
+  const appear = new Float32Array(4).fill(1), appearFlag = new Uint8Array(4);
   let births = [];                                             // (this frame's correfoc births, for the sound)
   let events = [], feeds = 0, boomAt = -1, done = false, introFired = { strip: false, boom: false }, clock0 = null, prevT = 0;
   const handsSeen = new Map(), handS = new Map();
   const introCfg = () => ({ strip: 0.5, stop: 4.0, boom: 4.8, run: [5, 12], ...(P.intro || {}) });   // (the voice: 0.5 «Every castell…», 5.0 «The correfoc carries the fire», 9.0 «Touch the wall…»)
   function reset() {
-    lvl.fill(0); target.fill(0); flash.fill(0); lastFed.fill(-99); feeds = 0; boomAt = -1; done = false; storm = 0; stormOn = false; stormFull = false; introFired = { strip: false, boom: false }; clock0 = null;
+    lvl.fill(0); target.fill(0); flash.fill(0); lastFed.fill(-99); feeds = 0; boomAt = -1; done = false; storm = 0; stormOn = false; stormFull = false; settle = 0; dustT = -1; dustOn = false; dustGone = false; lingering = false; appearFlag.fill(0); introFired = { strip: false, boom: false }; clock0 = null;
     for (const dv of devils) dv.on = false;
     TR.clear(); handsSeen.clear(); events = [];
   }
@@ -410,7 +424,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     storm = P.storm === false ? 0 : clamp01((time - sT0) / sRamp);
     if (storm > 0 && !stormOn) { stormOn = true; events.push('storm'); }
     if (storm >= 1 && !stormFull) { stormFull = true; events.push('storm:full'); }
-    if (storm > 0) {
+    if (storm > 0 && !(toDustNow(leave))) {
       const k = Math.min(MAXE - nE - 8, Math.round(10 + 34 * storm)), total = dt * (6000 + 30000 * storm * storm);
       for (let e = 0; e < k; e++) {
         const sAt = Math.random() * PER, d = Math.random() < 0.35 ? 0.15 + Math.random() * 0.9 : 1 + Math.random() * 7;   // some close: big streaks over the walls
@@ -427,9 +441,40 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     }
     const fadeK = smoother(storm) * 0.94, Leff = Math.max(leave, fadeK);
 
+    // ---- THE ENTRY (director 26-11: «within the same world»): our pieces come out of the intro's dust — the fires light one by one
+    //      (from P1 round the room, `entryGap` s apart, each over 1.6 s, a little catch of sparks), the water with a long fade
+    if (P.entry !== false) {
+      const gap = Number(P.entryGap ?? 0.9), first = Number(P.entryAt ?? 0.4), order = [iP1, (iP1 + 1) % NW, (iP1 + 2) % NW, (iP1 + 3) % NW];
+      order.forEach((wi, k) => {
+        const a = clamp01((tb - first - k * gap) / 1.6); appear[wi] = a * a * (3 - 2 * a);
+        if (a > 0.3 && !appearFlag[wi]) { appearFlag[wi] = 1; emit(90, sites[wi].x, 0.25, sites[wi].z, 0.3, 0, 1, 0, 0.7, 1.2, 3.0, 0.6, 1.4, 1.8, 0.4, 1.0); }
+      });
+      U.water.value = smoother(tb / Math.max(0.5, Number(P.entryWater ?? 6)));
+    } else { appear.fill(1); U.water.value = 1; }
+    // ---- THE EXIT to dust (leaveTo 'dust', the default): when the host takes us out the sparks don't vanish — they settle (slower,
+    //      longer-lived, buoyant, in the tint) into a warm floating dust that is still in the air when the next block arrives, and fades
+    //      over `dustTime` s after we are gone. While it does, `part.lingering` is true: keep calling update() and drawing us.
+    const toDust = (P.leaveTo ?? 'dust') === 'dust';
+    if (toDust && leave > 0.001) {
+      if (!dustOn) { dustOn = true; events.push('dust'); }
+      settle = Math.min(1, settle + dt / 1.5);
+      if (leave >= 0.999) dustT = dustT < 0 ? 0 : dustT + dt;
+    } else if (leave <= 0.001) { settle = Math.max(0, settle - dt / 1.5); dustT = -1; dustOn = false; dustGone = false; }
+    const dustTime = Math.max(1, Number(P.dustTime ?? 6));
+    const dustFade = dustT < 0 ? 0 : smoother(dustT / dustTime);
+    lingering = toDust && dustT >= 0 && dustFade < 1;
+    if (toDust && dustT >= 0 && dustFade >= 1 && !dustGone) { dustGone = true; events.push('dust:gone'); }
+    U.settle.value = settle;
+    // the tint the residual dust follows (params.tint: [r, g, b] linear, or a hex string), eased
+    {
+      const tt = P.tint; let tr = 1, tgc = 0.62, tbc = 0.32;
+      if (Array.isArray(tt)) [tr, tgc, tbc] = tt; else if (typeof tt === 'string' || typeof tt === 'number') { const c = new THREE.Color(tt); tr = c.r; tgc = c.g; tbc = c.b; }
+      const k = 1 - Math.exp(-dt / 1.5), v = U.tint.value; v.set(v.x + (tr - v.x) * k, v.y + (tgc - v.y) * k, v.z + (tbc - v.z) * k);
+    }
+
     // ---- the fires drawn; the square lit from below by a heat field that follows them; the floor's light is theirs and the devils'
     FIRE.setRingCentre(eye.x, eye.z);
-    FIRE.update(dt, time, { level: Array.from(lvl, (v) => v * (1 - Leff)), flash, boom: boomK });
+    FIRE.update(dt, time, { level: Array.from(lvl, (v) => v * (1 - Leff)), flash, boom: boomK, appear });
     heatR.fill(0); heatG.fill(0);
     for (let i = 0; i < NW; i++) {
       const c = Math.round(wrapP(sites[i].s) / CELL);
@@ -442,13 +487,15 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     U.plaza.value = Math.min(1, 0.06 + mean * 0.4 + boomK * 0.6 + Number(P.plaza ?? 0));
     U.awake.value = boomAt >= 0 ? Math.sin(Math.PI * Math.min(1, boomK * 1.6)) * 0.6 : 0;
     U.time.value = time % 3000; U.dt.value = dt; U.arrive.value = arrive; U.leave.value = Leff; U.devils.value = Number(P.devils ?? 1);
-    U.sparkK.value = (1 - leave * 0.7) * (1 + storm * 0.6);
+    U.sparkK.value = (toDust ? (1 - dustFade) : (1 - leave * 0.7)) * (1 + storm * 0.6 * (1 - settle));
     U.seed.value = (U.seed.value + 7919) >>> 0;
     fons?.update(dt, events.includes('boom'));
     DIA.update(dt, time, devils);
     U.nE.value = nE;
     if (sparkCompute) room.renderer.compute(sparkCompute);
-    object.visible = arrive > 0.001 && leave < 0.999;
+    object.visible = arrive > 0.001 && (leave < 0.999 || lingering);
+    // (once we are gone only the dust stays drawn)
+    { const gone = leave >= 0.995; for (const m of FIRE.meshes) { if (m.userData.vol) m.visible = m.visible && !gone; else m.visible = !gone && !m.userData.off; } if (gone) for (const m of DIA.meshes) m.visible = false; if (fons) { fons.meshes[0].visible = !gone; } if (floorMesh) floorMesh.visible = !gone; if (lineMesh) lineMesh.visible = !gone; }
     if (typeof window !== 'undefined') window.__brasa2 = { progress, devils, lvl, flash, FIRE, feeds: () => feeds, sites, last: { arrive, leave, tb, clock0, block: S?.block, st: S?.t, it: input.t, hands: hands.length, intro: introFired, I, introOn } };
   }
   // ---- the sound's view of the level (brasa2/sound.js): where things are on the walls (wall id, u 0..1 along it), how much
@@ -471,6 +518,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     SND.boom = events.includes('boom'); SND.storm = storm; SND.done = done;
     return SND;
   }
+  const toDustNow = (lv) => (P.leaveTo ?? 'dust') === 'dust' && lv > 0.001;
   function progress() {
     const fires = Array.from(lvl, (v, i) => v + (boomAt >= 0 ? 0.25 * Math.sin(Math.PI * Math.min(1, (prevT - boomAt) / 2)) : 0));
     const bAt = Number(P.boomAt ?? 0.72), bFeeds = Number(P.boomFeeds ?? 52);
@@ -481,6 +529,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     object, update, progress, reset, sound,
     debug: { setLevel(i, v) { target[i] = v; lvl[i] = v; }, feed(i) { target[i] = Math.min(1, target[i] + Number(P.feed ?? 0.06)); flash[i] = 1; lastFed[i] = prevT; }, devil(s, dir) { return spawnDevil(s, prevT, dir ? { dir } : {}); } },   // (lab: studies and captures)
     get events() { return events; },
+    get lingering() { return lingering; },          // (the exit to dust: true while our dust is still in the air after leave = 1)
     setParams(p) { if (p && p !== P) Object.assign(P, p); },
     dispose() { FIRE.dispose(); DIA.dispose(); fons?.dispose(); heatTex.dispose(); tg.dispose(); object.parent?.remove(object); },
   };

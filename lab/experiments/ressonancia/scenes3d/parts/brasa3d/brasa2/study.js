@@ -3,6 +3,7 @@
 //   A hand (a click on the strip) calls a correfoc there; held, it dances; let go, it runs and feeds the fires it passes. A sliding
 //   hand trails fire. In the one-wall view (F) the pointer is the hand (Alt+drag pans). The opening plays from the start.
 //   Keys: 1–4 feed that fire · N a correfoc on the wall on screen · K the boom (all fires to 0.8) · Z restart (the opening again)
+//         X leave as the host does (the exit to dust) · E enter again (the entry from the dust) · T the dust's tint → cold
 //   URL: ?lv=0.5 (all fires at a level, no opening) · ?lv=0,0.3,0.6,1 (each) · ?intro=0 · ?t=<s> (start the block's clock there)
 //   window.__b2 = { part, input }  for the lab's checks
 import { connectExperience } from '/experiences/runtime.js';
@@ -53,6 +54,10 @@ addEventListener('keydown', (e) => {
   if (e.key === 'n' || e.key === 'N') { const z = window.__labRoom?.zoom | 0, wi = z > 0 ? z - 1 : Math.floor(Math.random() * walls.length); part.debug.devil(cum[wi] + (0.15 + 0.7 * Math.random()) * walls[wi].width); }
   if (e.key === 'k' || e.key === 'K') for (let i = 0; i < 4; i++) part.debug.setLevel(i, 0.8);
   if (e.key === 'z' || e.key === 'Z') { part.reset(); t0 = time; }
+  // the host's transitions, simulated: X leave (1.5 s ramp; the dust lingers), E enter again (the entry from the dust), T the tint → cold
+  if (e.key === 'x' || e.key === 'X') leaving = true;
+  if (e.key === 'e' || e.key === 'E') { leaving = false; input.leave = 0; part.reset(); t0 = time; }
+  if (e.key === 't' || e.key === 'T') params.tint = params.tint ? null : [0.45, 0.66, 1.0];
 });
 
 // the fire's sound (../brasa2-sound.js) on a stereo stand-in of the work's audio host (P4 left … P3 right, like the lab's 4.1 preview);
@@ -76,11 +81,12 @@ function startSound() {
 }
 addEventListener('pointerdown', startSound, true); addEventListener('keydown', startSound, true);
 
-let time = 0, t0 = -(Number(Q.get('t')) || 0);
+let time = 0, t0 = -(Number(Q.get('t')) || 0), leaving = Q.has('leave');
 const input = { time: 0, t: 0, arrive: 1, leave: 0, hands: [], state: { block: 'brasa' } };
 vt.loop((dt) => {
   dt = Math.min(dt, 0.05); time += dt;
   input.time = time; input.t = time - t0; input.state.t = time - t0; input.hands = gatherHands();
+  if (leaving) input.leave = Math.min(1, input.leave + dt / 1.5);
   part.update(dt, input);
   snd?.update(dt, part.sound());
   for (const ev of part.events) if (Q.has('log')) console.log('[brasa2]', ev, JSON.stringify(part.progress()));
