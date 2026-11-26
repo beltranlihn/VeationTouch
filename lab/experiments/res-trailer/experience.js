@@ -144,7 +144,7 @@ const bloomNow = { ...bloomTo('wait') };
 const linC = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const SAND = linC('#F3E6D3'), DUSK = linC('#C98F6A').map((v, i) => v / SAND[i]), NIGHT = linC('#1B2A52').map((v, i) => (6.4 * v) / SAND[i]);   // far shell: sand sky × this = #C98F6A / the intro's night blue (its hue: the darkness is the `all` shell's)
 const NEAR = DUSK.map(Math.sqrt);                                  // the near world (floor, unlit glaze) takes half the dusk's stops: it warms with the sky
-const GONE = [0.035, 0.04, 0.06];                                  // the whole threshold at the end of the ramp (a cool dark, ≈ the intro's level)
+const GONE = [0.05, 0.055, 0.08];   /* (26-11 QA) a little higher: never a black room */                                  // the whole threshold at the end of the ramp (a cool dark, ≈ the intro's level)
 const geo = (a, b, k) => a * Math.pow(b / a, k);                  // in stops: an exposure ramp, not a linear fade
 const dusk = { t: -1, T: 2.9, far: null, all: null, lights: [], warm: { key: new THREE.Color('#FF9C5A'), sky: new THREE.Color('#E8A070'), ground: new THREE.Color('#6E4636') } };
 function duskShell(r, depthTest, order) {
@@ -178,6 +178,9 @@ function stepDusk(dt) {
   const f = dusk.far.col.value, g = dusk.all.col.value;
   f.set(geo(geo(1, NEAR[0], a), NIGHT[0], b), geo(geo(1, NEAR[1], a), NIGHT[1], b), geo(geo(1, NEAR[2], a), NIGHT[2], b));   // × the `all` shell's NEAR: the sky = #C98F6A at the dusk
   g.set(geo(geo(1, NEAR[0], a), GONE[0], c), geo(geo(1, NEAR[1], a), GONE[1], c), geo(geo(1, NEAR[2], a), GONE[2], c));
+  // (26-11 QA) the `all` shell darkens EVERYTHING drawn before it, the intro's square too: as the threshold's own stones have faded with
+  // its leave (≤ 5 % from 0.75), the shell lifts back to 1, so the intro's world rises out of the dusk instead of ~2 s of black
+  { const k = smooth(((U.leave || 0) - 0.75) / 0.25); if (k > 0) g.set(g.x + (1 - g.x) * k, g.y + (1 - g.y) * k, g.z + (1 - g.z) * k); }
   dusk.far.mesh.visible = t > 0; dusk.all.mesh.visible = t > 0;
   const gl = geo(1, 0.5, a) * (1 - smooth((t - 0.9) / 1.1));      // the sun and the fill: ×0.5 at the dusk, out by 2.0 s (the ground darkens with the sky, not after it)
   for (const d of dusk.lights) {
