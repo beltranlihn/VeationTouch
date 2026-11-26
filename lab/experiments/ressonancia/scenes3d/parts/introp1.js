@@ -37,7 +37,8 @@ const DEF = {
 };
 
 export function create({ THREE, TSL, room, params = {} }) {
-  const { uniform, texture, uv, float, clamp, vec2, vec3, exp } = TSL;
+  const { uniform, texture, uv, float, clamp, vec2, vec3, exp, sin, length } = TSL;
+  const uT = uniform(0);
   const object = new THREE.Group(); object.name = 'introp1';
   const up = new THREE.Vector3(0, 1, 0);
   const wallOf = (id, fallback) => room.walls.find((q) => q.id === id) || room.walls[fallback] || room.walls[0];
@@ -57,14 +58,18 @@ export function create({ THREE, TSL, room, params = {} }) {
   // travels along the piece (a line, when its stage is named). The pieces are white: the colour is constant, the shape is the alpha.
   const pieces = [];
   function piece(tex, wm, hm, { wipe = null, soft = 0.35, blur = 0.02, riseIn = 0.025, riseOut = 0.06, order = 0, tint = INK, glint = false } = {}) {
-    const U = { a: uniform(0), rev: uniform(1), out: uniform(0), l: uniform(0), r: uniform(1), gp: uniform(-2), gk: uniform(0) };
+    const U = { a: uniform(0), rev: uniform(1), out: uniform(0), l: uniform(0), r: uniform(1), gp: uniform(-2), gk: uniform(0), stir: uniform(0), hx: uniform(0), hy: uniform(0) };
     const st = uv();
     const c0 = wipe === 'x' ? st.x : wipe === 'xr' ? float(1).sub(st.x) : wipe === 'y' ? st.y : float(0.5);
     const c = clamp(c0.sub(U.l).div(U.r.sub(U.l).max(1e-3)), 0, 1);
     const front = (k) => { const v = clamp(k.mul(1 + soft).sub(c).div(soft), 0, 1); return v.mul(v).mul(float(3).sub(v.mul(2))); };
     const kin = front(U.rev), kout = front(U.out);
-    const fog = clamp(float(1).sub(kin).add(kout), 0, 1);                       // 0 = sharp, 1 = out of focus
-    const dy = kout.mul(riseOut).sub(float(1).sub(kin).mul(riseIn)).div(hm);   // comes up from below, leaves upwards
+    // a hand on the wall (Beltrán: «the room must always be interactive»): the piece ripples out from the hand's place and loosens a
+    // little out of focus near it, then settles (stir 0..1, eased on the CPU; hx, hy = the hand in the piece's own metres)
+    const q = st.sub(0.5).mul(vec2(wm, hm)), hd = length(q.sub(vec2(U.hx, U.hy)));
+    const near = exp(hd.mul(-2.2)).mul(U.stir), wave = sin(hd.mul(38).sub(uT.mul(5.5))).mul(near);
+    const fog = clamp(float(1).sub(kin).add(kout).add(near.mul(0.32)), 0, 1);  // 0 = sharp, 1 = out of focus
+    const dy = kout.mul(riseOut).sub(float(1).sub(kin).mul(riseIn)).add(wave.mul(0.006)).div(hm);   // comes up from below, leaves upwards, ripples
     const su = vec2(st.x, st.y.sub(dy));
     // out of focus: two rings of 8 taps (the inner one turned half a step) — a soft disc, not doubled copies
     const rx = fog.mul(blur / wm), ry = fog.mul(blur / hm);
@@ -81,9 +86,9 @@ export function create({ THREE, TSL, room, params = {} }) {
     m.colorNode = col; m.opacityNode = A.mul(U.a).mul(kin).mul(float(1).sub(kout));
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(wm, hm), m);
     mesh.renderOrder = 60 + order; mesh.frustumCulled = false; mesh.visible = false;
-    const p = { mesh, U, wm, hm }; pieces.push(p); return p;
+    const p = { mesh, U, wm, hm, wall: null }; pieces.push(p); return p;
   }
-  const place = (p, w, x, y) => { board(w).add(p.mesh); p.mesh.position.set(x, y, 0); };
+  const place = (p, w, x, y) => { board(w).add(p.mesh); p.mesh.position.set(x, y, 0); p.wall = w; };
   const set = (p, a, rev = 1, out = 0) => { p.U.a.value = a; p.U.rev.value = rev; p.U.out.value = out; p.mesh.visible = a > 0.002 && rev > 0.001 && out < 0.999; };
   const easeOut = (v) => { v = clamp01(v); return 1 - (1 - v) * (1 - v) * (1 - v); };
   function canvasTex(wm, hm) {
@@ -196,6 +201,23 @@ export function create({ THREE, TSL, room, params = {} }) {
     frame = piece(c.tex, wm, hm, { wipe: 'y', soft: 0.8, blur: 0.07, riseIn: 0.05, riseOut: 0.08, order: 3, tint: 1 }); frame.tex = c.tex;   // rises like a mist
     board(lw).add(frame.mesh); frame.mesh.position.set((x0 + x1) / 2, (top + bot) / 2, -0.001);
   }
+  // the touch: per piece, the nearest hand on its wall (within 1.3 m of the piece) stirs it (params.introp1.touch = false: off)
+  function stir(dt, hands) {
+    const on = (params.introp1?.touch ?? params['introp1.touch']) !== false;
+    for (const p of pieces) {
+      if (!p.mesh.visible || !p.wall) { p.U.stir.value = 0; continue; }
+      let best = 1e9, bx = 0, by = 0;
+      if (on && hands) for (const h of hands) {
+        if (room.walls[h.wall] !== p.wall) continue;
+        const x = (h.u ?? 0.5) * p.wall.width - p.mesh.position.x, y = (h.pos?.y ?? h.y ?? 1.2) - p.mesh.position.y;
+        const ox = Math.max(0, Math.abs(x) - p.wm / 2), oy = Math.max(0, Math.abs(y) - p.hm / 2), d = Math.hypot(ox, oy);
+        if (d < best) { best = d; bx = x; by = y; }
+      }
+      const target = best < 1.3 ? 1 - best / 1.3 : 0, k = p.U.stir.value;
+      p.U.stir.value = k + (target - k) * Math.min(1, dt * (target > k ? 6 : 0.9));   // quick to answer, slow to settle
+      if (target > 0) { p.U.hx.value = bx; p.U.hy.value = by; }
+    }
+  }
   readCfg(); layout();
 
   return {
@@ -204,6 +226,7 @@ export function create({ THREE, TSL, room, params = {} }) {
     update(dt, input) {
       readCfg(); layout();
       const t = input.t ?? 0, time = input.time ?? t, master = (input.arrive ?? 1) * (1 - (input.leave ?? 0));
+      uT.value = time; stir(dt, input.hands);
       if (C.outro) {                                                          // the closing: only its words (the intro's pieces stay hidden)
         for (const p of pieces) set(p, 0);
         const goneBy = C.outroGone ?? C.outroDur - 3, end = (d) => clamp01((t - (goneBy - 2.7) - d) / 2.2);   // all gone by outroDur − 3; then the square alone, then black
