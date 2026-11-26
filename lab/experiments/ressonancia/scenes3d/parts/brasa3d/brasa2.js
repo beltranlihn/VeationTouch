@@ -269,7 +269,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     const spd = t.vel.length(), slide = clamp01((spd - 0.12) / 0.6);
     if (spd > 0.05 && time - t.last > 0.018) { t.pts.set([P3.x, P3.y, P3.z, time], t.head * 4); t.head = (t.head + 1) % TP; t.last = time; }
     if (!sparks) return;
-    t.acc += dt * (40 + 520 * slide);
+    t.acc += dt * (70 + 520 * slide);
     if (t.acc >= 4) {
       const n = Math.floor(t.acc); t.acc -= n;
       const k = spd > 1e-3 ? 1 / spd : 0;
@@ -292,7 +292,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
   }
 
   // ------------------------------------------------------------------------------------------------ 7. state
-  let storm = 0, stormOn = false, stormFull = false;
+  let storm = 0, stormOn = false, stormFull = false, ambAcc = 0;
   let settle = 0, dustT = -1, dustOn = false, dustGone = false, lingering = false;   // the exit to dust
   const appear = new Float32Array(4).fill(1), appearFlag = new Uint8Array(4);
   let births = [];                                             // (this frame's correfoc births, for the sound)
@@ -357,12 +357,23 @@ export function createBrasa2({ THREE, TSL, room, params }) {
       for (let i = 0; i < NW; i++) if (target[i] < 0.15) { target[i] = 0.15; flash[i] = 1; events.push('feed:' + i); }
     }
 
+    // ---- (Beltrán: «the room is never a flat colour») a soft bed of embers always rising round the room, from the first frame
+    ambAcc += dt * Number(P.ambient ?? 140) * (1 - 0.5 * settle) * (leave >= 0.995 ? 0 : 1);
+    while (ambAcc >= 12 && nE < MAXE - 12) {
+      ambAcc -= 12; ringPoint(Math.random() * PER, 0.4 + Math.random() * 6.5, _v);
+      emit(12, _v.x, 0.02 + Math.random() * 0.3, _v.z, 0.8, (Math.random() - 0.5) * 0.3, 1, (Math.random() - 0.5) * 0.3, 0.5, 0.25, 0.8, 2.5, 5.0, 0.9 + Math.random() * 0.6, -0.04, 0.35);
+    }
+
     // ---- hands: a landing calls a correfoc there; a sliding hand trails fire
+    // (Beltrán: «the room is always interactive»: in every phase — the opening, the boom, the storm — a hand makes sparks at the palm
+    //  the moment it lands, embers while it rests, the line of fire when it slides; a correfoc only when one can be born)
     const hands = input.hands || [];
     for (const h of hands) {
       const s = h.s ?? (cum[h.wall] + (h.u ?? 0.5) * walls[h.wall].width), y = h.y ?? h.pos?.y ?? 1.2;
       if (!handsSeen.has(h.stroke)) {
         handsSeen.set(h.stroke, time);
+        wallPt(s, y, P3h, _away);
+        emit(70, P3h.x, P3h.y, P3h.z, 0.05, _away.x * 0.4, 0.5, _away.z * 0.4, 0.9, 1.0, 3.2, 0.5, 1.2, 2.0, 0.6, 1.0);   // (the palm's sparks, at once)
         if ((P.devils ?? 1) > 0 && arrive > 0.3 && leave < 0.3) spawnDevil(s, time, { held: true, stroke: h.stroke });
       } else handsSeen.set(h.stroke, time);
       handS.set('h' + h.stroke, s);
@@ -495,7 +506,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     if (sparkCompute) room.renderer.compute(sparkCompute);
     object.visible = arrive > 0.001 && (leave < 0.999 || lingering);
     // (once we are gone only the dust stays drawn)
-    { const gone = leave >= 0.995; for (const m of FIRE.meshes) { if (m.userData.vol) m.visible = m.visible && !gone; else m.visible = !gone && !m.userData.off; } if (gone) for (const m of DIA.meshes) m.visible = false; if (fons) { fons.meshes[0].visible = !gone; } if (floorMesh) floorMesh.visible = !gone; if (lineMesh) lineMesh.visible = !gone; }
+    { const gone = leave >= 0.995; for (const m of FIRE.meshes) { if (m.userData.vol) m.visible = m.visible && !gone; else m.visible = !gone && !m.userData.off && (m.userData.fire === undefined || appear[m.userData.fire] > 0.003); } if (gone) for (const m of DIA.meshes) m.visible = false; if (fons) { fons.meshes[0].visible = !gone; } if (floorMesh) floorMesh.visible = !gone; if (lineMesh) lineMesh.visible = !gone; }
     if (typeof window !== 'undefined') window.__brasa2 = { progress, devils, lvl, flash, FIRE, feeds: () => feeds, sites, last: { arrive, leave, tb, clock0, block: S?.block, st: S?.t, it: input.t, hands: hands.length, intro: introFired, I, introOn } };
   }
   // ---- the sound's view of the level (brasa2/sound.js): where things are on the walls (wall id, u 0..1 along it), how much

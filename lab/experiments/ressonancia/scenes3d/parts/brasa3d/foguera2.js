@@ -261,7 +261,8 @@ export function createFogueres(ctx) {
         return c.mul(float(1).sub(U.leave.mul(0.7))).mul(uFA.element(int(f)).x);
       })();
       m.fog = false;
-      procBase[f] = add(new THREE.Mesh(g, m), 2);
+      m.transparent = true; m.opacityNode = uFA.element(int(f)).x;   // (the entry: it fades in, never a black cut-out)
+      procBase[f] = add(new THREE.Mesh(g, m), 2); procBase[f].userData.fire = f;
     }
   }
 
@@ -302,7 +303,8 @@ export function createFogueres(ctx) {
       return c.mul(float(1).sub(U.leave.mul(0.7))).mul(uFA.element(int(f)).x);
     })();
     m.fog = false;
-    const mesh = new THREE.Mesh(g, m);
+    m.transparent = true; m.opacityNode = uFA.element(int(f)).x;
+    const mesh = new THREE.Mesh(g, m); mesh.userData.fire = f;
     const yaw = Math.atan2(st.face.x, st.face.z), cy = Math.cos(yaw), sy = Math.sin(yaw);
     mesh.rotation.y = yaw; mesh.position.set(st.x, 0, st.z);
     add(mesh, 2); ctx.room?.reactive?.(mesh);
@@ -365,7 +367,8 @@ export function createFogueres(ctx) {
           return c.mul(float(1).sub(U.leave.mul(0.7))).mul(uFA.element(int(f)).x);
         })();
         m.fog = false;
-        const mesh = new THREE.Mesh(src.geometry, m);
+        m.transparent = true; m.opacityNode = uFA.element(int(f)).x;
+        const mesh = new THREE.Mesh(src.geometry, m); mesh.userData.fire = f;
         mesh.rotation.y = Math.atan2(st.face.x, st.face.z); mesh.position.set(st.x, 0, st.z);
         add(mesh, 2); ctx.room?.reactive?.(mesh);
         glbBase[f] = mesh;
