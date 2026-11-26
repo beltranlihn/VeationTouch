@@ -22,7 +22,9 @@
 //   create({ THREE, TSL, room, params }) → { object, update(dt, input), setParams, dispose, progress(), events, reset() }
 //   input   PARTS.md's: time, t (the block's clock: drives the opening), arrive, leave, hands [{ stroke, wall, y, s, … }], downs
 //   progress() → { fires: [P4, P1, P2, P3] (0..1, above 1 in the boom), total (0..1), devils, feeds, done, boom (0..1) }
-//   events  the array of this frame's events: 'feed:<w>' (wall index), 'boom', 'done', 'intro:strip', 'intro:boom'
+//   events  the array of this frame's events: 'feed:<w>' (wall index), 'boom', 'done', 'storm', 'storm:full', 'intro:strip', 'intro:boom'
+//   THE STORM after the boom (stormDelay 3.2 s, stormRamp 4 s; storm false = none): the room fills with sparks and flashes, the rest fades
+//   under them (progress().storm 0..1) — the handover: switch blocks on 'storm:full' (or when you like)
 //   params  intro { strip 0.5, stop 4.0, boom 4.8, run [5, 12] } · feed 0.06 · boomAt 0.72 · boomFeeds 52 · decay 0.004 /s ·
 //           maxDevils 8 · devils 1 · sparks 1 · introOn true · handFire true · plaza (0..1 extra light on the square, 0)
 // Cost (theory): see foguera2.js; plus the floor (1 draw), the square (fons: 1 draw, its mirror hidden), the GPU sparks (1 compute
@@ -33,7 +35,7 @@ import { createFons } from './fons.js';
 import { createDiables as createDiable2 } from './diable2.js';
 
 export const FOG_D = 3.3, FOG_H = 1.2;
-const NC = 256, NSP = 65536, MAXE = 64, MAXD = 14;
+const NC = 256, NSP = 98304, MAXE = 64, MAXD = 14;
 const LANES = [1.1, 1.45, 1.8, 2.15];
 const FIRE_TYPE = { P4: 0, P1: 1, P2: 2, P3: 3 };
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -70,7 +72,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
   const U = {
     time: uniform(0), dt: uniform(1 / 60), level: uniform(0), arrive: uniform(1), leave: uniform(0), cool: uniform(0), awake: uniform(0),
     wait: uniform(0), lift: uniform(0), refl: uniform(0), devils: uniform(1), crowd: uniform(1), heat: uniform(1), seed: uniform(0, 'uint'), nE: uniform(0, 'int'),
-    plaza: uniform(0.12),
+    plaza: uniform(0.12), sparkK: uniform(1),
   };
   const heatData = new Uint8Array(NC * 4);
   const heatTex = new THREE.DataTexture(heatData, NC, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
@@ -150,7 +152,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     const E = float(0.011).div(W).mul(float(1).div(L.div(W.mul(5.0)).add(1))).mul(2.2);
     const vC = varying(fireRamp(T).mul(E)), vA = varying(along);
     const q = uv().sub(0.5);
-    m.colorNode = vC.mul(exp(q.x.mul(q.x).mul(-14))).mul(mix(float(0.3), float(1), vA)).mul(float(1).sub(U.leave.mul(0.7)));
+    m.colorNode = vC.mul(exp(q.x.mul(q.x).mul(-14))).mul(mix(float(0.3), float(1), vA)).mul(U.sparkK);   // (the sparks outlive the fade: the storm is theirs)
     m.fog = false;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 5; world.add(mesh); room.reactive?.(mesh);
   }
@@ -275,11 +277,12 @@ export function createBrasa2({ THREE, TSL, room, params }) {
   }
 
   // ------------------------------------------------------------------------------------------------ 7. state
+  let storm = 0, stormOn = false, stormFull = false;
   let events = [], feeds = 0, boomAt = -1, done = false, introFired = { strip: false, boom: false }, clock0 = null, prevT = 0;
   const handsSeen = new Map();
   const introCfg = () => ({ strip: 0.5, stop: 4.0, boom: 4.8, run: [5, 12], ...(P.intro || {}) });   // (the voice: 0.5 «Every castell…», 5.0 «The correfoc carries the fire», 9.0 «Touch the wall…»)
   function reset() {
-    lvl.fill(0); target.fill(0); flash.fill(0); lastFed.fill(-99); feeds = 0; boomAt = -1; done = false; introFired = { strip: false, boom: false }; clock0 = null;
+    lvl.fill(0); target.fill(0); flash.fill(0); lastFed.fill(-99); feeds = 0; boomAt = -1; done = false; storm = 0; stormOn = false; stormFull = false; introFired = { strip: false, boom: false }; clock0 = null;
     for (const dv of devils) dv.on = false;
     TR.clear(); handsSeen.clear(); events = [];
   }
@@ -358,7 +361,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
       if (!dv.on) continue;
       dv.age += dt;
       dv.k = Math.min(1, dv.k + dt / 0.9);
-      if (dv.age > dv.life || leave > 0.3) dv.dis = Math.min(1, dv.dis + dt / 1.6);
+      if (dv.age > dv.life || leave > 0.3 || storm > 0.25) dv.dis = Math.min(1, dv.dis + dt / 1.6);   // (in the storm they burst into sparks too)
       if (dv.dis >= 1) { dv.on = false; continue; }
       if (dv.dis === 0) liveN++;
       const go = dv.held ? 0 : smoother((dv.age - dv.go0) / 1.0);
@@ -396,10 +399,32 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     }
     const boomK = boomAt < 0 ? 0 : clamp01((time - boomAt) / 3.0);
     if (boomAt >= 0 && !done && time - boomAt > 3.0) { done = true; events.push('done'); }
+    // ---- THE STORM (Beltrán 26-11): when the fire is complete the room fills with sparks and flashes, everything else fading under
+    // them — the organic handover to the next block. `stormDelay` s after the boom, over `stormRamp` s; 'storm', then 'storm:full'.
+    const sT0 = boomAt < 0 ? Infinity : boomAt + Number(P.stormDelay ?? 3.2), sRamp = Math.max(0.5, Number(P.stormRamp ?? 4.0));
+    storm = P.storm === false ? 0 : clamp01((time - sT0) / sRamp);
+    if (storm > 0 && !stormOn) { stormOn = true; events.push('storm'); }
+    if (storm >= 1 && !stormFull) { stormFull = true; events.push('storm:full'); }
+    if (storm > 0) {
+      const k = Math.min(MAXE - nE - 8, Math.round(10 + 34 * storm)), total = dt * (6000 + 30000 * storm * storm);
+      for (let e = 0; e < k; e++) {
+        const sAt = Math.random() * PER, d = Math.random() < 0.35 ? 0.15 + Math.random() * 0.9 : 1 + Math.random() * 7;   // some close: big streaks over the walls
+        ringPoint(sAt, d, _v);
+        const up = Math.random() < 0.8;
+        emit(total / k, _v.x, up ? Math.random() * 1.8 : 3.2 + Math.random() * 1.2, _v.z, 0.6, (Math.random() - 0.5) * 0.8, up ? 1 : -0.4, (Math.random() - 0.5) * 0.8, 0.8,
+          1.2 + 2 * storm, 3.5 + 3.5 * storm, 1.2, 2.8, 1.6 + 1.0 * Math.random(), up ? 0.12 : 0.5, 0.55);
+      }
+      // chispazos: now and then a burst somewhere, bright
+      if (Math.random() < dt * (2 + 10 * storm) && nE < MAXE) {
+        ringPoint(Math.random() * PER, 0.4 + Math.random() * 4, _v);
+        emit(220 + 400 * storm, _v.x, 0.4 + Math.random() * 2, _v.z, 0.1, 0, 0.3, 0, 1.0, 3, 8, 0.5, 1.3, 2.6, 0.4, 1.0);
+      }
+    }
+    const fadeK = smoother(storm) * 0.94, Leff = Math.max(leave, fadeK);
 
     // ---- the fires drawn; the square lit from below by a heat field that follows them; the floor's light is theirs and the devils'
     FIRE.setRingCentre(eye.x, eye.z);
-    FIRE.update(dt, time, { level: Array.from(lvl, (v) => v * (1 - leave)), flash, boom: boomK });
+    FIRE.update(dt, time, { level: Array.from(lvl, (v) => v * (1 - Leff)), flash, boom: boomK });
     heatR.fill(0); heatG.fill(0);
     for (let i = 0; i < NW; i++) {
       const c = Math.round(wrapP(sites[i].s) / CELL);
@@ -411,7 +436,8 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     U.level.value = boomAt >= 0 ? Math.min(1, 0.4 + boomK) : mean * 0.5;
     U.plaza.value = Math.min(1, 0.06 + mean * 0.4 + boomK * 0.6 + Number(P.plaza ?? 0));
     U.awake.value = boomAt >= 0 ? Math.sin(Math.PI * Math.min(1, boomK * 1.6)) * 0.6 : 0;
-    U.time.value = time % 3000; U.dt.value = dt; U.arrive.value = arrive; U.leave.value = leave; U.devils.value = Number(P.devils ?? 1);
+    U.time.value = time % 3000; U.dt.value = dt; U.arrive.value = arrive; U.leave.value = Leff; U.devils.value = Number(P.devils ?? 1);
+    U.sparkK.value = (1 - leave * 0.7) * (1 + storm * 0.6);
     U.seed.value = (U.seed.value + 7919) >>> 0;
     fons?.update(dt, events.includes('boom'));
     DIA.update(dt, time, devils);
@@ -424,7 +450,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     const fires = Array.from(lvl, (v, i) => v + (boomAt >= 0 ? 0.25 * Math.sin(Math.PI * Math.min(1, (prevT - boomAt) / 2)) : 0));
     const bAt = Number(P.boomAt ?? 0.72), bFeeds = Number(P.boomFeeds ?? 52);
     const total = boomAt >= 0 ? 1 : Math.min(0.99, Math.max(Math.min(...lvl) / bAt, feeds / bFeeds));
-    return { fires, total, devils: devils.filter((d) => d.on && d.dis === 0).length, feeds, done, boom: boomAt < 0 ? 0 : clamp01((prevT - boomAt) / 3) };
+    return { fires, total, devils: devils.filter((d) => d.on && d.dis === 0).length, feeds, done, boom: boomAt < 0 ? 0 : clamp01((prevT - boomAt) / 3), storm };
   }
   return {
     object, update, progress, reset,
