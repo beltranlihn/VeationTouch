@@ -304,9 +304,10 @@ export function create({ THREE, TSL, room, params }) {
     U.time.value = (input.time ?? 0) % 3000; U.dt.value = dt; U.eye.value.copy(room.eye);
     // choreography
     const lt = Number(P.lineT) || 0;
-    U.lvl.value = ss(1.0, 8.0, t) * (1 + 0.25 * ss(47, 55, t));
+    const fl = Math.min(1, Math.max(0, Number(P.lvlFloor) || 0));   // studio 26-11: a host that brings the air in early (the entrance, after the mosaic falls) keeps it from fading in again at t = 0
+    U.lvl.value = Math.max(ss(1.0, 8.0, t), fl) * (1 + 0.25 * ss(47, 55, t));
     U.amount.value = Math.max(0, Number(P.dust ?? 1));
-    U.haze.value = ss(0.5, 7.0, t) * Math.max(0, Number(P.haze ?? 1));
+    U.haze.value = Math.max(ss(0.5, 7.0, t), fl) * Math.max(0, Number(P.haze ?? 1));
     U.moon.value = Number(P.moon ?? 1); U.bokeh.value = Number(P.bokeh ?? 1); U.stir.value = Number(P.stir ?? 1);
     if (Array.isArray(P.warm)) uWarm.value.fromArray(P.warm);
     if (Array.isArray(P.cool)) uCool.value.fromArray(P.cool);

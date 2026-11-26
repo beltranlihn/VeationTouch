@@ -305,7 +305,7 @@ let fallSet = ['atmos'];
 function wanted(b) {
   const T = has('trailertext') ? ['trailertext'] : [];
   switch (b) {
-    case 'wait': return has('umbral3d') ? ['umbral3d'] : ['atmos'];
+    case 'wait': return has('umbral3d') ? (parts.umbral3d?.part?.charge?.().cleared ? ['umbral3d', 'atmos'] : ['umbral3d']) : ['atmos'];   // studio 26-11 (Beltrán): once the mosaic falls, the square's air is already there behind it
     case 'intro': return ['plaza', 'atmos', 'castell', ...T];
     case 'brasa': return has('brasa3d') ? ['brasa3d', 'atmos', ...T] : ['atmos', ...T];
     case 'festa': case 'crown': return has('festa3d') ? ['festa3d', ...T] : ['plaza', 'castell', 'atmos', ...T];
@@ -617,17 +617,24 @@ function frame(dt) {
     if (serving && e.name !== 'atmos') e.progress = S.block === 'wait' ? 0.05 : S.progress;
     if (e.name === 'atmos') {
       t = S.block === 'intro' && serving ? S.t : 69;
-      e.mood = ease(e.mood ?? 1, e.home === 'baixada' ? 0.22 : e.home === 'tronc' ? 0.2 : e.home === 'acta' ? 0.15 : e.home === 'wait' ? 0.08 : e.home === 'pinya' ? 0.25 : 1, dt, 1.2);   // the wait: almost total dark, a line of embers   // the acta: black and typography   // the baixada: the air clears so the falling light reads
+      // studio 26-11 (Beltrán: «las partículas que quedan visibles al caerse el muro deben ser las mismas que hay al inicio de la
+      // animación siguiente»): in the entrance, atmos only comes once the mosaic has fallen, and it comes as the square's air (intro's mood,
+      // dust and haze, no line); lvlFloor keeps it full when the square's clock starts at 0, so the motes go on without a blink
+      const early = e.home === 'wait' && has('umbral3d');
+      if (early) { t = 0; if (!e.carry) { e.mood = 1; e.dustK = 0.5; e.acta = 0; } e.carry = 1; }   // it arrives already as the square's air (no ease from the acta's dark) else if (e.home !== 'intro') e.carry = 0;
+      const look = early ? 'intro' : e.home;
+      e.mood = ease(e.mood ?? 1, look === 'baixada' ? 0.22 : look === 'tronc' ? 0.2 : look === 'acta' ? 0.15 : look === 'wait' ? 0.08 : look === 'pinya' ? 0.25 : 1, dt, 1.2);   // the wait: almost total dark, a line of embers   // the acta: black and typography   // the baixada: the air clears so the falling light reads
       for (const key of ['dust', 'haze', 'line']) p[key] = (e.base[key] ?? 1) * smooth(k) * (key === 'line' ? 1 : e.mood);
-      e.dustK = ease(e.dustK ?? 1, e.home === 'intro' ? 0.5 : e.home === 'brasa' ? 0 : 1, dt, 1.2); p.dust *= e.dustK;   // Vicente 25-11 (ARTE-BRASA): no motes in the Brasa, only sparks (in res-obra3d the multiply ended up inside the comment)   // art 24-11: in the square at half (it read as snow)
+      e.dustK = ease(e.dustK ?? 1, look === 'intro' ? 0.5 : e.home === 'brasa' ? 0 : 1, dt, 1.2); p.dust *= e.dustK;   // Vicente 25-11 (ARTE-BRASA): no motes in the Brasa, only sparks (in res-obra3d the multiply ended up inside the comment)   // art 24-11: in the square at half (it read as snow)
       p.bokeh = (e.base.bokeh ?? 1) * e.mood;
-      e.acta = ease(e.acta ?? 0, e.home === 'acta' || e.home === 'wait' ? 1 : 0, dt, 1.2);   // acta and wait: no lamps in the air, no haze
+      e.acta = ease(e.acta ?? 0, look === 'acta' || look === 'wait' ? 1 : 0, dt, 1.2);   // acta and wait: no lamps in the air, no haze
       e.noHaze = ease(e.noHaze ?? 0, e.home === 'pinya' ? 1 : 0, dt, 1.2); p.haze *= 1 - e.noHaze;   // pinya: no haze (the motes read as static)
       if (e.acta > 0.001) { p.haze *= 1 - e.acta; p.lampGain = (e.base.lampGain ?? 1) * (1 - e.acta); } else p.lampGain = e.base.lampGain ?? 1;
       e.stirK = ease(e.stirK ?? 1, e.home === 'pinya' ? 0 : e.home === 'tronc' ? 0.3 : e.home === 'baixada' ? 0.5 : 1, dt, 1.2);   // where figures stand behind the buttons, the hands' warm dust is softer
       p.stir = (e.base.stir ?? 1) * e.stirK;
       p.warm = pal.warm; p.cool = pal.cool; p.air = pal.air;   // the colour script
-      p.lineColor = pal.line; p.lineHalo = pal.halo; p.line *= pal.lineK;   // hands still stir it, less: the warm swirls were the bright cloud by the targets
+      p.lineColor = pal.line; p.lineHalo = pal.halo; p.line *= pal.lineK; if (early) p.line = 0;
+      p.lvlFloor = e.carry ? 1 : 0;   // hands still stir it, less: the warm swirls were the bright cloud by the targets
     } else if (e.name === 'plaza') {
       if (e.home === 'intro') { t = S.block === 'intro' ? S.t : 70; p.noBreak = P.tiles !== false; p.skyTint = INTRO_SKY; p.silhouette = 0; p.shatter = 0; p.reveal = 0; p.lamps = e.base.lamps ?? 1; p.sky = e.base.sky ?? 1; p.windows = Math.max(0.55, e.base.windows ?? 0.45); p.pool = 1.5; p.moonKey = 1.0; p.night = 1; p.reach = 0.4; p.glow = e.base.glow ?? 0.3; p.haze = e.base.haze ?? 1; p.moon = e.base.moon ?? 1; e.mood = 1; }
       else {
@@ -650,7 +657,7 @@ function frame(dt) {
   }
   // studio 26-11: the share of the entrance's picture uncovered opens the buttons — this score's reveal and the sound's (it leads)
   { const pt = parts.umbral3d?.part?.paint?.();
-    if (pt) { const rv = Math.min(1, pt.share / Math.max(0.01, P.paintOpen ?? 0.15)); score.setReveal(rv);
+    if (pt) { const rv = Math.min(1, pt.share / Math.max(0.01, P.paintOpen ?? 0.25));   // share = the LEAST painted wall's (26-11: «mínimo por muro, un 25 % en cada uno») score.setReveal(rv);
       if (Math.abs(rv - (link.rvSent ?? -1)) > 0.01 || time - (link.rvAt ?? -9) > 1) { link.rvSent = rv; link.rvAt = time; tell({ reveal: rv }); } }
     // studio 26-11: the START is the charge ring round the room (umbral3d: one hand in a circle, or several) — this score's and the sound's
     // (its start tone rises with it); once the mosaic has fallen (CLEAR) and the room has stayed blue CLEAR_HOLD s, the trailer goes on
