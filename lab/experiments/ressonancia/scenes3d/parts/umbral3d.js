@@ -1501,7 +1501,7 @@ export function create(ctx) {
     if (figOn) for (let k = 0; k < NW; k++) { surfHit(_v.copy(walls[k].centre).setY(RING_Y)); figAt[k].cu = hit.cu; figAt[k].cy = hit.cy; }   // the serpentine turns: the figure stays on the buttons
     figK += ((figOn ? 1 : 0) - figK) * (1 - Math.exp(-dt * 1.5));
     let npa = 0; const settled = arrive >= 1 && leave <= 0;
-    for (let k = 0; k < PULSES; k++) { const p = pulses[k]; if (!p.on) continue; const age = time - p.t0, r = p.speed * age; pa[npa++] = k; paR[k] = r; paMax[k] = r + 1.43; paMin2[k] = r > 1.43 ? (r - 1.43) * (r - 1.43) : 0; paAmp[k] = p.amp * Math.exp(-age / 7); }
+    for (let k = 0; k < PULSES; k++) { const p = pulses[k]; if (!p.on) continue; const age = time - p.t0, r = p.speed * age, amp = p.amp * Math.exp(-age / 7); if (amp < 0.004) continue; /* (26-11 perf) a spent pulse (its bump ≤ 0.004 → ≤ 0.1°) no longer keeps ~10k stones awake */ pa[npa++] = k; paR[k] = r; paMax[k] = r + 1.43; paMin2[k] = r > 1.43 ? (r - 1.43) * (r - 1.43) : 0; paAmp[k] = amp; }
     const kSpring = 30, cSpring = 6.2, glowDecay = Math.exp(-dt * 1.3), startGlow = PERSIST ? 0 : startV * 0.7 + (exploded >= 0 && exploded < 2 ? Math.sin(exploded * Math.PI / 2) * 0.8 : 0);   // (26-11: the charge lights nothing white — «trazos blancos de la nada»)
     if (nh > 0) lastHandT = time;
     if (PERSIST && paintedN > 0 && time - lastHandT > RESET_AFTER && (!S || S.block === 'wait') && clearT0 < 0 && !btns.some((b) => b.t0 >= 0)) unpaint();
@@ -1578,7 +1578,7 @@ export function create(ctx) {
           }
         }
         for (let k = 0; k < nh; k++) {                                                   // under a hand: at once
-          let d = cu_ - hcu[k]; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; const dy = cy_ - hcy[k], dd = d * d + dy * dy;
+          let d = cu_ - hcu[k]; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; if (d * d > 0.36 * HR2) continue;   /* (26-11 perf) beyond every reach below (wind 0.36, paint 0.3 × HR²) */ const dy = cy_ - hcy[k], dd = d * d + dy * dy;
           if (WIND && dd < 0.36 * HR2 && hsp[k] > 0.05 && !gone[i]) {                        // the gust: along the hand's own motion
             const f = Math.exp(-dd / W_SIG2) * W_GAIN * Math.min(1.4, hsp[k]) * (0.7 + 0.6 * c.r1) * dt, o3 = i * 3;
             wVel[o3] += hvu[k] * f; wVel[o3 + 1] += hvv[k] * f; wVel[o3 + 2] += Math.hypot(hvu[k], hvv[k]) * f * 0.35; wOn[i] = 1;
@@ -1644,7 +1644,7 @@ export function create(ctx) {
           const oo = i * 4; offData[oo] = ux; offData[oo + 1] = uy; offData[oo + 2] = uz; windDirty = true;
           if (ux * ux + uy * uy + uz * uz < 1e-7 && vx * vx + vy * vy + vz * vz < 1e-6) { wOn[i] = 0; wOff.fill(0, o3, o3 + 3); wVel.fill(0, o3, o3 + 3); offData[oo] = offData[oo + 1] = offData[oo + 2] = 0; }
         }
-        if (settled && !figOn && sh === 0 && bump === 0 && rg === 0 && g === 0 && glow[i] < 0.002 && !gone[i] && !wOn[i]) {
+        if (settled && !figOn && sh === 0 && bump < 0.003 && rg < 0.003 && g === 0 && glow[i] < 0.002 && !gone[i] && !wOn[i]) {
           const tg = col * Math.PI, e = phi[i] - tg;
           if (e < 0.003 && e > -0.003 && vphi[i] < 0.004 && vphi[i] > -0.004) {   /* (26-11 perf) a little looser: more stones sleep; the snap home is < 0.2° */
             if (!sleep[i]) { sleep[i] = 1; phi[i] = tg; vphi[i] = 0; glow[i] = 0; stData[o] = (tg * 2) % 6.2831853; stData[o + 1] = 0; stData[o + 2] = col ? 8 : 0; stData[o + 3] = 1; }
