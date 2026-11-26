@@ -303,6 +303,7 @@ function trailerStep(dt) {
   if (i !== TRL.seg) {
     TRL.seg = i; TRL.jumpedAt = time; TRL.fresh = false; link.stormFull = false;   // (26-11, the room, 2nd loop on: the last pass's «done» ended brasa, pinya and tower in one second) a block ends only on a «done» seen AFTER it was not done in this pass
     const held = want === 'brasa' || want === 'pinya' || want === 'tronc';
+    { const pn = want === 'brasa' ? 'brasa3d' : want === 'pinya' ? 'pinya3d2' : want === 'tronc' ? 'torre3d' : null; if (pn && parts[pn]) parts[pn].home = null; }   // (26-11, the server) its part was left 'at home' from the last pass: «who comes» now resets it again (every pass an empty room)
     score.setFill(held ? 0 : null); tell({ fill: held ? 0 : null }); link.fiSent = held ? 0 : -1; link.fiAt = time;
     if (S.block !== want) score.jump(want); return;
   }
