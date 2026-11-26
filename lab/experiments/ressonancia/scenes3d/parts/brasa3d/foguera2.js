@@ -169,8 +169,9 @@ export function createFogueres(ctx) {
     { noise: [1.7, 2.4, 1.7, 0.62], mag: 1.2, boxes: Array.from({ length: 8 }, (_, k) => [Math.cos(k / 8 * Math.PI * 2) * 0.95, Math.sin(k / 8 * Math.PI * 2) * 0.95, 1, 1, k]) },   // corona
   ];
   const fireTex = LOOK === 'volume' ? makeFireTexture(THREE) : null;
-  if (!QS.has('f2noflame') && LOOK === 'volume') {
-    const it = Math.max(6, Math.min(32, Number(QS.get('f2iter')) || 16));
+  const ITER = Math.max(6, Math.min(32, Number(QS.get('f2iter')) || 16));
+  function typeBoxes() {
+    const it = ITER;
     for (let f = 0; f < NF; f++) {
       const T = sites[f].type, sty = VSTY[T], st = sites[f];
       const right = { x: st.face.z, z: -st.face.x };
@@ -182,6 +183,7 @@ export function createFogueres(ctx) {
       }
     }
   }
+  const FLAMES_ON = !QS.has('f2noflame') && LOOK === 'volume';
   const Y0 = [0.2, -0.04, 0.7, -0.04];                          // the flame's root per type: in the tower, on the ground, in the bowl
 
   // ------------------------------------------------------------------------------------------------ 2. the bases (logs, bowl, stones)
@@ -263,11 +265,82 @@ export function createFogueres(ctx) {
     }
   }
 
+  // ------------------------------------------------------------------------------------------------ 2a. the FOGUERES v2 (Plaza 3D, 26-11, approved)
+  // fogueres/foguera_<wall>_<name>.{bin,json} + 1k maps (albedo, normal, rough, emit = the ember mask). Each .json's fireSources
+  // [{ kind: flame | embers, pos, size [w, h, d], dir }] place my volumetric flames (fire3) and the embers' sparks; the flames grow from
+  // those sources with the level. If they do not load, the v1 bases (2b) and the per-type flames come back.
+  const FOG_FILE = ['foguera_P4_pira', 'foguera_P1_santjoan', 'foguera_P2_brasero', 'foguera_P3_corona'];
+  const fog2 = [];                                          // per fire: { mesh, flames: [VOL entries], embers: [{pos, size}] }
+  const emberSrc = [];                                      // per fire: [x, y, z, spread] in the world (the sparks' source)
+  const texLoader = new THREE.TextureLoader();
+  const loadTex = (url, srgb) => new Promise((res) => texLoader.load(url, (t) => { t.flipY = false; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; res(t); }, undefined, () => res(null)));
+  async function loadFoguera(f) {
+    const T = sites[f].type, st = sites[f], base = new URL('./fogueres/' + FOG_FILE[T], import.meta.url).href;
+    const [meta, bin] = await Promise.all([fetch(base + '.json').then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }), fetch(base + '.bin').then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })]);
+    const dir = new URL('./fogueres/', import.meta.url).href;
+    const [tA, tN, tE] = await Promise.all([loadTex(dir + meta.maps.albedo, true), loadTex(dir + meta.maps.normal, false), loadTex(dir + meta.maps.emit, true)]);
+    const L = meta.layout, nv = meta.vertexCount;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(bin, L.position[0], nv * 3), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(bin, L.normal[0], nv * 3), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(bin, L.uv[0], nv * 2), 2));
+    g.setIndex(new THREE.BufferAttribute(L.index[2] === 'u32' ? new Uint32Array(bin, L.index[0], meta.indexCount) : new Uint16Array(bin, L.index[0], meta.indexCount), 1));
+    g.computeBoundingSphere();
+    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.FrontSide });
+    const fs = uFS.element(int(f)), lvl = fs.x, flash = fs.y, uvN = TSL.uv();
+    const top = vec3(st.x, FOG_HEART, st.z);
+    m.colorNode = (() => {
+      // the normal map (tangent space, derivative-based frame) for the fire's light; charcoal lit only by its own fire
+      const Nw = tN ? normalize(TSL.transformNormalToView ? normalWorld : normalWorld) : normalize(normalWorld);
+      const N = tN ? normalize(TSL.cameraViewMatrix.transpose().mul(vec4(TSL.normalMap(TSL.texture(tN, uvN)), 0)).xyz) : Nw;
+      const Pw = positionWorld, Lv = top.sub(Pw), dl = length(Lv);
+      const lit = max(dot(N, Lv.div(max(dl, 1e-3))), 0).mul(float(1.0).div(dl.mul(dl).mul(0.6).add(0.35))).mul(lvl.mul(0.85).add(0.15)).add(max(N.y.negate(), 0).mul(0.05));
+      const alb = tA ? TSL.texture(tA, uvN).rgb : C.char, em = tE ? TSL.texture(tE, uvN).rgb : vec3(0, 0, 0);
+      const flick = sin(U.time.mul(2.1).add(Pw.x.mul(4.0)).add(Pw.z.mul(3.0))).mul(0.12).add(sin(U.time.mul(5.3).add(Pw.y.mul(9.0))).mul(0.06)).add(0.82);
+      const glow = lvl.mul(2.4).add(0.4).mul(flick).mul(flash.mul(0.9).add(1));
+      const c = alb.mul(float(0.14).add(vec3(1.0, 0.5, 0.2).mul(lit).mul(4.5))).add(em.mul(glow));
+      return c.mul(float(1).sub(U.leave.mul(0.7))).mul(uFA.element(int(f)).x);
+    })();
+    m.fog = false;
+    const mesh = new THREE.Mesh(g, m);
+    const yaw = Math.atan2(st.face.x, st.face.z), cy = Math.cos(yaw), sy = Math.sin(yaw);
+    mesh.rotation.y = yaw; mesh.position.set(st.x, 0, st.z);
+    add(mesh, 2); ctx.room?.reactive?.(mesh);
+    const toWorld = (p) => [st.x + p[0] * cy + p[2] * sy, p[1], st.z - p[0] * sy + p[2] * cy];
+    const entry = { mesh, flames: [], embers: [] };
+    const sty = VSTY[T];
+    for (const src of meta.fireSources || []) {
+      const w = toWorld(src.pos);
+      if (src.kind === 'embers') { entry.embers.push({ pos: w, size: src.size }); continue; }
+      if (!FLAMES_ON) continue;
+      const F = createVolumeFire({ THREE, TSL, fireTex, iterations: ITER, octaves: 3, time: U.time, noiseScale: sty.noise, magnitude: sty.mag, seed: f * 3.7 + VOL.length * 1.3, rootFade: 0.14 });
+      F.mesh.renderOrder = 4; add(F.mesh, 4); F.mesh.userData.vol = true;
+      const v = { f, F, src: { pos: w, size: src.size }, ph: entry.flames.length * 0.78 };
+      VOL.push(v); entry.flames.push(v);
+    }
+    if (entry.embers.length) { const e = entry.embers[0]; emberSrc[f] = [e.pos[0], e.pos[1] + 0.1, e.pos[2], Math.max(e.size[0], e.size[2]) * 0.45]; }
+    fog2[f] = entry;
+    // the v1 bases out of sight
+    if (procBase[f]) { procBase[f].visible = false; procBase[f].userData.off = true; }
+    return entry;
+  }
+  let FOG2 = false;
+  const FOG_HEART = 1.2;
+  if (!QS.has('f2nobase') && !QS.has('f2v1') && ctx.fogueres !== 'v1') {
+    Promise.all(sites.map((_, f) => loadFoguera(f))).then(() => { FOG2 = true; }).catch((e) => {
+      console.warn('[foguera2] fogueres v2 did not load; the v1 bases and flames stay', e?.message || e);
+      for (const e2 of fog2) if (e2) { e2.mesh.parent?.remove(e2.mesh); for (const v of e2.flames) { v.F.mesh.parent?.remove(v.F.mesh); VOL.splice(VOL.indexOf(v), 1); } }
+      fog2.length = 0; for (const p of procBase) if (p) { p.visible = true; p.userData.off = false; }
+      loadV1Bases(); if (FLAMES_ON) typeBoxes();
+    });
+  } else { if (FLAMES_ON) typeBoxes(); }
+
   // ------------------------------------------------------------------------------------------------ 2b. the modelled bases (Plaza 3D, 26-11)
   // Four GLBs baked by the Plaza 3D session (Poly Haven CC0 + own modelling; bases/SOURCES.md): charcoal albedo + the ember mask in
   // the emissive map. They load in the background and replace the procedural bases (kept as the fallback; ?f2procbases keeps them).
   const BASE_FILE = ['base_P4_pira.glb', 'base_P1_santjoan.glb', 'base_P2_brasero.glb', 'base_P3_anella.glb'];
   const glbBase = [];
+  function loadV1Bases() {
   if (!QS.has('f2nobase') && !QS.has('f2procbases') && ctx.bases !== 'procedural') {
     const loader = new GLTFLoader();
     for (let f = 0; f < NF; f++) {
@@ -301,6 +374,8 @@ export function createFogueres(ctx) {
       }).catch((e) => console.warn('[foguera2] base ' + BASE_FILE[T] + ' did not load; the procedural base stays', e?.message || e));
     }
   }
+  }
+  if (QS.has('f2v1') || ctx.fogueres === 'v1') loadV1Bases();
 
   // ------------------------------------------------------------------------------------------------ 3. the light on the floor (pools + the boom's ring)
   const lightGeo = new THREE.InstancedBufferGeometry();
@@ -345,14 +420,27 @@ export function createFogueres(ctx) {
       acc[i] += dt * FA[i].x * T.sparks * (12 + 260 * lv * lv + 900 * fl + (boom > 0 && boom < 0.4 ? 1600 : 0));
       if (acc[i] >= 6) {
         const n = Math.floor(acc[i]); acc[i] -= n;
-        const s = sites[i], w = (T.W0 + (T.W1 - T.W0) * lv) * (sites[i].type === 1 ? 1.2 : sites[i].type === 3 ? 4 : 1);
-        emit(n, s.x, H * 0.55, s.z, w, 0, 1, 0, 0.55, 1.2 + 2.5 * lv + 3 * fl, 2.6 + 4 * lv + 5 * fl, 0.7, 1.6 + lv, 1.6 + 0.6 * lv, 0.25, 0.9);
+        const s = sites[i], es = emberSrc[i], w = es ? es[3] + 0.3 * lv : (T.W0 + (T.W1 - T.W0) * lv) * (sites[i].type === 1 ? 1.2 : sites[i].type === 3 ? 4 : 1);
+        emit(n, es ? es[0] : s.x, (es ? es[1] : 0) + H * 0.5, es ? es[2] : s.z, w, 0, 1, 0, 0.55, 1.2 + 2.5 * lv + 3 * fl, 2.6 + 4 * lv + 5 * fl, 0.7, 1.6 + lv, 1.6 + 0.6 * lv, 0.25, 0.9);
       }
     }
     uBoom.value = boom > 0 ? Math.min(1, boom) : 0;
     // the volumetric flames: size with the level (+ the feed's flash, the boom), brightness, the crown's wave
     for (const v of VOL) {
       const i = v.f, T = TYPES[sites[i].type], lv = FS[i].x, fl = FS[i].y, bm = FS[i].z;
+      if (v.src) {                                              // (fogueres v2: a flame of its source, grown with the level)
+        const fk = fl * fl * (3 - 2 * fl), L = Math.min(1.3, Math.pow(lv, 0.8) + fk * 0.34 + bm * 0.7);
+        const wave = sites[i].type === 3 ? 0.75 + 0.3 * Math.sin(time * 1.6 - v.ph) : 1, breath = 1 + 0.05 * Math.sin(time * T.beat * 1.57 + v.ph + i);
+        const [w, h, d] = v.src.size, H = h * (0.12 + 0.95 * L) * wave * breath, k = 0.55 + 0.6 * Math.min(1.15, L);
+        const m = v.F.mesh;
+        m.scale.set(w * k * 1.75, H * 1.3, d * k * 1.75);          // (wider than its source box: the flame's body fills it, neighbours merge)
+        m.position.set(v.src.pos[0], v.src.pos[1] + H * 1.3 * 0.5 - 0.06, v.src.pos[2]);
+        v.F.u.bright.value = (0.5 + 0.7 * Math.min(1, lv) + fk * 1.1 + bm * 0.6) * (1 - 0.7 * Number(U.leave.value || 0)) * FA[i].x;
+        v.F.u.magnitude.value = VSTY[sites[i].type].mag + fk * 0.7;
+        m.visible = FA[i].x > 0.002;
+        v.F.update();
+        continue;
+      }
       const fk = fl * fl * (3 - 2 * fl);                       // (the feed's flare: a quick swell, a soft fall)
       const L = Math.pow(lv, 0.8) + fk * 0.34 + bm * 0.7;
       const wave = sites[i].type === 3 ? 0.72 + 0.32 * Math.sin(time * 1.6 - v.ph) : 1;
@@ -368,7 +456,7 @@ export function createFogueres(ctx) {
     }
   }
   return {
-    meshes, update, vol: VOL,
+    meshes, update, vol: VOL, fogueres: () => FOG2,
     setRingCentre(x, z) { uRing.value.set(x, 0, z); },
     light: (i) => lightOf[i],
     info: { look: LOOK, volumeBoxes: VOL.length, drawCalls: meshes.length, flameInstances: NI, baseTris: baseGeos.reduce((a, g) => a + g.index.count / 3, 0) },
