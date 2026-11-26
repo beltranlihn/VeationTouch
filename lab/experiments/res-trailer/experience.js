@@ -248,7 +248,10 @@ const segments = () => {
   if (pin) SG.push(['pinya', pre + title + fire]);
   const tow = P['trailer.torre'] === false || !has('torre3d') ? 0 : (P['trailer.torreMax'] ?? 240);   // the tower: until its golden ending is done
   if (tow) SG.push(['tronc', pre + title + fire + pin]);
-  SG.push(['festa', pre + title + fire + pin + tow], ['end', pre + title + fire + pin + tow + res]);
+  // studio 26-11 (Beltrán: «ya no vamos a hacer créditos»): after the tower's golden ending the room goes back to the mosaic (the
+  // entrance assembles again); trailer.credits = true brings the credits back
+  if (P['trailer.credits'] === true) SG.push(['festa', pre + title + fire + pin + tow], ['end', pre + title + fire + pin + tow + res]);
+  else SG.push(['end', pre + title + fire + pin + tow + (tow ? 0 : 8)]);
   return SG;
 };
 function trailerStep(dt) {
