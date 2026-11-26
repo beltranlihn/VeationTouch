@@ -31,12 +31,14 @@
 // bases ~1.5k tris each; no textures, no render targets, no lights.
 // Switches (lab only): ?f2noflame, ?f2nobase, ?f2nolight.
 
+import { createVolumeFire, makeFireTexture } from './fire3/fire3.js';
+
 export const D_FIRE = 5.0;                  // metres beyond the wall (behind the devils' lanes, 1.4–4.2 m)
 
 const TYPES = [
-  { name: 'pira', H0: 0.22, H1: 3.2, W0: 0.3, W1: 0.7, speed: 0.9, tongues: 2, swirl: 0.0, beat: 0.25, sparks: 1.0 },
+  { name: 'pira', H0: 0.22, H1: 3.3, W0: 0.34, W1: 1.05, speed: 0.9, tongues: 2, swirl: 0.0, beat: 0.25, sparks: 1.0 },
   { name: 'santjoan', H0: 0.18, H1: 2.4, W0: 0.9, W1: 1.55, speed: 1.6, tongues: 6, swirl: 0.0, beat: 1.4, sparks: 1.3 },
-  { name: 'brasero', H0: 0.16, H1: 2.6, W0: 0.34, W1: 0.72, speed: 1.1, tongues: 2, swirl: 1.0, beat: 0.5, sparks: 0.9 },
+  { name: 'brasero', H0: 0.18, H1: 2.8, W0: 0.4, W1: 1.05, speed: 1.1, tongues: 2, swirl: 1.0, beat: 0.5, sparks: 0.9 },
   { name: 'corona', H0: 0.1, H1: 1.5, W0: 0.13, W1: 0.26, speed: 1.3, tongues: 1, swirl: 0.2, beat: 0.8, sparks: 0.8 },
 ];
 
@@ -101,7 +103,9 @@ export function createFogueres(ctx) {
   // per-type constants as small arrays (indexed by the fire's type in the shader)
   const TV0 = TYPES.map((t) => new THREE.Vector4(t.H0, t.H1, t.W0, t.W1)), TV1 = TYPES.map((t) => new THREE.Vector4(t.speed, t.tongues, t.swirl, t.beat));
   const uT0 = uniformArray(TV0, 'vec4'), uT1 = uniformArray(TV1, 'vec4');
-  if (!QS.has('f2noflame')) {
+  // (Beltrán 26-11: the flames are VOLUMETRIC now — fire3, ray-marched boxes, @wolffo/three-fire MIT —; ?f2cards brings back the cards)
+  const LOOK = QS.has('f2cards') || ctx.look === 'cards' ? 'cards' : 'volume';
+  if (!QS.has('f2noflame') && LOOK === 'cards') {
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
     const I0 = attribute('aI0', 'vec4'), I1 = attribute('aI1', 'vec4');
     const fi = int(I0.x), fs = uFS.element(fi), fp = uFP.element(fi), ty = int(fp.z), t0 = uT0.element(ty), t1 = uT1.element(ty);
@@ -151,6 +155,31 @@ export function createFogueres(ctx) {
     m.fog = false;
     const mesh = new THREE.Mesh(flameGeo, m); mesh.frustumCulled = false; add(mesh, 4);
   }
+
+  // ------------------------------------------------------------------------------------------------ 1b. the volumetric flames (fire3)
+  // per fire a few boxes: their own shape, speed and turbulence (the character); the level scales them, the feed and the boom brighten
+  const VOL = [];                                              // { f, F, ox, oz, wk, hk, ph }
+  const VSTY = [
+    { noise: [1.0, 2.0, 1.0, 0.32], mag: 1.25, boxes: [[0, 0, 1, 1]] },                                       // pira: one tall steady tongue
+    { noise: [1.4, 2.6, 1.4, 0.6], mag: 1.55, boxes: [[-0.95, 0, 0.62, 0.85], [-0.32, 0.05, 0.7, 1.0], [0.32, -0.05, 0.7, 0.95], [0.95, 0, 0.62, 0.8]] },   // Sant Joan: a lively row
+    { noise: [1.0, 1.6, 1.0, 0.42], mag: 1.9, boxes: [[0, 0, 1, 1]] },                                         // brasero: rolling, churning
+    { noise: [1.7, 2.4, 1.7, 0.62], mag: 1.2, boxes: Array.from({ length: 8 }, (_, k) => [Math.cos(k / 8 * Math.PI * 2) * 0.95, Math.sin(k / 8 * Math.PI * 2) * 0.95, 1, 1, k]) },   // corona
+  ];
+  const fireTex = LOOK === 'volume' ? makeFireTexture(THREE) : null;
+  if (!QS.has('f2noflame') && LOOK === 'volume') {
+    const it = Math.max(6, Math.min(32, Number(QS.get('f2iter')) || 16));
+    for (let f = 0; f < NF; f++) {
+      const T = sites[f].type, sty = VSTY[T], st = sites[f];
+      const right = { x: st.face.z, z: -st.face.x };
+      for (const b of sty.boxes) {
+        const F = createVolumeFire({ THREE, TSL, fireTex, iterations: it, octaves: 3, time: U.time, noiseScale: sty.noise, magnitude: sty.mag, seed: f * 3.7 + VOL.length * 1.3 });
+        F.mesh.renderOrder = 4; add(F.mesh, 4);
+        const ox = T === 3 ? b[0] : right.x * b[0] - st.face.x * b[1], oz = T === 3 ? b[1] : right.z * b[0] - st.face.z * b[1];
+        VOL.push({ f, F, ox, oz, wk: b[2], hk: b[3], ph: (b[4] ?? 0) * 0.78 });
+      }
+    }
+  }
+  const Y0 = [0.2, -0.02, 0.8, -0.02];                          // the flame's root per type: in the tower, on the ground, in the bowl
 
   // ------------------------------------------------------------------------------------------------ 2. the bases (logs, bowl, stones)
   const baseGeos = [];
@@ -278,12 +307,26 @@ export function createFogueres(ctx) {
       }
     }
     uBoom.value = boom > 0 ? Math.min(1, boom) : 0;
+    // the volumetric flames: size with the level (+ the feed's flash, the boom), brightness, the crown's wave
+    for (const v of VOL) {
+      const i = v.f, T = TYPES[sites[i].type], lv = FS[i].x, fl = FS[i].y, bm = FS[i].z;
+      const L = Math.pow(lv, 0.8) + fl * 0.22 + bm * 0.7;
+      const wave = sites[i].type === 3 ? 0.72 + 0.32 * Math.sin(time * 1.6 - v.ph) : 1;
+      const breath = 1 + 0.05 * Math.sin(time * T.beat * 1.57 + v.ph + i);
+      const H = (T.H0 + (T.H1 - T.H0) * Math.min(1.25, L)) * v.hk * wave * breath, Wd = (T.W0 + (T.W1 - T.W0) * Math.min(1.2, L)) * 2.2 * v.wk;
+      const m = v.F.mesh;
+      m.scale.set(Wd, H * 1.25, Wd);
+      m.position.set(sites[i].x + v.ox, Y0[sites[i].type] + H * 1.25 * 0.5, sites[i].z + v.oz);
+      v.F.u.bright.value = (0.5 + 0.7 * Math.min(1, lv) + fl * 0.6 + bm * 0.6) * (1 - 0.7 * Number(U.leave.value || 0));
+      v.F.u.magnitude.value = VSTY[sites[i].type].mag + fl * 0.35;
+      v.F.update();
+    }
   }
   return {
     meshes, update,
     setRingCentre(x, z) { uRing.value.set(x, 0, z); },
     light: (i) => lightOf[i],
-    info: { drawCalls: meshes.length, flameInstances: NI, baseTris: baseGeos.reduce((a, g) => a + g.index.count / 3, 0) },
-    dispose() { for (const m of meshes) { m.parent?.remove(m); m.material.dispose(); } flameGeo.dispose(); lightGeo.dispose(); for (const g of baseGeos) g.dispose(); },
+    info: { look: LOOK, volumeBoxes: VOL.length, drawCalls: meshes.length, flameInstances: NI, baseTris: baseGeos.reduce((a, g) => a + g.index.count / 3, 0) },
+    dispose() { for (const m of meshes) { m.parent?.remove(m); m.material.dispose(); } flameGeo.dispose(); lightGeo.dispose(); for (const g of baseGeos) g.dispose(); for (const v of VOL) v.F.dispose(); fireTex?.dispose(); },
   };
 }
