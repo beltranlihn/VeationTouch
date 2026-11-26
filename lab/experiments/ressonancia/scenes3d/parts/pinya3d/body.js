@@ -155,13 +155,13 @@ function bodySDF(P) {
   };
 }
 // a detailed right hand in its own frame: wrist at 0, fingers +y, palm facing +z, thumb towards -x (the body's midline for a right hand facing +z... mirrored for the left)
-function handSDF(s) {
+function handSDF(s, spread = 1) {   // spread > 1: an open hand, fingers apart (pinya3d2)
   const P = [{ t: 'e', c: [0, 0.05 * s, 0], ax: LEFT, ay: UP, az: FWD, r: [0.046 * s, 0.058 * s, 0.018 * s], g: 0 }, { t: 'c', a: [0, -0.04 * s, -0.003], b: [0, 0.015 * s, 0], r1: 0.03 * s, r2: 0.032 * s, g: 0 }];
   [[-0.031, 0.066, -0.1], [-0.011, 0.076, -0.03], [0.01, 0.072, 0.035], [0.029, 0.058, 0.1]].forEach(([o, L, sp]) => {
-    const base = [o * s, 0.098 * s, 0.002], dir = norm([sp, 1, 0.06]);
-    P.push({ t: 'c', a: base, b: madd(base, dir, L * s), r1: 0.0098 * s, r2: 0.0082 * s, g: 1 });
+    const base = [o * s * (1 + 0.12 * (spread - 1)), 0.098 * s, 0.002], dir = norm([sp * spread, 1, 0.06 / spread]);
+    P.push({ t: 'c', a: base, b: madd(base, dir, L * s * (1 + 0.06 * (spread - 1))), r1: 0.0098 * s, r2: 0.0082 * s, g: 1 });
   });
-  const tb = [-0.04 * s, 0.03 * s, 0.006], td = norm([-0.8, 0.6, 0.15]);
+  const tb = [-0.04 * s, 0.03 * s, 0.006], td = norm([-0.8 * Math.min(1.4, spread), 0.6, 0.15 / spread]);
   P.push({ t: 'c', a: tb, b: madd(tb, td, 0.062 * s), r1: 0.0125 * s, r2: 0.0095 * s, g: 1 });
   return (p) => { let a = 1e9, b = 1e9; for (const q of P) { const d = primD(p, q); if (q.g === 0) a = smin(a, d, 0.015); else b = Math.min(b, d); } return smin(a, b, 0.006); };
 }
@@ -218,7 +218,7 @@ export function* bakeBodyGen(B, rest, specs, opt) {
   const body = yield* nets(f, lo, hi, opt.grid);
   const parts = [{ m: body, bone: -1 }];
   if (opt.detail) {
-    const hs = handSDF(B.s), hm = yield* nets(hs, [-0.075, -0.06, -0.035], [0.075, 0.2, 0.035], 0.0045);
+    const hs = handSDF(B.s, opt.spread || 1), hm = yield* nets(hs, [-0.075, -0.06, -0.035], [0.075, 0.2, 0.035], 0.0045);
     // right hand: thumb towards the midline = +x in the hand frame for a right hand facing +z; the SDF has it at -x: mirror
     const mir = (m) => { const p = m.pos.slice(), n = m.nrm.slice(); for (let i = 0; i < p.length; i += 3) { p[i] = -p[i]; n[i] = -n[i]; } const idx = m.idx.slice(); for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; } return { pos: p, nrm: n, idx }; };
     parts.push({ m: hm, bone: BI.hdL, local: true }, { m: mir(hm), bone: BI.hdR, local: true });
