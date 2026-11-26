@@ -160,6 +160,7 @@ const GRALLA_HZ = 415;                       // s-gralla's pitch (G#4, measured)
 // Levels in one place (files are normalised to peak 1 at load). Measured in the lab's simulated room: see NOTES.md.
 const L = {
   voice: 0.34, duck: 0.5,                  // duck: the music under a voice (−6 dB, soft: Beltrán 26-11)
+  fxDuck: 0.6,                               // sound review 26-11: the interaction sounds under a voice too (−4.4 dB): they never mask a word
   music: 0.3,                                // every set's master, into the music bus
   embers: 0.07, fire: 0.12, breath: 0.1, wind: 0.13, rain: 0.08, crowd: 0.1,
   grains: 0.05, verb: 0.35,
@@ -217,7 +218,8 @@ export default async function start(host) {
   const outRoom = series(...HP(), audio.roomInput());
   const outSub = series(F('lowpass', 110), F('lowpass', 110), audio.subInput());
   const wallIn = walls.map((w) => audio.wallInput(w.id, 0.5));
-  const wallOut = wallIn.map((wi) => series(...HP(), wi.node));
+  const fxDuckW = wallIn.map(() => G(1));                                   // sound review 26-11: the walls' event sounds dip under a voice
+  const wallOut = wallIn.map((wi, i) => series(fxDuckW[i], ...HP(), wi.node));
   const toWall = (w) => wallOut[((w % NW) + NW) % NW] || outRoom;
   // a stereo (or mono) signal spread over the room: L → even walls, R → odd walls, its low end to the sub
   function spread(subAmt = 0) {
@@ -308,9 +310,10 @@ export default async function start(host) {
     vo = { h, end: h.end, name }; if (!name.startsWith('v-wait') && !REPEATABLE.has(name)) saidThisPass.add(name);
     try { bc?.postMessage({ type: 'sub', name, in: Math.max(0, at - t), dur: Math.max(0.5, h.end - at) }); } catch { /* no channel (yet) */ }   // studio 26-11: the visual shows its subtitle
     duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(L.duck, Math.max(t, at - 0.35), 0.15); duck.gain.setTargetAtTime(1, h.end + 0.3, 0.7);
+    for (const g of fxDuckW) { g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(L.fxDuck, Math.max(t, at - 0.2), 0.12); g.gain.setTargetAtTime(1, h.end + 0.2, 0.5); }
     return true;
   }
-  const hush = (fade = 0.5) => { if (vo) { vo.h.stop(fade); vo = null; try { bc?.postMessage({ type: 'sub', name: null }); } catch { /* no channel */ } } ramp(duck.gain, 1, 0.3); };
+  const hush = (fade = 0.5) => { if (vo) { vo.h.stop(fade); vo = null; try { bc?.postMessage({ type: 'sub', name: null }); } catch { /* no channel */ } } ramp(duck.gain, 1, 0.3); for (const g of fxDuckW) ramp(g.gain, 1, 0.3); };
 
   // ---------------------------------------------------------------- the music sets (layers, loops, the bar grid)
   const sets = {};
@@ -751,7 +754,7 @@ export default async function start(host) {
     const t = now();
     while (voices.length && voices[0].end < t) voices.shift();
     while (voices.length >= L.touchMax) { const v = voices.shift(); v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(0, t, 0.02); }   // the oldest yields
-    const wi = audio.wallInput(wallId, u), g = G(P.touch);
+    const wi = audio.wallInput(wallId, u), g = G(P.touch * (vo && t < vo.end + 0.2 ? L.fxDuck : 1));   // (a hand under a voice: softer, sound review 26-11)
     series(g, ...HP(), wi.node); if (verbAmt) g.connect(G(verbAmt, verbIn));
     voices.push({ g, end: t + ttl });
     setTimeout(() => { try { g.disconnect(); wi.disconnect(); } catch { /* gone */ } }, ttl * 1000 + 300);
