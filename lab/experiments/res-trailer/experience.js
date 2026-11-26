@@ -289,18 +289,26 @@ function trailerStep(dt) {
   // (paintOpen), holds a button (the score moves to 'intro' and the trailer follows, below). trailer.waitButton = false: the preroll timer
   if (P['trailer.waitButton'] !== false && S.block === 'wait' && TRL.seg <= 0 && TRL.tt > SG[1][1] - 0.05) TRL.tt = SG[1][1] - 0.05;
   { const k = SG.findIndex((g) => g[0] === 'pinya'), pt = parts.pinya3d2?.part;   // the pinya ends when its part is done
-    if (k > 0 && TRL.seg === k && S.block === 'pinya' && pt?.fill && pt.fill().done && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; }
+    if (k > 0 && TRL.seg === k && S.block === 'pinya' && pt?.fill) { if (!pt.fill().done) TRL.fresh = true; else if (TRL.fresh && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; } }
   { const k = SG.findIndex((g) => g[0] === 'brasa');   // the correfoc v2 ends when its storm has filled the room
-    if (k > 0 && TRL.seg === k && S.block === 'brasa' && link.stormFull && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; }
+    if (k > 0 && TRL.seg === k && S.block === 'brasa') { if (!link.stormFull) TRL.fresh = true; else if (TRL.fresh && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; } }
   { const k = SG.findIndex((g) => g[0] === 'tronc'), pt = parts.torre3d?.part;   // and the tower when its golden ending is done
-    if (k > 0 && TRL.seg === k && S.block === 'tronc' && pt?.progress && pt.progress().done && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; }
+    if (k > 0 && TRL.seg === k && S.block === 'tronc' && pt?.progress) { if (!pt.progress().done) TRL.fresh = true; else if (TRL.fresh && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; } }
   if (TRL.tt >= SG[SG.length - 1][1]) { TRL.tt = 0; TRL.loops++; }
   let i = 0; while (i + 1 < SG.length - 1 && TRL.tt >= SG[i + 1][1]) i++;
   const want = SG[i][0];
-  if (i !== TRL.seg) { TRL.seg = i; TRL.jumpedAt = time; if (S.block !== want) score.jump(want); return; }
+  // (26-11, the room: the image skipped stages and came back) the TRAILER leads every block: a new segment clears the sound score's
+  // held progress (a stale fill of 1 from the last block ended the next one at once there, and the image followed it), and the held
+  // blocks (correfoc, pinya, tower) end only by the trailer — a drift of the score there is pulled back to the trailer's block
+  if (i !== TRL.seg) {
+    TRL.seg = i; TRL.jumpedAt = time; TRL.fresh = false; link.stormFull = false;   // (26-11, the room, 2nd loop on: the last pass's «done» ended brasa, pinya and tower in one second) a block ends only on a «done» seen AFTER it was not done in this pass
+    const held = want === 'brasa' || want === 'pinya' || want === 'tronc';
+    score.setFill(held ? 0 : null); tell({ fill: held ? 0 : null }); link.fiSent = held ? 0 : -1; link.fiAt = time;
+    if (S.block !== want) score.jump(want); return;
+  }
   if (S.block !== want && time - TRL.jumpedAt > 1.5) {
     const next = SG[i + 1] && SG[i + 1][0];
-    if (S.block === next) { TRL.tt = SG[i + 1][1]; TRL.seg = i + 1; }   // the room moved on by itself: the trailer follows
+    if (!(want === 'brasa' || want === 'pinya' || want === 'tronc') && S.block === next) { TRL.tt = SG[i + 1][1]; TRL.seg = i + 1; }   // the button, or a timed block's end: the room moved on by itself, the trailer follows (the held blocks end only by the trailer)
     else { TRL.jumpedAt = time; score.jump(want); }
   }
 }
