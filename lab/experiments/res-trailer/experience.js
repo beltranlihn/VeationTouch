@@ -144,7 +144,8 @@ const bloomNow = { ...bloomTo('wait') };
 const linC = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const SAND = linC('#F3E6D3'), DUSK = linC('#C98F6A').map((v, i) => v / SAND[i]), NIGHT = linC('#1B2A52').map((v, i) => (6.4 * v) / SAND[i]);   // far shell: sand sky × this = #C98F6A / the intro's night blue (its hue: the darkness is the `all` shell's)
 const NEAR = DUSK.map(Math.sqrt);                                  // the near world (floor, unlit glaze) takes half the dusk's stops: it warms with the sky
-const GONE = [0.05, 0.055, 0.08];   /* (26-11 QA) a little higher: never a black room */                                  // the whole threshold at the end of the ramp (a cool dark, ≈ the intro's level)
+const GONE = [0.05, 0.055, 0.08];   /* (26-11 QA) a little higher: never a black room */
+const DUSK_LIFT = LAB && q.get('dlift') ? q.get('dlift').split(',').map(Number) : [0.25, 0.7];   // (26-11 QA) the `all` shell lifts over this span of the intro's arrive (lab: ?dlift=a,b)                                  // the whole threshold at the end of the ramp (a cool dark, ≈ the intro's level)
 const geo = (a, b, k) => a * Math.pow(b / a, k);                  // in stops: an exposure ramp, not a linear fade
 const dusk = { t: -1, T: 2.9, far: null, all: null, lights: [], warm: { key: new THREE.Color('#FF9C5A'), sky: new THREE.Color('#E8A070'), ground: new THREE.Color('#6E4636') } };
 function duskShell(r, depthTest, order) {
@@ -180,7 +181,11 @@ function stepDusk(dt) {
   g.set(geo(geo(1, NEAR[0], a), GONE[0], c), geo(geo(1, NEAR[1], a), GONE[1], c), geo(geo(1, NEAR[2], a), GONE[2], c));
   // (26-11 QA) the `all` shell darkens EVERYTHING drawn before it, the intro's square too: as the threshold's own stones have faded with
   // its leave (≤ 5 % from 0.75), the shell lifts back to 1, so the intro's world rises out of the dusk instead of ~2 s of black
-  { const k = smooth(((U.leave || 0) - 0.75) / 0.25); if (k > 0) g.set(g.x + (1 - g.x) * k, g.y + (1 - g.y) * k, g.z + (1 - g.z) * k); }
+  // (26-11 QA, tiles off) with no tile pass the shell also covers the INCOMING world: it lifts with the intro's arrive too (plaza3d's,
+  // else atmos'), DUSK_LIFT[0] → [1] of it (≈ +1.0 … +2.8 s at TR 4 s); `far` stays, so the noon's sky never comes back
+  { const I = parts.plaza3d && parts.plaza3d.state !== 'off' ? parts.plaza3d : parts.atmos;
+    const k = Math.max(smooth(((U.leave || 0) - 0.75) / 0.25), I && I.state !== 'off' && I.state !== 'out' ? smooth(((I.arrive ?? 0) - DUSK_LIFT[0]) / (DUSK_LIFT[1] - DUSK_LIFT[0])) : 0);
+    if (k > 0) g.set(g.x + (1 - g.x) * k, g.y + (1 - g.y) * k, g.z + (1 - g.z) * k); }
   dusk.far.mesh.visible = t > 0; dusk.all.mesh.visible = t > 0;
   const gl = geo(1, 0.5, a) * (1 - smooth((t - 0.9) / 1.1));      // the sun and the fill: ×0.5 at the dusk, out by 2.0 s (the ground darkens with the sky, not after it)
   for (const d of dusk.lights) {
