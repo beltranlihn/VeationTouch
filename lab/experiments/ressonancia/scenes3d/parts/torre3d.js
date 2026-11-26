@@ -1,7 +1,7 @@
 // Ressonància — part «torre3d»: the tower of the trailer, after the pinya (contract: ../PARTS.md). Brief: Beltrán via the director, 26-11.
 //
 // The base is complete: the RONDA stands formed right behind the front wall (P1, the title wall), at real scale, as if we were inside
-// the pinya; behind it the square, made of sparse particles. The other three walls invite: a hand held there ~1.7 s (a ring charges
+// the pinya; behind it the square, made of sparse particles. The other three walls invite: a hand that lands there (26-11: a tap, no hold
 // under it) makes a being of points at the hand; it lets go into a stream of points that FLIES round the room to the tower, lands on
 // the ronda's shoulders and CLIMBS (poses: reach · bend · stand) to its place on the shoulders of the tier below. One after another,
 // the people of the room are the ones who climb. Every tier complete → the WORLD sinks one step (we rise with the tower): the
@@ -60,7 +60,7 @@ export function create({ THREE, TSL, room, params }) {
   // P4, P2 and P3 and on each PRESSES AND HOLDS (the charge ring fills): a climber forms there, flies to the tower and climbs — the first
   // three up are the beam's. The public's hands work from the first second. params.intro = { start, walls: [t0, t1, t2], hold } (s from
   // the block's start, input.t); default cut to the recorded voice (0.5 «Now, the tower rises.» · 3.5 «Hold your hand on the wall…»).
-  const INTRO = { start: 0.5, walls: [3.5, 6.0, 8.5], hold: 1.7 };
+  const INTRO = { start: 0.5, walls: [3.5, 6.0, 8.5], hold: 0.6 };   // 26-11: the beam shows a tap (a short press), not a hold
   const beam = createGuideBeam({ THREE, TSL, room }); object.add(beam.object);
   const world = new THREE.Group(); object.add(world);            // everything that sinks as we rise
   const walls = room.walls, NW = walls.length;
@@ -550,7 +550,15 @@ export function create({ THREE, TSL, room, params }) {
   // Beltran 26-11: «varios puntos de luz repartidos por los muros, para que varias personas puedan presionar a la vez» — three per other
   // wall (x 0 and +-1.1 m, clear of the rulers' labels), at 1.25 / 1.05 m (children reach them), each with its own beam
   const goldPts = [];
-  for (const wi of walls.map((_, i) => i).filter((i) => i !== TW)) for (const [x, y] of [[-1.1, 1.05], [0, 1.25], [1.1, 1.05]]) if (x === 0 || Math.abs(x) < walls[wi].width / 2 - 1.2) goldPts.push({ wi, x, y });
+  // 26-11 (after the room): «varias luces a distintas alturas desordenadas, a alturas tocables claramente» — params.goldPerWall (3) per other
+  // wall, scattered along it (≥ 0.95 m apart, clear of the ruler and its labels), at 0.9–1.6 m
+  { const rg = rng(919);
+    for (const wi of walls.map((_, i) => i).filter((i) => i !== TW)) {
+      const W = walls[wi], R = rulers[wi], half = W.width / 2 - 0.55, xs = [];
+      const free = (x) => !(R && (R.mirror ? x > R.x - 1.85 && x < R.x + 0.3 : x > R.x - 0.3 && x < R.x + 1.85)) && xs.every((q) => Math.abs(q - x) > 0.95);
+      for (let tries = 0; tries < 300 && xs.length < (P.goldPerWall ?? 3); tries++) { const x = (rg() * 2 - 1) * half; if (free(x)) xs.push(x); }
+      xs.sort((u, v) => u - v).forEach((x, j) => goldPts.push({ wi, x, y: 0.9 + ((rg() * 0.6 + j * 0.37) % 1) * 0.7 }));
+    } }
   const goldAt = (i, out) => { const g = goldPts[i], W = walls[g.wi]; return out.copy(W.centre).addScaledVector(W.right, g.x).setY(g.y); };
   // the hand she holds up (her left palm in l'aleta), in the world's frame
   const enxPalm = (() => { const k = pose(ENX[3], BUILDS[1]); return [k.wL[0] + k.hfL.fd[0] * 0.06, k.wL[1] + k.hfL.fd[1] * 0.06, k.wL[2] + k.hfL.fd[2] * 0.06]; })();
@@ -645,7 +653,7 @@ export function create({ THREE, TSL, room, params }) {
   const evAt = (wi, pos) => { const W = walls[wi]; const u = 0.5 + ((pos.x - W.centre.x) * W.right.x + (pos.z - W.centre.z) * W.right.z) / W.width; return `${wi}:${clamp01(u).toFixed(3)}:${pos.y.toFixed(2)}`; };
   function makeClimber(wi, h, auto) {
     // the tower's places first; once they are all taken, the extra one still forms, flies and joins the pinya round the ronda (Beltrán: your gesture always made someone)
-    const slot = slots.find((s) => !s.who) || extras.find((s) => !s.who); if (!slot) return null;
+    const slot = slots.find((s) => !s.who); if (!slot) return null;   // 26-11: once the tower's places are taken, a hand makes a being that stays in the hand (makeGhost)
     const enx = slot.tier === tiers.length - 1;
     const t = enx ? 4 : (rr() < 0.5 ? 2 : 3); if (!meshes[t]) return null;
     const W = walls[wi], bi = TYPES[t][0], hs = slot.hs, pl = reachPalm[bi];
@@ -659,6 +667,22 @@ export function create({ THREE, TSL, room, params }) {
     events.push(`form:${evAt(wi, h)}`);
     return b;
   }
+  // a being in the hand that does not go to the tower (every place taken, or the tower up): it forms at the hand as a climber does, holds
+  // a moment, then lets go into particles there, drifting up a little (its birth in reverse: the feet first, the palm last)
+  const ghosts = [];
+  function makeGhost(wi, h) {
+    const t = rr() < 0.5 ? 2 : 3; if (!meshes[t] || ghosts.length >= (P.ghostMax ?? 10)) { events.push(`touch:${evAt(wi, h)}`); return null; }
+    const W = walls[wi], bi = TYPES[t][0], hs = 0.95 + rr() * 0.08, pl = reachPalm[bi];
+    const yawO = Math.atan2(W.normal.x, W.normal.z), Xx = Math.cos(yawO), Xz = -Math.sin(yawO);
+    const back = 0.012 + pl[2] * hs, oy = Math.max(-0.35, Math.min(0.25, h.y - pl[1] * hs));
+    const Or = new THREE.Vector3(h.x - Xx * pl[0] * hs - W.normal.x * back, oy, h.z - Xz * pl[0] * hs - W.normal.z * back);
+    const b = { type: t, ghost: true, wall: wi, Or, O: new THREE.Vector3(), pos: new THREE.Vector3(), yaw: yawO, yawO, hs, travel: 0, born: 0, gone: 0, glow: 1, gold: 0,
+      seed: rr(), t0: time, M: meshes[t], k: meshes[t].list.length, w: [0, 1, 0, 0], lean: 0, dy: 0, mote: 0 };
+    meshes[t].list.push(b); meshes[t].mesh.geometry.instanceCount = meshes[t].list.length; ghosts.push(b);
+    events.push(`ghost:${evAt(wi, h)}`);
+    return b;
+  }
+  function dropBody(b) { const M = b.M, i = M.list.indexOf(b); if (i < 0) return; M.list.splice(i, 1); M.list.forEach((q, k) => { q.k = k; }); M.mesh.geometry.instanceCount = M.list.length; }
   // the landing: on the ronda's shoulders, on the near side (towards the eye), a little to one side
   // the landing (Beltrán 26-11: nobody lands and then slides or jumps to its place): the stream lands WHERE the climber will climb from —
 // at its place's back, a little round the column (the spiral) and below it, on the hips / shoulders of the tier below — so what follows
@@ -723,7 +747,7 @@ const landing = (b, out) => {
     if (v >= 1) { b.phase = 'done'; b.pos.copy(S.pos); b.yaw = S.yaw; }
   }
 
-  let introKey = '', introPlan = null, introEnd = -1, introOn = false;
+  let introKey = '', introPlan = null, introEnd = -1, introOn = false; const introMade = new Set(), tmpG = new THREE.Vector3();
   const knownStrokes = new Set(), nowStrokes = new Set();
   const stampT = []; for (let i = 0; i < NSTAMP; i++) stampT.push({ t: -99, s: 0 });
   let stampI = 0; const lastStamp = new Map();
@@ -780,13 +804,17 @@ const landing = (b, out) => {
         continue;
       }
       let ch = charges.find((q) => q.stroke === h.stroke);
-      // the tower is up (the golden points' time, the end): a hand away from a golden point still has its light — a faint full ring that
-      // follows the palm (Beltrán: the room always answers a hand), no climber
-      if (topT >= 0) { if (!ch) { ch = { stroke: h.stroke, wall: h.wall, pos: h.pos.clone(), t0: time - holdT, done: true, deco: true, full: true, seen: time, a: 0 }; charges.push(ch); events.push(`touch:${evAt(h.wall, h.pos)}`); } ch.seen = time; ch.pos.lerp(h.pos, Math.min(1, dt * 8)); ch.wall = h.wall; continue; }
-      if (!ch) { ch = { stroke: h.stroke, wall: h.wall, pos: h.pos.clone(), t0: time, done: false, seen: time, a: 0 }; charges.push(ch); events.push(`charge:${evAt(h.wall, h.pos)}`); }
+      // Beltrán 26-11 (after the room): «en vez de tener que sostener para activarlo, que simplemente sea apretar» — a hand that lands
+      // makes a climber at once (no hold, no ring): it forms in the hand, flies and climbs. Once every place of the tower is taken (or the
+      // tower is up) a hand still makes a being in the hand, which lets go into particles there and does not go to the tower: the room
+      // answers until the last person. A hand on a golden point charges the light instead.
+      if (!ch) {
+        ch = { stroke: h.stroke, wall: h.wall, pos: h.pos.clone(), t0: time, done: true, seen: time, a: 0 }; charges.push(ch);
+        const onGold = readyT >= 0 && goldPts.some((g, i) => g.wi === h.wall && goldAt(i, tmpG).distanceTo(h.pos) < (p.goldReach ?? 0.55));
+        if (endT < 0 && aletaT < 0 && !onGold) { if (!(topT < 0 && makeClimber(h.wall, h.pos, false))) makeGhost(h.wall, h.pos); }
+        else events.push(`touch:${evAt(h.wall, h.pos)}`);
+      }
       ch.seen = time;
-      if (h.pos.distanceTo(ch.pos) > 0.35 && !ch.done) { ch.pos.copy(h.pos); ch.t0 = time; ch.wall = h.wall; events.push(`charge:${evAt(h.wall, h.pos)}`); }   // moved too far: it starts again
-      if (!ch.done && time - ch.t0 >= holdT && endT < 0 && topT < 0) { ch.done = true; if (!makeClimber(h.wall, h.pos, false)) ch.full = true; }
     }
     for (const [k] of lastStamp) if (!nowStrokes.has(k)) lastStamp.delete(k);
     for (let i = 0; i < NSTAMP; i++) if (time - stampT[i].t > 2.6) STAMPS[i].w = 0;   // the envelope is in the shader (by the stamp's age)
@@ -796,10 +824,10 @@ const landing = (b, out) => {
     // ---- the opening: the beam holds on each other wall; its charge ring fills like a hand's and makes a climber
     {
       const intro = p.intro === false ? false : (p.intro ?? INTRO), key = JSON.stringify(intro);
-      if (key !== introKey) { introKey = key; introPlan = beam.planOf(intro, otherWalls().map((wi) => ({ wall: wi, x: 0, y: 1.2 }))); introEnd = introPlan ? Math.max(...introPlan.targets.map((q) => q.t + q.hold)) + 1.5 : -1; }
+      if (key !== introKey) { introKey = key; introMade.clear(); introPlan = beam.planOf(intro, otherWalls().map((wi) => ({ wall: wi, x: 0, y: 1.2 }))); introEnd = introPlan ? Math.max(...introPlan.targets.map((q) => q.t + q.hold)) + 1.5 : -1; }
       const bt = input.t ?? time;
       for (const e of beam.update(dt, bt, introPlan)) {
-        if ((e.type === 'hold' || e.type === 'press') && topT < 0) { charges.push({ stroke: 'beam' + e.i + ':' + time, beam: true, wall: e.wall, pos: e.pos.clone(), t0: time, done: false, seen: time, a: 0 }); events.push(`intro:${e.i}`); }
+        if ((e.type === 'hold' || e.type === 'press') && topT < 0 && !introMade.has(e.i)) { introMade.add(e.i); charges.push({ stroke: 'beam' + e.i + ':' + time, beam: true, wall: e.wall, pos: e.pos.clone(), t0: time, done: false, seen: time, a: 0 }); events.push(`intro:${e.i}`); }
       }
       introOn = !!introPlan && bt < introEnd;
     }
@@ -813,7 +841,7 @@ const landing = (b, out) => {
         charges.push({ stroke: 'auto' + time, auto: true, wall: wi, pos, t0: time, done: false, seen: time, a: 0 });
       }
     }
-    for (const ch of charges) if (ch.auto || ch.beam) { ch.seen = time; if (!ch.done && time - ch.t0 >= holdT * (ch.beam ? 1 : 1.3)) { ch.done = true; if (topT < 0) makeClimber(ch.wall, ch.pos, true); ch.stroke = null; } if (ch.done) ch.gone = (ch.gone ?? 0) + dt; }
+    for (const ch of charges) if (ch.auto || ch.beam) { ch.seen = time; if (!ch.done && time - ch.t0 >= (ch.beam ? 0.25 : 0)) { ch.done = true; if (topT < 0) makeClimber(ch.wall, ch.pos, true); ch.stroke = null; } if (ch.done) ch.gone = (ch.gone ?? 0) + dt; }
     for (let i = charges.length - 1; i >= 0; i--) if ((charges[i].auto || charges[i].beam) && charges[i].gone > 0.6) charges.splice(i, 1);
 
     // ---- the ronda: formed out of the dust when the part arrives
@@ -909,8 +937,10 @@ const landing = (b, out) => {
     if (readyT >= 0 && chargedT < 0) {
       for (let i = 0; i < NB; i++) {
         const wi = goldPts[i].wi, W = walls[wi]; goldAt(i, tmpV);
-        let held = false;
-        for (const h of hands) if (h.wall === wi && h.pos.distanceTo(tmpV) < (p.goldReach ?? 0.55)) held = true;
+        let touched = false;
+        for (const h of hands) if (h.wall === wi && h.pos.distanceTo(tmpV) < (p.goldReach ?? 0.55)) touched = true;
+        if (touched) beams[i].until = time + (p.tapCharge ?? 2.2);   // 26-11: a tap or a short touch charges (no long hold)
+        let held = touched || time < (beams[i].until ?? -1);
         if (held !== !!beams[i].byHand) { beams[i].byHand = held; events.push(`gold:${held ? 'on' : 'off'}:${wi}`); }
         if (held) { lastHold = time; autoW = -1; }
         if (!held && autoW === i) held = true;
@@ -944,6 +974,13 @@ const landing = (b, out) => {
     uDust.value = dustMode ? 1 : 0; uDustK.value = clamp01((p.dust ?? 1) * (1 - uLeave.value));
     const goneAll = endT >= 0 ? clamp01((time - endT) / endDur) : 0;
     if (endT >= 0 && !doneSent && time - endT > endDur + 0.5) { doneSent = true; events.push('done'); }
+    for (let i = ghosts.length - 1; i >= 0; i--) {
+      const b = ghosts[i], tt = time - b.t0;
+      if (tt > 4.2) { dropBody(b); ghosts.splice(i, 1); continue; }
+      b.O.copy(b.Or).applyMatrix4(invW); b.O.y += 0.5 * smooth01((tt - 1.4) / 2.6); b.pos.copy(b.O); b.travel = 0;
+      b.born = tt < 1.4 ? clamp01(tt / 0.95) : 1 - smooth01((tt - 1.4) / 2.6); b.glow = Math.max(0, 1 - tt / 2.5);
+    }
+    for (const b of ghosts) writeInst(b);
     for (const b of [...ronda, ...climbers]) {
       const yb = (b.pos.y + 1.1 * b.hs);
       const g = pomY > -5 ? Math.exp(-(((yb - pomY) / 0.55) ** 2)) + (yb < pomY ? 0.22 : 0) : 0;
@@ -964,30 +1001,10 @@ const landing = (b, out) => {
       handoff.put('torre', { positions: pos, count: all.length, gold: true }); events.push('dust:ready');
     }
 
-    // ---- rings: an invitation at each other wall's centre (while there are places), and a charge under every held hand
+    // ---- rings: only the golden points now
     const A = rA.array; let ri = 0;
     const open = slots.some((s) => !s.who) && topT < 0;
-    for (const wi of otherWalls()) {
-      if (ri >= NRING) break; const W = walls[wi], o = ri * 8;
-      const busy = charges.some((q) => q.wall === wi && !q.done);
-      A[o] = W.centre.x + W.normal.x * 0.0; A[o + 1] = 1.2; A[o + 2] = W.centre.z; A[o + 3] = open && !busy ? 1 : 0;
-      A[o + 4] = W.right.x; A[o + 5] = W.right.z; A[o + 6] = -1; A[o + 7] = 0.36; ri++;
-      // Beltran 26-11: «varios circulitos repartidos por la sala que inviten a tocar y mantener presionado» (Ø 42 cm, 1.0 / 1.4 m)
-      for (const [x, y] of [[-1.15, 1.0], [1.15, 1.4]]) {
-        if (ri >= NRING || Math.abs(x) > W.width / 2 - 1.2) continue; const o2 = ri * 8;
-        tmpW.copy(W.centre).addScaledVector(W.right, x).setY(y);
-        const near = charges.some((q) => q.wall === wi && !q.done && q.pos.distanceTo(tmpW) < 0.6);
-        A[o2] = tmpW.x; A[o2 + 1] = y; A[o2 + 2] = tmpW.z; A[o2 + 3] = open && !near ? 0.75 : 0;
-        A[o2 + 4] = W.right.x; A[o2 + 5] = W.right.z; A[o2 + 6] = -1; A[o2 + 7] = 0.21; ri++;
-      }
-    }
-    for (const ch of charges) {
-      if (ri >= NRING) break; const W = walls[ch.wall], o = ri * 8;
-      const prog = ch.done ? 1 : clamp01((time - ch.t0) / (holdT * (ch.auto && !ch.beam ? 1.3 : 1)));
-      ch.a = ch.gone ? Math.max(0, 1 - ch.gone / 0.6) : Math.min(1, ch.a + dt * 10);
-      A[o] = ch.pos.x - W.normal.x * 0.005; A[o + 1] = ch.pos.y; A[o + 2] = ch.pos.z - W.normal.z * 0.005; A[o + 3] = ch.a * (ch.deco ? 0.45 : ch.full ? 0.3 : 1) * (ch.auto ? 0.7 : 1);
-      A[o + 4] = W.right.x; A[o + 5] = W.right.z; A[o + 6] = Math.max(0.001, prog); A[o + 7] = 0.24; ri++;
-    }
+    // 26-11 (Beltrán: «ya no debieran aparecer los circulitos que marcaban el sostener»): no invitation or charge rings; a tap makes the being
     // the golden points: Ø 40 cm at 1.2 m on each other wall, waiting with her; the ring fills with the charge while held
     if (readyT >= 0) for (let i = 0; i < NB && ri < NRING; i++) {
       const W = walls[goldPts[i].wi], o = ri * 8, B = beams[i]; goldAt(i, tmpV);
@@ -1044,14 +1061,15 @@ const landing = (b, out) => {
     // a ronda still flying in from the pinya's dust keeps flying (the host resets at the block start; the flight crosses it)
     if (!ronda.some((b) => b.dustMode)) { dustTaken = false; dustClk = 0; }
     if (dustSent) { if (!handoff.claimed('torre')) handoff.clear('torre'); dustSent = false; }
-    for (const b of climbers) { const M = b.M; M.list.splice(M.list.indexOf(b), 1); }
+    for (const b of [...climbers, ...ghosts]) { const M = b.M; M.list.splice(M.list.indexOf(b), 1); }
+    ghosts.length = 0; introMade.clear();
     for (const M of meshes) if (M) { M.list.forEach((b, k) => { b.k = k; }); M.mesh.geometry.instanceCount = M.list.length; }
     climbers.length = 0; charges.length = 0; for (const s of slots) s.who = null; for (const s of extras) s.who = null; for (const T of tiers) T.seated = 0;
     pomT0 = -1; readyT = -1; chargedT = -1; charge = 0; autoW = -1; for (const B of beams) { B.k = 0; B.reach = 0; B.on = false; }
     completed = 0; topT = -1; aletaT = -1; endT = -1; doneSent = false; lastClimb = time; firstT = -1; rondaBorn = 0; riseV = 0;
     // (26-11, 3rd loop: «la torre avanza sola») every charge, hold, help and the rise of the last pass: gone
     rise = 0; slide = 2.5; lastHandT = -99; lastHold = time; beatPh = 0; rulE = 0; introKey = ''; uWave.value.w = -1; uBurst.value.w = -1;
-    for (const B of beams) B.byHand = false; knownStrokes.clear(); nowStrokes.clear(); lastStamp.clear();
+    for (const B of beams) { B.byHand = false; B.until = -1; } knownStrokes.clear(); nowStrokes.clear(); lastStamp.clear();
     for (let i = 0; i < NSTAMP; i++) { STAMPS[i].w = 0; stampT[i].t = -99; }
     pomP.set(0, -50, 0); pomU.value.w = 0;
   }
@@ -1064,6 +1082,6 @@ const landing = (b, out) => {
   }
   function setParams(p) { if (p && p.tiers != null && String(p.tiers) !== String(P.__tiersBuilt ?? '')) { /* tiers change on reset */ } }
   function dispose() { beingMat.dispose(); jobs.length = 0; for (const M of meshes) if (M) M.mesh.geometry.dispose(); if (backdrop) { for (const m of backdrop.children) m.geometry.dispose(); backdropMat?.dispose(); } }
-  if (typeof window !== 'undefined') window.__torre3d = { progress, reset, climbers, ronda, slots, tiers, events, get readyMs() { return readyMs; }, make: (wi, x, y) => { const W = walls[wi]; const h = new THREE.Vector3().copy(W.centre).addScaledVector(W.right, x); h.y = y; return !!makeClimber(wi, h, false); }, TW: () => TW };
+  if (typeof window !== 'undefined') window.__torre3d = { progress, reset, climbers, ronda, slots, tiers, events, get readyMs() { return readyMs; }, make: (wi, x, y) => { const W = walls[wi]; const h = new THREE.Vector3().copy(W.centre).addScaledVector(W.right, x); h.y = y; return !!makeClimber(wi, h, false); }, TW: () => TW, ghosts, gold: () => goldPts.map((g) => ({ id: walls[g.wi].id, x: +g.x.toFixed(2), y: +g.y.toFixed(2), w: walls[g.wi].width })) };
   return { object, update, setParams, dispose, progress, reset, events, setBackdrop, finish };
 }

@@ -165,3 +165,10 @@ At its place:
 - **Invitations:** besides the centre ring, two small rings (Ø 42 cm, 1.0 / 1.4 m, x ±1.15 m) on each other wall while there are places.
 - **Ruler:** a soft semi-transparent black panel behind each wall's ruler.
 - **From the pinya's dust:** the ronda waits `dustDelay` (0.9 s) and gathers over `dustFly` (4.2 s), while the pinya's dust fades.
+
+## 26-11 (after the room): a tap, not a hold (Beltrán via the director)
+
+- **A hand that lands makes a climber at once:** no hold, no rings (the invitation rings and the charge ring under the hand are gone). It forms in the hand, flies and climbs as before. The guide beam shows a short press (hold 0.6 s).
+- **Every place taken (or the tower up):** a tap still makes a being in the hand. It forms, holds ~0.5 s, then lets go into particles there, rising a little. It does not go to the tower. At most `ghostMax` (10) at once; event `ghost:w:u:y`. Hands no longer fill the extra places round the ronda.
+- **The light:** `goldPerWall` (3) golden points per other wall, scattered along it (≥ 0.95 m apart, clear of the rulers) at 0.9–1.6 m. A tap keeps its beam on for `tapCharge` (2.2 s): one person charges in ~5 taps, several people together faster. Then the immediate burst and wave, as before.
+- Sound: there are no more `charge:` / `uncharge:` events from hands; a tap gives `form:` (a climber), `ghost:` (a being in the hand) or `touch:` (on a golden point, or nothing to make).
