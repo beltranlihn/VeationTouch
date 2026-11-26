@@ -28,7 +28,8 @@
 // scheduled while the context is not running (so nothing piles up to burst out when it resumes); a wanted bed starts late,
 // where it would be, once the context runs or its file arrives.
 import { createScore, TIMES } from './score.js';
-import { applyTimes } from './tuning.js';   // T-052: the visual piece sends the room's thresholds (ctl.times)
+import { applyTimes } from './tuning.js';
+import { createBrasaSound } from '../ressonancia/scenes3d/parts/brasa3d/brasa2-sound.js';   // 26-11: the correfoc v2's fire (Personaje's synthesis), fed by the visual piece   // T-052: the visual piece sends the room's thresholds (ctl.times)
 
 // ---------------------------------------------------------------------------------------------------------------- the voice
 // The intro's six lines, in seconds from the start of the 70 s intro, against the picture of ressonancia/scenes/intro.js
@@ -706,7 +707,7 @@ export default async function start(host) {
   });
 
   // ---------------------------------------------------------------- the score's events
-  let introSet = null, brasaCue = 0;   // 'trailer': the trailer's intro (INTRO_TRAILER), set by the visual piece
+  let introSet = null, brasaCue = 0, brasaS = null, brasaLast = 0;   // 'trailer': the trailer's intro (INTRO_TRAILER), set by the visual piece
   let block = S.block, introCue = 0, bellsCue = 0, crownAt = -1, crownMusic = false, bloomUntil = -1, actaCue = 0;
   let nextHeart = 0, lastHandClock = -1e9, waitSaid = -1e9, pace = 1, festaIn = false, gustUntil = 0;
   // the visual's tile transition (INT, T-028: res-obra3d/experience.js › MOVES): on every block change the whole room breaks into tiles
@@ -729,7 +730,8 @@ export default async function start(host) {
     drum(pk, drumBus, { f0: 90, f1: 40, dur: 0.9, gain: 0.045 * k, noise: 0.05, sub: 0.28 * k });
   }
   function enterBlock(b) {
-    const prev = block; block = b; const t = now(); brasaCue = 0;   // (the trailer's opening cues: every block starts them again)
+    const prev = block; block = b; const t = now(); brasaCue = 0;
+    if (prev === 'brasa' && brasaS) { const g = brasaS; brasaS = null; g.stop(2500).catch?.(() => {}); }   // the fire's sound leaves with its block   // (the trailer's opening cues: every block starts them again)
     if (b === 'intro' || b === 'wait') saidThisPass.clear();
     musicBus.gain.setTargetAtTime(P.music, t, 0.3);   // a tronc's wobble may have left the music down
     if (prev !== b) tileSweep(b);
@@ -1128,7 +1130,7 @@ export default async function start(host) {
   let bc = null;
   try { bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { bc = null; }
   // 25-11 (studio): ctl.lang — a visual piece may set the voice's language (res-trailer: Catalan by default)
-  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (['es', 'en', 'ca'].includes(m.lang) && m.lang !== P.lang) { P.lang = m.lang; for (const n of VOICE_SET) { buffers.delete(n); peaks.delete(n); failed.delete(n); } Promise.all([...VOICE_SET].map(load)); } if (m.button && typeof m.button === 'object') score.setButton?.(m.button); if ('reveal' in m) score.setReveal?.(m.reveal); if ('start' in m) score.setStart?.(m.start); if ('fill' in m) score.setFill?.(m.fill); if (m.intro) introSet = m.intro; if (typeof m.say === 'string' && TRAILER_SAY.includes(m.say)) say(m.say, { delay: 0.05 }); if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
+  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'brasa') { if (block === 'brasa' && m.s) { try { if (!brasaS) { brasaS = createBrasaSound(audio, { gain: 1 }); brasaLast = ctx.currentTime; } const tn = ctx.currentTime, d = Math.min(0.1, Math.max(0.001, tn - brasaLast)); brasaLast = tn; brasaS.update(d, m.s); } catch (e) { console.error('ressonancia-sound: brasa', e); } } return; } if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (['es', 'en', 'ca'].includes(m.lang) && m.lang !== P.lang) { P.lang = m.lang; for (const n of VOICE_SET) { buffers.delete(n); peaks.delete(n); failed.delete(n); } Promise.all([...VOICE_SET].map(load)); } if (m.button && typeof m.button === 'object') score.setButton?.(m.button); if ('reveal' in m) score.setReveal?.(m.reveal); if ('start' in m) score.setStart?.(m.start); if ('fill' in m) score.setFill?.(m.fill); if (m.intro) introSet = m.intro; if (typeof m.say === 'string' && TRAILER_SAY.includes(m.say)) say(m.say, { delay: 0.05 }); if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
   const lastPos = new Map(), hands = [], handPool = [];
   const wallS0 = walls.reduce((a, w, i) => { a.push(i ? a[i - 1] + (walls[i - 1].width || 4) : 0); return a; }, []);   // where each wall starts along the perimeter (m)
   let last = performance.now();
