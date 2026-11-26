@@ -126,23 +126,23 @@ const SETS = {
 //   tm-acta    20.0 s  D major (D G A); peaks at 6 s, −45 dB by 15 s, silent by 19 s: plays through (the closing is 18 s)
 const TBAR = 2.4, TGRID0 = 0.023;
 const TRAILER_SETS = {
-  intro: { layers: { m: 'tm-intro' }, once: true, lift: 3 },
-  brasa: { layers: { bed: 'tm-brasa' }, a: 4, b: 60, xf: 3, first: 0, lift: 2 },
-  pinya: { layers: { bass: 'st-tpinya-bass', drums: 'st-tpinya-drums', other: 'st-tpinya-other' }, a: 3.2, b: 73.6, xf: 3, first: 0, lift: 3 },
-  tronc: { layers: { bass: 'st-ttronc-bass', drums: 'st-ttronc-drums', other: 'st-ttronc-other' }, a: TGRID0 + 8 * TBAR, b: TGRID0 + 31 * TBAR, first: TGRID0 + 8 * TBAR, xf: 0.25, grid: true, grid0: TGRID0, trim: 2 },
-  crown: { layers: { m: 'tm-crown' }, once: true, lift: 2, rate: 1.1225, impact: 6.05 },
-  acta: { layers: { m: 'tm-acta' }, once: true, lift: 3 },
+  intro: { db: -2, layers: { m: 'tm-intro' }, once: true, lift: 3 },
+  brasa: { db: -1.5, layers: { bed: 'tm-brasa' }, a: 4, b: 60, xf: 3, first: 0, lift: 2 },
+  pinya: { db: -2, layers: { bass: 'st-tpinya-bass', drums: 'st-tpinya-drums', other: 'st-tpinya-other' }, a: 3.2, b: 73.6, xf: 3, first: 0, lift: 3 },
+  tronc: { db: 2.5, layers: { bass: 'st-ttronc-bass', drums: 'st-ttronc-drums', other: 'st-ttronc-other' }, a: TGRID0 + 8 * TBAR, b: TGRID0 + 31 * TBAR, first: TGRID0 + 8 * TBAR, xf: 0.25, grid: true, grid0: TGRID0, trim: 2 },
+  crown: { db: 0, layers: { m: 'tm-crown' }, once: true, lift: 2, rate: 1.1225, impact: 6.05 },
+  acta: { db: -2, layers: { m: 'tm-acta' }, once: true, lift: 3 },
 };
 // …and a second set to compare by ear (26-11, the session «Música del tráiler», audio/music-prompts-trailer.json; keys / tempo / loops
 // measured there): param musicSet 'mt' (default 'tm', the one above). It adds music for the entrance (wait).
 const SETS_MT = {
-  wait: { layers: { bed: 'mt-wait' }, a: 10.68, b: 75.56, xf: 4, first: 0, lift: 2 },                       // D pentatonic, no pulse
-  intro: { layers: { m: 'mt-intro' }, once: true, lift: 2 },                                                // D major; beat opens 16.1 s, quiets 48-58 s
-  brasa: { layers: { bed: 'mt-brasa' }, a: 6, b: 70, xf: 0.25, first: 0, grid: true, grid0: 0, lift: 4 },  // D centre (F# present), 120 BPM, 32 bars
-  pinya: { layers: { bed: 'mt-pinya' }, a: 5.06, b: 59.92, xf: 1, first: 0, lift: 4 },                     // A minor, 70 BPM, 16 bars
-  tronc: { layers: { bass: 'mt-tronc-bass', other: 'mt-tronc-other' }, a: 21.0, b: 69.0, xf: 0.25, first: 0, grid: true, grid0: 0, lift: 4 },   // D (D E G A C), 100 BPM, 20 bars; 'other' = arps, with the floors
-  crown: { layers: { m: 'mt-crown' }, once: true, impact: 4.0 },                                            // D open chord, the bloom at ~4.0 s
-  acta: { layers: { m: 'mt-acta' }, once: true },                                                           // D major, black by ~16.5 s
+  wait: { db: -9, layers: { bed: 'mt-wait' }, a: 10.68, b: 75.56, xf: 4, first: 0, lift: 2 },                       // D pentatonic, no pulse
+  intro: { db: 0.5, layers: { m: 'mt-intro' }, once: true, lift: 2 },                                                // D major; beat opens 16.1 s, quiets 48-58 s
+  brasa: { db: -1, layers: { bed: 'mt-brasa' }, a: 6, b: 70, xf: 0.25, first: 0, grid: true, grid0: 0, lift: 4 },  // D centre (F# present), 120 BPM, 32 bars
+  pinya: { db: -1, layers: { bed: 'mt-pinya' }, a: 5.06, b: 59.92, xf: 1, first: 0, lift: 4 },                     // A minor, 70 BPM, 16 bars
+  tronc: { db: -1, layers: { bass: 'mt-tronc-bass', other: 'mt-tronc-other' }, a: 21.0, b: 69.0, xf: 0.25, first: 0, grid: true, grid0: 0, lift: 4 },   // D (D E G A C), 100 BPM, 20 bars; 'other' = arps, with the floors
+  crown: { db: 7, layers: { m: 'mt-crown' }, once: true, impact: 4.0 },                                            // D open chord, the bloom at ~4.0 s
+  acta: { db: -1, layers: { m: 'mt-acta' }, once: true },                                                           // D major, black by ~16.5 s
 };
 const CROWN_IMPACT = 4.0;                    // m-crown: the reverse swell ends and the release hits at 4.0 s (measured)
 const AMBIENCE = ['s-embers-loop', 's-fire-loop', 's-breath-loop', 's-wind-loop', 's-rain-loop', 's-crowd-loop'];
@@ -154,7 +154,7 @@ const filesOf = (sets) => [...new Set(Object.values(sets).flatMap((s) => Object.
 const VOICE_SET = new Set(VOICES);
 // 25-11 (studio, for res-trailer): the Catalan voice (Gabriel - Clear Catalan, eleven_v4; audio/ca/voice-lines-ca.json) has only these lines
 const VOICE_CA = new Set(['v-wait-invite', 'v-wait-start', 'v-intro-1', 'v-intro-2', 'v-intro-3', 'v-intro-4', 'v-intro-5', 'v-brasa-1', 'v-brasa-2', 'v-brasa-3', 'v-aleta-2', 'v-cierre-final', ...INTRO_TRAILER.map((c) => c[1]), ...Object.values(TRAILER_CUES).flat().map((c) => c[1]), ...TRAILER_SAY, ...TRAILER_LINES, 'v-aleta-crowned', 'v-pinya-wait']);
-const GROUP = (name) => (name.startsWith('st-') ? name.split('-').slice(0, 2).join('-') : name);   // stems share one normalisation
+const GROUP = (name) => (name.startsWith('st-') ? name.split('-').slice(0, 2).join('-') : name.startsWith('mt-tronc-') ? 'mt-tronc' : name);   // stems share one normalisation
 const GRALLA_HZ = 415;                       // s-gralla's pitch (G#4, measured): grains are tuned from it
 
 // Levels in one place (files are normalised to peak 1 at load). Measured in the lab's simulated room: see NOTES.md.
@@ -336,7 +336,7 @@ export default async function start(host) {
   const loaded = (s) => Object.values(s.def.layers).every((f) => buffers.has(f) || failed.has(f)) && Object.values(s.def.layers).some((f) => buffers.has(f));   // a missing stem: the others play
   function musicOn(name, { at = now() + 0.03, offset, fade = 2, level = 1 } = {}) {
     const s = sets[name]; if (!s) return;
-    const t = now(); hold(s.out.gain, t); s.out.gain.linearRampToValueAtTime(L.music * level * Math.pow(10, (s.def.lift || 0) / 20), t + fade);
+    const t = now(); hold(s.out.gain, t); s.out.gain.linearRampToValueAtTime(L.music * level * Math.pow(10, ((s.def.lift || 0) + (s.def.db || 0)) / 20), t + fade);   // db: the set's level (26-11, «Música moderna» measured BS.1770 after the peak normalisation: tm vs mt within ±1 dB, the crown on top)
     if (s.want && s.cycles.length) return;
     s.want = true; s.wantAt = at; s.from = offset ?? (s.def.once ? 0 : s.def.first ?? s.def.a);
     if (running() && loaded(s)) begin(s, at, s.from);
