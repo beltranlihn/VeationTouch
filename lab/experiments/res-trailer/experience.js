@@ -617,7 +617,7 @@ function frame(dt) {
     // one stays whole until most of its slabs have turned (then it breaks, quickly, under the last of them); a part left over from an
     // earlier change (rapid jumps) goes quickly; the acta's words never linger over the threshold (QA 24-11): 1.2 s, no hold
     if (e.state === 'in') { if (e.wait > 0) e.wait -= dt; else { e.arrive = Math.min(1, e.arrive + dt / (tk >= 0 ? 1.6 : TR)); if (e.arrive >= 1) e.state = 'on'; } }
-    else if (e.state === 'out') { e.leave = Math.min(1, e.leave + (e.name === 'actatext' ? dt / 1.2 : tk < 0 ? dt / TR : e.outAt < tr.at - 1.0 ? dt / 1.2 : tk < 0.6 ? 0 : dt / 1.5)); if (e.leave >= 1) { e.state = 'off'; e.part.object.visible = false; for (const l of e.lights) l.visible = false; steadyOff(e); } }
+    else if (e.state === 'out') { e.leave = Math.min(1, e.leave + (e.name === 'actatext' ? dt / 1.2 : tk < 0 ? dt / TR : e.outAt < tr.at - 1.0 ? dt / 1.2 : tk < 0.6 ? 0 : dt / 1.5)); if (e.leave >= 1 && !e.part.lingering) { e.state = 'off';   /* 26-11: a part whose dust still floats (part.lingering) keeps playing */ e.part.object.visible = false; for (const l of e.lights) l.visible = false; steadyOff(e); } }
   }
 
   if (changed) {
@@ -688,6 +688,7 @@ function frame(dt) {
     else if (e.name === 'actatext') t = serving ? S.t : 40;
     else if (e.name === 'trailertext') { t = TRL.tt; input.segments = segments(); input.lang = P.lang; }   // TRAILER: its own clock
     else if (e.name === 'introtext') t = S.block === 'intro' && serving ? S.t : 76 + 3 * Math.min(1, e.leave * 8);   // the title goes in ~1.5 s: it must not sit under Brasa's card
+    else if (e.name === 'brasa3d') p.tint = e.state === 'out' ? (PAL[S.block] || PAL.pinya).cool : null;   // its dust cools to the next block's air
     else if (e.name === 'castell') { p.tint = pal.tint; if (e.home === 'intro') t = S.block === 'intro' ? S.t : 70; driveCastell(e, dt, time, frameEvents); }
     input.t = t; input.progress = e.progress; input.params = p; input.arrive = e.arrive; input.leave = e.leave;
     const p0 = performance.now(); e.part.update(dt, input); prof.max(e.name, performance.now() - p0);
