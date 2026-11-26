@@ -847,7 +847,8 @@ export function create(ctx) {
   for (const c of cells) if (inReach(c)) visW[c.wi]++;
   function paintCell(i) { if (colT[i] === Infinity) return; colT[i] = Infinity; if (cells[i].vis && !cells[i].loose) paintedN++; if (inReach(cells[i])) paintedW[cells[i].wi]++; lastPaint = i; }
   function resetPaint() { colT.fill(-1); paintedN = 0; paintedW.fill(0); lastPaint = -1; waveT0 = -1.5; lastHandT = time; wavePass.fill(0);
-    if (clearT0 >= 0) { offData.fill(0); windDirty = true; } clearT0 = -1.5; chargeCov = 0; for (const b of btns) { b.t0 = -1.5; b.show = b.glow = 0; } }
+    if (clearT0 >= 0) { offData.fill(0); windDirty = true; } clearT0 = -1.5; chargeCov = 0; for (const b of btns) { b.t0 = -1.5; b.show = b.glow = 0; b.offT = 0; b.pulse = -1; }
+    for (const p of pulses) p.on = false; for (const q of queue) q.on = false; for (const h of HOLD) h.stroke = null; rub.fill(0); exploded = -1; wasOpen = false; emptyT = 99; }   // (26-11, Beltrán: «en la segunda vuelta las activaciones de los muros se disparan solas») a new pass forgets the last one's waves, queued falls and holds
   function unpaint() { for (let i = 0; i < NC; i++) if (colT[i] === Infinity) colT[i] = time + rnd() * 3; paintedN = 0; paintedW.fill(0); lastPaint = -1; waveT0 = -1.5; wavePass.fill(0); }
   function launch(s, y, amp, speed, reach, hold, ros = -1) { const p = pulses[pulseNext]; p.ros = ros; pulseNext = (pulseNext + 1) % PULSES; p.on = true; p.s = s; p.y = y; p.t0 = time; p.amp = amp; p.speed = speed; p.reach = reach; p.hold = hold; }
   // a point on a wall → the piece of the serpentine drawn there (the ray from the eye through the hand)

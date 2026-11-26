@@ -258,7 +258,8 @@ doJump();
 // (preroll) → the square: title and written trailer → the correfoc: the work's data → the resonance: closing line, credits, logos →
 // back to the entrance, and again. The score is held in the segment's block: if it moves on by itself (a group finishing a chapter's
 // play early), a move into the NEXT segment's block jumps the clock there; any other move is put back.
-const TRL = { tt: 0, seg: -1, jumpedAt: -9, loops: 0 };
+const TRL = { tt: 0, seg: -1, jumpedAt: -9, loops: 0, shown: true, readyAt: null };
+let curtain = 1;
 const segments = () => {
   const pre = P['trailer.preroll'] ?? 12, title = 55, fire = parts.brasa3d?.part?.sound ? (P['trailer.brasaMax'] ?? 150) : 53, res = 62;   // 26-11: the correfoc v2 lasts until its storm (at most trailer.brasaMax s)   // 26-11: the new intro script ends at ~52.6 s   // title 50: the intro's 4th line (41 s, ~5.4 s) ends before the correfoc
   // studio 26-11 (Beltrán): the PINYA after the correfoc — not timed: it lasts until the room is full and the beings have let go (the
@@ -295,7 +296,7 @@ function trailerStep(dt) {
     if (k > 0 && TRL.seg === k && S.block === 'brasa') { if (!link.stormFull) TRL.fresh = true; else if (TRL.fresh && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; } }
   { const k = SG.findIndex((g) => g[0] === 'tronc'), pt = parts.torre3d?.part;   // and the tower when its golden ending is done
     if (k > 0 && TRL.seg === k && S.block === 'tronc' && pt?.progress) { if (!pt.progress().done) TRL.fresh = true; else if (TRL.fresh && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; } }
-  if (TRL.tt >= SG[SG.length - 1][1]) { TRL.tt = 0; TRL.loops++; }
+  if (TRL.tt >= SG[SG.length - 1][1]) { TRL.tt = 0; TRL.loops++; TRL.shown = false; TRL.readyAt = null; }
   let i = 0; while (i + 1 < SG.length - 1 && TRL.tt >= SG[i + 1][1]) i++;
   const want = SG[i][0];
   // (26-11, the room: the image skipped stages and came back) the TRAILER leads every block: a new segment clears the sound score's
@@ -631,7 +632,7 @@ function frame(dt) {
   if (S.block !== lastBlock) {
     prevBlock = lastBlock;
     try { room.setEnvironment?.(S.block); } catch (err) { console.info('res-obra3d: setEnvironment skipped (' + err.message + ')'); }   // RND-F: the shared envMap per block (HDRI / tint), re-baked in place
-    room.setBackground?.(S.block === 'wait' && has('umbral3d') ? { bottom: [0.0085, 0.0155, 0.047], top: [0.0085, 0.0155, 0.047], gain: 1 } : S.block);   // 26-11 QA: the mosaic comes back over its own night blue, never a flash of sand                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
+    room.setBackground?.(S.block === 'wait' && has('umbral3d') ? { bottom: [0.0085, 0.0155, 0.047], top: [0.0085, 0.0155, 0.047], gain: 1 } : S.block === 'acta' ? 'intro' : S.block);   /* 26-11 (Beltrán): the closing on the presentation's blue */   // 26-11 QA: the mosaic comes back over its own night blue, never a flash of sand                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
     if ((S.block === 'wait' || S.block === 'intro') && parts.baixada3d?.part.releaseTronc) { try { parts.baixada3d.part.releaseTronc(); } catch (err) { console.info('res-obra3d: releaseTronc skipped (' + err.message + ')'); } }   // 3D-PO: a new pass gives the tower's floors back to tronc3d
     if (S.block === 'fall') {
       fallSet = ['atmos']; for (const n of ['plaza', 'castell', 'tronc3d']) if (parts[n] && (parts[n].state === 'on' || parts[n].state === 'in')) fallSet.push(n);   // tronc3d: fall3d (3D-PI) calls its collapse()
@@ -805,6 +806,18 @@ function frame(dt) {
   p1 = performance.now(); const ib = stepIntroBreak();
   for (const e of list) e.rig.visible = !e.torn;
   stepDusk(dt); stepBloom(dt);                                      // T-060: the wait's light out, the bloom per block
+  // (26-11, Beltrán: «reseteo completo en negro, y muestra la sala sólo cuando todos los mosaicos y partículas estén en su lugar») the
+  // closing's last seconds go to black; after the loop the room stays black while the entrance rebuilds, and opens once its stones
+  // have arrived and settled (1.2 s after its arrive is whole), over ~2.5 s
+  { let ct = 1;
+    if (S.block === 'acta') { const D = P['trailer.outro'] ?? 18; ct = 1 - smooth(((S.t || 0) - (D - 2.6)) / 2.3); }
+    else if (S.block === 'wait' && TRL.loops > 0 && !TRL.shown) {
+      const U = parts.umbral3d, ok = !U || (U.state === 'on' && (U.arrive ?? 1) >= 1);
+      if (ok) { if (TRL.readyAt == null) TRL.readyAt = time; if (time - TRL.readyAt > 1.2) TRL.shown = true; } else TRL.readyAt = null;
+      ct = TRL.shown ? 1 : 0;
+    }
+    curtain += (ct - curtain) * (1 - Math.exp(-dt * (ct < curtain ? 3 : 1.4)));
+    room.renderer.toneMappingExposure = (P.exposure ?? 1) * Math.max(0, curtain); }
   room.render(dt, tr.on ? pass : ib); if (tr.on || ib) for (const e of list) e.rig.visible = !e.torn; prof.max('render', performance.now() - p1);
   frames++; const n = performance.now(); if (n - f0 > 1000) { fps = (frames * 1000) / (n - f0); frames = 0; f0 = n; }
 }
