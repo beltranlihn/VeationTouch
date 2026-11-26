@@ -510,9 +510,9 @@ export function create(ctx) {
   // the rings are FORCES in the stones, not lines: a narrow band of stones turning (RING_TURN rad at its crest, BAND_W m wide) that moves —
   // closing in on every round window when the room opens (dB: each stone's distance to its nearest button), opening from the button
   // round the room while a hand charges it
-  let dB = null, dBr = null, R0W = 0; const WIN_V = 2.2, CHARGE_V = 1.6, BAND_W = 0.3, RING_TURN = 1.15;
+  let dB = new Float32Array(0), dBr = new Float32Array(0), dBok = false, R0W = -0;   /* (26-11 perf) types fixed from the start: a null → array or Smi → double switch deoptimised the 28.5k-stone loop (one ~0.6 s frame) */ const WIN_V = 2.2, CHARGE_V = 1.6, BAND_W = 0.3, RING_TURN = 1.15;
   const PERSIST = true, WAVE_V = 2.6, UP_FROM = 1.7, UP_K = 5;                         // UP: above 1.7 m a hand paints upward much farther (×6 at 2.1 m)
-  let paintedN = 0, lastPaint = -1, waveT0 = -1, waveS = 0, lastHandT = 0;
+  let paintedN = 0, lastPaint = -1, waveT0 = -1.5, waveS = 0, lastHandT = 0;
   // studio 26-11 (Beltrán: «el anillo que recorre la sala cuando se activa, que suceda una vez más»): WAVE_PASSES fronts, one after the
   // other; the first paints what was left, the next ones only turn every stone as they pass (all is painted by then)
   const WAVE_PASSES = 2, WAVE_GAP = 0.8, wavePass = new Uint8Array(NC);
@@ -808,7 +808,7 @@ export function create(ctx) {
     const gr = TSL.length(TSL.uv().sub(0.5)).mul(2.2 * r * 1.15);
     gm.colorNode = mix(vec3(0.86), vec3(0.5, 0.52, 0.58), smoothstep(r * 0.25, r * 1.02, gr)); gm.opacityNode = float(1).sub(smoothstep(r * 0.6, r * 1.03, gr)).mul(0.95).mul(uGlow);
     const glowD = new THREE.Mesh(new THREE.PlaneGeometry(2.2 * r * 1.15, 2.2 * r * 1.15), gm); glowD.position.copy(at(0.017)); glowD.quaternion.copy(q); glowD.renderOrder = 8; object.add(glowD);
-    return { o, w, cx, r, cu: 0, cv: 0, pulse: -1, uR, uA, uHand, uGlow, cv, ht, hold: false, offT: 0, t0: -1, gen: 0, R: 0, seen: null, show: 0, glow: 0 };
+    return { o, w, cx, r, cu: -0, cv: -0, pulse: -1, uR, uA, uHand, uGlow, cv, ht, hold: false, offT: -0, t0: -1.5, gen: 0, R: -0, seen: false, show: -0, glow: -0 };   /* (26-11 perf) doubles (-0) and a boolean from the start: a stable shape, the same values */
   });
   { // the hand picture and the words, once the font and the PNG are in
     const img = new Image(); img.src = new URL('./umbral3d/hand.png', import.meta.url).href;
@@ -822,7 +822,7 @@ export function create(ctx) {
       }
     }).catch((e) => console.info('umbral3d: the button picture skipped (' + e.message + ')'));
   }
-  let clearT0 = -1, chargeCov = 0, wasOpen = false;
+  let clearT0 = -1.5, chargeCov = 0, wasOpen = false;
   const events = [];   // studio 26-11: this frame's events for the host / sound ('open' the buttons appear, 'charge:<w>' / 'uncharge:<w>' a hand in a circle, 'cleared' the mosaic falls)
   const fallDelay = new Float32Array(NC);
   function coverOf() {                                                                // the share of the perimeter the charge rings cover now
@@ -843,9 +843,9 @@ export function create(ctx) {
   const visW = new Int32Array(NW), paintedW = new Int32Array(NW);
   for (const c of cells) if (c.vis && !c.loose) visW[c.wi]++;
   function paintCell(i) { if (colT[i] === Infinity) return; colT[i] = Infinity; if (cells[i].vis && !cells[i].loose) { paintedN++; paintedW[cells[i].wi]++; } lastPaint = i; }
-  function resetPaint() { colT.fill(-1); paintedN = 0; paintedW.fill(0); lastPaint = -1; waveT0 = -1; lastHandT = time; wavePass.fill(0);
-    if (clearT0 >= 0) { offData.fill(0); windDirty = true; } clearT0 = -1; chargeCov = 0; for (const b of btns) { b.t0 = -1; b.show = b.glow = 0; } }
-  function unpaint() { for (let i = 0; i < NC; i++) if (colT[i] === Infinity) colT[i] = time + rnd() * 3; paintedN = 0; paintedW.fill(0); lastPaint = -1; waveT0 = -1; wavePass.fill(0); }
+  function resetPaint() { colT.fill(-1); paintedN = 0; paintedW.fill(0); lastPaint = -1; waveT0 = -1.5; lastHandT = time; wavePass.fill(0);
+    if (clearT0 >= 0) { offData.fill(0); windDirty = true; } clearT0 = -1.5; chargeCov = 0; for (const b of btns) { b.t0 = -1.5; b.show = b.glow = 0; } }
+  function unpaint() { for (let i = 0; i < NC; i++) if (colT[i] === Infinity) colT[i] = time + rnd() * 3; paintedN = 0; paintedW.fill(0); lastPaint = -1; waveT0 = -1.5; wavePass.fill(0); }
   function launch(s, y, amp, speed, reach, hold, ros = -1) { const p = pulses[pulseNext]; p.ros = ros; pulseNext = (pulseNext + 1) % PULSES; p.on = true; p.s = s; p.y = y; p.t0 = time; p.amp = amp; p.speed = speed; p.reach = reach; p.hold = hold; }
   // a point on a wall → the piece of the serpentine drawn there (the ray from the eye through the hand)
   const hit = { cu: 0, cy: 0, p: new THREE.Vector3() };
@@ -1520,10 +1520,10 @@ export function create(ctx) {
     SLOW.push('mosaicPre', performance.now());
     // ---- the buttons and the charge (see THE BUTTONS)
     events.length = 0;
-    const openNow = PERSIST && waveT0 >= 0 && time - waveT0 > (dB ? R0W / WIN_V - 0.4 : 1.2) && (!S || S.block === 'wait') && clearT0 < 0;
+    const openNow = PERSIST && waveT0 >= 0 && time - waveT0 > (dBok ? R0W / WIN_V - 0.4 : 1.2) && (!S || S.block === 'wait') && clearT0 < 0;
     if (openNow && !wasOpen) events.push('open'); wasOpen = openNow;
     for (const b of btns) {
-      if (!b.seen) { surfHit(_v.copy(b.w.centre).addScaledVector(b.w.right, b.cx).setY(b.o.cy)); b.cu = hit.cu; b.cv = hit.cy; b.seen = new Uint16Array(NC); }
+      if (!b.seen) { surfHit(_v.copy(b.w.centre).addScaledVector(b.w.right, b.cx).setY(b.o.cy)); b.cu = hit.cu; b.cv = hit.cy; b.seen = true; }
       let inside = false;
       if (openNow && playing) for (const h of hands) {
         if (h.wall !== b.w.index) continue;
@@ -1531,7 +1531,7 @@ export function create(ctx) {
         if (hx * hx + hy * hy < (b.r + 0.12) * (b.r + 0.12)) { inside = true; break; }
       }
       if (inside) { b.offT = 0; if (b.t0 < 0) { b.t0 = time; b.gen = (b.gen % 65000) + 1; events.push('charge:' + b.w.index); } }   // studio 26-11 (Beltrán): the ring is BORN at the button and spreads (a band of turning stones, below)
-      else if (b.t0 >= 0 && (b.offT += dt) > 0.35) { events.push('uncharge:' + b.w.index); if (b.pulse >= 0) { const p = pulses[b.pulse]; if (p.t0 === b.t0) p.on = false; b.pulse = -1; } b.t0 = -1; }   // let go (0.35 s of grace): the ring and its charge are lost
+      else if (b.t0 >= 0 && (b.offT += dt) > 0.35) { events.push('uncharge:' + b.w.index); if (b.pulse >= 0) { const p = pulses[b.pulse]; if (p.t0 === b.t0) p.on = false; b.pulse = -1; } b.t0 = -1.5; }   // let go (0.35 s of grace): the ring and its charge are lost
       b.R = b.t0 >= 0 ? (time - b.t0) * CHARGE_V : 0;   // (26-11: the same band as the opening, slower)
       const showTo = openNow && b.t0 < 0 ? 1 : 0, glowTo = b.t0 >= 0 ? 1 : 0;
       b.show += (showTo - b.show) * Math.min(1, dt * 3.5); b.glow += (glowTo - b.glow) * Math.min(1, dt * 5);
@@ -1543,8 +1543,8 @@ export function create(ctx) {
       }
       b.uHand.value = b.show * (0.88 + 0.12 * Math.sin(time * 2.2)); b.uGlow.value = b.glow;
     }
-    if (!dB && btns.length && btns.every((b) => b.seen)) {                            // once: every stone's distance to its nearest button
-      dB = new Float32Array(NC); dBr = new Float32Array(NC); let mx = 0;
+    if (!dBok && btns.length && btns.every((b) => b.seen)) {                            // once: every stone's distance to its nearest button
+      dB = new Float32Array(NC); dBr = new Float32Array(NC); dBok = true; let mx = 0;
       for (let i = 0; i < NC; i++) {
         let best = 1e9, br = 0.4;
         for (const b of btns) { let d = CU[i] - b.cu; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; const e = Math.hypot(d, CY[i] - b.cv); if (e < best) { best = e; br = b.r; } }
@@ -1553,12 +1553,14 @@ export function create(ctx) {
       R0W = mx + 0.4;
     }
     chargeCov = clearT0 < 0 ? coverOf() : 1;
-    if (clearT0 < 0 && chargeCov >= 0.999) { events.push('cleared'); clearT0 = time; for (let i = 0; i < NC; i++) fallDelay[i] = rnd() * rnd() * 1.4; for (const b of btns) b.t0 = -1; }
+    if (clearT0 < 0 && chargeCov >= 0.999) { events.push('cleared'); clearT0 = time; for (let i = 0; i < NC; i++) fallDelay[i] = rnd() * rnd() * 1.4; for (const b of btns) b.t0 = -1.5; }
     uTitleK.value = clearT0 >= 0 ? 1 - smooth(clearT0 + 0.2, clearT0 + 1.8, time) : 1;
     const bedK = smooth(0, 0.45, arrive) * (1 - smooth(0.35, 1, leave));
     uBed.value = bedK * (clearT0 >= 0 ? 1 - smooth(clearT0 + 0.6, clearT0 + 2.6, time) : 1);   // studio 26-11: CLEAR — the joints' bed crumbles away too: the night and all its dust
     if (maskDirty) { maskData.fill(0); maskDirty = false; maskTex.needsUpdate = true; }
-    for (let i = 0; i < NC; i++) {
+    // (26-11 perf) the per-stone body is its own small function: a deopt on a new path (the opening wave, a charge, the clear) costs one
+    // call and re-tiers in a few hundred, instead of dropping the whole 28.5k-stone loop into the interpreter (~0.6 s in the room)
+    const stoneStep = (i) => {
       const c = cells[i], o = i * 4;
       let target, lift, sc = 1, turn, kc = 0;
       if (c.loose) {                                                                    // the crest dissolves: these float, turning slowly
@@ -1571,7 +1573,7 @@ export function create(ctx) {
           offData[oo] = Math.sin(c.r1 * 40) * 0.25 * tc; offData[oo + 1] = -3.2 * tc * tc; offData[oo + 2] = 0.35 * tc; wOn[i] = 0; windDirty = true;
           if (tc < dt * 1.5 && rnd() < 0.08) fx('hit', c.c, 0.55 + 0.3 * c.r2, 0);
           stData[o] = (phi[i] * 2 + tc * 7 * (c.r2 < 0.5 ? -1 : 1)) % 6.2831853; stData[o + 2] = colT[i] > time ? 8 : 0;   // (the lift it had stays: no jump) stData[o + 3] = tc < 1.6 ? 1 : 0;
-          continue;
+          return;
         }
         if (rub[i] > 0) rub[i] *= Math.exp(-dt * 0.25);
         let ds = IDLE_CURL ? 1e9 : cu_ - cy_ * 0.6 - idleC, sh = 0;                   // the idle shimmer: two soft bands going round (IDLE_CURL: off — the curl field moves them on the GPU)
@@ -1613,7 +1615,7 @@ export function create(ctx) {
             if (PERSIST) paintCell(i); else if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { vphi[i] += 5; }   /* studio 25-11: no glow under a landing hand (was glow 1.0), motion only */
           }
         }
-        if (waveT0 >= 0 && !gone[i] && dB) {                                            // the rings that open the buttons: closing in on each window, painting what was left (then once more)
+        if (waveT0 >= 0 && !gone[i] && dBok) {                                            // the rings that open the buttons: closing in on each window, painting what was left (then once more)
           const d0 = dB[i], T1 = R0W / WIN_V + WAVE_GAP;
           for (let p = 0; p < WAVE_PASSES; p++) {
             const Rin = R0W - (time - waveT0 - p * T1) * WIN_V; if (Rin > R0W + 0.5) continue;
@@ -1661,7 +1663,7 @@ export function create(ctx) {
           const tg = col * Math.PI, e = phi[i] - tg;
           if (e < 0.003 && e > -0.003 && vphi[i] < 0.004 && vphi[i] > -0.004) {   /* (26-11 perf) a little looser: more stones sleep; the snap home is < 0.2° */
             if (!sleep[i]) { sleep[i] = 1; phi[i] = tg; vphi[i] = 0; glow[i] = 0; stData[o] = (tg * 2) % 6.2831853; stData[o + 1] = 0; stData[o + 2] = col ? 8 : 0; stData[o + 3] = 1; }
-            continue;
+            return;
           }
         }
         sleep[i] = 0;
@@ -1682,7 +1684,8 @@ export function create(ctx) {
         const ht = turn * 0.5, hr = ht - Math.PI * Math.round(ht / Math.PI);
         if (sc < 0.96 || lift > 0.012 || hr > 0.0444 || hr < -0.0444) stampHole(CU[i], CY[i], c.rad * 1.35, Math.max(1 - sc, smooth(0.012, 0.04, lift), Math.abs(Math.sin(ht)) * 0.9));
       }
-    }
+    };
+    for (let i = 0; i < NC; i++) stoneStep(i);
     stTex.needsUpdate = true; if (maskDirty) maskTex.needsUpdate = true; if (windDirty) { offTex.needsUpdate = true; windDirty = false; }
 
     SLOW.push('stones', performance.now());
