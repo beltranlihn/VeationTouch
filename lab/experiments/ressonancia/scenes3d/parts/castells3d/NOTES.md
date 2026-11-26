@@ -72,3 +72,5 @@ It fades out for castells beyond ~12 m along the ray.
 - `density` (default 1; `quality: 'medium'` → 0.5, `'low'` → 0.35): points per body × density and the far castells (≥ 4 m behind
   their wall) kept by density. At 0.5: 6 castells, 141,900 points (`progress().points`).
 - `leaveTo: 'dust'` (default): the end leaves hanging dust (handoff key `castells`); `dustTime` keeps it past the leave (`lingering`).
+- `arriveFrom: 'dust'` (default) in the outro: if the tower left its gold dust (handoff key `torre`, torre3d `leaveTo: 'dust'`), each
+  body condenses out of it, streaming round the room (never through the eye) into its place (~2.4 s per body); else from its own gold motes.
