@@ -14,6 +14,7 @@
 // 'tier:<n>', 'top', 'aleta', 'end', 'done'; part.reset(); part.setBackdrop(positions Float32Array xyz[, colours]) swaps the square.
 import { bakeBodyGen, pose, rng, V } from './pinya3d/body.js';
 import { createGuideBeam } from './pinya3d/guidebeam.js';
+import * as handoff from './pinya3d/handoff.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth01 = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
@@ -70,6 +71,9 @@ export function create({ THREE, TSL, room, params }) {
   const ndcScale = (pv, c0, size) => { const c1 = clipOf(vec4(pv.xy.add(vec2(size, size)), pv.z, 1)); return abs(c1.xy.div(c1.w).sub(c0.xy.div(c0.w))).add(1e-7); };
   const tc = (c) => vec3(c[0], c[1], c[2]);
   const COLD = [0.5, 0.56, 0.7], WARM = [1.0, 0.42, 0.32], RED = [0.85, 0.05, 0.035];
+  // the colour script: params.cool / params.warm as linear rgb arrays override these, eased here (~1.5 s); a NUMBER in params.warm is
+  // still the bodies' warmth (0..1, as before)
+  const uCoolC = uniform(new THREE.Vector3(...COLD)), uWarmC = uniform(new THREE.Vector3(...WARM));
 
   // ---- the front wall (P1 by default) and the tower's place: the ronda's near side just behind its plane
   const wallIdx = () => { const id = P.towerWall; let i = walls.findIndex((w) => w.id === id); if (i < 0) i = walls.findIndex((w) => w.id === 'P1'); return i < 0 ? Math.min(1, NW - 1) : i; };
@@ -196,19 +200,22 @@ export function create({ THREE, TSL, room, params }) {
     const pv = cameraViewMatrix.mul(vec4(pw, 1)), c0 = clipOf(pv);
     const handK = smoothstep(0.998, 0.9999, aux2.y).mul(smoothstep(0.885, 0.895, aux2.x));
     const size = float(0.0042).add(co.z.mul(0.0045)).mul(float(1).sub(handK.mul(0.45))).mul(float(1).sub(e).mul(0.8).add(1)).mul(float(1).sub(g0.mul(0.55)))
-      .mul(float(1).sub(shape).mul(0.4).add(1));
+      .mul(float(1).sub(shape).mul(0.4).add(1)).mul(float(1).sub(i2.x.mul(0.45)));
     const d = ndcScale(pv, c0, size), kq = max(float(1), uMinPt.div(d.y));
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
     m.vertexNode = vec4(c0.xy.add(co.xy.mul(d).mul(kq).mul(c0.w)), c0.z, c0.w);
     const nw = normalize(modelWorldMatrix.mul(vec4(mix(rot(i2.w, n), rot(i2.y, n), smoothstep(0.45, 0.55, tp)), 0)).xyz);
     const vN = varying(nw), vP = varying(pw), vCo = varying(co);
     const vA = varying(vec4(e, g0, float(1).div(kq.mul(kq)), clamp(p.y.div(1.7), 0, 1)));
-    const vB = varying(vec4(i3.z, i3.w, faixa, shape)), vC = varying(vec4(aux2.x, handK, 0, 0));
-    m.opacityNode = float(1).sub(smoothstep(0.999, 1.001, dot(vCo.xy, vCo.xy))); m.alphaTest = 0.5;
+    const vB = varying(vec4(i3.z, i3.w, faixa, shape)), vC = varying(vec4(aux2.x, handK, i2.x, 0));
+    // i2.x = mote: a body made of someone else's dust (the pinya's) is lit dust before it is born; a point that is not lit is not drawn
+    // (an opaque dark point would cut what is behind it)
+    const fade = max(smoothstep(0.0, 0.25, vA.x), vC.z.mul(0.85)).mul(float(1).sub(smoothstep(0.5, 1.0, vA.y)));
+    m.opacityNode = float(1).sub(smoothstep(0.999, 1.001, dot(vCo.xy, vCo.xy))).mul(smoothstep(0.015, 0.03, fade)); m.alphaTest = 0.5;
     const N = normalize(vN), Vd = normalize(cameraPosition.sub(vP));
     const rim = pow(float(1).sub(abs(dot(N, Vd))), 2.2);
     const ao = vC.x.mul(0.6).add(0.4), low = smoothstep(0.02, 0.75, vA.w).mul(0.85).add(0.15);
-    const base = mix(tc(COLD), tc(WARM), uWarm).mul(mix(float(0.75), float(1.15), vCo.z));
+    const base = mix(uCoolC, uWarmC, uWarm).mul(mix(float(0.75), float(1.15), vCo.z));
     let col = base.mul(float(0.26).mul(rim.mul(1.9).add(0.28)).mul(ao).mul(low).mul(uLight));
     const twk = pow(sin(uTime.mul(vCo.z.mul(2.2).add(0.5)).add(vCo.w.mul(60))).mul(0.5).add(0.5), 28);
     col = col.mul(twk.mul(2.2).add(1));
@@ -217,8 +224,8 @@ export function create({ THREE, TSL, room, params }) {
     col = col.add(tc(GOLD).mul(vB.y).mul(rim.mul(1.3).add(0.35)).mul(uGlow).mul(0.6));                        // the Pom's light
     // in the stream the points are motes of light
     const mote = float(1).sub(vA.x).add(vA.y.mul(0.8)).add(float(1).sub(vB.w).mul(1.2));
-    col = col.add(mix(tc(COLD), tc(GOLD), uWarm.mul(0.6)).mul(mote.mul(twk.mul(0.6).add(0.06)).mul(0.3)));
-    const fade = smoothstep(0.0, 0.25, vA.x).mul(float(1).sub(smoothstep(0.5, 1.0, vA.y)));
+    col = col.add(mix(uCoolC, tc(GOLD), uWarm.mul(0.6)).mul(mote.mul(twk.mul(0.6).add(0.06)).mul(0.3)));
+    col = col.add(uWarmC.mul(vC.z.mul(float(1).sub(vA.x))).mul(twk.mul(0.8).add(0.2)).mul(0.2));   // the dust it was made of keeps the pinya's warm light until it forms
     m.colorNode = col.mul(fade).mul(vA.z.mul(0.5).add(0.5)).mul(uArrive);
     m.fog = false;
     return m;
@@ -359,9 +366,9 @@ export function create({ THREE, TSL, room, params }) {
       mesh.geometry.boundingSphere = bs; mesh.frustumCulled = true; backdrop.add(mesh);
     }
   }
-  { const s = standIn(); setBackdrop(s.pos, null, s.col); }
+  if (P.backdrop !== false) { const s = standIn(); setBackdrop(s.pos, null, s.col); }
   // the Plaza session's square of points (plaza3d/points.bin: Float32 xyz × n, then Uint8 rgba × n; shuffled: a prefix is an even subset)
-  if (P.plaza !== false && typeof fetch === 'function') {
+  if (P.backdrop !== false && P.plaza !== false && typeof fetch === 'function') {
     fetch(new URL('./plaza3d/points.json', import.meta.url)).then((r) => (r.ok ? r.json() : null)).then((meta) => meta && fetch(new URL('./plaza3d/points.bin', import.meta.url))
       .then((r) => (r.ok ? r.arrayBuffer() : null)).then((buf) => {
         if (!buf) return;
@@ -395,7 +402,7 @@ export function create({ THREE, TSL, room, params }) {
     const vC = varying(co), vK = varying(float(1).div(kq.mul(kq))), vD = varying(back), vP = varying(pw);
     const r2 = dot(vC.xy, vC.xy), twk = pow(sin(uTime.mul(vC.z.mul(0.8).add(0.2)).add(vC.z.mul(90))).mul(0.5).add(0.5), 10);
     const wv = uWave.w.greaterThan(0).select(exp(abs(length(vP.xz.sub(uWave.xz)).sub(uWave.w)).mul(-1.4)), float(0));
-    const c = mix(tc(COLD), tc(WARM), uWarm.mul(0.5)).mul(float(1).sub(smoothstep(0.2, 1.0, r2))).mul(twk.mul(1.6).add(0.25)).mul(exp(vD.mul(-0.12)).mul(0.85).add(0.15)).mul(0.07).mul(vK.mul(0.6).add(0.4))
+    const c = mix(uCoolC, uWarmC, uWarm.mul(0.5)).mul(float(1).sub(smoothstep(0.2, 1.0, r2))).mul(twk.mul(1.6).add(0.25)).mul(exp(vD.mul(-0.12)).mul(0.85).add(0.15)).mul(0.07).mul(vK.mul(0.6).add(0.4))
       .add(tc(GOLD).mul(wv).mul(twk.mul(2).add(0.6)).mul(0.5));
     m.colorNode = c.mul(uArrive).mul(float(1).sub(uLeave)).mul(uLight);
     m.fog = false;
@@ -577,7 +584,7 @@ export function create({ THREE, TSL, room, params }) {
   let beatPh = 0, pomT0 = -1, readyT = -1, chargedT = -1, charge = 0, lastHold = 0, autoW = -1;
   const pomP = new THREE.Vector3(0, -50, 0), handL = new THREE.Vector3(0, 6.5, 0);
   let time = 0, rise = 0, riseV = 0, slide = 2.5, completed = 0, topT = -1, aletaT = -1, endT = -1, doneSent = false, lastClimb = -99, firstT = -1, rondaBorn = 0;
-  let reactiveOn = false; const tmpL = new THREE.Vector3();
+  let reactiveOn = false, dustTaken = false, dustClk = 0; const tmpL = new THREE.Vector3();
   const invW = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpW = new THREE.Vector3();
   const rr = rng(2024);
   // extra places: round the ronda, beyond its outer ring, on the sides and the far side (never between the ronda and the wall)
@@ -621,7 +628,7 @@ const landing = (b, out) => {
     const A = b.M.buf.array, o = b.k * 20, w = b.w;
     A[o] = b.pos.x; A[o + 1] = b.pos.y + (b.dy || 0); A[o + 2] = b.pos.z; A[o + 3] = b.hs;
     A[o + 4] = b.O.x; A[o + 5] = b.O.y; A[o + 6] = b.O.z; A[o + 7] = b.travel;
-    A[o + 8] = 0; A[o + 9] = b.yaw; A[o + 10] = b.seed * 97; A[o + 11] = b.yawO;
+    A[o + 8] = b.mote || 0; A[o + 9] = b.yaw; A[o + 10] = b.seed * 97; A[o + 11] = b.yawO;
     A[o + 12] = b.born; A[o + 13] = b.gone; A[o + 14] = b.glow; A[o + 15] = b.gold;
     A[o + 16] = w[1]; A[o + 17] = w[2]; A[o + 18] = w[3]; A[o + 19] = b.lean || 0;
   }
@@ -686,7 +693,7 @@ const landing = (b, out) => {
     const p = input.params || P;
     time = input.time ?? time + dt;
     uTime.value = time;
-    uLight.value = p.light ?? 1; uGlow.value = p.glow ?? 1; uWarm.value = p.warm ?? 0.5; uFaixa.value = p.faixa === false ? 0 : 1; uBreath.value = p.breath ?? 1; uPlaza.value = p.plazaLight ?? 1; uPlazaSize.value = p.plazaSize ?? 1;
+    uLight.value = p.light ?? 1; uGlow.value = p.glow ?? 1; uWarm.value = typeof p.warm === 'number' ? p.warm : (p.warmth ?? 0.5); uFaixa.value = p.faixa === false ? 0 : 1; uBreath.value = p.breath ?? 1; uPlaza.value = p.plazaLight ?? 1; uPlazaSize.value = p.plazaSize ?? 1;
     uLeave.value = clamp01(input.leave ?? p.leave ?? 0); uArrive.value = clamp01(input.arrive ?? p.arrive ?? 1);
     if (!input.state && room.setBackground) room.setBackground({ bottom: [0.006, 0.006, 0.012], top: [0.012, 0.014, 0.026], gain: 1 });
 
@@ -700,6 +707,8 @@ const landing = (b, out) => {
     slide += ((1 - uArrive.value) * 2.5 - slide) * Math.min(1, dt * 1.2);
     world.position.set(-N1.x * slide, -rise, -N1.z * slide);
     uRise.value = rise;
+    { const kc = Math.min(1, dt / 1.5); if (Array.isArray(p.cool)) uCoolC.value.lerp(tmpV.fromArray(p.cool), kc); if (Array.isArray(p.warm)) uWarmC.value.lerp(tmpV.fromArray(p.warm), kc); }
+    if (backdrop) backdrop.visible = p.backdrop !== false;
     if (backdrop) { backdrop.position.y = -rise * (p.plazaSink ?? 0.35); const cull = uLeave.value < 0.01; if (backdrop.userData.cull !== cull) { backdrop.userData.cull = cull; for (const m of backdrop.children) m.frustumCulled = cull; } }   // leaving, its points rise out of their sectors: no culling   // the square goes down behind a little faster than the tower (parallax): at the top its roofs are below us
     object.updateMatrixWorld(); invW.copy(world.matrixWorld).invert();
     uEyeL.value.copy(room.eye).applyMatrix4(invW);
@@ -758,8 +767,37 @@ const landing = (b, out) => {
     for (let i = charges.length - 1; i >= 0; i--) if ((charges[i].auto || charges[i].beam) && charges[i].gone > 0.6) charges.splice(i, 1);
 
     // ---- the ronda: formed out of the dust when the part arrives
-    rondaBorn = Math.min(1, rondaBorn + dt / 2.6);
-    for (const b of ronda) { b.born = clamp01((rondaBorn - b.delay * 0.3) / 0.7) * uArrive.value; b.pos.copy(b.O); b.travel = 1; }
+    // arriveFrom 'dust' (default): if the pinya left its dust in the air (handoff 'pinya'), the ronda is built OUT of it — each body starts
+    // as a being's dust where it hangs, streams round the room and forms in its place; with no dust (the tower alone) it forms as before.
+    // Its own clock (dustClk), so a host reset() or a jump of input.time never cuts a flight in half.
+    dustClk += dt;
+    const fromDust = (p.arriveFrom ?? 'dust') === 'dust';
+    if (fromDust && !dustTaken && ronda.length && uArrive.value > 0.001) {
+      const d = handoff.take('pinya');   // claimed: the pinya hides itself in this same frame
+      const src = []; if (d) for (let j = 0; j < d.count; j++) if (d.positions[j * 3 + 1] > -10) src.push(j);   // the sources that were in the room
+      if (d && src.length) {
+        dustTaken = true;
+        ronda.forEach((b, i) => {
+          const k = src[Math.floor((i + 0.5) * src.length / ronda.length) % src.length];
+          b.dustO = new THREE.Vector3(d.positions[k * 3], d.positions[k * 3 + 1] - b.hs * 1.05, d.positions[k * 3 + 2]); b.O = new THREE.Vector3();
+          b.dustT0 = dustClk + (b.delay ?? 0) * 0.9 + (i % 5) * 0.12; b.dustMode = true;
+        });
+        events.push('dust:taken');
+      }
+    }
+    // the dust may come a moment after the part starts arriving: the ronda waits for it a little before forming on its own
+    const waitDust = fromDust && !dustTaken && dustClk < (p.dustWait ?? 1.2);
+    if (!waitDust) rondaBorn = Math.min(1, rondaBorn + dt / 2.6);
+    const flyD = p.dustFly ?? 3.4;
+    for (const b of ronda) {
+      if (b.dustMode) {   // born 0 = scattered round where that being's dust hangs; it streams down and forms as it lands
+        const tt = (dustClk - b.dustT0) / flyD;
+        b.O.copy(b.dustO).applyMatrix4(invW); b.travel = clamp01(tt); b.born = smooth01(tt * 1.25 - 0.15); b.mote = 1 - b.born;
+        if (tt >= 1) { b.dustMode = false; b.O = b.pos; b.travel = 1; b.born = 1; b.mote = 0; }
+        continue;
+      }
+      b.born = dustTaken ? 1 : clamp01((rondaBorn - b.delay * 0.3) / 0.7) * uArrive.value; b.travel = 1;
+    }
 
     // ---- climbers: form at the hand → fly round the room → land on the ronda → climb → their place
     const formT = 0.95, flyT = p.flyTime ?? 2.8;
@@ -929,6 +967,8 @@ const landing = (b, out) => {
   const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
 
   function reset() {
+    // a ronda still flying in from the pinya's dust keeps flying (the host resets at the block start; the flight crosses it)
+    if (!ronda.some((b) => b.dustMode)) { dustTaken = false; dustClk = 0; }
     for (const b of climbers) { const M = b.M; M.list.splice(M.list.indexOf(b), 1); }
     for (const M of meshes) if (M) { M.list.forEach((b, k) => { b.k = k; }); M.mesh.geometry.instanceCount = M.list.length; }
     climbers.length = 0; charges.length = 0; for (const s of slots) s.who = null; for (const s of extras) s.who = null; for (const T of tiers) T.seated = 0;
@@ -938,7 +978,7 @@ const landing = (b, out) => {
   function finish() { P.end = true; }
   function progress() {
     const needed = slots.length, seated = climbers.filter((b) => b.slot.tier >= 0 && (b.state === 'seated' || b.state === 'settle')).length;
-    return { tier: completed, tiers: tiers.length, climbers: seated, inFlight: climbers.filter((b) => b.slot.tier >= 0).length - seated, pinya: climbers.filter((b) => b.slot.tier < 0).length, needed, height: +rise.toFixed(2),
+    return { worldY: +world.position.y.toFixed(3), worldSlide: +slide.toFixed(3), plazaSink: P.plazaSink ?? 0.35, dust: ronda.filter((b) => b.dustMode).length, tier: completed, tiers: tiers.length, climbers: seated, inFlight: climbers.filter((b) => b.slot.tier >= 0).length - seated, pinya: climbers.filter((b) => b.slot.tier < 0).length, needed, height: +rise.toFixed(2),
       ending: endT >= 0 ? clamp01((time - endT) / (P.endTime ?? 6)) : 0, done: doneSent, charge: +charge.toFixed(3), ready: readyT >= 0 };
   }
   function setParams(p) { if (p && p.tiers != null && String(p.tiers) !== String(P.__tiersBuilt ?? '')) { /* tiers change on reset */ } }
