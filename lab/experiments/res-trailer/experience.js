@@ -55,8 +55,8 @@ const QS = { low: 0.6, medium: 0.8, high: 1 }, DENS = { low: 0.4, medium: 0.6, h
 const LT = { start: performance.now() }; const lt = (k) => { LT[k] = Math.round(performance.now() - LT.start); };   // T-057: load phases (ms), window.__obra.load
 // ------------------------------------------------------------------------------------------------ the parts (their files)
 // TRAILER: only the universes the trailer shows, plus its presentation layer (./parts/trailertext.js)
-const NAMES = ['umbral3d', 'atmos', 'plaza', 'castell', 'brasa3d', 'festa3d', 'trailertext'];
-const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'festa3d']);
+const NAMES = ['umbral3d', 'atmos', 'plaza', 'castell', 'brasa3d', 'pinya3d2', 'festa3d', 'trailertext'];   // studio 26-11: + the pinya v2 (a being for every hand)
+const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d2', 'festa3d']);
 const OWN = new Set(['trailertext']);                                           // TRAILER: parts of this folder, not of ../ressonancia
 const only = LAB ? q.get('parts') : null;                                       // lab: ?parts=plaza,castell loads only those
 // T-065 (LOAD): every part's module and defaults are fetched at once, while the renderer starts (they were fetched one part after
@@ -94,6 +94,7 @@ for (const [name, pr] of loads) {
     const params = {};
     for (const d of Array.isArray(defs) ? defs : []) params[d.key] = d.default;
     if (name === 'umbral3d') { params.mosaic = P.mosaic || 'image'; params.resetAfter = P['trailer.resetAfter'] ?? 60; params.restSat = P.restSat ?? 0.15; }   // studio 25-11: the entrance's stones — one colour each, or his picture printed on them
+    if (name === 'brasa3d') params.devil2 = P.devil2 !== false;   // studio 26-11: the correfoc devil v3 (reload to change)
     if (name === 'atmos') params.demoLamps = false;                // the square's own lamps light the dust
     if (name === 'plaza') params.glow = 0.3;                       // atmos draws the lamps' glow in the air too
     if (name === 'castell') params.density = DENS[P.quality] ?? 1;
@@ -238,7 +239,13 @@ doJump();
 const TRL = { tt: 0, seg: -1, jumpedAt: -9, loops: 0 };
 const segments = () => {
   const pre = P['trailer.preroll'] ?? 12, title = 50, fire = 53, res = 62;   // title 50: the intro's 4th line (41 s, ~5.4 s) ends before the correfoc
-  return [['wait', 0], ['intro', pre], ['brasa', pre + title], ['festa', pre + title + fire], ['end', pre + title + fire + res]];
+  // studio 26-11 (Beltrán): the PINYA after the correfoc — not timed: it lasts until the room is full and the beings have let go (the
+  // part's fill().done), at most trailer.pinyaMax s; trailer.pinya = false leaves it out
+  const pin = P['trailer.pinya'] === false || !has('pinya3d2') ? 0 : (P['trailer.pinyaMax'] ?? 180);
+  const SG = [['wait', 0], ['intro', pre], ['brasa', pre + title]];
+  if (pin) SG.push(['pinya', pre + title + fire]);
+  SG.push(['festa', pre + title + fire + pin], ['end', pre + title + fire + pin + res]);
+  return SG;
 };
 function trailerStep(dt) {
   if (!bg.ready) return;
@@ -252,6 +259,8 @@ function trailerStep(dt) {
   // studio 26-11 (Beltrán, the narrative): the entrance is not timed — it lasts until the public, having uncovered enough of the picture
   // (paintOpen), holds a button (the score moves to 'intro' and the trailer follows, below). trailer.waitButton = false: the preroll timer
   if (P['trailer.waitButton'] !== false && S.block === 'wait' && TRL.seg <= 0 && TRL.tt > SG[1][1] - 0.05) TRL.tt = SG[1][1] - 0.05;
+  { const k = SG.findIndex((g) => g[0] === 'pinya'), pt = parts.pinya3d2?.part;   // the pinya ends when its part is done
+    if (k > 0 && TRL.seg === k && S.block === 'pinya' && pt?.fill && pt.fill().done && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; }
   if (TRL.tt >= SG[SG.length - 1][1]) { TRL.tt = 0; TRL.loops++; }
   let i = 0; while (i + 1 < SG.length - 1 && TRL.tt >= SG[i + 1][1]) i++;
   const want = SG[i][0];
@@ -308,6 +317,7 @@ function wanted(b) {
     case 'wait': return has('umbral3d') ? (parts.umbral3d?.part?.charge?.().cleared ? ['umbral3d', 'atmos'] : ['umbral3d']) : ['atmos'];   // studio 26-11 (Beltrán): once the mosaic falls, the square's air is already there behind it
     case 'intro': return ['plaza', 'atmos', 'castell', ...T];
     case 'brasa': return has('brasa3d') ? ['brasa3d', 'atmos', ...T] : ['atmos', ...T];
+    case 'pinya': return has('pinya3d2') ? ['pinya3d2', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the pinya v2
     case 'festa': case 'crown': return has('festa3d') ? ['festa3d', ...T] : ['plaza', 'castell', 'atmos', ...T];
     default: return ['atmos', ...T];
   }
@@ -377,7 +387,7 @@ const PAL = {
   wait: { warm: [1.0, 0.42, 0.18], cool: [0.35, 0.40, 0.62], air: [0.0016, 0.0016, 0.0024], thread: [1.0, 0.42, 0.16], shape: 'point' },
   intro: { warm: [1.0, 0.62, 0.32], cool: [0.55, 0.66, 1.0], air: [0.0035, 0.0058, 0.0125], thread: [1.0, 0.66, 0.34], shape: 'point' },
   brasa: { warm: [1.0, 0.36, 0.12], cool: [0.62, 0.48, 0.55], air: [0.0080, 0.0030, 0.0022], thread: [1.0, 0.34, 0.10], shape: 'point' },
-  pinya: { warm: [1.0, 0.46, 0.38], cool: [0.30, 0.95, 0.90], air: [0.0018, 0.0070, 0.0080], thread: [0.35, 1.0, 0.92], shape: 'point' },
+  pinya: { warm: [1.0, 0.27, 0.19], cool: [0.50, 0.58, 0.72], air: [0.0030, 0.0036, 0.0060], thread: [0.89, 0.23, 0.18], shape: 'point' },   // studio 26-11: pinya v2 — cold blue-grey dust, the red of its net (was turquoise)
   tronc: { warm: [0.95, 0.52, 0.30], cool: [0.70, 0.80, 0.95], air: [0.0050, 0.0040, 0.0040], thread: [0.95, 0.55, 0.32], shape: 'tile' },
   pom: { warm: [1.0, 0.82, 0.45], cool: [0.86, 0.90, 1.0], air: [0.0030, 0.0032, 0.0040], thread: [0.95, 0.96, 1.0], shape: 'line' },
   crown: { warm: [1.0, 0.85, 0.55], cool: [0.90, 0.85, 1.0], air: [0.0040, 0.0036, 0.0050], thread: [1.0, 0.86, 0.5], shape: 'line' },
@@ -588,7 +598,7 @@ function frame(dt) {
   const tk = tr.on && P.tiles !== false ? room.tiles.mix.value : -1;
   for (const e of list) {
     if (W.includes(e.name)) {
-      if (e.home !== S.block) { e.home = S.block; e.fallK = 0; }
+      if (e.home !== S.block) { e.home = S.block; e.fallK = 0; if (e.name === 'pinya3d2' && S.block === 'pinya') e.part.reset?.(); }   // (26-11: every pass starts an empty room)
       if (e.state === 'off') { for (const l of e.lights) l.visible = true; placeRig(e.rig, 0, tr.mv); e.state = 'in'; e.came = true; e.arrive = 0; e.leave = 0; e.clock = 0; steadyOn(e); e.wait = S.block === 'baixada' && prevBlock === 'festa' ? 0.9 : 0; e.part.object.visible = true; }   // festa→baixada: the festa is dark by ~1.5 s, the bajada starts at 0.9 s so the two cross
       else if (e.state === 'out') { e.state = 'in'; e.came = true; e.arrive = 1 - e.leave; e.leave = 0; }
     } else if (e.state === 'on' || e.state === 'in') { e.leave = 1 - e.arrive; e.arrive = 1; e.state = 'out'; e.outAt = time; e.came = false; }   // came: a part arriving in an unfinished transition must not stay in the 'in' world (RND-F 24-11: else it is in neither)
@@ -661,6 +671,10 @@ function frame(dt) {
       if (Math.abs(rv - (link.rvSent ?? -1)) > 0.01 || time - (link.rvAt ?? -9) > 1) { link.rvSent = rv; link.rvAt = time; tell({ reveal: rv }); } }
     // studio 26-11: the START is the charge ring round the room (umbral3d: one hand in a circle, or several) — this score's and the sound's
     // (its start tone rises with it); once the mosaic has fallen (CLEAR) and the room has stayed blue CLEAR_HOLD s, the trailer goes on
+    // studio 26-11: the pinya v2 says how full the room is — this score's and the sound's pinya hold on it (they never end it themselves)
+    const pf = S.block === 'pinya' ? parts.pinya3d2?.part?.fill?.() : null;
+    if (pf) { score.setFill(pf.total); if (Math.abs(pf.total - (link.fiSent ?? -1)) > 0.01 || time - (link.fiAt ?? -9) > 1) { link.fiSent = pf.total; link.fiAt = time; tell({ fill: pf.total }); }
+      const k = pf.total; room.setBackground?.({ bottom: [0.0035 + 0.006 * k, 0.0045 + 0.0015 * k, 0.008], top: [0.008 + 0.01 * k, 0.011 + 0.002 * k, 0.02 - 0.004 * k], gain: 1 }); }   // the part's dark, warming with the fill
     const ch = parts.umbral3d?.part?.charge?.();
     if (ch && S.block === 'wait') {
       const st = ch.cleared ? (ch.clearedFor >= (P['trailer.clearHold'] ?? 6) ? 1 : 0.999) : Math.min(0.998, ch.cover);

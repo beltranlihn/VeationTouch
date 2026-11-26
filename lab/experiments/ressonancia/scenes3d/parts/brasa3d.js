@@ -48,6 +48,7 @@
 import { createFoguera, FOG_D } from './brasa3d/foguera.js';
 import { createFons } from './brasa3d/fons.js';
 import { createDiables } from './brasa3d/diables.js';
+import { createDiables as createDiable2 } from './brasa3d/diable2.js';   // studio 26-11 (Beltrán): the correfoc devil v3 (Personaje, lab/diable-v2) — params.devil2 = false brings back DIA's
 
 const NC = 512;                         // heat cells round the perimeter
 const NSP = 131072;                     // sparks
@@ -534,7 +535,7 @@ export function create({ THREE, TSL, room, params }) {
     }
     return meshes;
   })();
-  const DIA = useOldDevils ? null : createDiables({ THREE, TSL, room, world, U, mirP, CHROME, fireRamp, emit, MAXD, ringPoint, eye });
+  const DIA = useOldDevils ? null : (P.devil2 !== false ? createDiable2 : createDiables)({ THREE, TSL, room, world, U, mirP, CHROME, fireRamp, emit, MAXD, ringPoint, eye });
   if (DIA) for (const m of DIA.meshes) room.reactive?.(m);           // T-070: fast movers drop the TAA history (no ghost)
   for (const m of [].concat(sparkMesh)) room.reactive?.(m);
   const devils = [];

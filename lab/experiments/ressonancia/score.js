@@ -54,8 +54,11 @@ export function createScore(nWalls, opt = {}) {
   const BTN = { no: opt.noButton || [], y: opt.buttonY || null, r: opt.buttonR || 0.5 };
   // studio 26-11 (res-trailer): an EXTERNAL reveal — the share of the entrance's picture the public has uncovered (0..1 of what opens the
   // buttons). Set (not null), it IS the wait's reveal (the play bank is not used); null = as before.
-  let extReveal = null, extStart = null;
+  let extReveal = null, extStart = null, extFill = null;
   // studio 26-11: an EXTERNAL start too — the charge of the entrance's ring round the room (0..1; 1 = start); null = the button as before
+  // studio 26-11: the pinya v2 part (pinya3d2) decides how full the room is — setFill(v 0..1) holds the pinya block on that progress and
+  // never lets it end by itself (the host moves on when the part is done); setFill(null) gives the block its own rule back
+  function setFill(v) { extFill = v == null || !isFinite(v) ? null : Math.max(0, Math.min(1, v)); }
   function setStart(v) { extStart = v == null || !isFinite(v) ? null : Math.max(0, Math.min(1, v)); }
   function setReveal(v) { extReveal = v == null || !isFinite(v) ? null : Math.max(0, Math.min(1, v)); }
   function setButton(o = {}) { if (Array.isArray(o.noButton)) BTN.no = o.noButton; if (Array.isArray(o.y)) BTN.y = o.y; if (o.r > 0) BTN.r = o.r; }
@@ -408,7 +411,8 @@ export function createScore(nWalls, opt = {}) {
         if (S.phase === 'play' && ((S.waves >= 3 && S.t >= B.min) || S.t >= B.max - B.reward)) { emit('awake'); phase('reward'); }
       } else if (S.phase === 'reward') { S.progress = 1; if (S.tp >= B.reward) go('pinya'); }
     } else if (S.block === 'pinya') {
-      if (playing) {
+      if (playing && extFill != null) { S.pinyaStage = 'pack'; S.progress = extFill; S.closed = extFill >= 1 ? 1 : 0; }
+      else if (playing) {
         // II. Pinya = GATHER (24-11, plan step 4): palm to palm, then the figures slide to the wall's centre and the hands follow them;
         // a wall fills by how PACKED its hands are (their width inside the densest 2 m, against what the group should show there, times
         // the share of the wall's hands inside that window), not by time. From B.net s the crowd of light closes the gap (assist).
@@ -757,5 +761,5 @@ export function createScore(nWalls, opt = {}) {
     if (block === 'baixada') downT = 0;
     go(block);
   }
-  return { state: S, step, acta, jump, times: T, setButton, setReveal, setStart };
+  return { state: S, step, acta, jump, times: T, setButton, setReveal, setStart, setFill };
 }
