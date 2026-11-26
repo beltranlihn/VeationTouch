@@ -641,8 +641,12 @@ export function create(ctx) {
     const kc = step(6, packed), g = packed.sub(kc.mul(8));
     // studio 25-11 (Beltrán): MOSAIC_TEX = 'image' — every stone carries ITS part of his picture (mosaic-off.jpg at rest, mosaic-on.jpg played),
     // fixed to the stone (it turns with it); 'stone' — each stone one colour, his picture's mean there
-    let topCol = mix(vRest, vGl, kc);
-    if (MOSAIC_TEX === 'image' && STONES) { const uv = varying(attribute('aUV', 'vec2')); topCol = mix(TSL.texture(texOff, uv).rgb, TSL.texture(texOn, uv).rgb, kc); }
+    // studio 26-11 (Beltrán: «el desaturado debe ser mucho más, para que se note el cambio entre un estado y otro»): the rest state keeps
+    // only REST_SAT of its colour, towards a warm sand grey of the same lightness (params.restSat; 0 = grey, 1 = his OFF picture as it is)
+    const REST_SAT = Math.min(1, Math.max(0, Number(params?.restSat ?? 0.15))), SAND = vec3(1.06, 1.0, 0.88);
+    const desat = (c) => (REST_SAT >= 1 ? c : mix(SAND.mul(dot(c, LUMW)), c, REST_SAT));
+    let topCol = mix(desat(vRest), vGl, kc);
+    if (MOSAIC_TEX === 'image' && STONES) { const uv = varying(attribute('aUV', 'vec2')); topCol = mix(desat(TSL.texture(texOff, uv).rgb), TSL.texture(texOn, uv).rgb, kc); }
     // studio 25-11 (Beltrán: «por detrás se van a ver de arcilla o de piedra, están pintadas por adelante nomás»): back and sides are raw stone
     const rk = fract(r.mul(7.137)), rw = fract(r.mul(3.71));                              // this stone's own beige: 0.74–1.12 of the light, a touch warmer or cooler
     const RAW = RAW_STONE.mul(rk.mul(0.38).add(0.74)).mul(vec3(rw.mul(0.08).add(0.96), 1, float(1.04).sub(rw.mul(0.1))));
