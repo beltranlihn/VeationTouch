@@ -400,7 +400,7 @@ export function create({ THREE, TSL, room, params }) {
     const ib = new THREE.InstancedInterleavedBuffer(rA.array, 8, 1); ib.setUsage(THREE.DynamicDrawUsage); rA.ib = ib;
     g.setAttribute('r0', new THREE.InterleavedBufferAttribute(ib, 4, 0)); g.setAttribute('r1', new THREE.InterleavedBufferAttribute(ib, 4, 4));
     const r0 = attribute('r0', 'vec4'), r1 = attribute('r1', 'vec4');   // r0: centre xyz (room), alpha · r1: right x, right z, progress 0..1 (or -1 = invite), radius
-    const q = TSL.positionGeometry.xy, R = r1.w.mul(1.25);
+    const q = TSL.positionGeometry.xy, R = abs(r1.w).mul(1.25);
     const pw = r0.xyz.add(vec3(r1.x, 0, r1.y).mul(q.x.mul(R))).add(vec3(0, q.y.mul(R), 0));
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
     m.vertexNode = TSL.select(r0.w.greaterThan(0.001), cameraProjectionMatrix.mul(cameraViewMatrix.mul(modelWorldMatrix.mul(vec4(pw, 1)))), vec4(0, 0, 2, 1));
@@ -412,8 +412,10 @@ export function create({ THREE, TSL, room, params }) {
     const filled = smoothstep(vR.z.sub(0.004), vR.z, an).oneMinus();
     const inv = lineK.mul(dots.mul(0.8).add(0.2)).mul(sin(uTime.mul(1.3)).mul(0.25).add(0.6));
     const chg = lineK.mul(filled.mul(1.0).add(0.18)).add(exp(rr.mul(rr).mul(-30)).mul(vR.z).mul(0.25));
-    const colr = mix(vec3(0.78, 0.86, 1.0), tc(GOLD), 0.35);
-    m.colorNode = colr.mul(invite.select(inv.mul(0.35), chg.mul(0.6))).mul(vA).mul(float(1).sub(uLeave));
+    const gold = vR.w.lessThan(0);
+    const colr = gold.select(tc(GOLD).mul(1.6), mix(vec3(0.78, 0.86, 1.0), tc(GOLD), 0.35));
+    const dot0 = exp(rr.mul(rr).mul(-14)).mul(sin(uTime.mul(2.2)).mul(0.25).add(0.75)).mul(0.55);   // a golden point: a soft core inside the ring
+    m.colorNode = colr.mul(invite.select(inv.mul(0.35), chg.mul(0.6)).add(gold.select(dot0, float(0)))).mul(vA).mul(float(1).sub(uLeave));
     m.fog = false;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 7; object.add(mesh);
   }
@@ -473,12 +475,67 @@ export function create({ THREE, TSL, room, params }) {
   for (const o of [rLine, ...rTicks, ...rLabs, liveTick, liveLab]) { o.renderOrder = 6; o.frustumCulled = false; }
   let rulE = 0;
 
+  // ================================================================================================== the light in her hand · the golden beams
+  const pomU = uniform(new THREE.Vector4(0, -50, 0, 0)), pomV = uniform(new THREE.Vector4(0.06, 1, 0, 0));   // pos (world), on · size, intensity
+  {
+    const g = new THREE.PlaneGeometry(2, 2), m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
+    const mv = modelViewMatrix.mul(vec4(pomU.xyz, 1));
+    m.vertexNode = TSL.select(pomU.w.greaterThan(0.001), cameraProjectionMatrix.mul(vec4(mv.xy.add(TSL.positionGeometry.xy.mul(pomV.x.mul(3))), mv.z, mv.w)), vec4(0, 0, 2, 1));
+    const d = TSL.uv().sub(0.5).mul(2), r2 = dot(d, d).mul(9);
+    m.colorNode = mix(tc(GOLD), vec3(1, 0.95, 0.82), exp(r2.mul(-6))).mul(exp(r2.mul(-1.2)).mul(0.35).add(exp(r2.mul(-7)).mul(0.9))).mul(pomV.y).mul(pomU.w).mul(float(1).sub(uLeave));
+    m.fog = false;
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 8; world.add(mesh);
+  }
+  const goldAt = (wi, out) => out.copy(walls[wi].centre).setY(1.2);
+  // the hand she holds up (her left palm in l'aleta), in the world's frame
+  const enxPalm = (() => { const k = pose(ENX[3], BUILDS[1]); return [k.wL[0] + k.hfL.fd[0] * 0.06, k.wL[1] + k.hfL.fd[1] * 0.06, k.wL[2] + k.hfL.fd[2] * 0.06]; })();
+  function handOf(b, out) {
+    const q = enxPalm, hs = b.hs, cy = Math.cos(b.yaw), sy = Math.sin(b.yaw);
+    return out.set(b.pos.x + (q[0] * cy + q[2] * sy) * hs, b.pos.y + (b.dy || 0) + q[1] * hs + 0.04, b.pos.z + (-q[0] * sy + q[2] * cy) * hs);
+  }
+  const NB = 3, NBP = 900, BA = [], BB = [];
+  for (let i = 0; i < NB; i++) { BA.push(new THREE.Vector4(0, -50, 0, 0)); BB.push(new THREE.Vector4(0, -50, 0, 0)); }
+  const uBA = uniformArray(BA, 'vec4'), uBB = uniformArray(BB, 'vec4'), uEyeR = uniform(new THREE.Vector3().copy(room.eye));
+  const beams = []; for (let i = 0; i < NB; i++) beams.push({ on: false, k: 0, reach: 0, wall: -1, from: new THREE.Vector3() });
+  {
+    const n = NB * NBP, F = 6, A = new Float32Array(n * 4 * F), idx = new Uint32Array(n * 6), Cc = [[-1, -1], [1, -1], [1, 1], [-1, 1]], r = rng(3131);
+    for (let k = 0; k < n; k++) { const bi = Math.floor(k / NBP), u0 = r(), a = r(), b2 = r(); for (let c = 0; c < 4; c++) A.set([bi, u0, a, b2, Cc[c][0], Cc[c][1]], (k * 4 + c) * F); const q = k * 4; idx.set([q, q + 1, q + 2, q, q + 2, q + 3], k * 6); }
+    const ib = new THREE.InterleavedBuffer(A, F), g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.InterleavedBufferAttribute(ib, 4, 0)); g.setAttribute('aQ', new THREE.InterleavedBufferAttribute(ib, 2, 4));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    const a4 = attribute('position', 'vec4'), cq = attribute('aQ', 'vec2');
+    const bi = int(a4.x), u0 = a4.y, ra = a4.z, rb = a4.w;
+    const PA = uBA.element(bi), PB = uBB.element(bi), str = PA.w, reach = PB.w;
+    // round the room in front of the walls (as the climbers' streams), from the wall's point to her hand; the flow runs at ~0.6 / s
+    const u = fract(u0.add(uTime.mul(0.42).add(ra.mul(0.05))));
+    const ea = PA.xz.sub(uEyeR.xz), eb = PB.xz.sub(uEyeR.xz), ang0 = atan(ea.y, ea.x), ang1 = atan(eb.y, eb.x);
+    const dA0 = ang1.sub(ang0), dA = dA0.sub(floor(dA0.add(Math.PI).div(Math.PI * 2)).mul(Math.PI * 2));
+    const bump = sin(u.mul(Math.PI));
+    const rad = mix(mix(length(ea), length(eb), u), float(2.35), bump.mul(0.85));
+    const ang = ang0.add(dA.mul(u.mul(u).mul(float(3).sub(u.mul(2)))));
+    const py = mix(PA.y, PB.y, u).add(bump.mul(0.45));
+    const jit = vec3(sin(uTime.mul(2.1).add(ra.mul(40))), cos(uTime.mul(1.7).add(rb.mul(33))), sin(uTime.mul(1.9).add(ra.mul(17).add(rb.mul(9))))).mul(float(0.025).add(bump.mul(0.07)));
+    const pw = vec3(uEyeR.x.add(cos(ang).mul(rad)), py, uEyeR.z.add(sin(ang).mul(rad))).add(jit);
+    const pv = cameraViewMatrix.mul(modelWorldMatrix.mul(vec4(pw, 1))), c0 = clipOf(pv);
+    const d = ndcScale(pv, c0, float(0.006).add(rb.mul(0.007))), kq = max(float(1), uMinPt.div(d.y));
+    const vis = str.mul(float(1).sub(smoothstep(reach.sub(0.06), reach, u))).mul(smoothstep(0.0, 0.05, u)).mul(float(1).sub(smoothstep(0.95, 1.0, u)));
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    m.vertexNode = TSL.select(vis.greaterThan(0.002), vec4(c0.xy.add(cq.mul(d).mul(kq).mul(c0.w)), c0.z, c0.w), vec4(0, 0, 2, 1));
+    const vQ = varying(cq), vV = varying(vis.div(kq.mul(kq).mul(0.6).add(0.4))), vR = varying(ra);
+    const r2 = dot(vQ, vQ), twk = pow(sin(uTime.mul(vR.mul(3).add(1)).add(vR.mul(60))).mul(0.5).add(0.5), 6);
+    m.colorNode = mix(tc(GOLD), vec3(1, 0.92, 0.75), twk.mul(0.5)).mul(float(1).sub(smoothstep(0.4, 1.0, r2))).mul(twk.mul(1.2).add(0.6)).mul(vV).mul(1.4).mul(uGlow);
+    m.fog = false;
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 8; object.add(mesh);
+  }
+
   // ================================================================================================== state
   const climbers = [];
   const charges = [];         // { stroke, wall, pos (room), t0, done, auto }
   const events = [];
+  let pomT0 = -1, readyT = -1, chargedT = -1, charge = 0, lastHold = 0, autoW = -1;
+  const pomP = new THREE.Vector3(0, -50, 0), handL = new THREE.Vector3(0, 6.5, 0);
   let time = 0, rise = 0, riseV = 0, slide = 2.5, completed = 0, topT = -1, aletaT = -1, endT = -1, doneSent = false, lastClimb = -99, firstT = -1, rondaBorn = 0;
-  let reactiveOn = false;
+  let reactiveOn = false; const tmpL = new THREE.Vector3();
   const invW = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpW = new THREE.Vector3();
   const rr = rng(2024);
   const otherWalls = () => walls.map((_, i) => i).filter((i) => i !== TW);
@@ -499,7 +556,15 @@ export function create({ THREE, TSL, room, params }) {
     return b;
   }
   // the landing: on the ronda's shoulders, on the near side (towards the eye), a little to one side
-  const landing = (b, out) => (b.slot.tier === 0 ? out.copy(b.slot.pos) : out.copy(C).addScaledVector(N1, R3 - 0.1).addScaledVector(X1, (b.seed - 0.5) * 1.4).setY(SH * 0.98));
+  // the landing (Beltrán 26-11: nobody lands and then slides or jumps to its place): the stream lands WHERE the climber will climb from —
+// at its place's back, a little round the column (the spiral) and below it, on the hips / shoulders of the tier below — so what follows
+// is only two short steps of the organic climb. The baixos land on their place on the ground. Its frame is the world's: it follows the rise.
+const slotAng = (S) => (S.pos.distanceTo(tmpL.set(C.x, S.pos.y, C.z)) < 0.05 ? Math.atan2(N1.z, N1.x) : Math.atan2(S.pos.z - C.z, S.pos.x - C.x));
+const landing = (b, out) => {
+  const S = b.slot; if (S.tier === 0) return out.copy(S.pos);
+  const a = slotAng(S) - (b.seed < 0.5 ? -1 : 1) * 0.45, r = Math.hypot(S.pos.x - C.x, S.pos.z - C.z) + 0.38;
+  return out.set(C.x + Math.cos(a) * r, Math.max(0, S.pos.y - 1.05), C.z + Math.sin(a) * r);
+};
 
   function writeInst(b) {
     const A = b.M.buf.array, o = b.k * 20, w = b.w;
@@ -515,15 +580,14 @@ export function create({ THREE, TSL, room, params }) {
   // the way up, by the back of the tower in a spiral: steps from the landing to the place; each step = a foot up + a push.
   // Positions: angle round the tower and radius from it, and height (feet). Intermediate steps stand on the shoulders of each tier.
   function planClimb(b) {
-    const S = b.slot, T = tiers[S.tier], from = b.pos.clone(), r0 = Math.hypot(from.x - C.x, from.z - C.z), a0 = Math.atan2(from.z - C.z, from.x - C.x);
-    const aS = Math.atan2(S.pos.z - C.z, S.pos.x - C.x), rS = Math.hypot(S.pos.x - C.x, S.pos.z - C.z);
+    // two steps from the landing to the place: a foot on the hip below (half the height, half the turn), then onto the shoulders
+    const S = b.slot, from = b.pos.clone(), r0 = Math.hypot(from.x - C.x, from.z - C.z), a0 = Math.atan2(from.z - C.z, from.x - C.x);
+    const aS = slotAng(S), rS = Math.hypot(S.pos.x - C.x, S.pos.z - C.z);
     let dA = aS - a0; while (dA > Math.PI) dA -= 2 * Math.PI; while (dA < -Math.PI) dA += 2 * Math.PI;
-    if (Math.abs(dA) < 0.6 && S.tier > 1) dA += (b.seed < 0.5 ? -1 : 1) * 0.9;   // a spiral, not a ladder: it goes round as it climbs
-    const n = S.tier === 0 ? 0 : Math.max(1, S.tier), pts = [{ a: a0, r: r0, y: from.y }];
-    for (let i = 1; i <= n; i++) {
-      const k = i / n, ti = Math.min(S.tier, i);
-      const rr0 = i < n ? Math.max(tiers[ti].r + 0.36, 0.42) : rS;
-      pts.push({ a: a0 + dA * k, r: i < n ? r0 + (rr0 - r0) * Math.min(1, k * 1.6) : rS, y: i < n ? tiers[ti].y : S.pos.y });
+    const pts = [{ a: a0, r: r0, y: from.y }];
+    if (S.tier > 0) {
+      pts.push({ a: a0 + dA * 0.5, r: r0 + (rS - r0) * 0.45, y: from.y + (S.pos.y - from.y) * 0.5 });
+      pts.push({ a: aS, r: rS, y: S.pos.y });
     }
     b.plan = pts; b.phase = 'steps';
   }
@@ -602,6 +666,7 @@ export function create({ THREE, TSL, room, params }) {
         }
         continue;
       }
+      if (topT >= 0) continue;   // the tower is up: the walls' hands are for the golden points now
       let ch = charges.find((q) => q.stroke === h.stroke);
       if (!ch) { ch = { stroke: h.stroke, wall: h.wall, pos: h.pos.clone(), t0: time, done: false, seen: time, a: 0 }; charges.push(ch); }
       ch.seen = time;
@@ -641,7 +706,9 @@ export function create({ THREE, TSL, room, params }) {
       } else if (b.state === 'fly') {
         // it re-forms where it lands hugging the shoulders it lands on (pull)
         b.O.copy(b.Or).applyMatrix4(invW);
-        b.travel = clamp01((time - b.t1) / flyT); landing(b, b.pos); b.yaw = Math.atan2(C.x - b.pos.x, C.z - b.pos.z);
+        const below = S.tier === 0 || tiers[S.tier - 1].seated >= tiers[S.tier - 1].n;
+        b.tf = (b.tf ?? 0) + (below || b.travel < 0.8 ? dt : 0);   // the tier below is not up yet: the stream hovers near the tower
+        b.travel = Math.min(below ? 1 : 0.8, clamp01(b.tf / flyT)); landing(b, b.pos); b.yaw = Math.atan2(C.x - b.pos.x, C.z - b.pos.z);
         const k = smooth01((b.travel - 0.55) / 0.45); setW(b.w, 0, 1 - k, k, 0);
         if (b.travel >= 1) { b.state = 'climb'; b.t2 = time; planClimb(b); }
       } else if (b.state === 'climb') {
@@ -654,7 +721,7 @@ export function create({ THREE, TSL, room, params }) {
         b.dy = -0.035 * Math.exp(-ts * 3.2) * Math.cos(ts * 7.5) + 0.035 * Math.exp(-ts * 9);
         b.lean = 0.07 * Math.exp(-ts * 2.4) * Math.sin(ts * 5.2 + 0.6) + (S.final === 1 ? 0.04 : 0.02) * Math.sin(time * 0.9 + b.seed * 6) * smooth01(ts / 2);
         if (ts > 2.5) b.state = 'seated';
-        if (b.type === 4 && aletaT >= 0) { const k = smooth01((time - aletaT) / 0.7); setW(b.w, 0, 0, 1 - k, k); }
+        if (b.type === 4 && pomT0 >= 0) { const k = smooth01((time - pomT0) / 0.9); setW(b.w, 0, 0, 1 - k, k); }
       }
     }
     // the TAA's reactive mask (drawn once more) only while a climber moves; settled ones keep their antialiasing for free
@@ -664,15 +731,54 @@ export function create({ THREE, TSL, room, params }) {
     while (completed < tiers.length && tiers[completed].seated >= tiers[completed].n) { completed++; events.push(`tier:${completed}`); }
     if (completed >= tiers.length && topT < 0) { topT = time; events.push('top'); }
 
-    // ---- the end: the Pom's light up the column (3 s) · l'aleta + the golden wave · everything lets go
+    // ---- the end, played by the room (Beltrán 26-11): the Pom's light rises up the column to the hand the enxaneta holds up and waits there,
+    // beating · on the other three walls golden points invite · a hand held on one sends a beam of golden particles round the room to
+    // her hand and charges it (several charge faster; let go, it cuts and the charge sinks slowly) · charged: l'aleta, the wave, the end
     const topY = tiers[tiers.length - 1].y + 1.0 * tiers[tiers.length - 1].hs;
     let pomY = -9;
-    if (topT >= 0) {
-      const tp = p.end === false ? -1 : (time - topT - 1.0) / (p.pomTime ?? 3);   // end: false → the host starts the end (part.finish())
-      pomY = tp < 0 ? -9 : smooth01(tp) * topY;
-      if (tp >= 1.05 && aletaT < 0) { aletaT = time; events.push('aleta'); }
+    const enx = climbers.find((q) => q.type === 4 && (q.state === 'settle' || q.state === 'seated'));
+    if (enx) handOf(enx, handL);
+    if (topT >= 0 && p.end !== false && pomT0 < 0) pomT0 = time + 1.2;
+    if (pomT0 >= 0) {
+      const tp = (time - pomT0) / (p.pomTime ?? 3);
+      if (tp >= 0) {
+        pomY = smooth01(tp) * handL.y;
+        const k = smooth01((tp - 0.82) / 0.18);
+        pomP.set(C.x + (handL.x - C.x) * k, Math.min(pomY, handL.y), C.z + (handL.z - C.z) * k);
+        if (tp >= 1 && readyT < 0) { readyT = time; lastHold = time; events.push('aleta:ready'); }
+      }
     }
+    // the beams: one per other wall, from its golden point; held → strength up, let go → down
+    const ow = otherWalls();
+    let rate = 0;
+    if (readyT >= 0 && chargedT < 0) {
+      for (let i = 0; i < ow.length && i < NB; i++) {
+        const W = walls[ow[i]]; goldAt(ow[i], tmpV);
+        let held = false;
+        for (const h of hands) if (h.wall === ow[i] && h.pos.distanceTo(tmpV) < (p.goldReach ?? 0.55)) held = true;
+        if (held) { lastHold = time; autoW = -1; }
+        if (!held && autoW === ow[i]) held = true;
+        beams[i].on = held; beams[i].wall = ow[i]; beams[i].from.copy(tmpV).addScaledVector(W.normal, -0.01);
+      }
+      if (autoW < 0 && time - lastHold > (p.chargeAssist ?? 10)) autoW = ow[Math.floor(rr() * ow.length)];
+      for (const B of beams) { B.k += ((B.on ? 1 : 0) - B.k) * Math.min(1, dt * (B.on ? 6 : 2.5)); B.reach = B.on ? Math.min(1, B.reach + dt / 0.9) : B.k < 0.02 ? 0 : B.reach; rate += B.k * smooth01(B.reach * 1.4 - 0.3); }
+      const solo = p.chargeTime ?? 4.5;
+      if (rate > 0.02) charge = Math.min(1, charge + dt * Math.min(2.4, rate) / solo); else charge = Math.max(0, charge - dt * 0.06);
+      if (charge >= 1) { chargedT = time; events.push('aleta:charged'); }
+    } else for (const B of beams) { B.k = Math.max(0, B.k - dt * 1.5); }
+    if (chargedT >= 0 && aletaT < 0 && time - chargedT > 0.35) { aletaT = time; events.push('aleta'); }
     if (aletaT >= 0) { const tw = time - aletaT; const top = tmpV.copy(C).setY(0); top.applyMatrix4(world.matrixWorld); uWave.value.set(top.x, 0, top.z, tw * (p.waveSpeed ?? 5)); if (tw > 2.4 && endT < 0) { endT = time; events.push('end'); } }
+    // the light in her hand: it beats, waiting; it grows and brightens with the charge; at l'aleta it flares and goes with the wave
+    {
+      const on = pomT0 >= 0 && time > pomT0 && endT < 0 ? 1 : endT >= 0 ? Math.max(0, 1 - (time - endT) / 2) : 0;
+      const beat = 0.5 + 0.5 * Math.sin(time * (2.2 + 3 * charge));
+      const flare = aletaT >= 0 ? Math.exp(-(time - aletaT) * 1.2) * 1.5 : 0;
+      pomU.value.set(pomP.x, pomP.y, pomP.z, on);
+      pomV.value.set(0.05 + 0.13 * charge + 0.04 * beat * (readyT >= 0 ? 1 : 0.3) + flare * 0.25, (0.55 + 0.45 * beat) * (0.6 + 1.4 * charge) + flare, 0, 0);
+      // beams in the room's frame: from the wall's point to the hand
+      world.updateMatrixWorld(); tmpW.copy(pomP).applyMatrix4(world.matrix);   // the part's frame (the beams hang from `object`)
+      for (let i = 0; i < NB; i++) { const B = beams[i]; BA[i].set(B.from.x, B.from.y, B.from.z, B.k * (chargedT >= 0 ? Math.max(0, 1 - (time - chargedT) * 2) : 1)); BB[i].set(tmpW.x, tmpW.y, tmpW.z, B.reach); }
+    }
     const endDur = p.endTime ?? 6;
     const goneAll = endT >= 0 ? clamp01((time - endT) / endDur) : 0;
     if (endT >= 0 && !doneSent && time - endT > endDur + 0.5) { doneSent = true; events.push('done'); }
@@ -702,6 +808,13 @@ export function create({ THREE, TSL, room, params }) {
       ch.a = ch.gone ? Math.max(0, 1 - ch.gone / 0.6) : Math.min(1, ch.a + dt * 10);
       A[o] = ch.pos.x - W.normal.x * 0.005; A[o + 1] = ch.pos.y; A[o + 2] = ch.pos.z - W.normal.z * 0.005; A[o + 3] = ch.a * (ch.full ? 0.3 : 1) * (ch.auto ? 0.7 : 1);
       A[o + 4] = W.right.x; A[o + 5] = W.right.z; A[o + 6] = Math.max(0.001, prog); A[o + 7] = 0.24; ri++;
+    }
+    // the golden points: Ø 40 cm at 1.2 m on each other wall, waiting with her; the ring fills with the charge while held
+    if (readyT >= 0) for (let i = 0; i < ow.length && ri < NRING; i++) {
+      const W = walls[ow[i]], o = ri * 8, B = beams[i]; goldAt(ow[i], tmpV);
+      const a = clamp01((time - readyT) / 1.2) * (chargedT >= 0 ? Math.max(0, 1 - (time - chargedT) / 1.5) : 1);
+      A[o] = tmpV.x - W.normal.x * 0.005; A[o + 1] = tmpV.y; A[o + 2] = tmpV.z - W.normal.z * 0.005; A[o + 3] = a;
+      A[o + 4] = W.right.x; A[o + 5] = W.right.z; A[o + 6] = B && B.k > 0.05 ? Math.max(0.001, charge) : -1; A[o + 7] = -0.2; ri++;
     }
     for (; ri < NRING; ri++) A[ri * 8 + 3] = 0;
     rA.ib.needsUpdate = true;
@@ -741,13 +854,14 @@ export function create({ THREE, TSL, room, params }) {
     for (const b of climbers) { const M = b.M; M.list.splice(M.list.indexOf(b), 1); }
     for (const M of meshes) if (M) { M.list.forEach((b, k) => { b.k = k; }); M.mesh.geometry.instanceCount = M.list.length; }
     climbers.length = 0; charges.length = 0; for (const s of slots) s.who = null; for (const T of tiers) T.seated = 0;
+    pomT0 = -1; readyT = -1; chargedT = -1; charge = 0; autoW = -1; for (const B of beams) { B.k = 0; B.reach = 0; B.on = false; }
     completed = 0; topT = -1; aletaT = -1; endT = -1; doneSent = false; lastClimb = time; firstT = -1; rondaBorn = 0; riseV = 0;
   }
   function finish() { P.end = true; }
   function progress() {
     const needed = slots.length, seated = climbers.filter((b) => b.state === 'seated' || b.state === 'settle').length;
     return { tier: completed, tiers: tiers.length, climbers: seated, inFlight: climbers.length - seated, needed, height: +rise.toFixed(2),
-      ending: endT >= 0 ? clamp01((time - endT) / (P.endTime ?? 6)) : 0, done: doneSent };
+      ending: endT >= 0 ? clamp01((time - endT) / (P.endTime ?? 6)) : 0, done: doneSent, charge: +charge.toFixed(3), ready: readyT >= 0 };
   }
   function setParams(p) { if (p && p.tiers != null && String(p.tiers) !== String(P.__tiersBuilt ?? '')) { /* tiers change on reset */ } }
   function dispose() { beingMat.dispose(); jobs.length = 0; for (const M of meshes) if (M) M.mesh.geometry.dispose(); if (backdrop) { for (const m of backdrop.children) m.geometry.dispose(); backdropMat?.dispose(); } }

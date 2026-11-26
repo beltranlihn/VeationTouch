@@ -17,10 +17,15 @@ The people of the room build the tower:
 Every tier that closes lifts us one step: the world sinks and the square goes down behind. A fine ruler beside the column on P1
 names each tier with its real height and reads our height at eye level.
 
-The end:
-1. With the enxaneta up, a small golden light rises up the column, shoulder to shoulder (the Pom carries her light to the top).
-2. She raises her hand (l'aleta) and a golden wave runs round the room.
-3. The tower and the square let go into rising particles.
+The end is played by the room (Beltrán 26-11, «me gusta todo dorado»):
+1. With the enxaneta up she raises her hand, and a golden point of light rises up the column, shoulder to shoulder, to her hand.
+   It waits there, beating (`aleta:ready`).
+2. On the other three walls a golden point (Ø 40 cm at 1.2 m) invites.
+3. A hand held on one sends a beam of golden particles round the room to her hand and charges it. The point grows and brightens.
+   Several hands charge faster; let go and the beam cuts and the charge sinks slowly.
+   - One hand alone charges it in `chargeTime` (4.5 s).
+   - With nobody touching for `chargeAssist` (10 s), a point charges by itself.
+4. Charged (`aleta:charged`): l'aleta flares, a golden wave runs round the room, and the tower and the square let go into rising particles.
 
 ## Solo path
 Hold a hand on any wall but P1: one climber per hold. With nobody holding, a ring charges by itself on another wall every 3.5 s,
@@ -39,18 +44,18 @@ the top at ~64 s. With real holds it is faster: about 8–11 s per climber, in p
   - tiers and timing: `tiers` ("4,3,3,2,1,1"), `hold`, `flyTime`, `climbStep`
   - help: `assist`, `assistDelay`
   - rise: `riseK`, `topRise`, `plazaSink`
-  - end: `pomTime`, `waveSpeed`, `endTime`, `end`
+  - end: `pomTime`, `chargeTime`, `chargeAssist`, `goldReach`, `waveSpeed`, `endTime`, `end`
   - look: `warm`, `faixa`, `light`, `glow`
   - square: `plazaDensity` (default 0.75 of `points.bin`), `plazaLight`, `plazaSize`
   - host: `arrive`, `leave`
 
 ## API for the host
-- `part.progress()` → `{ tier, tiers, climbers, inFlight, needed, height, ending, done }`
+- `part.progress()` → `{ tier, tiers, climbers, inFlight, needed, height, ending, done, charge 0..1, ready }`
 - `part.events` (this frame only):
   - `joined:<tier>` (a climber took its place)
   - `tier:<n>` (n tiers closed)
   - `top` (the enxaneta is up)
-  - `aleta`
+  - `aleta:ready` (her light waits in her hand), `aleta:charged`, `aleta` (the flare and the wave)
   - `end` (everything starts to let go)
   - `done`
 - `part.reset()` clears the tower for a new pass.
@@ -79,9 +84,13 @@ the top at ~64 s. With real holds it is faster: about 8–11 s per climber, in p
 Four baked poses per climber are blended by weight: step L, step R (a foot up on the thigh or hip below, one hand high, the other
 forward), pull (the weight over the shoulders below) and stand.
 
-The landing:
-- The stream re-forms in the pull pose on the outer ring's shoulders, in front of us.
-- The baixos come down straight to their place.
+The landing (Beltrán 26-11: nobody lands and then slides or jumps to its place):
+- The stream lands where the climber climbs from: at its place's back, a little round the column, about 1 m below its place,
+  on the tier below. It re-forms there in the pull pose.
+- It follows its destination in flight (the world's frame, so it rises with us).
+- If the tier below is not up yet, the stream hovers near the tower until it is.
+- The baixos land on their place on the ground.
+- From there, two short steps.
 
 Each step (1.5 s, `climbStep`):
 1. Reach (0–38 %): a foot goes up and a hand goes to a shoulder.
