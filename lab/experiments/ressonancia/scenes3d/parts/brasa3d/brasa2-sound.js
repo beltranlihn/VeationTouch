@@ -89,7 +89,7 @@ export function createBrasaSound(audio, opt = {}) {
     hissF.type = 'bandpass'; hissF.frequency.value = 5200; hissF.Q.value = 0.7; hissG.gain.value = 0;
     hissS.connect(hissF); hissF.connect(hissG); hissG.connect(b); hissS.start(now(), Math.random());
     const roarS = noiseSrc(true), roarF = ctx.createBiquadFilter(), roarF2 = ctx.createBiquadFilter(), roarG = ctx.createGain();
-    roarF.type = 'lowpass'; roarF.frequency.value = 420; roarF2.type = 'peaking'; roarF2.frequency.value = D1 * 4;   // its resonance on D3 (was 160 Hz) roarF2.gain.value = 6; roarG.gain.value = 0;
+    roarF.type = 'lowpass'; roarF.frequency.value = 420; roarF2.type = 'peaking'; roarF2.frequency.value = D1 * 4; roarF2.gain.value = 6; roarG.gain.value = 0;   // its resonance on D3 (was 160 Hz)
     roarS.connect(roarF); roarF.connect(roarF2); roarF2.connect(roarG); roarG.connect(b); roarS.start(now(), Math.random());
     beds.set(id, { hissG, roarG, roarF, tickAcc: 0, petAcc: 0, nDev: 0 });
   }
