@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Ressonància — sound review (levels per wall, keys, 8 hands, voice)</title>
+<style>html,body{margin:0;background:#111;color:#E0E0E0;font:13px/1.4 Geist,system-ui,sans-serif}main{padding:16px}button{background:#262626;color:#E0E0E0;border:1px solid #4FC3E8;border-radius:4px;padding:5px 10px;font:inherit}pre{color:#B8B8B8;white-space:pre-wrap}</style>
+</head>
+<body><main>
+<p>A test tool for the trailer's sound (review 26-11). It runs sound.js on the simulated 4.1 room with the music muted, fires each part event on the BroadcastChannel and records, in the audio thread, the peak of every wall and the sub; every oscillator's pitch is checked against the block's key. Start, then run window.__review.run() in the console (or the button).</p>
+<button id="go">Start audio</button> <button id="run">Run the review</button>
+<pre id="out"></pre>
+</main>
+<script src="../../harness/kit.js"></script>
+<script type="module">
+import start from './sound.js';
+const room = LabKit.createRoomAudio();
+const ctx = room.ctx, PK = {}, meters = {}, IDS = ['P4', 'P1', 'P2', 'P3'];
+// peaks measured in the audio thread (the page may be hidden: its timers are slow, the audio is not)
+function meter(id) { if (meters[id]) return meters[id]; const sp = ctx.createScriptProcessor(1024, 1, 1), z = ctx.createGain(); z.gain.value = 0; sp.connect(z); z.connect(ctx.destination);
+  sp.onaudioprocess = (e) => { const d = e.inputBuffer.getChannelData(0); let m = 0; for (let i = 0; i < d.length; i++) { const v = Math.abs(d[i]); if (v > m) m = v; } if (m > (PK[id] || 0)) PK[id] = m; }; return (meters[id] = sp); }
+const A = room.audio, wi = A.wallInput.bind(A), ri = A.roomInput.bind(A), si = A.subInput.bind(A), sums = {};
+const sum = (id) => sums[id] || (sums[id] = (() => { const g = ctx.createGain(); g.connect(meter(id)); return g; })());
+A.wallInput = (id, u) => { const r = wi(id, u); r.node.connect(sum(id)); return r; };
+A.roomInput = () => { const n = ri(), k = ctx.createGain(); k.gain.value = 0.7; n.connect(k); k.connect(sum('ROOM')); return n; };   // the room (voice, music, pads): metered apart from the walls (the kit's room level 0.7)
+A.subInput = () => { const n = si(); n.connect(sum('SUB')); return n; };
+// every oscillator's pitch at start
+const pitches = []; const st0 = OscillatorNode.prototype.start;
+OscillatorNode.prototype.start = function (...a) { pitches.push(this.frequency.value); return st0.apply(this, a); };
+const walls = [['P4', 7.33], ['P1', 6.483], ['P2', 7.353], ['P3', 6.411]].map(([id, width]) => ({ id, name: id, width, height: 3.75 }));
+const L = { touch: [] };
+const vt = { walls, on(t, fn) { (L[t] || (L[t] = [])).push(fn); return () => {}; }, hands: () => [], params: {} };
+const KEY = { wait: [62, [0, 2, 4, 7, 9]], intro: [62, [0, 5, 7, 9, 10]], brasa: [62, [0, 2, 7]], pinya: [57, [0, 2, 4, 7, 9]], tronc: [62, [0, 2, 4, 7, 9]], acta: [62, [0, 2, 5, 7, 9]] };   // = sound.js KEYS (tm)
+const R = window.__review = { ready: false };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const reset = () => { for (const k of Object.keys(PK)) PK[k] = 0; pitches.length = 0; };
+const db = (v) => (v > 1e-5 ? (20 * Math.log10(v)).toFixed(1) : '-inf');
+const out = (s) => { document.getElementById('out').textContent += s + '\n'; R.log.push(s); };
+function offKey(blk) {   // equal-tempered pitches (±12 cents) outside the block's scale; inharmonic partials are off the grid and ignored
+  const k = KEY[blk]; if (!k) return ''; const bad = new Map();
+  const RAT = [2, 3, 4, 5, 6, 7, 8, 9, 1.4, 1.51, 2.3, 2.32, 2.41, 2.47, 2.6, 2.76, 3.01, 3.5, 3.87, 4.25, 5.4, 5.93, 6.63, 8.12, 8.93];   // partials of the instruments
+  const partial = (f) => pitches.some((g) => g > 0 && g < f && RAT.some((r) => Math.abs(f / g / r - 1) < 0.006));
+  for (const f of pitches) { if (!(f > 30 && f < 8000) || partial(f)) continue; const m = 69 + 12 * Math.log2(f / 440), r = Math.round(m); if (Math.abs(m - r) > 0.12) continue;
+    const pc = (((r - k[0]) % 12) + 12) % 12; if (!k[1].includes(pc)) bad.set(r, (bad.get(r) || 0) + 1); }
+  const N = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  return [...bad].map(([r, n]) => `${N[r % 12]}${Math.floor(r / 12) - 1}×${n}`).join(' ');
+}
+function row(blk, what, wall) {
+  const p = { ...PK }, mx = Math.max(...IDS.map((k) => p[k] || 0)), wl = wall ? p[wall] || 0 : 0, others = wall ? Math.max(...IDS.filter((k) => k !== wall).map((k) => p[k] || 0)) : 0;
+  out(`${blk.padEnd(5)} ${what.padEnd(22)} max ${db(mx).padStart(6)}${wall ? `  on ${wall} ${db(wl)} vs others ${db(others)}` : ''}  | ${IDS.map((k) => k + ' ' + db(p[k] || 0)).join(' ')} ROOM ${db(p.ROOM || 0)} SUB ${db(p.SUB || 0)}${offKey(blk) ? '  OFF-KEY ' + offKey(blk) : ''}`);
+}
+async function go(params) {
+  await room.resume();
+  R.piece = await start({ audio: A, vt, params });
+  R.bc = new BroadcastChannel('ressonancia'); R.bc.postMessage({ type: 'ctl', intro: 'trailer' });
+  R.ready = true; R.log = [];
+}
+let cur = '';
+async function jump(blk) { if (blk === cur) return; R.bc.postMessage({ type: 'ctl', jump: blk }); cur = blk; await sleep(4000); }
+const wallOf = (ev) => { const a = ev.split(':'); const i = a[0] === 'gold' ? +a[2] : +a[1]; return Number.isInteger(i) && a.length > 1 && !isNaN(i) ? IDS[i] : (ev.startsWith('land') || ev.startsWith('joined') ? 'P1' : null); };
+const EVENTS = [
+  ['wait', 'umbral3d', 'charge:2', 4500], ['wait', 'umbral3d', 'uncharge:2', 2000], ['wait', 'umbral3d', 'cleared', 3000],
+  ['brasa', 'brasa3d', 'intro:boom', 2000], ['brasa', 'brasa3d', 'feed:2', 2000], ['brasa', 'brasa3d', 'boom', 3000],
+  ['pinya', 'pinya3d2', 'born:2:0.4:1.2:0', 2000], ['pinya', 'pinya3d2', 'thread:join', 2000], ['pinya', 'pinya3d2', 'full', 3000],
+  ['tronc', 'torre3d', 'charge:2:0.5:1.4', 3000], ['tronc', 'torre3d', 'uncharge:2', 2000], ['tronc', 'torre3d', 'form:2:0.5:1.4', 4500], ['tronc', 'torre3d', 'land:1', 2000], ['tronc', 'torre3d', 'joined:1', 2000],
+  ['tronc', 'torre3d', 'tier:1', 2500], ['tronc', 'torre3d', 'tier:4', 2500], ['tronc', 'torre3d', 'top', 3000],
+  ['acta', 'castells3d', 'built', 3000], ['acta', 'castells3d', 'stage:correfoc', 2000], ['acta', 'castells3d', 'stage:aleta', 2000],
+];
+let sn = 0;
+const down = (wallId, u, v) => { for (const fn of L.touch) fn({ type: 'down', stroke: 'r' + sn++, wallId, u, v, size: 0.12 }); };
+async function hands8(blk, label) {   // 8 hands at once (2 per wall), then 5 more waves 0.35 s apart: the pile-up
+  reset(); for (let w = 0; w < 6; w++) { for (let j = 0; j < 8; j++) down(IDS[j % 4], 0.2 + 0.6 * Math.random(), 0.2 + 0.3 * Math.random()); await sleep(350); }
+  await sleep(1500); row(blk, label);
+}
+R.run = async () => {
+  out('— single events (each on its wall) —');
+  for (const [blk, part, ev, ms] of EVENTS) {
+    await jump(blk); reset(); await sleep(800); const base = Math.max(...IDS.map((k) => PK[k] || 0));
+    reset(); R.bc.postMessage({ type: 'ev', part, block: blk, ev: part === 'torre3d' && ev.startsWith('land') ? [ev, 'joined:1'] : [ev] }); await sleep(ms);
+    row(blk, ev + ` (bed ${db(base)})`, wallOf(ev));
+  }
+  out('— one hand on P2 —');
+  for (const blk of ['wait', 'brasa', 'pinya', 'tronc', 'acta']) { await jump(blk); reset(); await sleep(800); reset(); down('P2', 0.5, 0.35); await sleep(2000); row(blk, 'hand on P2', 'P2'); }
+  out('— 8 hands × 6 waves —');
+  for (const blk of ['brasa', 'pinya', 'tronc']) { await jump(blk); await hands8(blk, '8 hands × 6 waves'); }
+  R.done = true; out('done');
+};
+R.voiceTest = async () => {   // ?voice=1: the voice in the ROOM column, the hands on the walls — with the voice they should dip by L.fxDuck
+  out('— the voice and the hands (tronc) —'); await jump('tronc');
+  reset(); for (let w = 0; w < 4; w++) { down(IDS[w], 0.5, 0.35); await sleep(500); } await sleep(1000); row('tronc', 'hands, no voice');
+  await sleep(3000); reset(); R.bc.postMessage({ type: 'ctl', say: 'v-torre-gold' }); await sleep(700); for (let w = 0; w < 4; w++) { down(IDS[w], 0.5, 0.35); await sleep(500); } await sleep(1000); row('tronc', 'hands under the voice');
+  R.done = true; out('done');
+};
+Object.assign(R, { PK, row, reset, down, jump, sleep, cut: () => { cur = ''; } });   // for a hand-written check in the console
+document.getElementById('go').onclick = () => go({ music: 0, voice: /voice=1/.test(location.search) ? 1 : 0 });
+document.getElementById('run').onclick = () => R.run();
+</script>
+</body>
+</html>

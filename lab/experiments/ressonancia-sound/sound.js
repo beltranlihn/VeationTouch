@@ -160,6 +160,7 @@ const GRALLA_HZ = 415;                       // s-gralla's pitch (G#4, measured)
 // Levels in one place (files are normalised to peak 1 at load). Measured in the lab's simulated room: see NOTES.md.
 const L = {
   voice: 0.34, duck: 0.5,                  // duck: the music under a voice (−6 dB, soft: Beltrán 26-11)
+  fxDuck: 0.6,                               // review 26-11: the interaction sounds under a voice (−4.4 dB): they never mask a word
   music: 0.3,                                // every set's master, into the music bus
   embers: 0.07, fire: 0.12, breath: 0.1, wind: 0.13, rain: 0.08, crowd: 0.1,
   grains: 0.05, verb: 0.35,
@@ -217,7 +218,8 @@ export default async function start(host) {
   const outRoom = series(...HP(), audio.roomInput());
   const outSub = series(F('lowpass', 110), F('lowpass', 110), audio.subInput());
   const wallIn = walls.map((w) => audio.wallInput(w.id, 0.5));
-  const wallOut = wallIn.map((wi) => series(...HP(), wi.node));
+  const fxDuckW = wallIn.map(() => G(1));                                   // review 26-11: the walls' event sounds dip under a voice
+  const wallOut = wallIn.map((wi, i) => series(fxDuckW[i], ...HP(), wi.node));
   const toWall = (w) => wallOut[((w % NW) + NW) % NW] || outRoom;
   // a stereo (or mono) signal spread over the room: L → even walls, R → odd walls, its low end to the sub
   function spread(subAmt = 0) {
@@ -308,9 +310,10 @@ export default async function start(host) {
     vo = { h, end: h.end, name }; if (!name.startsWith('v-wait') && !REPEATABLE.has(name)) saidThisPass.add(name);
     try { bc?.postMessage({ type: 'sub', name, in: Math.max(0, at - t), dur: Math.max(0.5, h.end - at) }); } catch { /* no channel (yet) */ }   // studio 26-11: the visual shows its subtitle
     duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(L.duck, Math.max(t, at - 0.35), 0.15); duck.gain.setTargetAtTime(1, h.end + 0.3, 0.7);
+    for (const g of fxDuckW) { g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(L.fxDuck, Math.max(t, at - 0.2), 0.12); g.gain.setTargetAtTime(1, h.end + 0.2, 0.5); }
     return true;
   }
-  const hush = (fade = 0.5) => { if (vo) { vo.h.stop(fade); vo = null; try { bc?.postMessage({ type: 'sub', name: null }); } catch { /* no channel */ } } ramp(duck.gain, 1, 0.3); };
+  const hush = (fade = 0.5) => { if (vo) { vo.h.stop(fade); vo = null; try { bc?.postMessage({ type: 'sub', name: null }); } catch { /* no channel */ } } ramp(duck.gain, 1, 0.3); for (const g of fxDuckW) ramp(g.gain, 1, 0.3); };
 
   // ---------------------------------------------------------------- the music sets (layers, loops, the bar grid)
   const sets = {};
@@ -746,12 +749,12 @@ export default async function start(host) {
   const ARP = [62, 65, 69, 72, 74, 72, 69, 67];   // D F A C D C A G: ceramic eighths, round the room, from the seventh floor
 
   // ---------------------------------------------------------------- hands: an answer at once, on the hand's own wall
-  const voices = [], downsAt = [], lastDownOf = new Map(), wallLoad = walls.map(() => ({ v: 0, t: 0 }));
+  const voices = [], downsAt = [], lastDownOf = new Map(), wallLoad = walls.map(() => ({ v: 0, t: 0 })), downW = walls.map(() => -1e9);
   function handVoice(wallId, u, ttl, verbAmt = 0.3) {
     const t = now();
     while (voices.length && voices[0].end < t) voices.shift();
     while (voices.length >= L.touchMax) { const v = voices.shift(); v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(0, t, 0.02); }   // the oldest yields
-    const wi = audio.wallInput(wallId, u), g = G(P.touch);
+    const wi = audio.wallInput(wallId, u), g = G(P.touch * (vo && t < vo.end + 0.2 ? L.fxDuck : 1));   // (under a voice: softer, review 26-11)
     series(g, ...HP(), wi.node); if (verbAmt) g.connect(G(verbAmt, verbIn));
     voices.push({ g, end: t + ttl });
     setTimeout(() => { try { g.disconnect(); wi.disconnect(); } catch { /* gone */ } }, ttl * 1000 + 300);
@@ -763,30 +766,30 @@ export default async function start(host) {
     const wt = performance.now() / 1000;
     if (wt - (lastDownOf.get(e.stroke) ?? -1e9) < 0.5) return; lastDownOf.set(e.stroke, wt);   // a repeated down of one stroke adds no voice
     if (lastDownOf.size > 200) for (const [k, v] of lastDownOf) if (wt - v > 5) lastDownOf.delete(k);
-    downsAt.push(wt); while (downsAt.length && wt - downsAt[0] > 0.4) downsAt.shift();
+    downsAt.push(wt); while (downsAt.length && wt - downsAt[0] > 0.4) downsAt.shift(); downW[w] = wt;
     // a crowd stays beautiful: hands landing together each get softer (1/√n), and a full room a little softer still
     // and each wall carries a load that decays in ~0.35 s: a burst of hands on one wall (all at once on the beat) cannot pile up
     const wl = wallLoad[w]; wl.v *= Math.exp(-(wt - wl.t) / 0.35); wl.t = wt;
     const dense = (1 / Math.sqrt(downsAt.length)) / (1 + 0.05 * Math.max(0, (S.hands || 0) - 3)) / (1 + wl.v); wl.v += 1;
     const b = S.block, ph = S.phase, t = now() + 0.005, metres = e.v * (walls[w].height || 3), u = e.u ?? 0.5;
     const oct = metres < 0.9 ? 0 : metres < 1.5 ? 1 : 2, deg = clamp(Math.floor(u * 5), 0, 4);
-    const far = (k) => { const g = handVoice(e.wallId, u, 2.6, 0.9); play('s-timbal', { gain: 0.12 * k * dense, dest: g, at: t, rate: trailer() ? 0.841 : rand(0.78, 0.86) }); drum(t, G(0, g), { sub: 0.35 * k * dense, gain: 0.1, subDest: touchSub }); };   // (s-timbal is a C: × 0.841 = the A of the key)
-    if (b === 'wait') far(0.4);                           // softer now: the threshold's tiles answer the hand too (impacts)
-    else if (b === 'intro' || b === 'acta') { const g = handVoice(e.wallId, u, 4, 1.2); modal(t, midiHz(74 + MAJOR_PENTA[deg] + 12 * (oct > 1 ? 1 : 0)), 0.012 * dense, g, GLASS); }   // dust: a faint glint
+    const far = (k) => { const g = handVoice(e.wallId, u, 2.6, 0.35); play('s-timbal', { gain: 0.12 * k * dense, dest: g, at: t, rate: trailer() ? 0.841 : rand(0.78, 0.86) }); drum(t, G(0, g), { sub: 0.35 * k * dense, gain: 0.1, subDest: touchSub }); };   // (s-timbal is a C: × 0.841 = the A of the key)
+    if (b === 'wait') far(0.6);                           // softer now: the threshold's tiles answer the hand too (impacts)
+    else if (b === 'intro' || b === 'acta') { const g = handVoice(e.wallId, u, 4, 0.5); modal(t, midiHz(74 + MAJOR_PENTA[deg] + 12 * (oct > 1 ? 1 : 0)), 0.03 * dense, g, GLASS); }   // dust: a faint glint
     else if (b === 'brasa') {   // an ember burst; a low thump in the sub — T-055: its pitch by the hand's height (low hands = low notes: the children's)
       const g = handVoice(e.wallId, u, 2.2, 0.5), hk = clamp((metres - 0.5) / 1.4, 0, 1), step = Math.round(hk * 9), m = 38 + 12 * Math.floor(step / 5) + MINOR_PENTA[step % 5];
-      play('s-ember-burst', { gain: 0.17 * dense, dest: g, at: t, rate: (0.7 + 0.65 * hk) * rand(0.95, 1.05) });
+      play('s-ember-burst', { gain: 0.11 * dense, dest: g, at: t, rate: (0.7 + 0.65 * hk) * rand(0.95, 1.05) });
       if (!trailer()) drum(t, g, { f0: midiHz(m + 12), f1: midiHz(m), dur: 0.7, gain: 0.06 * dense, noise: 0, sub: 0.9 * (1 - 0.5 * hk), subDest: touchSub });   // (the trailer: the correfoc's birth has its own «fum»)
-      modal(t + 0.01, midiHz(m + 24), 0.022 * dense, g, STONE, 0.3);   // the tone: D minor pentatonic, two octaves from 0.5 to 1.9 m
+      modal(t + 0.01, midiHz(m + 24), 0.015 * dense, g, STONE, 0.3);   // the tone: D minor pentatonic, two octaves from 0.5 to 1.9 m
     } else if (b === 'pinya') {   // clay and body
       const g = handVoice(e.wallId, u, 1.6, 0.35);
-      play('s-clay', { gain: 0.2 * dense, dest: g, at: t, rate: rand(0.85, 1.1) });
-      drum(t, g, { f0: 85, f1: 52, dur: 0.6, gain: 0.07 * dense, noise: 0.02, sub: 0.8, subDest: touchSub });
+      play('s-clay', { gain: 0.13 * dense, dest: g, at: t, rate: rand(0.85, 1.1) });
+      drum(t, g, { f0: 85, f1: 55, dur: 0.6, gain: 0.045 * dense, noise: 0.02, sub: 0.8, subDest: touchSub });
     } else if (b === 'tronc' && ph !== 'reward') {   // ceramic and stone, tuned to the stone's mode (D minor pentatonic)
       const g = handVoice(e.wallId, u, 1.6, 0.3), m = snapM(62 + 12 * oct + MINOR_PENTA[deg]);
-      play('s-ceramic', { gain: 0.1 * dense, dest: g, at: t, rate: midiHz(m + 12) / 1605 });
-      modal(t, midiHz(m), 0.06 * dense, g, CERAMIC);
-      if (oct === 0) modal(t, midiHz(m - 12), 0.05 * dense, g, STONE);
+      play('s-ceramic', { gain: 0.065 * dense, dest: g, at: t, rate: midiHz(m + 12) / 1605 });
+      modal(t, midiHz(m), 0.04 * dense, g, CERAMIC);
+      if (oct === 0) modal(t, midiHz(m - 12), 0.035 * dense, g, STONE);
     } else if (b === 'pom') {   // glass: very soft, high, long
       const g = handVoice(e.wallId, u, 4.5, 1.1);
       modal(t, midiHz(81 + MAJOR_PENTA[deg] + 12 * (oct > 1 ? 1 : 0)), 0.025 * dense, g, GLASS);
@@ -813,7 +816,8 @@ export default async function start(host) {
   const INV = { block: '', at: -1e9, n: 0, solo: 0, gold: 0, goldK: 0, empty: new Map() };
   const STRING = [[1, 1, 2.4], [2, 0.45, 1.6], [3, 0.25, 1.0], [4, 0.12, 0.6], [5, 0.06, 0.4]];   // a tense string (the red net)
   const wid = (w) => walls[((w % NW) + NW) % NW]?.id;
-  const evAt = walls.map(() => -1);                             // per wall, the last event sound (a burst of births stays soft)
+  const evAt = walls.map(() => -1);
+  const towerW = (() => { const i = walls.findIndex((x) => x.id === 'P1'); return i >= 0 ? i : Math.min(1, NW - 1); })();   // torre3d's towerWall default                             // per wall, the last event sound (a burst of births stays soft)
   function breath(at, w, u, k, up = true) {                     // a short breath of air on a wall: band-passed noise that swells
     const id = wid(w); if (id == null) return; const g = handVoice(id, u, 1.4, 0.5), n = ctx.createBufferSource(), f = F('bandpass', up ? 500 : 1600, 1.1), e = G(0, g);
     n.buffer = NOISE; series(n, f, e); f.frequency.setValueAtTime(up ? 500 : 1600, at); f.frequency.exponentialRampToValueAtTime(up ? 1500 : 450, at + 0.6);
@@ -850,7 +854,7 @@ export default async function start(host) {
       if (k >= 1 && !c.ev) { charges.delete(key); if (block === 'tronc') formSound(c.w, c.u); else modal(t, midiHz(keyNote(5, 0)), 0.02, toWall(c.w), GLASS, 0.8); continue; }
       if (!per[c.w] || k > per[c.w]) per[c.w] = k;
     }
-    ringTone.forEach((r, w) => { const k = per[w]; if (k == null) { if (r.k >= 0) { toneTo(r, keyNote(Math.floor(r.k * 5), 0) - 0, 0, 0.3); r.k = -1; } return; } r.k = k; toneTo(r, keyNote(Math.floor(k * 5.99), 0), (0.006 + 0.016 * k) * P.effects); });
+    ringTone.forEach((r, w) => { const k = per[w]; if (k == null) { if (r.k >= 0) { toneTo(r, keyNote(Math.floor(r.k * 5), 0) - 0, 0, 0.3); r.k = -1; } return; } r.k = k; toneTo(r, keyNote(Math.floor(k * 5.99), 0), (0.016 + 0.034 * k) * P.effects); });
   }
   function partEvents(m) {
     if (!running() || !trailer()) return;
@@ -860,21 +864,21 @@ export default async function start(host) {
       const a = ev.split(':'), k = a[0];
       if (m.part === 'umbral3d') {
         if (k === 'charge') { const w = +a[1] || 0; charges.set('u' + w, { w, u: 0.5, t0: wt, dur: 4, ev: true }); modal(t, midiHz(keyNote(0, 0)), 0.02, toWall(w), GLASS, 0.9); drum(t, toWall(w), { f0: 120, f1: 73, dur: 0.4, gain: 0.025, noise: 0, sub: 0.2, subDest: touchSub }); }
-        else if (k === 'uncharge') { const w = +a[1] || 0; charges.delete('u' + w); modal(t, midiHz(keyNote(-2, 0)), 0.01, toWall(w), GLASS, 0.9); }
+        else if (k === 'uncharge') { const w = +a[1] || 0; charges.delete('u' + w); modal(t, midiHz(keyNote(-2, 0)), 0.02, toWall(w), GLASS, 0.9); }
         else if (k === 'cleared') {   // THE MOSAIC FALLS: a deep blow, the stones crash round the room, a descending shower of glass
           charges.clear(); drum(t, drumBus, { f0: 80, f1: 36.7, dur: 2.4, gain: 0.16, noise: 0.06, sub: 0.9 }); play('s-impact', { gain: 0.2, at: t + 0.02 }); play('s-crack', { gain: 0.12, at: t + 0.03, rate: 0.6 });
           for (let w = 0; w < NW; w++) for (let j = 0; j < 5; j++) { play('sfx-tile', { gain: 0.05, dest: toWall(w), at: t + 0.05 + w * 0.08 + j * rand(0.08, 0.2), rate: rand(0.7, 1.2) }); modal(t + 0.1 + w * 0.08 + j * 0.16, midiHz(keyNote(9 - j, 0)), 0.012, toWall(w), GLASS, 0.9); }
         }
       } else if (m.part === 'castells3d') {
-        if (k === 'stage') { const i = ['correfoc', 'pinya', 'tronc', 'pom', 'aleta'].indexOf(a[1]); if (i >= 0) { modal(t, midiHz(keyNote(5 + i, 0)), 0.016, toWall(i), BELL, 1); modal(t + 0.02, midiHz(keyNote(i, -1)), 0.008, toWall(i), WARM, 0.6); } }
-        else if (k === 'built') chordOn(t, [0, 2, 4], -1, 0.012, 0, WARM);
+        if (k === 'stage') { const i = ['correfoc', 'pinya', 'tronc', 'pom', 'aleta'].indexOf(a[1]); if (i >= 0) { modal(t, midiHz(keyNote(5 + i, 0)), 0.05, toWall(i), BELL, 1); modal(t + 0.02, midiHz(keyNote(i, -1)), 0.025, toWall(i), WARM, 0.6); } }
+        else if (k === 'built') chordOn(t, [0, 2, 4], -1, 0.04, 0, WARM);
       } else if (m.part === 'brasa3d') {
         const st = partSt.brasa3d || {};
         if (k === 'intro' && a[1] === 'strip') { for (let w = 0; w < NW; w++) { const at = t + 0.2 + w * 0.8; modal(at, midiHz(keyNote(2 + w, 0)), 0.01, toWall(w + 2), GLASS, 0.9); breath(at, w + 2, 0.5, 0.012); } }   // the line of light runs round the room to P1
-        else if (k === 'intro' && a[1] === 'boom') drum(t, toWall(1), { f0: 90, f1: 36.7, dur: 1.4, gain: 0.08, noise: 0.03, sub: 0.7 });
+        else if (k === 'intro' && a[1] === 'boom') { drum(t, toWall(1), { f0: 90, f1: 36.7, dur: 1.4, gain: 0.13, noise: 0.08, sub: 0.7 }); play('s-crack', { gain: 0.07, dest: toWall(1), at: t + 0.01, rate: 0.75 }); }
         else if (k === 'feed') {   // every fire a correfoc passes: a tuned stone, higher the more the room burns
           const w = +a[1] || 0; if (t - evAt[w] < 0.15) continue; evAt[w] = t;
-          modal(t, midiHz(keyNote(Math.floor(clamp(st.total || 0, 0, 1) * 5), -1)), 0.02, toWall(w), STONE, 0.5);
+          modal(t, midiHz(keyNote(Math.floor(clamp(st.total || 0, 0, 1) * 5), -1)), 0.04, toWall(w), STONE, 0.5);
         } else if (k === 'boom') {   // the four fires flare: a deep blow, a salvo of tuned drums round the room, the voice
           play('s-impact', { gain: 0.18, at: t + 0.02 }); drum(t, drumBus, { f0: 80, f1: 36.7, dur: 2.2, gain: 0.15, noise: 0.05, sub: 0.9 });
           for (let w = 0; w < NW; w++) for (let j = 0; j < 3; j++) drum(t + 0.3 + w * 0.22 + j * 0.11, toWall(w), { f0: 160, f1: midiHz(keyNote(j, -2)), dur: 0.5, gain: 0.05, noise: 0.15, sub: 0.15, subDest: touchSub });
@@ -886,10 +890,10 @@ export default async function start(host) {
           const w = k === 'born' ? +a[1] || 0 : (+a[1] || 0) % NW, u = k === 'born' ? clamp(+a[2] || 0.5, 0, 1) : 0.5, row = +a[4] || 0, close = t - evAt[w] < 0.12; evAt[w] = t;
           const id = wid(w); if (id == null) continue; const g = handVoice(id, u, 2, 0.4), lvl = close ? 0.5 : 1;
           breath(t, w, u, 0.022 * lvl); modal(t + 0.02, midiHz(keyNote(Math.floor(u * 5) - row, -1)), 0.03 * lvl, g, WARM, 0.4);
-          if (!close) drum(t, g, { f0: 110, f1: 55, dur: 0.6, gain: 0.04, noise: 0, sub: 0.5, subDest: touchSub });
+          if (!close && wt - (downW[w] ?? -1e9) > 0.4) drum(t, g, { f0: 110, f1: 55, dur: 0.6, gain: 0.04, noise: 0, sub: 0.5, subDest: touchSub });
         } else if (k === 'thread') {   // a red thread joins two groups: a tense string, higher as the net closes
           joins++; const st = partSt.pinya3d2 || {}, w = evAt.indexOf(Math.max(...evAt)), d = 2 + Math.min(10, Math.floor(joins / 2) + Math.floor((st.threadCover || 0) * 4));
-          modal(t, midiHz(keyNote(d, 0)), 0.018, toWall(w < 0 ? 0 : w), STRING, 0.6); modal(t + 0.004, midiHz(keyNote(d, 0)) * 1.003, 0.008, toWall((w < 0 ? 0 : w) + 1), STRING, 0.6);
+          modal(t, midiHz(keyNote(d, 0)), 0.03, toWall(w < 0 ? 0 : w), STRING, 0.6); modal(t + 0.004, midiHz(keyNote(d, 0)) * 1.003, 0.014, toWall((w < 0 ? 0 : w) + 1), STRING, 0.6);
         } else if (k === 'full') {   // the room is full: a deep blow and the whole chord of the pinya on every wall; the voice
           drum(t, drumBus, { f0: 90, f1: 55, dur: 2, gain: 0.14, noise: 0.04, sub: 0.9 }); play('s-impact', { gain: 0.12, at: t + 0.02 });
           for (let w = 0; w < NW; w++) voiceNote(t + 0.05 + w * 0.06, keyNote([0, 2, 4, 5][w % 4], -1), 3.2, 0.03, toWall(w));
@@ -898,11 +902,12 @@ export default async function start(host) {
         } else if (k === 'end') { for (let w = 0; w < NW; w++) { breath(t + w * 0.15, w, 0.5, 0.02, false); modal(t + 0.2 + w * 0.2, midiHz(keyNote(9 - w, 0)), 0.012, toWall(w), GLASS, 0.9); } }
       } else if (m.part === 'torre3d') {
         if (k === 'charge') { torreEv = true; const w = +a[1] || 0, key = 't' + w + ':'; if (!charges.has(key)) charges.set(key, { w, u: clamp(+a[2] || 0.5, 0, 1), t0: wt, dur: 1.7, ev: true }); }   // (a hand sliding re-sends it: the ring keeps its charge)
-        else if (k === 'uncharge') { const w = +a[1] || 0; for (const key of [...charges.keys()]) if (key.startsWith('t' + w + ':')) charges.delete(key); modal(t, midiHz(keyNote(-1, 0)), 0.01, toWall(w), GLASS, 0.8); }
+        else if (k === 'uncharge') { const w = +a[1] || 0; for (const key of [...charges.keys()]) if (key.startsWith('t' + w + ':')) charges.delete(key); modal(t, midiHz(keyNote(-1, 0)), 0.02, toWall(w), GLASS, 0.8); }
         else if (k === 'form') { torreEv = true; const w = +a[1] || 0; for (const key of [...charges.keys()]) if (key.startsWith('t' + w + ':')) charges.delete(key); formSound(w, clamp(+a[2] || 0.5, 0, 1)); }
-        else if (k === 'land') { const w = Math.floor(Math.random() * NW); modal(t, midiHz(keyNote(+a[1] || 0, 0)), 0.012, toWall(w), CERAMIC, 0.5); }
+        else if (k === 'land') { const w = towerW; modal(t, midiHz(keyNote(+a[1] || 0, 0)), 0.024, toWall(w), CERAMIC, 0.5); drum(t, toWall(w), { f0: 110, f1: 73, dur: 0.35, gain: 0.03, noise: 0.05, sub: 0.2, subDest: touchSub }); }
         else if (k === 'joined') {   // a climber takes its place: a soft thump and a ceramic note of its tier
-          const tier = a[1] === 'pinya' ? -1 : +a[1] || 0, w = Math.floor(Math.random() * NW);
+          if ((m.ev || []).some((x) => typeof x === 'string' && x.startsWith('land'))) continue;   // the climber's 'land' already sounded
+          const tier = a[1] === 'pinya' ? -1 : +a[1] || 0, w = towerW;
           play('s-clay', { gain: 0.06, dest: toWall(w), at: t, rate: 0.8 }); modal(t + 0.01, midiHz(keyNote(2 + tier, 0)), 0.018, toWall(w), CERAMIC, 0.5);
         } else if (k === 'tier') {   // a floor is complete: a blow and a chord that climbs with the height
           const n = +a[1] || 1; drum(t, drumBus, { f0: 100, f1: midiHz(keyNote(0, -2)), dur: 1.2, gain: 0.08 + 0.015 * n, noise: 0.05, sub: 0.6 });
@@ -910,7 +915,7 @@ export default async function start(host) {
         } else if (k === 'top') {   // the castell is up: a deep blow and a rising cascade on every wall
           drum(t, drumBus, { f0: 90, f1: 36.7, dur: 2, gain: 0.14, noise: 0.04, sub: 0.9 }); play('s-impact', { gain: 0.12, at: t + 0.02 });
           for (let j = 0; j < 8; j++) modal(t + 0.1 + j * 0.12, midiHz(keyNote(5 + j, 0)), 0.014, toWall(j), GLASS, 0.9);
-        } else if (k === 'gold') { if (a[1] === 'on') { const w = +a[2] || 0; modal(t, midiHz(keyNote(7, 0)), 0.014, toWall(w), GLASS, 0.9); } }
+        } else if (k === 'gold') { if (a[1] === 'on') { const w = +a[2] || 0; modal(t, midiHz(keyNote(7, 0)), 0.024, toWall(w), GLASS, 0.9); } }
         else if (k === 'aleta' && a[1] === 'ready') { INV.gold = wt; INV.goldHeld = S.clock; goldBeat = 0; }
         else if (k === 'aleta' && a[1] === 'charged') { riser(t, 0.35, 0.04, fxBus); }
         else if (k === 'aleta' && !a[1]) { toneTo(goldT, keyNote(10, 0), 0, 0.2); INV.gold = 0; crown(); }   // l'aleta: the release (the crown's music lands on it)
@@ -936,8 +941,8 @@ export default async function start(host) {
   function goldStep(dt) {
     const g = partSt.torre3d; if (!trailer() || block !== 'tronc' || !g || !g.ready || INV.gold === 0) { if (INV.goldK) { toneTo(goldT, 69, 0); INV.goldK = 0; } return; }
     const c = clamp(g.charge || 0, 0, 1), rising = c > goldPrev + 1e-4; goldPrev = c; if (rising || INV.goldHeld == null) INV.goldHeld = S.clock; goldRise = rising ? 1 : Math.max(0, goldRise - dt * 2);
-    INV.goldK = 1; toneTo(goldT, keyNote(4 + Math.floor(c * 6.99), 0), (0.004 + 0.02 * c) * goldRise * P.effects, 0.08);
-    goldBeat -= dt; if (goldBeat <= 0) { goldBeat = 1.1 - 0.6 * c; modal(now() + 0.01, midiHz(keyNote(10, 0)), 0.006 + 0.01 * c, toWall(Math.floor(Math.random() * NW)), GLASS, 1); }
+    INV.goldK = 1; toneTo(goldT, keyNote(4 + Math.floor(c * 6.99), 0), (0.012 + 0.05 * c) * goldRise * P.effects, 0.08);
+    goldBeat -= dt; if (goldBeat <= 0) { goldBeat = 1.1 - 0.6 * c; modal(now() + 0.01, midiHz(keyNote(10, 0)), 0.012 + 0.016 * c, toWall(Math.floor(Math.random() * NW)), GLASS, 1); }
   }
   // INVITATIONS: when nobody plays (or one need is plain), a short line — never over another voice, ≥ INVITE_GAP s apart, ≤ INVITE_MAX a
   // block until a hand comes back; never before the block's own opening lines are done
