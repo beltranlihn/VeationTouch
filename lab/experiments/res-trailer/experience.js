@@ -734,11 +734,11 @@ function frame(dt) {
         p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6;   /* (QA) reveal isn't eased in the part: the lit plate fades with the fires */ p.fires = (e.lastFires || [0, 0, 0, 0]).map((f) => f * k); p.lit = (e.lastLit || 0) * k; p.embers = (e.lastEmbers || [0, 0, 0, 0]).map((f) => f * k); }
       if (e.home === 'tronc') {   // the tower: points only, no occluder, moved down with the tower's world (its plazaSink parallax)
         const g = parts.torre3d?.part?.progress?.() || {};
-        p.dark = 1; p.reveal = 0.55; p.occlude = 0; p.pointGain = 0.35; p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.embers = [0, 0, 0, 0];
+        p.dark = 1; p.reveal = 0.55; p.occlude = 0; p.pointGain = 0.1 + 0.14 * sm(0.5, 5, serving ? S.t : 9); p.breathe = 1; p.cool = 0.8;   /* 26-11 (Beltrán: «todo se ve muy blanco») fainter and greyer */ p.fires = [0, 0, 0, 0]; p.lit = 0; p.embers = [0, 0, 0, 0];
         e.part.object.position.y = (g.worldY || 0) * (1 + (g.plazaSink ?? 0.35)); p.wave = g.wave || null;   // l'aleta's golden wave runs through the square (the tower's own backdrop had it)
       } else { e.part.object.position.y = 0; p.wave = null; }
       const D = P['trailer.outro'] ?? 18;
-      if (e.home === 'acta') { const ta = serving ? S.t : 0; p.dark = 0; p.reveal = 0.55; p.occlude = parts.torre3d && parts.torre3d.state !== 'off' ? 0 : 1;   /* (QA) no occluder while the tower's gold dust still leaves */ p.pointGain = 0.35 + 0.05 * sm(0, 3, ta); p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.embers = [0, 0, 0, 0]; p.shatter = Math.max(e.leave || 0, sm(D - 5, D - 1.5, ta)); }
+      if (e.home === 'acta') { const ta = serving ? S.t : 0; p.dark = 0; p.reveal = 0.55; p.occlude = parts.torre3d && parts.torre3d.state !== 'off' ? 0 : 1;   /* (QA) no occluder while the tower's gold dust still leaves */ p.pointGain = 0.24 + 0.16 * sm(0, 3, ta); p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.embers = [0, 0, 0, 0]; p.shatter = Math.max(e.leave || 0, sm(D - 5, D - 1.5, ta)); }
       else p.shatter = e.leave || 0;
     } else if (e.name === 'castells3d' || e.name === 'introp1') {
       if (e.home === 'acta') { t = serving ? S.t : 0; p.mode = 'outro'; p.outroDur = P['trailer.outro'] ?? 18; }   // the closing: its own clock and mode
