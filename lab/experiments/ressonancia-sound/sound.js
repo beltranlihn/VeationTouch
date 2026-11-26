@@ -954,7 +954,7 @@ export default async function start(host) {
       if (rv > 0.04 && rv < 1 && performance.now() / 1000 - dragAt < 0.25 && Math.random() < dt * (0.4 + 5 * rv)) {   /* studio 25-11: the reveal's glints only while a hand drags (they rang on until the reveal faded) */ const w = Math.floor(Math.random() * NW); modal(t + 0.01, midiHz(86 + MAJOR_PENTA[Math.floor(Math.random() * 5)] + (Math.random() < 0.3 ? 12 : 0)), (0.004 + 0.012 * rv) * P.effects, toWall(w), GLASS, 1); }
       const st = S.start || 0;
       startTone.frequency.setTargetAtTime(midiHz(62) * Math.pow(2, st), t, 0.15); startFifth.frequency.setTargetAtTime(midiHz(69) * Math.pow(2, st), t, 0.15);
-      startG.gain.setTargetAtTime(st > 0.01 ? (0.006 + 0.03 * st) * P.effects : 0, t, 0.2);
+      startG.gain.setTargetAtTime(st > 0.01 && st < 0.999 ? (0.006 + 0.03 * st) * P.effects : 0, t, st >= 0.999 ? 0.08 : 0.2);   // studio 26-11 (Beltrán): once the room breaks (the trailer holds start at 0.999 while the mosaic falls) the charge tone stops
     } else if (startG.gain.value > 0) startG.gain.setTargetAtTime(0, t, 0.3);
     // the intro's bells: far away (the far wall) at the start, again lower as the tower dissolves
     if (b === 'intro') {
