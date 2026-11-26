@@ -10,6 +10,7 @@ import * as THREE from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { createRoom3D } from '../../../room3d.js';
 import { createBrasa2 } from '../brasa2.js';
+import { createBrasaSound } from '../brasa2-sound.js';
 
 const Q = new URLSearchParams(location.search);
 const vt = await connectExperience();
@@ -54,12 +55,34 @@ addEventListener('keydown', (e) => {
   if (e.key === 'z' || e.key === 'Z') { part.reset(); t0 = time; }
 });
 
+// the fire's sound (../brasa2-sound.js) on a stereo stand-in of the work's audio host (P4 left … P3 right, like the lab's 4.1 preview);
+// it starts on the first click (the browser wants a gesture). ?mute: none.
+let snd = null;
+function startSound() {
+  if (snd || Q.has('mute')) return;
+  const ctx = new AudioContext({ sampleRate: 48000 }), master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+  const wallInput = (id, u = 0.5) => {
+    const wi = Math.max(0, walls.findIndex((w) => w.id === id)), g = ctx.createGain(), p = ctx.createStereoPanner();
+    const pan = (uu) => Math.max(-1, Math.min(1, ((cum[wi] + uu * walls[wi].width) / PER) * 2 - 1));
+    p.pan.value = pan(u); g.connect(p); p.connect(master);
+    return { node: g, setPosition(uu) { p.pan.setTargetAtTime(pan(uu), ctx.currentTime, 0.05); }, disconnect() { try { g.disconnect(); p.disconnect(); } catch { /* gone */ } } };
+  };
+  const subF = ctx.createBiquadFilter(); subF.type = 'lowpass'; subF.frequency.value = 120; subF.connect(master);
+  snd = createBrasaSound({ ctx, walls: walls.map((w) => ({ id: w.id })), wallInput, roomInput: () => master, subInput: () => subF });
+  // (lab) a peak meter on the output: window.__b2.peak() → dBFS of the loudest sample since the last call
+  const an = ctx.createAnalyser(); an.fftSize = 2048; master.connect(an); const buf = new Float32Array(an.fftSize); let pk = 0;
+  setInterval(() => { an.getFloatTimeDomainData(buf); for (const v of buf) pk = Math.max(pk, Math.abs(v)); }, 20);
+  window.__b2.snd = snd; window.__b2.ctx = ctx; window.__b2.peak = () => { const d = 20 * Math.log10(Math.max(pk, 1e-6)); pk = 0; return +d.toFixed(1); };
+}
+addEventListener('pointerdown', startSound, true); addEventListener('keydown', startSound, true);
+
 let time = 0, t0 = -(Number(Q.get('t')) || 0);
 const input = { time: 0, t: 0, arrive: 1, leave: 0, hands: [], state: { block: 'brasa' } };
 vt.loop((dt) => {
   dt = Math.min(dt, 0.05); time += dt;
   input.time = time; input.t = time - t0; input.state.t = time - t0; input.hands = gatherHands();
   part.update(dt, input);
+  snd?.update(dt, part.sound());
   for (const ev of part.events) if (Q.has('log')) console.log('[brasa2]', ev, JSON.stringify(part.progress()));
   room.render(dt);
 }, canvas);

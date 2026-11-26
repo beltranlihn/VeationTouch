@@ -21,6 +21,8 @@
 // API (for the director: the score, the sound, the trailer)
 //   create({ THREE, TSL, room, params }) → { object, update(dt, input), setParams, dispose, progress(), events, reset() }
 //   input   PARTS.md's: time, t (the block's clock: drives the opening), arrive, leave, hands [{ stroke, wall, y, s, … }], downs
+//   sound()    → { births [{ wall, u }], devils [{ wall, u, spd }], hands [{ wall, u, slide }], fires [{ wall, level, flash }], feeds,
+//                 boom, storm } this frame: what brasa2/sound.js (the fire's synthesis) plays — the director mounts it in the work's sound
 //   progress() → { fires: [P4, P1, P2, P3] (0..1, above 1 in the boom), total (0..1), devils, feeds, done, boom (0..1) }
 //   events  the array of this frame's events: 'feed:<w>' (wall index), 'boom', 'done', 'storm', 'storm:full', 'intro:strip', 'intro:boom'
 //   THE STORM after the boom (stormDelay 3.2 s, stormRamp 4 s; storm false = none): the room fills with sparks and flashes, the rest fades
@@ -200,6 +202,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
       // ~1.15 laps: every fire is passed at least once
       life: opt.life ?? (1.1 + 1.0 + (PER * 1.15) / top) });
     dv.fedAt.fill(-99);
+    births.push({ s, intro: !!opt.intro });
     return dv;
   }
 
@@ -278,8 +281,9 @@ export function createBrasa2({ THREE, TSL, room, params }) {
 
   // ------------------------------------------------------------------------------------------------ 7. state
   let storm = 0, stormOn = false, stormFull = false;
+  let births = [];                                             // (this frame's correfoc births, for the sound)
   let events = [], feeds = 0, boomAt = -1, done = false, introFired = { strip: false, boom: false }, clock0 = null, prevT = 0;
-  const handsSeen = new Map();
+  const handsSeen = new Map(), handS = new Map();
   const introCfg = () => ({ strip: 0.5, stop: 4.0, boom: 4.8, run: [5, 12], ...(P.intro || {}) });   // (the voice: 0.5 «Every castell…», 5.0 «The correfoc carries the fire», 9.0 «Touch the wall…»)
   function reset() {
     lvl.fill(0); target.fill(0); flash.fill(0); lastFed.fill(-99); feeds = 0; boomAt = -1; done = false; storm = 0; stormOn = false; stormFull = false; introFired = { strip: false, boom: false }; clock0 = null;
@@ -292,7 +296,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
   function update(dt, input = {}) {
     dt = Math.min(Math.max(dt || 1 / 60, 1e-3), 1 / 20);
     const time = input.time ?? (prevT + dt); prevT = time;
-    events = [];
+    events = []; births = [];
     const arrive = input.arrive ?? P.arrive ?? 1, leave = input.leave ?? P.leave ?? 0;
     // the block's clock (drives the opening): the host's t, else from the first frame we are there
     if (clock0 === null && arrive > 0.01) clock0 = time;
@@ -347,6 +351,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
         handsSeen.set(h.stroke, time);
         if ((P.devils ?? 1) > 0 && arrive > 0.3 && leave < 0.3) spawnDevil(s, time, { held: true, stroke: h.stroke });
       } else handsSeen.set(h.stroke, time);
+      handS.set('h' + h.stroke, s);
       if (P.handFire !== false) { wallPt(s, y, P3h, _away); trailPoint('h' + h.stroke, P3h, time, true, dt, _away); }
     }
     for (const [k, t0] of handsSeen) if (time - t0 > 0.6) { handsSeen.delete(k); for (const dv of devils) if (dv.on && dv.stroke === k) dv.held = false; }
@@ -446,6 +451,26 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     object.visible = arrive > 0.001 && leave < 0.999;
     if (typeof window !== 'undefined') window.__brasa2 = { progress, devils, lvl, flash, FIRE, feeds: () => feeds, sites, last: { arrive, leave, tb, clock0, block: S?.block, st: S?.t, it: input.t, hands: hands.length, intro: introFired, I, introOn } };
   }
+  // ---- the sound's view of the level (brasa2/sound.js): where things are on the walls (wall id, u 0..1 along it), how much
+  function wallU(s) {
+    s = wrapP(s); let w = NW - 1; for (let i = 0; i < NW; i++) if (s < cum[i] + walls[i].width) { w = i; break; }
+    return [walls[w].id, (s - cum[w]) / walls[w].width];
+  }
+  const SND = { births: [], devils: [], hands: [], fires: [], feeds: [], boom: false, storm: 0, done: false };
+  function sound() {
+    SND.births = births.map((b) => { const [wall, u] = wallU(b.s); return { wall, u, intro: b.intro }; });
+    SND.devils = devils.filter((d) => d.on && d.dis === 0 && d.k > 0.5).map((d) => { const [wall, u] = wallU(d.s); return { wall, u, spd: d.spd, held: d.held }; });
+    SND.hands = [];
+    for (const [id, t] of TR) if (id[0] === 'h' && t.seen !== false) {
+      const sp = t.vel.length(), sH = handS.get(id); if (sH === undefined) continue;
+      const [wall, u] = wallU(sH);
+      SND.hands.push({ id, wall, u, slide: clamp01((sp - 0.12) / 0.6), speed: sp });
+    }
+    SND.fires = sites.map((st, i) => ({ wall: walls[i].id, level: lvl[i], flash: flash[i] }));
+    SND.feeds = events.filter((e) => e.startsWith('feed:')).map((e) => walls[+e.slice(5)].id);
+    SND.boom = events.includes('boom'); SND.storm = storm; SND.done = done;
+    return SND;
+  }
   function progress() {
     const fires = Array.from(lvl, (v, i) => v + (boomAt >= 0 ? 0.25 * Math.sin(Math.PI * Math.min(1, (prevT - boomAt) / 2)) : 0));
     const bAt = Number(P.boomAt ?? 0.72), bFeeds = Number(P.boomFeeds ?? 52);
@@ -453,7 +478,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     return { fires, total, devils: devils.filter((d) => d.on && d.dis === 0).length, feeds, done, boom: boomAt < 0 ? 0 : clamp01((prevT - boomAt) / 3), storm };
   }
   return {
-    object, update, progress, reset,
+    object, update, progress, reset, sound,
     debug: { setLevel(i, v) { target[i] = v; lvl[i] = v; }, feed(i) { target[i] = Math.min(1, target[i] + Number(P.feed ?? 0.06)); flash[i] = 1; lastFed[i] = prevT; }, devil(s, dir) { return spawnDevil(s, prevT, dir ? { dir } : {}); } },   // (lab: studies and captures)
     get events() { return events; },
     setParams(p) { if (p && p !== P) Object.assign(P, p); },
