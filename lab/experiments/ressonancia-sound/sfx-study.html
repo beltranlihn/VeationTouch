@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ressonància — trailer interaction sounds (study)</title>
+<style>
+  :root { --s0: #111; --s1: #1B1B1B; --s2: #262626; --ink: #E0E0E0; --ink2: #B8B8B8; --live: #4FC3E8; --att: #E5B567; }
+  html, body { margin: 0; background: var(--s0); color: var(--ink); font: 13px/1.4 Geist, system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  p { color: var(--ink2); margin: 0 0 14px; }
+  .bar { display: flex; gap: 8px; align-items: center; margin: 0 0 14px; flex-wrap: wrap; }
+  section { background: var(--s1); border: 1px solid var(--s2); border-radius: 6px; padding: 10px 12px; margin: 0 0 10px; }
+  section h2 { font-size: 12px; font-weight: 600; margin: 0 0 8px; color: var(--ink2); text-transform: uppercase; letter-spacing: .06em; }
+  button { background: var(--s2); color: var(--ink); border: 1px solid #333; border-radius: 4px; padding: 5px 9px; font: inherit; cursor: pointer; margin: 0 4px 4px 0; }
+  button:hover { border-color: var(--live); }
+  button.on { border-color: var(--live); color: var(--live); }
+  button.go { border-color: var(--att); color: var(--att); }
+  #meters { display: flex; gap: 10px; align-items: flex-end; height: 60px; }
+  .m { width: 46px; text-align: center; color: var(--ink2); font-size: 11px; }
+  .m i { display: block; height: 44px; background: var(--s2); position: relative; margin-bottom: 3px; }
+  .m i b { position: absolute; left: 0; right: 0; bottom: 0; background: var(--live); }
+  #info { color: var(--ink2); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ressonància — trailer interaction sounds</h1>
+  <p>Every event of sfx-trailer.js on a button, on the simulated 4.1 room (P4 left … P3 right). Pick the wall, click to hear it. Charges and gold hold until released.</p>
+  <div class="bar"><button id="start" class="go">Start audio</button> Wall: <span id="walls"></span> <span id="info"></span></div>
+  <div id="meters"></div>
+  <div id="groups"></div>
+</main>
+<script src="../../harness/kit.js"></script>
+<script type="module">
+  import { createTrailerSfx } from './sfx-trailer.js';
+  const room = LabKit.createRoomAudio();
+  const audio = room.audio;
+  const sfx = createTrailerSfx(audio, { walls: audio.walls.map((w) => ({ id: w.id, height: 3.75 })) });
+  window.__sfx = sfx;
+  let W = 1, goldTimer = 0;
+  const $ = (s) => document.querySelector(s);
+  $('#start').onclick = async () => { await room.resume(); $('#start').textContent = 'Audio on'; $('#start').classList.remove('go'); };
+  const ws = $('#walls');
+  audio.walls.forEach((w, i) => { const b = document.createElement('button'); b.textContent = w.name || w.id; b.onclick = () => { W = i; [...ws.children].forEach((c, k) => c.classList.toggle('on', k === W)); }; ws.append(b); });
+  ws.children[W].classList.add('on');
+  const u = () => (0.3 + Math.random() * 0.4).toFixed(3), y = () => (0.9 + Math.random() * 0.9).toFixed(2);
+  const ev = (part, block, e) => { sfx.setBlock(block); sfx.onEvent(part, block, [typeof e === 'function' ? e() : e]); };
+  let cover = 0, tierN = 0;
+  const G = [
+    ['Entrance (wait · D major pentatonic)', [
+      ['open', () => ev('umbral3d', 'wait', 'open')],
+      ['charge (hold)', () => ev('umbral3d', 'wait', `charge:${W}`)],
+      ['uncharge', () => ev('umbral3d', 'wait', `uncharge:${W}`)],
+      ['cleared', () => ev('umbral3d', 'wait', 'cleared')],
+    ]],
+    ['Brasa (D / A)', [['intro:boom', () => ev('brasa3d', 'brasa', 'intro:boom')]]],
+    ['Pinya (A minor pentatonic)', [
+      ['born row 0', () => ev('pinya3d2', 'pinya', `born:${W}:${u()}:${y()}:0`)],
+      ['born row 1', () => ev('pinya3d2', 'pinya', `born:${W}:${u()}:${y()}:1`)],
+      ['born row 2', () => ev('pinya3d2', 'pinya', `born:${W}:${u()}:${y()}:2`)],
+      ['born ×8 (group)', () => { for (let k = 0; k < 8; k++) setTimeout(() => ev('pinya3d2', 'pinya', `born:${k % 4}:${u()}:${y()}:${k % 3}`), k * 140); }],
+      ['thread:join', () => { cover = Math.min(1, cover + 0.15); sfx.onState('pinya3d2', 'pinya', { threadCover: cover }); ev('pinya3d2', 'pinya', 'thread:join'); info(`threadCover ${cover.toFixed(2)}`); }],
+      ['reset cover', () => { cover = 0; info('threadCover 0'); }],
+      ['full', () => ev('pinya3d2', 'pinya', 'full')],
+    ]],
+    ['Tower (tronc · D E G A C)', [
+      ['charge (hold)', () => ev('torre3d', 'tronc', `charge:${W}:${u()}:${y()}`)],
+      ['uncharge', () => ev('torre3d', 'tronc', `uncharge:${W}`)],
+      ['form → P1', () => ev('torre3d', 'tronc', `form:${W}:${u()}:${y()}`)],
+      ['land', () => ev('torre3d', 'tronc', `land:${tierN}`)],
+      ['joined (old event)', () => ev('torre3d', 'tronc', `joined:${tierN}`)],
+      ['tier +1', () => { tierN = (tierN % 6) + 1; ev('torre3d', 'tronc', `tier:${tierN}`); info(`tier ${tierN}`); }],
+      ['top', () => ev('torre3d', 'tronc', 'top')],
+      ['gold:on (charge 0→1 in 5 s)', () => { ev('torre3d', 'tronc', `gold:on:${W}`); let c = 0; clearInterval(goldTimer); goldTimer = setInterval(() => { c = Math.min(1, c + 0.05); sfx.onState('torre3d', 'tronc', { charge: c }); info(`gold charge ${c.toFixed(2)}`); if (c >= 1) clearInterval(goldTimer); }, 250); }],
+      ['gold:off', () => { clearInterval(goldTimer); ev('torre3d', 'tronc', `gold:off:${W}`); }],
+      ['aleta:charged → aleta', () => { ev('torre3d', 'tronc', 'aleta:charged'); setTimeout(() => ev('torre3d', 'tronc', 'aleta'), 350); }],
+    ]],
+    ['Closing (castells3d · D major)', [
+      ['built', () => ev('castells3d', 'acta', 'built')],
+      ...['correfoc', 'pinya', 'tronc', 'pom', 'aleta'].map((s) => [`stage:${s}`, () => ev('castells3d', 'acta', `stage:${s}`)]),
+    ]],
+    ['A hand (onHand, any block)', [
+      ...['wait', 'brasa', 'pinya', 'tronc', 'acta'].map((b) => [`hand in ${b}`, () => { sfx.setBlock(b); sfx.onHand(b, { type: 'down', wallId: audio.walls[W].id, u: Math.random(), v: 0.2 + Math.random() * 0.35, stroke: 's' + Math.random() }); }]),
+    ]],
+  ];
+  const groups = $('#groups');
+  for (const [title, btns] of G) {
+    const s = document.createElement('section'); s.innerHTML = `<h2>${title}</h2>`;
+    for (const [label, fn] of btns) { const b = document.createElement('button'); b.textContent = label; b.onclick = async () => { await room.resume(); fn(); }; s.append(b); }
+    groups.append(s);
+  }
+  function info(t) { $('#info').textContent = t; }
+  const meters = $('#meters'), mk = {};
+  function frame() {
+    for (const { id, level } of room.levels()) {
+      if (!mk[id]) { const m = document.createElement('div'); m.className = 'm'; m.innerHTML = `<i><b></b></i>${id}`; meters.append(m); mk[id] = m.querySelector('b'); }
+      mk[id].style.height = Math.min(100, level * 100 / 0.5) + '%';   // full scale = 0.5 (−6 dBFS)
+    }
+    $('#info').dataset.v = sfx.voices();
+    requestAnimationFrame(frame);
+  }
+  frame();
+</script>
+</body>
+</html>
