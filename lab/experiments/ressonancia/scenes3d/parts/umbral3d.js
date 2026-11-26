@@ -754,6 +754,23 @@ export function create(ctx) {
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; return mesh;
   })();
   hero.add(groutMesh);
+  // studio 26-11 (Beltrán: «hay que agregar el título»): the title in the P1 window (umbral3d/title.png, «Resonnancia Asset/Final/1x/Titulo.png»:
+  // white text and logos on transparent, drawn at the strip's own scale — 1036 × 237 px of the 7196 × 1094 picture). A plane ON the wall,
+  // centred in the wide opening, 1 cm towards the public: the wall's camera maps it 1 : 1 to the strip. Its white is lifted so that after
+  // the tone mapping it reads white, kept under the bloom's threshold.
+  const titleMesh = (() => {
+    const o = OPEN.find((q) => q.hw / q.hh >= 1.4); if (!o) return null;
+    const w = walls[o.wi], pw = STONES?.walls?.[o.wi], kx = pw ? w.width / pw[2] : 1, ky = (w.height || 3.75) / 3.75;
+    const pxm = pw ? pw[1] / pw[2] : 261, W = (1036 / pxm) * kx, H = (237 / (912 / 3.75)) * ky;
+    const tex = new THREE.TextureLoader().load(new URL('./umbral3d/title.png', import.meta.url).href);
+    tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
+    const t = TSL.texture(tex); m.colorNode = t.rgb.mul(1.25); m.opacityNode = t.a;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(W, H), m);
+    mesh.position.copy(w.centre).addScaledVector(w.right, o.cx - w.width / 2).addScaledVector(w.normal, 0.01); mesh.position.y = o.cy;
+    mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, new THREE.Vector3(0, 1, 0), w.normal)); mesh.renderOrder = 5;
+    object.add(mesh); return mesh;
+  })();
 
   // waves on the mosaic: the idle shimmer goes round for ever; hands launch rings
   const PULSES = 20, pulses = Array.from({ length: PULSES }, () => ({ on: false, s: 0, y: 0, t0: 0, amp: 1, speed: 2.6, reach: 0, hold: 0, ros: -1 }));
