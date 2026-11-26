@@ -4,11 +4,11 @@
 // overlay (over the picture). It fades in with an interactive stage and out when it ends; the dot eases (never jumps).
 //   const line = createProgressLine({ THREE, room }); every frame: line.update(dt, progress)   (progress 0..1, or null = hidden)
 export function createProgressLine({ THREE, room }) {
-  const up = new THREE.Vector3(0, 1, 0), Y = 0.22, TH = 0.011, DOT = 0.042, INK = 0xdcdcdc;
+  const up = new THREE.Vector3(0, 1, 0), Y = 0.22, TH = 0.0094, DOT = 0.036,   /* 26-11 (Beltrán): 15 % smaller */ INK = 0xdcdcdc;
   const mat = (o) => new THREE.MeshBasicMaterial({ color: INK, transparent: true, opacity: o, depthTest: false, depthWrite: false });
   const mTrack = mat(0), mDone = mat(0), mDot = mat(0);
   const W = room.walls.map((w) => {
-    const L = w.width / 3, g = new THREE.Group();
+    const L = (w.width / 3) * 0.85, g = new THREE.Group();
     g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, up, w.normal));
     g.position.copy(w.centre).addScaledVector(w.normal, 0.03).setY(Y);
     const track = new THREE.Mesh(new THREE.PlaneGeometry(L, TH), mTrack);
