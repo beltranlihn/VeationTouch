@@ -696,14 +696,14 @@ function frame(dt) {
         p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.4 * (1 - k) + 0.05 * k; p.breathe = 1 - k; p.cool = 0.5;
       } else if (e.home === 'pinya') {   // (26-11 QA) the correfoc's light dies with its dust, over ~4 s, not in one frame
         const k = 1 - smooth((serving ? S.t : 9) / 4.5);
-        p.dark = 1; p.reveal = 0.55; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6; p.fires = (e.lastFires || [0, 0, 0, 0]).map((f) => f * k); p.lit = (e.lastLit || 0) * k; }
+        p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6;   /* (QA) reveal isn't eased in the part: the lit plate fades with the fires */ p.fires = (e.lastFires || [0, 0, 0, 0]).map((f) => f * k); p.lit = (e.lastLit || 0) * k; }
       if (e.home === 'tronc') {   // the tower: points only, no occluder, moved down with the tower's world (its plazaSink parallax)
         const g = parts.torre3d?.part?.progress?.() || {};
         p.dark = 1; p.reveal = 0.55; p.occlude = 0; p.pointGain = 0.35; p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0;
         e.part.object.position.y = (g.worldY || 0) * (1 + (g.plazaSink ?? 0.35));
       } else e.part.object.position.y = 0;
       const D = P['trailer.outro'] ?? 18;
-      if (e.home === 'acta') { const ta = serving ? S.t : 0; p.dark = 0; p.reveal = 0.55; p.occlude = 1; p.pointGain = 0.35 + 0.05 * sm(0, 3, ta); p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.shatter = Math.max(e.leave || 0, sm(D - 5, D - 1.5, ta)); }
+      if (e.home === 'acta') { const ta = serving ? S.t : 0; p.dark = 0; p.reveal = 0.55; p.occlude = parts.torre3d && parts.torre3d.state !== 'off' ? 0 : 1;   /* (QA) no occluder while the tower's gold dust still leaves */ p.pointGain = 0.35 + 0.05 * sm(0, 3, ta); p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.shatter = Math.max(e.leave || 0, sm(D - 5, D - 1.5, ta)); }
       else p.shatter = e.leave || 0;
     } else if (e.name === 'castells3d' || e.name === 'introp1') {
       if (e.home === 'acta') { t = serving ? S.t : 0; p.mode = 'outro'; p.outroDur = P['trailer.outro'] ?? 18; }   // the closing: its own clock and mode
