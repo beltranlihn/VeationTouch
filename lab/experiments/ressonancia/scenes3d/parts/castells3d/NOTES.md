@@ -62,3 +62,13 @@ It fades out for castells beyond ~12 m along the ray.
   In all, about 230 bodies ≈ 450 k points.
 - Each castell is a mesh culled per wall by its sphere.
 - The bake takes ~1.5 s, spread over frames.
+
+## Outro, density, every castell reactive, dust (2026-11-26)
+
+- `mode: 'outro'` (`outroDur` 18, `input.t` from 0): 0.3–3.4 s they form out of gold motes; still with a soft gold (`outroGold`),
+  no stages or dim; from outroDur − 5 over 3.5 s they let go upward into a dust that stays faint (`outroDust` 0.14). The explaining
+  castell (P1) is hidden unless `outroExplain`.
+- The hand's field reaches every castell near the eye→hand ray, with radius and amplitude growing with depth (same apparent stir).
+- `density` (default 1; `quality: 'medium'` → 0.5, `'low'` → 0.35): points per body × density and the far castells (≥ 4 m behind
+  their wall) kept by density. At 0.5: 6 castells, 141,900 points (`progress().points`).
+- `leaveTo: 'dust'` (default): the end leaves hanging dust (handoff key `castells`); `dustTime` keeps it past the leave (`lingering`).

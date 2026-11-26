@@ -598,6 +598,8 @@ export function create({ THREE, TSL, room, params }) {
   const otherWalls = () => walls.map((_, i) => i).filter((i) => i !== TW);
 
   // a climber is born at a hand (wall wi, room point h): it forms behind the wall, its forward palm on the hand
+  // for the sound: where on its wall (u 0..1 along it, seen from the room) and how high (m)
+  const evAt = (wi, pos) => { const W = walls[wi]; const u = 0.5 + ((pos.x - W.centre.x) * W.right.x + (pos.z - W.centre.z) * W.right.z) / W.width; return `${wi}:${clamp01(u).toFixed(3)}:${pos.y.toFixed(2)}`; };
   function makeClimber(wi, h, auto) {
     // the tower's places first; once they are all taken, the extra one still forms, flies and joins the pinya round the ronda (Beltrán: your gesture always made someone)
     const slot = slots.find((s) => !s.who) || extras.find((s) => !s.who); if (!slot) return null;
@@ -611,6 +613,7 @@ export function create({ THREE, TSL, room, params }) {
       seed: rr(), state: 'form', t0: time, M: meshes[t], k: meshes[t].list.length, auto, climbT: 0, w: [0, 1, 0, 0], lean: 0, dy: 0 };
     slot.who = b; meshes[t].list.push(b); meshes[t].mesh.geometry.instanceCount = meshes[t].list.length; climbers.push(b);
     lastClimb = time; if (firstT < 0) firstT = time;
+    events.push(`form:${evAt(wi, h)}`);
     return b;
   }
   // the landing: on the ronda's shoulders, on the near side (towards the eye), a little to one side
@@ -732,17 +735,19 @@ const landing = (b, out) => {
         }
         continue;
       }
-      if (topT >= 0) continue;   // the tower is up: the walls' hands are for the golden points now
       let ch = charges.find((q) => q.stroke === h.stroke);
-      if (!ch) { ch = { stroke: h.stroke, wall: h.wall, pos: h.pos.clone(), t0: time, done: false, seen: time, a: 0 }; charges.push(ch); }
+      // the tower is up (the golden points' time, the end): a hand away from a golden point still has its light — a faint full ring that
+      // follows the palm (Beltrán: the room always answers a hand), no climber
+      if (topT >= 0) { if (!ch) { ch = { stroke: h.stroke, wall: h.wall, pos: h.pos.clone(), t0: time - holdT, done: true, deco: true, full: true, seen: time, a: 0 }; charges.push(ch); events.push(`touch:${evAt(h.wall, h.pos)}`); } ch.seen = time; ch.pos.lerp(h.pos, Math.min(1, dt * 8)); ch.wall = h.wall; continue; }
+      if (!ch) { ch = { stroke: h.stroke, wall: h.wall, pos: h.pos.clone(), t0: time, done: false, seen: time, a: 0 }; charges.push(ch); events.push(`charge:${evAt(h.wall, h.pos)}`); }
       ch.seen = time;
-      if (h.pos.distanceTo(ch.pos) > 0.35 && !ch.done) { ch.pos.copy(h.pos); ch.t0 = time; ch.wall = h.wall; }   // moved too far: it starts again
+      if (h.pos.distanceTo(ch.pos) > 0.35 && !ch.done) { ch.pos.copy(h.pos); ch.t0 = time; ch.wall = h.wall; events.push(`charge:${evAt(h.wall, h.pos)}`); }   // moved too far: it starts again
       if (!ch.done && time - ch.t0 >= holdT && endT < 0 && topT < 0) { ch.done = true; if (!makeClimber(h.wall, h.pos, false)) ch.full = true; }
     }
     for (const [k] of lastStamp) if (!nowStrokes.has(k)) lastStamp.delete(k);
     for (let i = 0; i < NSTAMP; i++) if (time - stampT[i].t > 2.6) STAMPS[i].w = 0;   // the envelope is in the shader (by the stamp's age)
     // charges: let go before the end → the ring empties
-    for (let i = charges.length - 1; i >= 0; i--) { const ch = charges[i]; if (!nowStrokes.has(ch.stroke) && time - ch.seen > 0.35) { ch.gone = (ch.gone ?? 0) + dt; if (ch.gone > 0.6) charges.splice(i, 1); } }
+    for (let i = charges.length - 1; i >= 0; i--) { const ch = charges[i]; if (!nowStrokes.has(ch.stroke) && time - ch.seen > 0.35) { if (!ch.gone && !ch.done && !ch.auto && !ch.beam) events.push(`uncharge:${ch.wall}`); ch.gone = (ch.gone ?? 0) + dt; if (ch.gone > 0.6) charges.splice(i, 1); } }
 
     // ---- the opening: the beam holds on each other wall; its charge ring fills like a hand's and makes a climber
     {
@@ -815,7 +820,7 @@ const landing = (b, out) => {
         b.tf = (b.tf ?? 0) + (below || b.travel < 0.8 ? dt : 0);   // the tier below is not up yet: the stream hovers near the tower
         b.travel = Math.min(below ? 1 : 0.8, clamp01(b.tf / flyT)); landing(b, b.pos); b.yaw = Math.atan2(C.x - b.pos.x, C.z - b.pos.z);
         const k = smooth01((b.travel - 0.55) / 0.45); setW(b.w, 0, 1 - k, k, 0);
-        if (b.travel >= 1) { b.state = 'climb'; b.t2 = time; planClimb(b); }
+        if (b.travel >= 1) { b.state = 'climb'; b.t2 = time; planClimb(b); events.push(`land:${S.tier}`); }
       } else if (b.state === 'climb') {
         climbStep(b, time - b.t2, p);
         if (b.phase === 'done') { b.state = 'settle'; b.t3 = time; if (T) T.seated++; events.push(S.tier >= 0 ? `joined:${S.tier}` : 'joined:pinya'); b.glow = 0.8; }
@@ -861,6 +866,7 @@ const landing = (b, out) => {
         const W = walls[ow[i]]; goldAt(ow[i], tmpV);
         let held = false;
         for (const h of hands) if (h.wall === ow[i] && h.pos.distanceTo(tmpV) < (p.goldReach ?? 0.55)) held = true;
+        if (held !== !!beams[i].byHand) { beams[i].byHand = held; events.push(`gold:${held ? 'on' : 'off'}:${ow[i]}`); }
         if (held) { lastHold = time; autoW = -1; }
         if (!held && autoW === ow[i]) held = true;
         beams[i].on = held; beams[i].wall = ow[i]; beams[i].from.copy(tmpV).addScaledVector(W.normal, -0.01);
@@ -914,7 +920,7 @@ const landing = (b, out) => {
       if (ri >= NRING) break; const W = walls[ch.wall], o = ri * 8;
       const prog = ch.done ? 1 : clamp01((time - ch.t0) / (holdT * (ch.auto && !ch.beam ? 1.3 : 1)));
       ch.a = ch.gone ? Math.max(0, 1 - ch.gone / 0.6) : Math.min(1, ch.a + dt * 10);
-      A[o] = ch.pos.x - W.normal.x * 0.005; A[o + 1] = ch.pos.y; A[o + 2] = ch.pos.z - W.normal.z * 0.005; A[o + 3] = ch.a * (ch.full ? 0.3 : 1) * (ch.auto ? 0.7 : 1);
+      A[o] = ch.pos.x - W.normal.x * 0.005; A[o + 1] = ch.pos.y; A[o + 2] = ch.pos.z - W.normal.z * 0.005; A[o + 3] = ch.a * (ch.deco ? 0.45 : ch.full ? 0.3 : 1) * (ch.auto ? 0.7 : 1);
       A[o + 4] = W.right.x; A[o + 5] = W.right.z; A[o + 6] = Math.max(0.001, prog); A[o + 7] = 0.24; ri++;
     }
     // the golden points: Ø 40 cm at 1.2 m on each other wall, waiting with her; the ring fills with the charge while held

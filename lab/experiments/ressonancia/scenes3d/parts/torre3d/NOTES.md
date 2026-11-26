@@ -146,3 +146,13 @@ At its place:
 - Harness (res-3d-study): solo (1 virtual hand, LiDAR) top at ~92 s, done ~105 s; group of 8 + LiDAR top at ~64 s; no console errors.
 - GPU at scale 1, uncapped, tower complete + the square (22 %): 3.0–3.8 ms (walls 2.5–3.1, post 0.44), 165–236 fps; update() ≈ 0.05 ms.
 - Not yet: the real room; the host (score, sound, trailer jump).
+
+## Seamless transitions and sound events (2026-11-26)
+
+- `arriveFrom: 'dust'` (default): the ronda is built out of the pinya's dust (handoff `pinya3d/handoff.js`, key `pinya`); each body
+  streams from a being's dust round the room into its place (`dustFly` 3.4 s); with no dust it waits `dustWait` 1.2 s, then forms as before.
+- `backdrop: false`: no own square (the host's plaza3d); `progress()` gives `worldY`, `worldSlide`, `plazaSink`, `dust`.
+- `params.warm` / `params.cool` as linear rgb arrays: the colour script, eased ~1.5 s (a number in `warm` is still the bodies' warmth).
+- Events for the sound (`events`, every frame): `charge:<w>:<u>:<y>` · `uncharge:<w>` · `form:<w>:<u>:<y>` · `land:<tier>` ·
+  `gold:on:<w>` / `gold:off:<w>` · `touch:<w>:<u>:<y>` (a hand after the top: a faint ring of light follows it, no climber) — plus
+  `joined:*`, `tier:*`, `top`, `aleta:*`, `end`, `done`, `dust:taken`.
