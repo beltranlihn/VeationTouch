@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ressonància — plaza3d viewer</title>
+<style>
+  @font-face { font-family: Geist; src: url(../fonts/geist-400.woff2) format('woff2'); font-weight: 400; }
+  @font-face { font-family: Geist; src: url(../fonts/geist-500.woff2) format('woff2'); font-weight: 500; }
+  html, body { margin: 0; height: 100%; background: #111; overflow: hidden; font-family: Geist, system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; left: 14px; top: 12px; color: #B8B8B8; font-size: 12px; line-height: 1.55; pointer-events: none;
+         background: rgba(17, 17, 17, 0.72); padding: 8px 11px; border: 1px solid #262626; border-radius: 4px; }
+  #hud b { color: #E0E0E0; font-weight: 500; }
+  #hud .on { color: #4FC3E8; }
+  .lbl { position: fixed; color: #B8B8B8; font-size: 11px; letter-spacing: 0.06em; pointer-events: none; text-shadow: 0 0 4px #000; }
+  body.capture #hud { display: none; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "../../vendor/three-r187/build/three.webgpu.js",
+  "three/webgpu": "../../vendor/three-r187/build/three.webgpu.js",
+  "three/tsl": "../../vendor/three-r187/build/three.tsl.js",
+  "three/addons/": "../../vendor/three-r187/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<script type="module">
+// plaza3d viewer (lab tool): the Blender blockout seen exactly as the room shows it — one off-axis (Kooima) view per wall from the
+// eye at the centre — plus a free orbit and a plan. Keys: 1 room (two rows) · 2 room (one strip) · 3 orbit · 4 plan · T castells ·
+// N night / neutral light · [ ] exposure · H hud. URL: ?mode=room|strip|orbit|plan &capture &glb=<file> &light=night|neutral
+import * as THREE from 'three/webgpu';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const Q = new URLSearchParams(location.search);
+const BASE = Q.get('dir') || './blender/out/';
+if (Q.has('capture')) document.body.classList.add('capture');
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
+await renderer.init();
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.autoClear = false;
+
+const meta = await (await fetch(BASE + 'plaza_meta.json')).json();
+const scene = new THREE.Scene();
+const gltf = await new GLTFLoader().loadAsync(BASE + (Q.get('glb') || 'plaza.glb'));
+scene.add(gltf.scene);
+const castells = [];
+gltf.scene.traverse((o) => {
+  if (!o.isMesh) return;
+  const m = o.material;
+  if (/castell/.test(o.name) || /castell/.test(m?.name || '')) { castells.push(o); m.transparent = true; m.opacity = 0.2; m.depthWrite = false; m.emissiveIntensity = 0.35; m.color.set(0x9db8e8); }
+  if (/lamp|lit|stained/.test(m?.name || '')) m.emissiveIntensity = /lamp/.test(m.name) ? 4 : /stained/.test(m.name) ? 2.2 : 0.55;
+});
+
+// ---- light: night (moon, sky, the lamps of the meta) or a neutral grey light that reads the forms
+const hemi = new THREE.HemisphereLight(0x3a4a78, 0x0b0a0a, 0.5); scene.add(hemi);
+const moon = new THREE.DirectionalLight(0x9fb4ff, 0.35); moon.position.set(-20, 40, -25); scene.add(moon);
+const lamps = meta.lamps.map((l) => {
+  const p = new THREE.PointLight(0xff9a50, l.kind === 'fanal' ? 45 : 14, 22, 2); p.position.fromArray(l.pos); scene.add(p); return p;
+});
+let light = Q.get('light') || 'night', exposure = Number(Q.get('exposure') || 1.0);
+function applyLight() {
+  const night = light === 'night';
+  hemi.color.set(night ? 0x3a4a78 : 0xd8d8d8); hemi.groundColor.set(night ? 0x0b0a0a : 0x404040); hemi.intensity = night ? 0.5 : 2.2;
+  moon.intensity = night ? 0.35 : 1.6; moon.color.set(night ? 0x9fb4ff : 0xffffff);
+  for (const p of lamps) p.visible = night;
+  renderer.toneMappingExposure = exposure;
+  scene.background = new THREE.Color(night ? 0x05070d : 0x8a8f96);
+}
+applyLight();
+
+// ---- the room: four walls, an off-axis camera each (room3d.js's construction)
+const eye = new THREE.Vector3().fromArray(meta.eye), up = new THREE.Vector3(0, 1, 0), H = meta.wallHeight;
+const walls = meta.walls.map((w) => {
+  const c = new THREE.Vector3().fromArray(w.centre), r = new THREE.Vector3().fromArray(w.right), n = new THREE.Vector3().fromArray(w.normal);
+  const half = w.width / 2, pa = c.clone().addScaledVector(r, -half);
+  const cam = new THREE.PerspectiveCamera(60, 1, 0.05, 500);
+  cam.position.copy(eye); cam.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(r, up, n)); cam.updateMatrixWorld(true);
+  const d = -pa.clone().sub(eye).dot(n), near = cam.near, k = near / d;
+  const l = pa.clone().sub(eye).dot(r) * k, rr = (pa.clone().sub(eye).dot(r) + w.width) * k, b = (0 - eye.y) * k, t = (H - eye.y) * k;
+  cam.projectionMatrix.makePerspective(l, rr, t, b, near, cam.far); cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
+  cam.updateProjectionMatrix = () => {};                      // keep the off-axis frustum
+  return { ...w, cam };
+});
+
+const orbit = new THREE.PerspectiveCamera(50, 1, 0.1, 800); 
+// a minimal orbit (drag: turn · right drag: pan · wheel: zoom) — the vendored three has no OrbitControls
+const controls = { enabled: false, target: new THREE.Vector3(0, 4, 0), az: Number(Q.get('az') ?? 0.6), el: Number(Q.get('el') ?? 0.55), dist: Number(Q.get('dist') ?? 48), update() {
+  const c = Math.cos(this.el); orbit.position.set(this.target.x + this.dist * c * Math.sin(this.az), this.target.y + this.dist * Math.sin(this.el), this.target.z + this.dist * c * Math.cos(this.az));
+  orbit.lookAt(this.target); } };
+{ let drag = null;
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, b: e.button }; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointerup', () => (drag = null));
+  canvas.addEventListener('pointermove', (e) => {
+    if (!drag || !controls.enabled) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+    if (drag.b === 0) { controls.az -= dx * 0.005; controls.el = Math.max(-0.05, Math.min(1.5, controls.el + dy * 0.005)); }
+    else { const r = new THREE.Vector3().setFromMatrixColumn(orbit.matrixWorld, 0), f = new THREE.Vector3(Math.sin(controls.az), 0, Math.cos(controls.az));
+      controls.target.addScaledVector(r, -dx * controls.dist * 0.0015).addScaledVector(f, -dy * controls.dist * 0.0015); }
+  });
+  canvas.addEventListener('wheel', (e) => { if (controls.enabled) controls.dist = Math.max(2, Math.min(200, controls.dist * Math.exp(e.deltaY * 0.001))); }, { passive: true });
+}
+const plan = new THREE.OrthographicCamera(-50, 50, 50, -50, 0.1, 400); plan.position.set(0, 200, 0); plan.up.set(0, 0, -1); plan.lookAt(0, 0, 0);
+
+let mode = Q.get('mode') || 'room';
+controls.enabled = mode === 'orbit';
+const labels = walls.map((w) => { const e = document.createElement('div'); e.className = 'lbl'; e.textContent = w.id; document.body.appendChild(e); return e; });
+
+addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (k === '1') mode = 'room'; else if (k === '2') mode = 'strip'; else if (k === '3') mode = 'orbit'; else if (k === '4') mode = 'plan';
+  else if (k === 't') castells.forEach((c) => (c.visible = !c.visible));
+  else if (k === 'n') { light = light === 'night' ? 'neutral' : 'night'; applyLight(); }
+  else if (k === '[') { exposure /= 1.15; applyLight(); } else if (k === ']') { exposure *= 1.15; applyLight(); }
+  else if (k === 'h') { const h = document.getElementById('hud'); h.style.display = h.style.display === 'none' ? '' : 'none'; }
+  controls.enabled = mode === 'orbit';
+});
+
+function hud() {
+  const on = (m) => (mode === m ? 'on' : '');
+  document.getElementById('hud').innerHTML =
+    `<b>Plaza 3D · blockout</b><br>` +
+    `<span class="${on('room')}">1 room</span> · <span class="${on('strip')}">2 strip</span> · <span class="${on('orbit')}">3 orbit</span> · <span class="${on('plan')}">4 plan</span><br>` +
+    `T castells · N light (${light}) · [ ] exposure ${exposure.toFixed(2)} · H hud`;
+}
+hud(); addEventListener('keydown', hud);
+
+function frame() {
+  const W = innerWidth, Hh = innerHeight;
+  renderer.setSize(W, Hh, false);
+  renderer.setScissorTest(false); renderer.setClearColor(0x111111, 1); renderer.clear();
+  labels.forEach((l) => (l.style.display = 'none'));
+  if (mode === 'room' || mode === 'strip') {
+    // the strip keeps the room's pixel proportions: wall px widths × 912
+    const rows = mode === 'room' ? [[0, 1], [2, 3]] : [[0, 1, 2, 3]];
+    const rowPx = rows.map((r) => r.reduce((a, i) => a + walls[i].px, 0)), maxPx = Math.max(...rowPx);
+    const gap = 10, s = Math.min((W - 20) / maxPx, (Hh - 20 - gap * (rows.length - 1)) / (912 * rows.length));
+    const totalH = rows.length * 912 * s + gap * (rows.length - 1);
+    let y = (Hh - totalH) / 2;
+    renderer.setScissorTest(true);
+    for (const r of rows) {
+      let x = (W - rowPx[rows.indexOf(r)] * s) / 2;
+      for (const i of r) {
+        const w = walls[i], vw = w.px * s, vh = 912 * s;
+        renderer.setViewport(x, y, vw, vh); renderer.setScissor(x, y, vw, vh);
+        renderer.render(scene, w.cam);
+        const L = labels[i]; L.style.display = ''; L.style.left = `${x + 6}px`; L.style.top = `${y + 4}px`;
+        x += vw;
+      }
+      y += 912 * s + gap;
+    }
+    renderer.setScissorTest(false);
+  } else {
+    renderer.setViewport(0, 0, W, Hh);
+    if (mode === 'orbit') { orbit.aspect = W / Hh; orbit.updateProjectionMatrix(); controls.update(); renderer.render(scene, orbit); }
+    else { if (light === 'night') { light = 'neutral'; applyLight(); hud(); } const a = W / Hh, h = 48; plan.left = -h * a; plan.right = h * a; plan.top = h; plan.bottom = -h; plan.updateProjectionMatrix(); renderer.render(scene, plan); }
+  }
+}
+renderer.setAnimationLoop(frame);
+window.__plazaReady = true; window.__plaza = { scene, THREE, walls, eye };
+</script>
+</body>
+</html>

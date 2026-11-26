@@ -1,0 +1,253 @@
+{
+ "latMin": -30.0,
+ "latMax": 40.0,
+ "eye": [
+  0.0,
+  1.6,
+  -0.0
+ ],
+ "forward": [
+  -0.0,
+  -0.0,
+  -1.0
+ ],
+ "note": "u = 0.5 looks along forward (side 0 = P4); row 0 = latMax",
+ "mode": "intro",
+ "width": 8192,
+ "height": 1593,
+ "slices": 4,
+ "rgbmRange": 8.0,
+ "rgbGamma": 2.2,
+ "depthMax": 400.0,
+ "lightSize": [
+  4096,
+  796
+ ],
+ "groups": [
+  {
+   "name": "sky",
+   "kind": "sky",
+   "pos": null,
+   "side": null,
+   "tex": 0,
+   "ch": "r"
+  },
+  {
+   "name": "wall_P4",
+   "kind": "wall",
+   "pos": null,
+   "side": "P4",
+   "tex": 0,
+   "ch": "g"
+  },
+  {
+   "name": "arcade_P4",
+   "kind": "arcade",
+   "pos": null,
+   "side": "P4",
+   "tex": 0,
+   "ch": "b"
+  },
+  {
+   "name": "wall_P3",
+   "kind": "wall",
+   "pos": null,
+   "side": "P3",
+   "tex": 0,
+   "ch": "a"
+  },
+  {
+   "name": "arcade_P1",
+   "kind": "arcade",
+   "pos": null,
+   "side": "P1",
+   "tex": 1,
+   "ch": "r"
+  },
+  {
+   "name": "wall_P1",
+   "kind": "wall",
+   "pos": null,
+   "side": "P1",
+   "tex": 1,
+   "ch": "g"
+  },
+  {
+   "name": "wall_P2",
+   "kind": "wall",
+   "pos": null,
+   "side": "P2",
+   "tex": 1,
+   "ch": "b"
+  },
+  {
+   "name": "fanal0",
+   "kind": "fanal",
+   "pos": [
+    -7.5,
+    3.6562,
+    -14.5
+   ],
+   "side": "P4",
+   "tex": 1,
+   "ch": "a"
+  },
+  {
+   "name": "fanal1",
+   "kind": "fanal",
+   "pos": [
+    7.5,
+    3.6562,
+    -14.5
+   ],
+   "side": "P4",
+   "tex": 2,
+   "ch": "r"
+  },
+  {
+   "name": "fanal2",
+   "kind": "fanal",
+   "pos": [
+    15.5,
+    3.6562,
+    -7.5
+   ],
+   "side": "P1",
+   "tex": 2,
+   "ch": "g"
+  },
+  {
+   "name": "fanal3",
+   "kind": "fanal",
+   "pos": [
+    15.5,
+    3.6562,
+    7.5
+   ],
+   "side": "P1",
+   "tex": 2,
+   "ch": "b"
+  },
+  {
+   "name": "fanal4",
+   "kind": "fanal",
+   "pos": [
+    7.5,
+    3.6562,
+    14.5
+   ],
+   "side": "P2",
+   "tex": 2,
+   "ch": "a"
+  },
+  {
+   "name": "fanal5",
+   "kind": "fanal",
+   "pos": [
+    -7.5,
+    3.6562,
+    14.5
+   ],
+   "side": "P2",
+   "tex": 3,
+   "ch": "r"
+  },
+  {
+   "name": "fanal6",
+   "kind": "fanal",
+   "pos": [
+    -15.5,
+    3.6562,
+    7.5
+   ],
+   "side": "P3",
+   "tex": 3,
+   "ch": "g"
+  },
+  {
+   "name": "fanal7",
+   "kind": "fanal",
+   "pos": [
+    -15.5,
+    3.6562,
+    -7.5
+   ],
+   "side": "P3",
+   "tex": 3,
+   "ch": "b"
+  },
+  {
+   "name": "windows_P4",
+   "kind": "windows",
+   "pos": null,
+   "side": "P4",
+   "tex": 3,
+   "ch": "a"
+  },
+  {
+   "name": "windows_P1",
+   "kind": "windows",
+   "pos": null,
+   "side": "P1",
+   "tex": 4,
+   "ch": "r"
+  },
+  {
+   "name": "windows_P2",
+   "kind": "windows",
+   "pos": null,
+   "side": "P2",
+   "tex": 4,
+   "ch": "g"
+  },
+  {
+   "name": "stained",
+   "kind": "stained",
+   "pos": null,
+   "side": null,
+   "tex": 4,
+   "ch": "b"
+  },
+  {
+   "name": "windows_P3",
+   "kind": "windows",
+   "pos": null,
+   "side": "P3",
+   "tex": 4,
+   "ch": "a"
+  },
+  {
+   "name": "windows_streets",
+   "kind": "windows",
+   "pos": null,
+   "side": "streets",
+   "tex": 5,
+   "ch": "r"
+  },
+  {
+   "name": "lampglass",
+   "kind": "lampglass",
+   "pos": null,
+   "side": null,
+   "tex": 5,
+   "ch": "g"
+  }
+ ],
+ "files": {
+  "beauty_0.png": 5649532,
+  "beauty_1.png": 5978665,
+  "beauty_2.png": 5815866,
+  "beauty_3.png": 5905997,
+  "light_0.png": 4412294,
+  "light_1.png": 3846706,
+  "light_2.png": 3481384,
+  "light_3.png": 3433285,
+  "light_4.png": 1987383,
+  "light_5.png": 1990122,
+  "depth.png": 4765740
+ },
+ "depthStats": {
+  "p5": 3.493992567062378,
+  "p50": 18.726194381713867
+ }
+}
