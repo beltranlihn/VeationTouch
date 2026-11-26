@@ -15,7 +15,7 @@
 const PLANES = [12, 16, 20, 26];
 const TOPS = [2.06, 2.68, 2.82, 3.95];     // apparent height each plane's strip reaches (the last one carries the sky)
 
-export function createFons({ THREE, TSL, room, U, world, ringPoint, heatSample, mirP, eye }) {
+export function createFons({ THREE, TSL, room, U, world, ringPoint, heatSample, mirP, eye, light = null }) {   // light: an optional 0..1 node (brasa v2: the square with the lights off → lit)
   const {
     Fn, uniform, attribute, varying, vec3, vec4, float, sin, exp, mix, clamp, smoothstep, max, min, abs, floor, fract, select, step,
     positionWorld, cameraPosition, fwidth, Discard, If, pow,
@@ -110,7 +110,7 @@ export function createFons({ THREE, TSL, room, U, world, ringPoint, heatSample, 
   const EDGE0 = lin('#B3260E'), EDGE1 = lin('#FF7A1A'), WIN = lin('#F2B23A'), COLD = lin('#9FB4C8');
   const fireK = (s) => {                                                       // the ring's light on the square: level + heat field + the call
     const hs = heatSample(s, false);
-    return float(0.45).add(U.level.mul(0.45)).add(hs.r.mul(1.6)).add(hs.g.mul(2.2)).add(U.awake.mul(0.4)).mul(float(1).sub(U.cool.mul(0.6))).mul(uTok.mul(1.5).add(1));
+    return float(0.45).add(U.level.mul(0.45)).add(hs.r.mul(1.6)).add(hs.g.mul(2.2)).add(U.awake.mul(0.4)).mul(float(1).sub(U.cool.mul(0.6))).mul(uTok.mul(1.5).add(1)).mul(light ?? 1);
   };
 
   const meshes = [];
@@ -140,7 +140,7 @@ export function createFons({ THREE, TSL, room, U, world, ringPoint, heatSample, 
       const edge = mix(EDGE0, EDGE1, smoothstep(0.6, 1.6, fk)).mul(min(edgeK, 1.0)).mul(0.6).mul(select(p.lessThan(0.5), float(1), float(0.5)));   // T-063c: the arches' rim at 60 %
       const win = select(p.equal(1), windowAt(xc, Y, wi), float(0)).mul(sol);
       const flick = sin(U.time.mul(1.885).add(wi.mul(2.1))).mul(0.1).add(0.9);
-      const winC = WIN.mul(win).mul(0.4).mul(flick).mul(0.35);
+      const winC = WIN.mul(win).mul(0.4).mul(flick).mul(0.35).mul(light ? smoothstep(0.3, 0.8, light).mul(2.5) : float(1));   // (brasa v2: the windows light with the square)
       const vis = smoothstep(0.2, 0.7, U.arrive).mul(float(1).sub(smoothstep(0.15, 0.6, U.leave))).mul(float(1).sub(U.wait));
       if (mirror) {
         // only the lit edges and the windows, fading before the islet (where the water is seen closer than ~5–8 m beyond the wall)
@@ -155,10 +155,10 @@ export function createFons({ THREE, TSL, room, U, world, ringPoint, heatSample, 
       const lift = exp(Y.sub(Yg).div(-0.35)).mul(fk).mul(0.012).mul(select(p.lessThan(0.5), float(2), float(1)));
       const relief = bal.y.mul(0.004).add(bal.z.mul(0.002));
       const pK = select(p.lessThan(0.5), float(2), select(p.lessThan(1.5), float(1.5), float(1)));   // T-063c: porxos ×2, façades ×1.5
-      const body = min(pcol(p).mul(0.55).mul(pK).add(EDGE1.mul(lift)).add(relief), vec3(0.08, 0.08, 0.08));
+      const body = min(pcol(p).mul(0.55).mul(pK).mul(light ? light.mul(0.8).add(0.2) : float(1)).add(EDGE1.mul(lift)).add(relief), vec3(0.08, 0.08, 0.08));
       const cold = COLD.mul(topEdge).mul(0.2).mul(0.12).mul(select(p.equal(3), float(1), float(0.25)));
       const plane = body.add(edge).add(winC).add(cold);
-      const sky = mix(SKY0, SKY1, smoothstep(1.65, 3.6, Y)).mul(0.9);
+      const sky = mix(SKY0, SKY1, smoothstep(1.65, 3.6, Y)).mul(0.9).mul(light ? light.mul(0.7).add(0.3) : float(1));
       return mix(sky, plane, sol).mul(vis).add(sky.mul(float(1).sub(vis)).mul(select(p.equal(3), float(1), float(0))).mul(float(1).sub(U.wait)));
     })();
     m.fog = false;
