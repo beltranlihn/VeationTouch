@@ -1,0 +1,41 @@
+{
+ "_about": "26-11 (Beltrán approved, via the director): the trailer's invitations when nobody plays, the big moments' short lines and the closing's thanks. eleven_v4, stability 0.5, similarity 0.8, mp3_44100_128 · Lily (EN, audio/) · Mía Evans (ES, audio/es/) · Gabriel (CA, audio/ca/). The [tags] are directions, not spoken.",
+ "en": {
+  "v-inv-wait": "[softly] Touch the wall, and bring it to life.",
+  "v-inv-asleep": "[softly] This wall is still asleep.",
+  "v-brasa-awake": "[warm] The square is awake.",
+  "v-inv-brasa": "[softly] Touch the wall, and call a correfoc.",
+  "v-inv-fire": "[softly] This fire is going out.",
+  "v-inv-missing": "[softly] On this wall, someone is missing.",
+  "v-pinya-holds": "[warm] The pinya holds.",
+  "v-inv-climb": "[softly] Hold your hand on the wall. Someone is waiting to climb.",
+  "v-inv-gold": "[softly] Hold the light. She is waiting.",
+  "v-thanks": "[warm, softly] Thank you for joining Ressonància."
+ },
+ "es": {
+  "v-inv-wait": "[softly] Tocad el muro, y dadle vida.",
+  "v-inv-asleep": "[softly] Este muro aún duerme.",
+  "v-brasa-awake": "[warm] La plaza ha despertado.",
+  "v-inv-brasa": "[softly] Tocad el muro, y llamad a un correfoc.",
+  "v-inv-fire": "[softly] Este fuego se apaga.",
+  "v-inv-missing": "[softly] En este muro, falta alguien.",
+  "v-pinya-holds": "[warm] La pinya aguanta.",
+  "v-inv-climb": "[softly] Mantened la mano en el muro. Alguien espera para subir.",
+  "v-inv-gold": "[softly] Sostened la luz. Ella espera.",
+  "v-thanks": "[warm, softly] Gracias por formar parte de Ressonància."
+ },
+ "ca": {
+  "v-inv-wait": "[softly] Toqueu el mur, i doneu-li vida.",
+  "v-inv-asleep": "[softly] Aquest mur encara dorm.",
+  "v-brasa-awake": "[warm] La plaça s'ha despertat.",
+  "v-inv-brasa": "[softly] Toqueu el mur, i crideu un correfoc.",
+  "v-inv-fire": "[softly] Aquest foc s'apaga.",
+  "v-inv-missing": "[softly] En aquest mur, hi falta algú.",
+  "v-pinya-holds": "[warm] La pinya aguanta.",
+  "v-inv-climb": "[softly] Mantingueu la mà al mur. Algú espera per pujar.",
+  "v-inv-gold": "[softly] Sostingueu la llum. Ella espera.",
+  "v-thanks": "[warm, softly] Gràcies per formar part de Ressonància.",
+  "v-aleta-crowned": "[awed, softly] El castell està coronat.",
+  "v-pinya-wait": "[warm, hushed] Algú espera la vostra mà."
+ }
+}

@@ -10,6 +10,9 @@
 //   · a hand that DRAGS fire: a sizzle and crackles under it that follow it along the wall, as loud as it slides
 //   · the BOOM: a deep blow and a burst; the STORM: a sea of crackles and air rising with it
 // Levels: a single event peaks ≈ −20 dBFS, the beds stay low; every change ramps (no clicks); voices are capped (the oldest gives way).
+// THE KEY (26-11, Beltrán: «lo que tiene altura, en el key de la base»): the noise and the crackles have no pitch and stay as they were;
+// the pitched blows — the birth's «fum», the feed's whoomph, the boom, the petards' body, the roar's resonance — land on the tonic or
+// the fifth of the correfoc's music (D: opt.tonic, default D1 = 36.71 Hz; the trailer's tm-brasa and the work's m-brasa are both on D).
 //
 //   const S = createBrasaSound(audio, { gain })        audio = the host's { ctx, walls, wallInput, roomInput, subInput }
 //   S.update(dt, part.sound())    S.setGain(g)    S.stop(fadeMs) → Promise
@@ -21,6 +24,7 @@ export function createBrasaSound(audio, opt = {}) {
   let gainK = opt.gain ?? 1;
   out.gain.setTargetAtTime(gainK, ctx.currentTime, 0.4);
   const sub = audio.subInput ? audio.subInput() : null;
+  const D1 = opt.tonic ?? 36.708, A1 = D1 * 1.5;               // the key's tonic and fifth (Hz; ×2 per octave up)
   // one input per wall (the centre of the wall; one-shots get their own positioned input)
   const wallIds = audio.walls.map((w) => w.id);
   const bus = new Map();
@@ -69,7 +73,7 @@ export function createBrasaSound(audio, opt = {}) {
   // a firecracker: a sharp pop (bright noise) with a little body
   function petard(dest, t, k = 1) {
     burst(dest, t, { hp: 1100, bp: 2600 + Math.random() * 1800, q: 0.9, peak: 0.32 * k, dec: 0.018 + Math.random() * 0.02 });
-    thump(dest, t, 220, 90, 0.07 * k, 0.06);
+    thump(dest, t, A1 * 4, A1 * 2, 0.07 * k, 0.06);          // A3 → A2 (was 220 → 90 Hz)
   }
   function petardString(wall, u, t0, n, k = 1) {
     const dest = voiceAt(wall, u, n * 0.12 + 0.3);
@@ -85,7 +89,7 @@ export function createBrasaSound(audio, opt = {}) {
     hissF.type = 'bandpass'; hissF.frequency.value = 5200; hissF.Q.value = 0.7; hissG.gain.value = 0;
     hissS.connect(hissF); hissF.connect(hissG); hissG.connect(b); hissS.start(now(), Math.random());
     const roarS = noiseSrc(true), roarF = ctx.createBiquadFilter(), roarF2 = ctx.createBiquadFilter(), roarG = ctx.createGain();
-    roarF.type = 'lowpass'; roarF.frequency.value = 420; roarF2.type = 'peaking'; roarF2.frequency.value = 160; roarF2.gain.value = 6; roarG.gain.value = 0;
+    roarF.type = 'lowpass'; roarF.frequency.value = 420; roarF2.type = 'peaking'; roarF2.frequency.value = D1 * 4;   // its resonance on D3 (was 160 Hz) roarF2.gain.value = 6; roarG.gain.value = 0;
     roarS.connect(roarF); roarF.connect(roarF2); roarF2.connect(roarG); roarG.connect(b); roarS.start(now(), Math.random());
     beds.set(id, { hissG, roarG, roarF, tickAcc: 0, petAcc: 0, nDev: 0 });
   }
@@ -110,8 +114,8 @@ export function createBrasaSound(audio, opt = {}) {
     // births: the «fum», the whoosh, the crack, a short string of petards
     for (const b of snap.births) {
       const dest = voiceAt(b.wall, b.u, 1.6);
-      thump(dest, t, 95, 38, 0.32, 0.55);
-      if (sub) thump(sub, t, 70, 34, 0.25, 0.6);
+      thump(dest, t, A1 * 2, D1, 0.32, 0.55);                 // A2 → D1 (was 95 → 38 Hz)
+      if (sub) thump(sub, t, D1 * 2, D1, 0.25, 0.6);          // D2 → D1 (was 70 → 34)
       whoosh(dest, t, 280, 2400, 0.14, 0.7);
       burst(dest, t + 0.06, { hp: 2400, peak: 0.24, dec: 0.035 });
       petardString(b.wall, b.u, t + 0.35 + Math.random() * 0.2, 3 + Math.floor(Math.random() * 4), 0.8);
@@ -140,7 +144,7 @@ export function createBrasaSound(audio, opt = {}) {
     for (const id of snap.feeds) {
       const dest = voiceAt(id, 0.5, 1.2);
       whoosh(dest, t, 180, 900, 0.2, 0.6);
-      thump(dest, t, 120, 60, 0.12, 0.35);
+      thump(dest, t, D1 * 4, D1 * 2, 0.12, 0.35);             // D3 → D2 (was 120 → 60)
     }
     // hands dragging fire
     for (const v of handV.values()) v.seen = 0;
@@ -161,7 +165,7 @@ export function createBrasaSound(audio, opt = {}) {
     }
     // the boom, the storm
     if (snap.boom) {
-      thump(out, t, 70, 28, 0.2, 1.6); if (sub) thump(sub, t, 55, 25, 0.2, 1.8);
+      thump(out, t, D1 * 2, D1, 0.2, 1.6); if (sub) thump(sub, t, A1, A1 / 2, 0.2, 1.8);   // D2 → D1 and A1 → A0 (were 70 → 28, 55 → 25)
       whoosh(out, t, 2200, 160, 0.12, 2.2);
       // (the walls' strings staggered, not all at once: a rolling salvo round the room, ≈ −10 dBFS at its peak)
       wallIds.forEach((id, k) => petardString(id, Math.random(), t + 0.35 + k * 0.28 + Math.random() * 0.15, 5 + Math.floor(Math.random() * 6), 0.42));
