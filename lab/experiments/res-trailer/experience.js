@@ -55,8 +55,8 @@ const QS = { low: 0.6, medium: 0.8, high: 1 }, DENS = { low: 0.4, medium: 0.6, h
 const LT = { start: performance.now() }; const lt = (k) => { LT[k] = Math.round(performance.now() - LT.start); };   // T-057: load phases (ms), window.__obra.load
 // ------------------------------------------------------------------------------------------------ the parts (their files)
 // TRAILER: only the universes the trailer shows, plus its presentation layer (./parts/trailertext.js)
-const NAMES = ['umbral3d', 'atmos', 'plaza', 'castell', 'brasa3d', 'pinya3d2', 'festa3d', 'trailertext'];   // studio 26-11: + the pinya v2 (a being for every hand)
-const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d2', 'festa3d']);
+const NAMES = ['umbral3d', 'atmos', 'plaza', 'castell', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d', 'trailertext'];   // 26-11: + the tower (climb onto the castell)   // studio 26-11: + the pinya v2 (a being for every hand)
+const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d']);
 const OWN = new Set(['trailertext']);                                           // TRAILER: parts of this folder, not of ../ressonancia
 const only = LAB ? q.get('parts') : null;                                       // lab: ?parts=plaza,castell loads only those
 // T-065 (LOAD): every part's module and defaults are fetched at once, while the renderer starts (they were fetched one part after
@@ -244,7 +244,9 @@ const segments = () => {
   const pin = P['trailer.pinya'] === false || !has('pinya3d2') ? 0 : (P['trailer.pinyaMax'] ?? 180);
   const SG = [['wait', 0], ['intro', pre], ['brasa', pre + title]];
   if (pin) SG.push(['pinya', pre + title + fire]);
-  SG.push(['festa', pre + title + fire + pin], ['end', pre + title + fire + pin + res]);
+  const tow = P['trailer.torre'] === false || !has('torre3d') ? 0 : (P['trailer.torreMax'] ?? 240);   // the tower: until its golden ending is done
+  if (tow) SG.push(['tronc', pre + title + fire + pin]);
+  SG.push(['festa', pre + title + fire + pin + tow], ['end', pre + title + fire + pin + tow + res]);
   return SG;
 };
 function trailerStep(dt) {
@@ -261,6 +263,8 @@ function trailerStep(dt) {
   if (P['trailer.waitButton'] !== false && S.block === 'wait' && TRL.seg <= 0 && TRL.tt > SG[1][1] - 0.05) TRL.tt = SG[1][1] - 0.05;
   { const k = SG.findIndex((g) => g[0] === 'pinya'), pt = parts.pinya3d2?.part;   // the pinya ends when its part is done
     if (k > 0 && TRL.seg === k && S.block === 'pinya' && pt?.fill && pt.fill().done && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; }
+  { const k = SG.findIndex((g) => g[0] === 'tronc'), pt = parts.torre3d?.part;   // and the tower when its golden ending is done
+    if (k > 0 && TRL.seg === k && S.block === 'tronc' && pt?.progress && pt.progress().done && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; }
   if (TRL.tt >= SG[SG.length - 1][1]) { TRL.tt = 0; TRL.loops++; }
   let i = 0; while (i + 1 < SG.length - 1 && TRL.tt >= SG[i + 1][1]) i++;
   const want = SG[i][0];
@@ -318,6 +322,7 @@ function wanted(b) {
     case 'intro': return ['plaza', 'atmos', 'castell', ...T];
     case 'brasa': return has('brasa3d') ? ['brasa3d', 'atmos', ...T] : ['atmos', ...T];
     case 'pinya': return has('pinya3d2') ? ['pinya3d2', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the pinya v2
+    case 'tronc': return has('torre3d') ? ['torre3d', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the tower (score block 'tronc')
     case 'festa': case 'crown': return has('festa3d') ? ['festa3d', ...T] : ['plaza', 'castell', 'atmos', ...T];
     default: return ['atmos', ...T];
   }
@@ -598,7 +603,7 @@ function frame(dt) {
   const tk = tr.on && P.tiles !== false ? room.tiles.mix.value : -1;
   for (const e of list) {
     if (W.includes(e.name)) {
-      if (e.home !== S.block) { e.home = S.block; e.fallK = 0; if (e.name === 'pinya3d2' && S.block === 'pinya') e.part.reset?.(); }   // (26-11: every pass starts an empty room)
+      if (e.home !== S.block) { e.home = S.block; e.fallK = 0; if ((e.name === 'pinya3d2' && S.block === 'pinya') || (e.name === 'torre3d' && S.block === 'tronc')) e.part.reset?.(); }   // (26-11: every pass starts an empty room)
       if (e.state === 'off') { for (const l of e.lights) l.visible = true; placeRig(e.rig, 0, tr.mv); e.state = 'in'; e.came = true; e.arrive = 0; e.leave = 0; e.clock = 0; steadyOn(e); e.wait = S.block === 'baixada' && prevBlock === 'festa' ? 0.9 : 0; e.part.object.visible = true; }   // festa→baixada: the festa is dark by ~1.5 s, the bajada starts at 0.9 s so the two cross
       else if (e.state === 'out') { e.state = 'in'; e.came = true; e.arrive = 1 - e.leave; e.leave = 0; }
     } else if (e.state === 'on' || e.state === 'in') { e.leave = 1 - e.arrive; e.arrive = 1; e.state = 'out'; e.outAt = time; e.came = false; }   // came: a part arriving in an unfinished transition must not stay in the 'in' world (RND-F 24-11: else it is in neither)
@@ -675,6 +680,11 @@ function frame(dt) {
     const pf = S.block === 'pinya' ? parts.pinya3d2?.part?.fill?.() : null;
     if (pf) { score.setFill(pf.total); if (Math.abs(pf.total - (link.fiSent ?? -1)) > 0.01 || time - (link.fiAt ?? -9) > 1) { link.fiSent = pf.total; link.fiAt = time; tell({ fill: pf.total }); }
       const k = pf.total; room.setBackground?.({ bottom: [0.0035 + 0.006 * k, 0.0045 + 0.0015 * k, 0.008], top: [0.008 + 0.01 * k, 0.011 + 0.002 * k, 0.02 - 0.004 * k], gain: 1 }); }   // the part's dark, warming with the fill
+    // the tower: its climbers (and the golden charge) hold both scores' tronc; «hold the golden light» when it is ready for it
+    const tp = S.block === 'tronc' ? parts.torre3d?.part : null;
+    if (tp?.progress) { const g = tp.progress(), v = Math.min(1, 0.9 * (g.needed ? g.climbers / g.needed : 0) + 0.1 * (g.charge || 0));
+      score.setFill(v); if (Math.abs(v - (link.fiSent ?? -1)) > 0.01 || time - (link.fiAt ?? -9) > 1) { link.fiSent = v; link.fiAt = time; tell({ fill: v }); }
+      if ((tp.events || []).includes('aleta:ready')) tell({ say: 'v-torre-gold' }); }
     const ch = parts.umbral3d?.part?.charge?.();
     if (ch && S.block === 'wait') {
       const st = ch.cleared ? (ch.clearedFor >= (P['trailer.clearHold'] ?? 6) ? 1 : 0.999) : Math.min(0.998, ch.cover);
