@@ -95,6 +95,9 @@ export function create({ THREE, TSL, room, params }) {
   // leaveTo 'dust' (default): at the end the beings do not go, they let go into dust that stays in the air (uDust 1) and fades only with
   // the host's leave or params.dust; the tower takes it (handoff 'pinya') and builds its ronda out of it
   const uDust = uniform(1), uDustK = uniform(1);
+  // (26-11) once the tower takes the dust, the pinya does not vanish: its dust and its dark fade calmly (params.dustFade, 4.5 s) while the
+  // ronda gathers out of the same points
+  const uFade = uniform(1);
 
   // ---- perimeter: s (m) along the walls in strip order, continuous round the room (P3 → P4 has no seam)
   const offs = []; let PER = 0; for (const w of walls) { offs.push(PER); PER += w.width; }
@@ -343,7 +346,7 @@ export function create({ THREE, TSL, room, params }) {
     const r2 = dot(vC.xy, vC.xy), twk = pow(sin(uTime.mul(vC.z.mul(0.8).add(0.2)).add(vC.z.mul(90))).mul(0.5).add(0.5), 10);
     const c = mix(uCool, uWarmC, uWarm.mul(0.85)).mul(float(1).sub(smoothstep(0.2, 1.0, r2))).mul(twk.mul(1.6).add(0.25))
       .mul(exp(vD.mul(-0.09)).mul(0.85).add(0.15)).mul(0.07).mul(vK.mul(0.6).add(0.4));
-    m.colorNode = c.mul(uArrive).mul(float(1).sub(uLeave)).mul(uLight);
+    m.colorNode = c.mul(uArrive).mul(float(1).sub(uLeave)).mul(uLight).mul(uFade);
     m.fog = false;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 1; object.add(mesh);
   }
@@ -352,7 +355,7 @@ export function create({ THREE, TSL, room, params }) {
   const slotsH = new Map();     // stroke → { wall, x, y, being, t0, lastSpawn, seen }
   const glows = []; for (let i = 0; i < NG; i++) glows.push({ stroke: null, pos: new THREE.Vector3(), a: 0, on: false });
   const events = [];
-  let time = 0, total = 0, warmS = 0, threadCover = 0, fullT = -1, endT = -1, ended = false, doneSent = false, assistAcc = 0, firstT = -1, joinedSent = 0;
+  let lastHandT = -99, claimT = -1, time = 0, total = 0, warmS = 0, threadCover = 0, fullT = -1, endT = -1, ended = false, doneSent = false, assistAcc = 0, firstT = -1, joinedSent = 0;
   const fillW = new Float32Array(NW);
   let endFrom = 0, beingId = 0, dustSent = false; const tmpC3 = new THREE.Vector3();   // the end starts where the last being was called and travels both ways round the room
   const rr = rng(4242);
@@ -374,8 +377,14 @@ export function create({ THREE, TSL, room, params }) {
     }
     return null;
   }
+  // the pace (director 26-11, from the room: «una sola persona dando vueltas por la sala activó la etapa en unos 30 segundos»): the beings
+  // that come by themselves (a held hand's, the help, the opening's companions) never run ahead of a ramp — params.minTime (default 80 s)
+  // from the first being to a full room. A new hand always calls its own being (it is never refused); so one person needs ~80 s of
+  // work, several people fill it sooner, with their own hands.
+  const allowance = () => 10 + fillCount() * (prm().fullAt ?? 0.92) * Math.max(0, time - firstT) / Math.max(10, prm().minTime ?? 80);
   function spawn(w, x, y, opt = {}) {
     if (ended || fullT >= 0 && opt.auto) return null;
+    if (opt.auto && firstT >= 0 && beings.length >= allowance()) return null;
     if (!ready.length) { if (!opt.auto && pending.length < 16) pending.push([w, x, y]); return null; }
     const c = claim(w, x); if (!c) return null;
     // a first-row being with nobody on its left (seen from the room: towards wall.right) pushes with both palms: an arm over a missing
@@ -476,9 +485,11 @@ export function create({ THREE, TSL, room, params }) {
       const b = s.being;
       if (b && !b.dead && b.row === 0 && b.wall === h.wall && Math.abs(b.x - x) < 0.45) { b.yT = Math.max(0.55, Math.min(2.05, y)); b.held = time; }
       if (b && !b.dead) { b.dragHeld = time; if (b.dragP) b.dragP.copy(h.pos).applyMatrix4(invM).addScaledVector(W.normal, -0.012); }
-      // held: one more being every holdEvery s (the group grows from the hand)
-      const every = p.holdEvery ?? 1.2;
-      if (every > 0 && time - s.t0 > 1.0 && time - s.last > every && s.n < (p.holdMax ?? 8) && uLeave.value < 0.5) {
+      // held: one more being every holdEvery s (the group grows from the hand) — slower than before (26-11: the base built too fast):
+      // the first after 2 s, then at least every params.holdMin (2.6 s), at most params.holdCap (4) per hand
+      const every = Math.max(p.holdEvery ?? 1.2, p.holdMin ?? 2.6);
+      lastHandT = time;
+      if ((p.holdEvery ?? 1.2) > 0 && time - s.t0 > 2.0 && time - s.last > every && s.n < Math.min(p.holdMax ?? 8, p.holdCap ?? 4) && uLeave.value < 0.5) {
         s.last = time; s.n++;
         const side = s.n % 3 === 1 ? 0 : s.n % 3 === 2 ? 1 : -1;
         spawn(h.wall, x + side * COL, 1.0 + rr() * 0.6, { auto: true });
@@ -507,8 +518,10 @@ export function create({ THREE, TSL, room, params }) {
     }
 
     // ---- solo help: once the room has started, beings come out of the dark by themselves next to the groups
-    const assist = p.assist ?? 0.35;   // beings / s
-    if (!introOn && firstT >= 0 && assist > 0 && fullT < 0 && time - firstT > (p.assistDelay ?? 6) && beings.length) {
+    // (26-11, the room: «van apareciendo seres continuamente») a little help, far less than before (params.assist × params.assistK 0.25 ≈
+    // one being every ~11 s) and only while someone plays (a hand in the last params.assistIdle 8 s): nobody in the room, nothing grows
+    const assist = (p.assist ?? 0.35) * (p.assistK ?? 0.25);   // beings / s
+    if (!introOn && firstT >= 0 && assist > 0 && fullT < 0 && time - firstT > (p.assistDelay ?? 6) && beings.length && time - lastHandT < (p.assistIdle ?? 8)) {
       assistAcc += dt * assist;
       while (assistAcc >= 1) {
         assistAcc -= 1;
@@ -539,7 +552,9 @@ export function create({ THREE, TSL, room, params }) {
     warmS += (warmT - warmS) * Math.min(1, dt * 0.35); uWarm.value = warmS;
     { const kc = Math.min(1, dt / 1.5); if (Array.isArray(p.cool)) uCool.value.lerp(tmpC3.fromArray(p.cool), kc); if (Array.isArray(p.warm)) uWarmC.value.lerp(tmpC3.fromArray(p.warm), kc); }
     const dustMode = (p.leaveTo ?? 'dust') === 'dust';
-    uDust.value = dustMode ? 1 : 0; uDustK.value = clamp01((p.dust ?? 1) * (1 - uLeave.value));
+    if (dustSent && claimT < 0 && handoff.claimed('pinya')) claimT = time;
+    uFade.value = claimT >= 0 ? 1 - smooth01((time - claimT) / (p.dustFade ?? 4.5)) : 1;
+    uDust.value = dustMode ? 1 : 0; uDustK.value = clamp01((p.dust ?? 1) * (1 - uLeave.value) * uFade.value);
 
     // ---- full → hold → they let go into particles (the way out)
     let minW = 1; for (let w = 0; w < NW; w++) minW = Math.min(minW, fillW[w]);
@@ -551,7 +566,7 @@ export function create({ THREE, TSL, room, params }) {
     // ---- beings
     const kW = 1 - Math.exp(-dt * 1.2);
     for (const b of beings) {
-      b.born = Math.min(1, b.born + dt / (p.bornTime ?? 1.6));
+      b.born = Math.min(1, b.born + dt / ((p.bornTime ?? 1.6) * (p.bornK ?? 1.5)));   // 26-11: they assemble calmer (≈ 2.4 s; the palm's glow stays at once)
       b.flash = Math.max(0, b.flash - dt / 2.2);
       const near = b.held != null && time - b.held < 0.3;
       b.contact += ((near ? 1 : 0) - b.contact) * Math.min(1, dt * (near ? 12 : 1.5));
@@ -568,9 +583,9 @@ export function create({ THREE, TSL, room, params }) {
       writeInst(b);
     }
     for (const T of meshes) if (T) for (const W of T) for (const M of W) if (M.list.length) M.buf.needsUpdate = true;
-    if (ended && !doneSent && time - endT > endDur + 0.5) { doneSent = true; events.push('done'); }
+    if (ended && !doneSent && time - endT > endDur + (p.dustHang ?? 3.5)) { doneSent = true; events.push('done'); }   // 26-11: the dust hangs, calm, a few seconds before the tower
     // the dust is in the air: publish where each being's dust hangs (room frame), for the tower to build its ronda out of it
-    if (dustMode && ended && !dustSent && time - endT > endDur * 0.75) {
+    if (dustMode && ended && !dustSent && time - endT > endDur * 0.9) {
       dustSent = true; const n = beings.length, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), wc = uWarmC.value, cc = uCool.value;
       object.updateMatrixWorld();
       beings.forEach((b, i) => { const A = b.M?.buf?.array, o = b.k * 16; if (A && b.k >= 0) tmpC3.set(A[o], A[o + 1] + A[o + 3] * 0.85 + 0.8, A[o + 2]).applyMatrix4(object.matrixWorld); else tmpC3.set(0, -50, 0);   // its chest, where its dust hangs (room frame)
@@ -586,9 +601,8 @@ export function create({ THREE, TSL, room, params }) {
       ga[i * 4] = g.pos.x; ga[i * 4 + 1] = g.pos.y; ga[i * 4 + 2] = g.pos.z; ga[i * 4 + 3] = g.a * 0.8;
     });
     gA.needsUpdate = true;
-    // the tower took the dust: in this same frame it starts from it, so the pinya goes (no double image, no gap)
-    if (dustSent && handoff.claimed('pinya')) { object.visible = false; return; }
-    object.visible = uArrive.value > 0.001 && uLeave.value < 0.999;
+    // the tower took the dust (26-11: «corta de golpe»): the pinya's dust fades calmly over the same points the ronda gathers from
+    object.visible = uArrive.value > 0.001 && uLeave.value < 0.999 && uFade.value > 0.002;
   }
 
   // which pairs of beings hold hands: candidates = pairs whose nearest palms are ≤ netReach apart (3D, so across a corner too);
@@ -628,7 +642,7 @@ export function create({ THREE, TSL, room, params }) {
       if (l >= NE) break;
       const { a, b } = E, from = E.from === b ? b : a, to = from === a ? b : a, sf = from === a ? E.sa : E.sb, st = from === a ? E.sb : E.sa;
       eA.copy(sf ? from.pL : from.pR); eB.copy(st ? to.pL : to.pR);
-      const grow = clamp01((time - E.t0) / (0.5 + E.len * 0.5)) * (1 - Math.max(a.gone, b.gone)) * smooth01(Math.min(a.born, b.born) * 2 - 0.6);
+      const grow = clamp01((time - E.t0) / ((0.5 + E.len * 0.5) * 1.5)) * (1 - Math.max(a.gone, b.gone)) * smooth01(Math.min(a.born, b.born) * 2 - 0.6);
       // a light curve: it sags a little, and bends behind the walls (never into the room): the control point goes back along both normals
       const na = walls[a.wall].normal, nb = walls[b.wall].normal, len = eA.distanceTo(eB);
       eM.addVectors(eA, eB).multiplyScalar(0.5); eM.y -= 0.02 + 0.05 * len; eM.x -= (na.x + nb.x) * (0.03 + 0.06 * len); eM.z -= (na.z + nb.z) * (0.03 + 0.06 * len);
@@ -649,6 +663,8 @@ export function create({ THREE, TSL, room, params }) {
 
   function reset() {
     if (dustSent) { handoff.clear('pinya'); dustSent = false; }
+    claimT = -1; uFade.value = 1; lastHandT = -99; slotsH.clear(); knownStrokes.clear(); pending.length = 0; introQ.length = 0; endFrom = 0;
+    for (const g of glows) { g.stroke = null; g.a = 0; }
     for (const b of beings) { b.dead = true; }
     beings.length = 0; for (const G of grid) for (const c of G) c.fill(null);
     for (const T of meshes) if (T) for (const W of T) for (const M of W) { M.list.length = 0; M.mesh.geometry.instanceCount = 0; }

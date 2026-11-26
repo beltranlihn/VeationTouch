@@ -75,3 +75,9 @@ The bake takes about 3 s, spread over frames. A hand that lands earlier waits in
 
 ## Status and tests
 See the director's report (branch `lab/pinya-v2`).
+
+## 26-11 room review fixes (Beltrán via the director)
+
+- **Slower, needs work:** the beings that come by themselves (a held hand's, the help, the opening's companions) never run ahead of a ramp (`minTime`, 80 s from the first being to a full room); a new hand always calls its own being. A held hand calls one more after 2 s, then every ≥ `holdMin` 2.6 s, at most `holdCap` 4. The help is `assist × assistK` (0.25: about one every 11 s) and only while someone plays (`assistIdle` 8 s). Beings assemble × `bornK` 1.5 (≈ 2.4 s; the palm's glow stays at once); threads grow 1.5× slower.
+- **Calm ending:** the dust is published at 90 % of the end and `done` comes `dustHang` (3.5 s) after the end, so the dust hangs calmly. When the tower takes it the pinya no longer vanishes: its dust and dark fade over `dustFade` (4.5 s) while the ronda gathers from the same points.
+- **reset()** also clears held hands, pending calls, the opening's queued companions, the palm glows and the fade.
