@@ -73,6 +73,9 @@ export function create({ THREE, TSL, room, params }) {
   // leaveTo 'dust' (default): at the end the castells do not go, they let go into dust that hangs in the air (uDust 1), fading only with
   // the host's leave or params.dust; it is published (handoff 'castells') for whoever comes next to take
   const uDust = uniform(1), uDustK = uniform(1);
+  // params.mode 'outro' (the trailer's closing block): a soft gold over the bodies (uGoldK) and, while they form, the unborn points
+  // are gold motes (uMote) — they condense out of a golden dust
+  const uGoldK = uniform(0), uMote = uniform(0);
 
   // ================================================================================================== points (4 poses per body)
   function pointType(body, seed, n) {
@@ -98,23 +101,25 @@ export function create({ THREE, TSL, room, params }) {
   const NSTAMP = 16, STAMPS = [], SVEL = []; for (let i = 0; i < NSTAMP; i++) { STAMPS.push(new THREE.Vector4(0, -50, 0, 0)); SVEL.push(new THREE.Vector4(0, 0, 0, -99)); }
   const uStamp = uniformArray(STAMPS, 'vec4'), uSVel = uniformArray(SVEL, 'vec4');
   const brush = (pw, rnd) => TSL.Fn(() => {
-    const acc = vec3(0, 0, 0).toVar();
+    const acc = vec3(0, 0, 0).toVar(), cap = float(1).toVar();
     TSL.Loop(NSTAMP, ({ i }) => {
       const s = uStamp.element(i), sv = uSVel.element(i), age = uTime.sub(sv.w);
       TSL.If(s.w.greaterThan(0.001).and(age.lessThan(2.6)), () => {
         const toS = s.xyz.sub(cameraPosition), ls = length(toS), dir = toS.div(ls);
         const v = pw.sub(cameraPosition), along = dot(v, dir), perp = v.sub(dir.mul(along));
         const d = length(perp), depth = along.div(ls), rad = depth.mul(age.mul(0.14).add(0.2));
-        // near castells only: the field fades beyond ~12 m (a far castell is a landscape, not under the hand)
-        const f = s.w.mul(exp(d.mul(d).div(rad.mul(rad)).negate())).mul(depth.mul(0.6).add(0.4)).mul(float(1).sub(smoothstep(8, 14, along)));
+        // every castell under the ray eye→hand answers (near, far, the explaining one): the radius already grows with the depth along the
+        // ray; the amplitude does too (below), so a far castell is stirred by the same apparent amount on the wall
+        const f = s.w.mul(exp(d.mul(d).div(rad.mul(rad)).negate())).mul(depth.mul(0.6).add(0.4)).mul(step01(along.sub(0.2)));
         const env = float(1).sub(exp(age.mul(-9))).mul(exp(age.mul(-1.25))).mul(cos(age.mul(1.9)));
         const vel = sv.xyz, sp = length(vel), vn = vel.div(sp.add(1e-4));
         const curl = normalize(cross(dir, vn).add(vec3(0, 1e-4, 0))).mul(sin(d.div(rad).mul(3.2).sub(age.mul(2.4)).add(rnd.mul(2))));
-        acc.addAssign(vn.mul(0.34).add(curl.mul(0.16)).mul(min(sp, float(1.2))).mul(env).mul(f).mul(min(depth, float(2.5))));
+        acc.addAssign(vn.mul(0.34).add(curl.mul(0.16)).mul(min(sp, float(1.2))).mul(env).mul(f).mul(depth));
+        cap.assign(max(cap, depth.mul(step01(f.sub(0.01)))));
       });
     });
     const la = length(acc);
-    return acc.mul(min(float(1), float(0.3).div(la.add(1e-5))));
+    return acc.mul(min(float(1), float(0.3).mul(max(cap, float(1))).div(la.add(1e-5))));
   })();
 
   // ================================================================================================== the bodies' material
@@ -155,7 +160,7 @@ export function create({ THREE, TSL, room, params }) {
     const vA = varying(vec4(e, g0, float(1).div(kq.mul(kq)), clamp(p.y.div(1.7), 0, 1)));
     const vB = varying(i3), vC = varying(vec4(aux2.x, loose, 0, 0));
     // a point not yet formed (or gone) is not drawn at all: an opaque dark point would cut the square behind it
-    m.opacityNode = float(1).sub(smoothstep(0.999, 1.001, dot(vCo.xy, vCo.xy))).mul(step01(vA.x.sub(0.12))).mul(max(step01(float(0.9).sub(vA.y)), uDust.mul(smoothstep(0.02, 0.03, uDustK)))); m.alphaTest = 0.5;
+    m.opacityNode = float(1).sub(smoothstep(0.999, 1.001, dot(vCo.xy, vCo.xy))).mul(max(step01(vA.x.sub(0.12)), uMote)).mul(max(step01(float(0.9).sub(vA.y)), uDust.mul(smoothstep(0.02, 0.03, uDustK)))); m.alphaTest = 0.5;
     const N = normalize(vN), Vd = normalize(cameraPosition.sub(vP));
     const rim = pow(float(1).sub(abs(dot(N, Vd))), 2.2);
     const ao = vC.x.mul(0.6).add(0.4), low = smoothstep(0.02, 0.75, vA.w).mul(0.8).add(0.2);
@@ -173,7 +178,9 @@ export function create({ THREE, TSL, room, params }) {
     col = mix(col, tc(NIGHT), hz.mul(0.42)).mul(float(1).sub(hz.mul(0.22)));
     const mote = float(1).sub(vA.x).add(vA.y.mul(0.8));
     col = col.add(uCream.mul(mote.mul(twk.mul(0.6).add(0.05)).mul(0.3)).mul(float(1).sub(hz.mul(0.5))));
-    const fade = smoothstep(0.0, 0.25, vA.x).mul(mix(float(1).sub(smoothstep(0.5, 1.0, vA.y)), mix(float(1), uDustK, smoothstep(0.3, 0.9, vA.y)), uDust));
+    col = col.add(tc(GOLD).mul(uGoldK).mul(rim.mul(0.8).add(0.25)).mul(0.22).mul(float(1).sub(hz.mul(0.5))));   // the outro's soft gold
+    col = col.add(tc(GOLD).mul(uMote.mul(float(1).sub(vA.x))).mul(twk.mul(1.2).add(0.35)).mul(0.45));             // the golden dust they form out of
+    const fade = max(smoothstep(0.0, 0.25, vA.x), uMote.mul(float(1).sub(vA.x)).mul(0.8)).mul(mix(float(1).sub(smoothstep(0.5, 1.0, vA.y)), mix(float(1), uDustK, smoothstep(0.3, 0.9, vA.y)), uDust));
     m.colorNode = col.mul(fade).mul(vA.z.mul(0.5).add(0.5)).mul(uArrive);
     m.fog = false;
     return m;
@@ -229,13 +236,19 @@ export function create({ THREE, TSL, room, params }) {
     castells.push(cs);
     return cs;
   }
-  for (const [i, s] of (Array.isArray(P.castells) ? P.castells : CASTELLS).entries()) buildCastell(s, i);
+  // params.density (0..1, default 1; quality 'medium' → 0.5, 'low' → 0.35): the points per body (LODS × density) and how many of the far
+  // castells (≥ 5 m from the eye; the nearest kept first) are built. Read at creation.
+  const DENS = Math.max(0.15, Math.min(1, +(P.density ?? (P.quality === 'low' ? 0.35 : P.quality === 'medium' ? 0.5 : 1))));
+  { const list = Array.isArray(P.castells) ? P.castells : CASTELLS;
+    list.forEach((s, i) => buildCastell(s, i));
+    const far = castells.filter((c) => (c.spec.depth ?? 6) >= 4 && !c.explain).sort((a, b) => a.dist - b.dist), keep = Math.round(far.length * DENS);
+    for (const c of far.slice(keep)) castells.splice(castells.indexOf(c), 1); }
 
   // ---- meshes: one per castell and build (LOD by distance), culled per wall by the castell's sphere
   const types = [], jobs = [];
   const tCreate = performance.now(); let readyMs = 0;
   for (let bi = 0; bi < 2; bi++) jobs.push({ gen: bakeBodyGen(BUILDS[bi], REST, POSES, { grid: 0.022, detail: true, seed: 71 + bi * 9, shards: 24, spread: SPREAD }), done: (body) => {
-    types[bi] = LODS.map((n, l) => pointType(body, 3000 + bi * 10 + l, n));
+    types[bi] = LODS.map((n, l) => pointType(body, 3000 + bi * 10 + l, Math.max(200, Math.round(n * DENS))));
     for (const cs of castells) {
       const list = cs.bodies.filter((b, k) => (k + (b.seed < 0.5 ? 0 : 1)) % 2 === bi);
       if (!list.length) continue;
@@ -285,7 +298,12 @@ export function create({ THREE, TSL, room, params }) {
   let time = 0, builtSent = false, dimSent = false, endSent = false, doneSent = false, lastT = -1, stageNow = -1, dimK = 0;
   const fired = new Set();
   const lastStamp = new Map(), stampT = new Float32Array(NSTAMP).fill(-99); let stampI = 0;
-  const tmpV = new THREE.Vector3(); let dustSent = false, lingering = false, lingerT = 0;
+  const tmpV = new THREE.Vector3(); let lastMode = null, dustSent = false, lingering = false, lingerT = 0, wasOutro = false;
+  // the outro's build: the same order (far first, ring by ring, tier by tier), squeezed into 0.3–3.4 s
+  function remapOutro(cs) {
+    let lo = Infinity, hi = -Infinity; for (const c of castells) for (const b of c.bodies) { if (b.t0i == null) b.t0i = b.t; lo = Math.min(lo, b.t0i); hi = Math.max(hi, b.t0i); }
+    for (const b of cs.bodies) b.t = 0.3 + (b.t0i - lo) / Math.max(0.1, hi - lo) * 3.1;
+  }
   const env = (t, t0, hold) => (t < t0 ? 0 : t < t0 + 0.55 ? smooth01((t - t0) / 0.55) : t < t0 + 0.55 + hold ? 1 : 0.2 + 0.8 * Math.exp(-(t - t0 - 0.55 - hold) / 1.4));
 
   function update(dt, input) {
@@ -300,7 +318,7 @@ export function create({ THREE, TSL, room, params }) {
     time = input.time ?? time + dt;
     const t = input.t ?? time;
     if (lastT > t + 0.5) { fired.clear(); builtSent = dimSent = endSent = doneSent = false; if (dustSent) { handoff.clear('castells'); dustSent = false; } }   // the clock went back: a new pass
-    lastT = t;
+    lastT = t; lastMode = p.mode;
     uTime.value = time; uLight.value = p.light ?? 1;
     uLeave.value = clamp01(input.leave ?? p.leave ?? 0); uArrive.value = clamp01(input.arrive ?? p.arrive ?? 1);
     { const kc = Math.min(1, dt / 1.5); if (Array.isArray(p.warm)) uCream.value.lerp(tmpV.fromArray(p.warm), kc); if (Array.isArray(p.cool)) uCoolC.value.lerp(tmpV.fromArray(p.cool), kc); }
@@ -310,25 +328,35 @@ export function create({ THREE, TSL, room, params }) {
     const dT = +(p.dustTime ?? 0);
     if (dustMode && dT > 0 && uLeave.value >= 0.999) lingerT += dt; else if (uLeave.value < 0.999) lingerT = 0;
     lingering = dustMode && dT > 0 && uLeave.value >= 0.999 && lingerT < dT;
-    uDust.value = dustMode ? 1 : 0; uDustK.value = clamp01((p.dust ?? 1) * (dT > 0 ? 1 - smooth01(lingerT / dT) : 1 - uLeave.value));
+    const outroE = p.mode === 'outro';
+    uDust.value = dustMode || outroE ? 1 : 0; uDustK.value = clamp01((p.dust ?? 1) * (dT > 0 ? 1 - smooth01(lingerT / dT) : 1 - uLeave.value) * (outroE ? 1 - (1 - (p.outroDust ?? 0.14)) * smooth01((t - (+(p.outroDur ?? 18) - 5)) / 3.5) : 1));
     if (!input.state && room.setBackground) room.setBackground({ bottom: [0.006, 0.008, 0.02], top: [0.012, 0.018, 0.04], gain: 1 });   // alone in the study: the night blue (the square is Plaza's)
 
     // ---- the stages (the explaining castell): the clock's moments, or the host's highlight()
-    const st = p.stages ?? [29.4, 32.2, 34.8, 37.0, 39.4];
+    const st = p.stages ?? [29.4, 32.2, 34.8, 37.0, 39.4], outroNow = p.mode === 'outro';
     stageNow = -1;
     for (let i = 0; i < STAGES.length; i++) {
-      const k = manual[i] != null ? manual[i] : env(t, st[i], i < STAGES.length - 1 ? Math.max(0.6, st[i + 1] - st[i] - 0.8) : 2.6);
+      const k = outroNow ? 0 : manual[i] != null ? manual[i] : env(t, st[i], i < STAGES.length - 1 ? Math.max(0.6, st[i + 1] - st[i] - 0.8) : 2.6);
       stageK[i] += (k - stageK[i]) * Math.min(1, dt * 6);
+      if (outroNow) continue;
       if (t >= st[i] && !fired.has('s' + i)) { fired.add('s' + i); events.push(`stage:${STAGES[i]}`); }
       if (t >= st[i]) stageNow = i;
     }
-    const dimAt = p.dimAt ?? 43.5, endAt = p.endAt ?? 50.5, endDur = p.endTime ?? 4.5;
+    // the outro: 0–4 s they form fast out of a golden dust; still and breathing (no stages, no dim) with a soft gold until outroDur − 5;
+    // then they let go upward into a faint dust (never an empty black: motes stay to the last second)
+    const outro = p.mode === 'outro', oD = +(p.outroDur ?? 18);
+    if (outro && !wasOutro) { for (const cs of castells) remapOutro(cs); fired.clear(); builtSent = dimSent = endSent = doneSent = false; }
+    if (!outro && wasOutro) { for (const cs of castells) for (const b of cs.bodies) b.t = b.t0i; }
+    wasOutro = outro;
+    const dimAt = outro ? 1e9 : p.dimAt ?? 43.5, endAt = outro ? oD - 5 : p.endAt ?? 50.5, endDur = outro ? 3.5 : p.endTime ?? 4.5;
+    uGoldK.value += ((outro ? (p.outroGold ?? 1) * (1 - 0.6 * clamp01((t - endAt) / endDur)) : 0) - uGoldK.value) * Math.min(1, dt * 2);
+    uMote.value = outro ? 1 - smooth01((t - 2.6) / 2.2) : 0;
     dimK += ((t >= dimAt ? 1 : 0) - dimK) * Math.min(1, dt * 1.6);
     if (t >= dimAt && !dimSent) { dimSent = true; events.push('dim'); }
     if (t >= endAt && !endSent) { endSent = true; events.push('end'); }
     if (t >= endAt + endDur && !doneSent) { doneSent = true; events.push('done'); }
     const goneAll = clamp01((t - endAt) / endDur);
-    uFire.value = 0.35 + 1.4 * stageK[0]; uFireOn.value = fireCs ? smooth01((t - fireCs.t0) / 2) * (1 - goneAll) : 0;
+    uFire.value = 0.35 + 1.4 * stageK[0]; uFireOn.value = fireCs && !(outroNow && !p.outroExplain) ? smooth01((t - fireCs.t0) / 2) * (1 - goneAll) : 0;
 
     // ---- hands: the velocity field (any wall)
     for (const h of input.hands || []) {
@@ -348,8 +376,8 @@ export function create({ THREE, TSL, room, params }) {
     let builtAll = true;
     for (const cs of castells) {
       for (const b of cs.bodies) {
-        b.born = clamp01((t - b.t) / 1.2);
-        if (b.born < 1) builtAll = false;
+        b.born = outroNow && cs.explain && !p.outroExplain ? 0 : clamp01((t - b.t) / (outroNow ? 0.8 : 1.2));
+        if (b.born < 1 && !(outroNow && cs.explain && !p.outroExplain)) builtAll = false;
         // the explaining castell's parts
         let g = 0, rel = 0, dim = 0;
         if (cs.explain) {
@@ -373,7 +401,8 @@ export function create({ THREE, TSL, room, params }) {
           A[o + 12] = b.glow; A[o + 13] = b.dim; A[o + 14] = cs.haze; A[o + 15] = b.rel;
         });
         M.buf.needsUpdate = true;
-        M.mesh.frustumCulled = uLeave.value < 0.01 && goneAll <= 0;   // letting go, the points leave the sphere: no culling then
+        M.mesh.frustumCulled = uLeave.value < 0.01 && goneAll <= 0;
+        M.mesh.visible = !(outroNow && cs.explain && !p.outroExplain);   // the outro: P1 is the sentence's (params.outroExplain keeps it)   // letting go, the points leave the sphere: no culling then
       }
     }
     if (builtAll && castells.length && types.length && !builtSent) { builtSent = true; events.push('built'); }
@@ -392,7 +421,7 @@ export function create({ THREE, TSL, room, params }) {
   function highlight(stage, k) { const i = typeof stage === 'number' ? stage : STAGES.indexOf(stage); if (i >= 0 && i < STAGES.length) manual[i] = k == null ? null : clamp01(k); }
   function progress() {
     let n = 0, b0 = 0; for (const cs of castells) for (const b of cs.bodies) { n++; b0 += b.born; }
-    return { built: n ? +(b0 / n).toFixed(3) : 0, stage: stageNow >= 0 ? STAGES[stageNow] : null, dimmed: +dimK.toFixed(2), ending: endSent ? clamp01((lastT - (P.endAt ?? 50.5)) / (P.endTime ?? 4.5)) : 0, done: doneSent, dust: dustSent ? +uDustK.value.toFixed(3) : 0, readyMs };
+    return { built: n ? +(b0 / n).toFixed(3) : 0, stage: stageNow >= 0 ? STAGES[stageNow] : null, dimmed: +dimK.toFixed(2), ending: endSent ? (lastMode === 'outro' ? clamp01((lastT - (+(P.outroDur ?? 18) - 5)) / 3.5) : clamp01((lastT - (P.endAt ?? 50.5)) / (P.endTime ?? 4.5))) : 0, done: doneSent, dust: dustSent ? +uDustK.value.toFixed(3) : 0, readyMs, mode: P.mode === 'outro' || lastMode === 'outro' ? 'outro' : 'intro', density: DENS, castells: castells.length, points: castells.reduce((a, c) => a + c.bodies.length * Math.max(200, Math.round(LODS[c.lod] * DENS)), 0) };
   }
   function dispose() { bodyMat.dispose(); jobs.length = 0; for (const cs of castells) for (const M of cs.meshes) M.mesh.geometry.dispose(); }
   if (typeof window !== 'undefined') window.__castells3d = { castells, progress, highlight, events };
