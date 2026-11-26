@@ -375,7 +375,8 @@ export function createScore(nWalls, opt = {}) {
       }
       S.progress = S.t / T.intro; if (S.t >= T.intro) go('brasa');
     } else if (S.block === 'brasa') {
-      if (playing) {
+      if (playing && extFill != null) { S.progress = extFill; }   // studio 26-11: the correfoc v2 (brasa2) holds the block on its fires; the host moves on
+      else if (playing) {
         // I. Brasa (24-11, plan step 6): first the spark (loose touches, jets, devils), then THE CALL: the room calls tok… tok… TOK
         // (gap s apart) and everybody strikes on the TOK (window −early/+late). Three calls: from one wall; from one wall answered on the
         // opposite one; on all four (the whole ring burns → 'awake'). A missed call: a small wave and the room calls again, slower.
@@ -455,6 +456,7 @@ export function createScore(nWalls, opt = {}) {
         }
       } else if (S.phase === 'reward') { S.progress = 1; if (S.tp >= B.reward) { beatT = 0; evalAt = 0; phraseClock = 0; wobbles = 0; S.wobble = 0; S.wobbleWall = -1; S.phrase = 'gather'; go('tronc'); } }
     } else if (S.block === 'tronc') {
+      if (playing && extFill != null) { S.progress = extFill; } else {   // studio 26-11: the tower (torre3d) holds the block on its progress; the host moves on
       // III. Tronc = LIFT and LEVEL (24-11, plan step 2). Each 4.8 s phrase: gather (hands down to receive) → rise → lock. At the lock
       // every structure wall is judged on its hands' RELATIVE rise since the rise began (≥ B.rise counts as a lifter); still hands that
       // stay low are the base (they steady the tower); walls without a tower help at B.help. The lean comes from yR − yL. Once, at
@@ -534,6 +536,7 @@ export function createScore(nWalls, opt = {}) {
         }
         if (S.wobble === 0 && ((S.floors >= 9 && S.t >= B.min) || (S.t >= B.target && S.floors >= 7) || S.t >= B.max - B.reward)) phase('reward');
       } else if (S.phase === 'reward') { if (S.tp >= B.reward) { pomInit(); go('pom'); } }
+      }
     } else if (S.block === 'pom') {
       if (playing) {
         // IV. Pom de dalt (T-050, proposal §4.5): three climbs, three gestures of stillness. A hand is still when it moved < B.still in

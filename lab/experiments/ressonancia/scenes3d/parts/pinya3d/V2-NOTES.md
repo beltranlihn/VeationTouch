@@ -14,6 +14,18 @@ beside it, and in front or behind when close. Each thread runs palm to palm and 
 ir uniendo las manos entre los personajes cercanos, y ése es el hilo». With few beings there are a few threads. As the room fills,
 the net thickens, joins the groups and closes round the room. The light warms from blue-grey to a soft red. When the room is full, the beings let go into rising particles: that is the way out.
 
+## The opening that teaches
+While the voice explains (director 26-11, as the correfoc's), the guide beam (`pinya3d/guidebeam.js`, shared with the tower) runs
+round the room at hand height and presses on a point of each wall: P4, P1, P2, P3 in turn.
+- At each press a being is born there, pushing against the light as against a hand.
+- 0.9 s later it calls a companion beside it, so the first red threads stretch.
+- The public's hands work from the first second.
+- Solo help waits until the opening is over.
+- Times: `params.intro = { start, walls: [t0, t1, t2, t3], hold }`, in s from the block's start (`input.t`).
+  - Default: `{ start: 0.5, walls: [3.0, 5.0, 7.0, 9.0], hold: 0.5 }`, cut to the recorded voice.
+  - `intro: false` turns it off.
+- Event: `intro:<i>` at each press.
+
 ## Solo path
 One person touches along the walls. Each touch makes a being, and a held hand calls one more every 1.2 s (up to 8).
 From 6 s after the first touch, beings also come by themselves next to the groups (0.35 per second). With the defaults

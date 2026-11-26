@@ -1,0 +1,92 @@
+{
+ "latMin": -30.0,
+ "latMax": 40.0,
+ "eye": [
+  0.0,
+  1.6,
+  -0.0
+ ],
+ "forward": [
+  -0.0,
+  -0.0,
+  -1.0
+ ],
+ "note": "u = 0.5 looks along forward (side 0 = P4); row 0 = latMax",
+ "mode": "dark",
+ "width": 8192,
+ "height": 1593,
+ "slices": 2,
+ "rgbmRange": 8.0,
+ "additive": true,
+ "rgbGamma": 2.2,
+ "depthMax": 400.0,
+ "lightSize": [
+  4096,
+  796
+ ],
+ "groups": [
+  {
+   "name": "sky",
+   "kind": "sky",
+   "pos": null,
+   "side": null
+  },
+  {
+   "name": "fire_P4",
+   "kind": "fire",
+   "pos": [
+    0.0,
+    1.2,
+    -6.5235
+   ],
+   "side": "P4",
+   "file": "fire_P4.png"
+  },
+  {
+   "name": "fire_P1",
+   "kind": "fire",
+   "pos": [
+    6.9707,
+    1.2,
+    -0.0
+   ],
+   "side": "P1",
+   "file": "fire_P1.png"
+  },
+  {
+   "name": "fire_P2",
+   "kind": "fire",
+   "pos": [
+    0.0,
+    1.2,
+    6.5235
+   ],
+   "side": "P2",
+   "file": "fire_P2.png"
+  },
+  {
+   "name": "fire_P3",
+   "kind": "fire",
+   "pos": [
+    -6.9707,
+    1.2,
+    -0.0
+   ],
+   "side": "P3",
+   "file": "fire_P3.png"
+  }
+ ],
+ "files": {
+  "beauty_0.png": 7343252,
+  "beauty_1.png": 7666279,
+  "fire_P4.png": 4517908,
+  "fire_P1.png": 4464647,
+  "fire_P2.png": 4462523,
+  "fire_P3.png": 4496569,
+  "depth.png": 4775310
+ },
+ "depthStats": {
+  "p5": 3.493992805480957,
+  "p50": 18.726404190063477
+ }
+}

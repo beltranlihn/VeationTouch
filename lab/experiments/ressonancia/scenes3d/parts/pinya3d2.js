@@ -14,6 +14,7 @@
 // part.events (this frame): 'born:<wall>:<u>:<y>:<row>', 'thread:join', 'full', 'end', 'done'.
 // Study (no input.state): params in res-3d-study/parts/pinya3d2.json. Hands by `stroke`; the sensor may drop one (held 0.35 s).
 import { bakeBodyGen, pose, rng, V } from './pinya3d/body.js';
+import { createGuideBeam } from './pinya3d/guidebeam.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth01 = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
@@ -66,6 +67,12 @@ export function create({ THREE, TSL, room, params }) {
     cameraPosition, cameraProjectionMatrix, modelViewMatrix, modelWorldMatrix, dot, exp, pow, length } = TSL;
   const P = params || {};
   const object = new THREE.Group(); object.name = 'pinya3d2';
+  // ---- the opening that teaches (director 26-11, as the correfoc's): while the voice explains, the guide beam runs round the room and
+  // presses on a point of each wall (P4, P1, P2, P3, one after another); at each press a being is born there, pushing against the light
+  // as against a hand — four beings, one a wall, and the net begins. Then the room plays (its hands work from the first second).
+  // Times: params.intro = { start, walls: [t0, t1, t2, t3], hold } in s from the block's start (input.t); intro: false = off.
+  const INTRO = { start: 0.5, walls: [3.0, 5.0, 7.0, 9.0], hold: 0.5 };   // the recorded voice (26-11): 0.5 «The pinya is the base…», 5.5 «Touch the wall…», 11 «Fill the room.»
+  const beam = createGuideBeam({ THREE, TSL, room }); object.add(beam.object);
   const walls = room.walls, NW = walls.length;
   const H = room.strip?.height || 912;
   const uTime = uniform(0), uLeave = uniform(0), uArrive = uniform(1), uWarm = uniform(0), uLight = uniform(1), uGlow = uniform(1), uBreath = uniform(1);
@@ -416,6 +423,9 @@ export function create({ THREE, TSL, room, params }) {
 
   // ================================================================================================== update
   const invM = new THREE.Matrix4();
+  const introTargets = (() => { const ids = ['P4', 'P1', 'P2', 'P3'], idx = ids.map((id) => walls.findIndex((w) => w.id === id)).filter((i) => i >= 0);
+    return (idx.length === NW ? idx : walls.map((_, i) => i)).map((wi, k) => ({ wall: wi, x: k % 2 ? 0.95 : -0.95, y: 1.2 })); })();
+  let introKey = '', introPlan = null, introEnd = -1, introOn = false; const introQ = [];
   const knownStrokes = new Set(), nowStrokes = new Set();
   function update(dt, input) {
     dt = Math.min(0.1, dt || 0.016);
@@ -468,9 +478,27 @@ export function create({ THREE, TSL, room, params }) {
 
     knownStrokes.clear(); for (const k of nowStrokes) knownStrokes.add(k);
 
+    // ---- the opening: the guide beam presses, a being is born at each press (as for a hand: its palm on the light, its threads)
+    {
+      const intro = p.intro === false ? false : (p.intro ?? INTRO), key = JSON.stringify(intro);
+      if (key !== introKey) { introKey = key; introPlan = beam.planOf(intro, introTargets); introEnd = introPlan ? Math.max(...introPlan.targets.map((q) => q.t + q.hold)) + 1.5 : -1; }
+      const bt = input.t ?? time;
+      for (const e of beam.update(dt, bt, introPlan)) {
+        if (e.type !== 'press' && e.type !== 'hold') continue;
+        const W = walls[e.wall], x = (e.pos.x - W.centre.x) * W.right.x + (e.pos.z - W.centre.z) * W.right.z;
+        const b = spawn(e.wall, x, e.pos.y, {}); if (b) { b.flash = 1; b.contact = 1; b.held = time; }
+        const g = glows.find((q) => q.stroke === null && q.a < 0.05) || glows[0];
+        g.stroke = null; g.a = 1; g.pos.copy(e.pos).applyMatrix4(invM).addScaledVector(W.normal, -0.01);
+        events.push(`intro:${e.i}`);
+        introQ.push({ t: time + 0.9, wall: e.wall, x: x + (e.i % 2 ? -1 : 1) * COL, y: 1.05 + 0.3 * ((e.i * 7) % 3) / 2 });   // a companion beside it (as a held hand calls one): the first threads
+      }
+      for (let k = introQ.length - 1; k >= 0; k--) if (time >= introQ[k].t) { const q = introQ.splice(k, 1)[0]; spawn(q.wall, q.x, q.y, { auto: true }); }
+      introOn = introPlan && bt < introEnd;
+    }
+
     // ---- solo help: once the room has started, beings come out of the dark by themselves next to the groups
     const assist = p.assist ?? 0.35;   // beings / s
-    if (firstT >= 0 && assist > 0 && fullT < 0 && time - firstT > (p.assistDelay ?? 6) && beings.length) {
+    if (!introOn && firstT >= 0 && assist > 0 && fullT < 0 && time - firstT > (p.assistDelay ?? 6) && beings.length) {
       assistAcc += dt * assist;
       while (assistAcc >= 1) {
         assistAcc -= 1;

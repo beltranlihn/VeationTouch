@@ -1,0 +1,8 @@
+[
+  { "key": "light", "label": "Castells: light on the points", "type": "number", "min": 0, "max": 3, "step": 0.05, "default": 1 },
+  { "key": "dimAt", "label": "Castells: the parts the trailer skips dim at", "type": "number", "min": 0, "max": 60, "step": 0.5, "default": 43.5, "unit": "s" },
+  { "key": "endAt", "label": "Castells: they let go at", "type": "number", "min": 0, "max": 70, "step": 0.5, "default": 50.5, "unit": "s" },
+  { "key": "endTime", "label": "Castells: letting go takes", "type": "number", "min": 1, "max": 10, "step": 0.5, "default": 4.5, "unit": "s" },
+  { "key": "arrive", "label": "Castells: arrive", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 1 },
+  { "key": "leave", "label": "Castells: leave", "type": "number", "min": 0, "max": 1, "step": 0.01, "default": 0 }
+]
