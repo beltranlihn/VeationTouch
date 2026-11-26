@@ -102,6 +102,7 @@ for (const [name, pr] of loads) {
     if (name === 'plaza') params.glow = 0.3;
     if (name === 'torre3d' && parts.plaza3d && P.plaza3d !== false) params.backdrop = false;   // the trailer's one square stands behind the tower                       // atmos draws the lamps' glow in the air too
     if (name === 'castell') params.density = DENS[P.quality] ?? 1;
+    if (name === 'castells3d') { params.quality = P.quality; if (P['castells.density'] != null) params.density = P['castells.density']; }   // 26-11: medium → half the points
     if (name === 'pinya3d') params.density = DENS[P.quality] ?? 1;
     if (name === 'baixada3d') params.town = false;                // the real square (plaza, silhouette) is the town behind the dawn   // 3D-PI: fewer points at medium / low
     if (name === 'fall3d') params.duration = TIMES.fall;           // its 15 s script rescaled to the score's fall
