@@ -1,0 +1,120 @@
+{
+ "_about": "Ressonància trailer music (mt-*), 2026-11-26. ElevenLabs music (POST /v1/music), model music_v2_5, force_instrumental true, output mp3_44100_192, prompt jobs, two or more takes per block. Keys measured offline (chroma + Krumhansl-Schmuckler, 130-1500 Hz band and full band); tempo and loop points measured offline (onset flux grid; spectral match for free loops). Artist names were removed from the prompts (the API rejects them). Loops follow sound.js SETS: equal-power crossfade of xf seconds centred on b; a grid loop is a whole number of bars.",
+ "pieces": {
+  "mt-wait": {
+   "model": "music_v2_5",
+   "ms": 90000,
+   "prompt": "Instrumental ambient electronic music in D major pentatonic (D E F# A B only), for the idle entrance of a contemporary new media art installation. Almost silence with texture: a very soft, deep, clean sine sub drone on D, sparse glassy granular particles and tiny digital crackles drifting in a wide space, a distant slowly evolving pad that breathes in and out, occasional soft high harmonics. Minimal, calm, pristine. Constant low density from the first second to the last, no intro, no build, no ending, so it loops seamlessly. No drums, no melody, no brass, no orchestra, no vocals, no folk instruments.",
+   "take": "2 of 2",
+   "file": "mt-wait.mp3",
+   "seconds": 78.5,
+   "key": "D (D F# A B in the mids: D major pentatonic)",
+   "pulse": "none",
+   "loop": {
+    "a": 10.68,
+    "b": 75.56,
+    "xf": 4,
+    "first": 0
+   },
+   "lift": 2,
+   "edit": "cut at 78.5 s"
+  },
+  "mt-intro": {
+   "model": "music_v2_5",
+   "ms": 60000,
+   "prompt": "Instrumental, 60 seconds. Hopeful, warm, uplifting, in a MAJOR key: D major (chords D major, G major, A major, B minor; the F sharp is always present, no F natural), the bass always rooted on the note D. A modern electronic score for the narrated opening of an immersive new media art installation,. 0 to 15 seconds: dark evolving analog pads and granular shimmering textures, a deep clean sub-bass pulse on D that slowly grows stronger as particles gather into a town square. At 15 seconds the pulse swells and at 17 seconds it opens into a wide, warm, luminous D major chord with a soft felt piano note and airy synth pads, a sense of welcome. 17 to 43 seconds: sustained and steady, a gentle minimal synth arpeggio and a subtle heartbeat pulse under a spoken narration, never busy, plenty of space. From 43 seconds to the end: it quiets down, elements fall away, leaving a soft pad and sub that thin out to near silence at 60 seconds. Pristine contemporary production, deep clean bass, wide stereo. No brass, no trumpets, no orchestra, no epic drums, no folk instruments, no vocals.",
+   "take": "5 of 6 (takes 1, 3, 4 came out D minor / G# minor; 2 in A major with no build)",
+   "file": "mt-intro.mp3",
+   "seconds": 60.03,
+   "key": "D major (Krumhansl 0.81)",
+   "pulse": "beat opens at 16.1 s",
+   "once": true,
+   "lift": 2,
+   "edit": "none"
+  },
+  "mt-brasa": {
+   "model": "music_v2_5",
+   "ms": 72000,
+   "prompt": "Instrumental dark electronic music at 120 BPM in 4/4, in the key of D: the bass line, the kick and the drone are all tuned to the note D, with an open D and A power-fifth drone and no third, for a fire ritual in an immersive new media art installation. Dry, tight, heavy modern percussion: deep punchy kick, crisp dry clicks and glitchy hats, processed metallic hits, a gritty distorted bass with real body locked to the kick, low rumbling sub, crackling granular textures like embers. Hypnotic, tense, driving, contemporary. Steady high energy with room to grow, every layer plays from the very first second to the last, no intro, no breakdown, no ending, so it loops. Pristine production, wide stereo. No brass, no trumpets, no shawm, no folk drums, no orchestra, no vocals.",
+   "take": "4 of 4 (1-3 centred on C / B)",
+   "file": "mt-brasa.mp3",
+   "seconds": 72.05,
+   "key": "D centre (mids D > F# > C; dark, chromatic noise, no clean third)",
+   "pulse": "120.00 BPM, beat grid from 0.000 s",
+   "loop": {
+    "a": 6,
+    "b": 70,
+    "xf": 0.25,
+    "grid": "32 bars"
+   },
+   "lift": 4,
+   "edit": "none"
+  },
+  "mt-pinya": {
+   "model": "music_v2_5",
+   "ms": 72000,
+   "prompt": "Instrumental contemporary electronic music in the key of A minor (A, C, E; the sub-bass holds a low A as its root), slow, around 70 BPM, for an immersive new media art installation where many people press together as one body. A slow deep heartbeat pulse in the sub-bass, warm saturated analog pads that swell and breathe like collective breathing, tense sustained low strings-like synth textures, soft granular grain clouds, a restrained felt piano figure far in the background. Warm, tense, communal, a contained strength. Constant density from the very first second to the last, no intro, no climax, no ending, so it loops. Pristine production, deep clean bass, wide stereo. No brass, no orchestra, no folk instruments, no vocals.",
+   "take": "3 of 4 (1, 2 in C/G major; 4 in D minor)",
+   "file": "mt-pinya.mp3",
+   "seconds": 63.5,
+   "key": "A minor (Krumhansl 0.82, sub on A and C)",
+   "pulse": "70 BPM heartbeat (soft)",
+   "loop": {
+    "a": 5.06,
+    "b": 59.92,
+    "xf": 1,
+    "grid": "16 bars at 70 BPM"
+   },
+   "lift": 4,
+   "edit": "cut at 63.5 s"
+  },
+  "mt-tronc": {
+   "model": "music_v2_5",
+   "ms": 76800,
+   "prompt": "Instrumental minimalist electronic music at exactly 100 BPM in 4/4, in D using only the notes D E G A C, for a human tower rising in an immersive new media art installation. An ascending pulse: a precise sequenced synth arpeggio in sixteenth notes that keeps climbing upward through D E G A C, interlocking minimal patterns in a contemporary minimalist style, a deep clean sub-bass on D on every beat, a tight soft kick and fine clicks, a high crystalline arpeggio layer that adds tension, granular shimmer. Rising tension, architectural, hypnotic, precise. Every element plays from the very first second to the last, steady density, no intro, no breakdown, no ending, so it loops. Pristine modern production, wide stereo. No brass, no trumpets, no orchestra, no folk instruments, no vocals.",
+   "take": "2 of 2 (1 had a clear F#, outside D E G A C)",
+   "file": [
+    "mt-tronc-bass.mp3",
+    "mt-tronc-other.mp3"
+   ],
+   "seconds": 76.83,
+   "key": "D, no clear third (D and A dominant)",
+   "pulse": "100.00 BPM, beat grid from 0.00 s; 0-18 s is a quieter first section",
+   "loop": {
+    "a": 21.0,
+    "b": 69.0,
+    "xf": 0.25,
+    "grid": "20 bars",
+    "first": 0
+   },
+   "lift": 4,
+   "edit": "band split (Linkwitz-Riley 4th order, 200 Hz): bass = sub + kick, other = arpeggios and clicks (bring other up with the floors)"
+  },
+  "mt-crown": {
+   "model": "music_v2_5",
+   "ms": 10000,
+   "prompt": "Instrumental, 10 seconds, in D major, the luminous release at the top of a human tower in a new media art installation. It starts immediately with a soft reverse swell for one second, then a wide open D major chord blooms: shimmering bright synth pads, granular sparkles, a warm deep sub-bass on D, glassy bell-like electronic tones, airy and euphoric, ringing and slowly fading by 10 seconds. Modern cinematic electronic. No brass, no trumpets, no orchestra, no drums, no vocals.",
+   "take": "2 of 2 (1 was 19 s with a 10 s build)",
+   "file": "mt-crown.mp3",
+   "seconds": 11.49,
+   "key": "D (D-A open chord)",
+   "pulse": "none; swell from 0 s, the bloom peaks at ~4.0 s",
+   "once": true,
+   "lift": 0,
+   "edit": "first 0.55 s of silence cut"
+  },
+  "mt-acta": {
+   "model": "music_v2_5",
+   "ms": 18000,
+   "prompt": "Instrumental, 18 seconds, in D major, the poetic closing of an immersive new media art installation. A slow, tender felt piano note and a soft warm D major pad over a gentle deep sub, granular shimmer like dust in light, very slow and spacious. Everything slowly fades away and reaches complete silence at about 16 seconds. No drums, no brass, no orchestra, no vocals.",
+   "take": "2 of 2 (1 sat on D-G-A, no third)",
+   "file": "mt-acta.mp3",
+   "seconds": 17.0,
+   "key": "D major (0.83)",
+   "pulse": "none",
+   "once": true,
+   "lift": 0,
+   "edit": "fade-out 13.5 -> 16.7 s, cut at 17 s (black by ~16.5 s)"
+  }
+ }
+}

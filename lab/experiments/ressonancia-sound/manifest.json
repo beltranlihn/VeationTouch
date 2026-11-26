@@ -26,6 +26,22 @@
       ]
     },
     {
+      "key": "musicSet",
+      "label": "Trailer music set (compare)",
+      "type": "select",
+      "default": "tm",
+      "options": [
+        [
+          "tm",
+          "A — tm (sonido-trailer)"
+        ],
+        [
+          "mt",
+          "B — mt (música del tráiler)"
+        ]
+      ]
+    },
+    {
       "key": "voice",
       "label": "Voice-over volume",
       "type": "number",
