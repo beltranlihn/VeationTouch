@@ -799,7 +799,7 @@ function frame(dt) {
       else if (S.block === 'brasa') cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 12, idle: 15, y: 1.3, per: 3, scale: 0.7, alpha: 0.6, move: true };
       else if (S.block === 'pinya') { const pf = parts.pinya3d2?.part?.fill?.(); if (!pf || !(pf.done || pf.total >= 0.98)) cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 11, idle: 15, y: 1.35, per: 2, scale: 0.75, alpha: 0.65, move: true }; }
       else if (S.block === 'tronc') { const g = parts.torre3d?.part?.progress?.() || {};
-        cfg = g.ending > 0 ? null : g.ready ? { text: 'Hold the light', walls: [0, 2, 3], from: 0, idle: 10, y: 1.75, hold: 1 } : { text: 'Hold your hand', walls: [0, 2, 3], from: 9.5, idle: 15, y: 1.75, hold: 1.5 }; }
+        cfg = g.ending > 0 ? null : g.ready ? { text: 'Touch the light', walls: [0, 2, 3], from: 0, idle: 10, y: 1.85, per: 2, scale: 0.75, alpha: 0.7, move: true } : { text: 'Touch the wall', walls: [0, 2, 3], from: 9.5, idle: 15, y: 1.85, per: 2, scale: 0.75, alpha: 0.65, move: true }; }   // 26-11 (Beltrán: «que simplemente sea apretar») a touch, no hold ring
     }
     hints.update(dt, time, { block: S.block, t: S.t || 0, hands: hs, downs, cfg }); }
   subs.update(dt);
