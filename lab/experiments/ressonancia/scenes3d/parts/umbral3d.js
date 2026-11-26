@@ -506,6 +506,11 @@ export function create(ctx) {
   // colour — they have uncovered that word. Painted stones still play (they move, fall, come back) but come back painted. When a share
   // PAINT_OPEN of the visible mosaic is painted, the buttons open (the host turns paint() into the score's reveal) and a wave runs
   // round the room from the last stone painted, painting what was left. A new pass of the entrance starts desaturated again.
+  // studio 26-11 (Beltrán: «un círculo grande que se iba achicando alrededor de cada botón… una fuerza que iba dando vuelta los mosaicos»):
+  // the rings are FORCES in the stones, not lines: a narrow band of stones turning (RING_TURN rad at its crest, BAND_W m wide) that moves —
+  // closing in on every round window when the room opens (dB: each stone's distance to its nearest button), opening from the button
+  // round the room while a hand charges it
+  let dB = null, dBr = null, R0W = 0; const WIN_V = 2.2, BAND_W = 0.3, RING_TURN = 1.15;
   const PERSIST = true, WAVE_V = 2.6, UP_FROM = 1.7, UP_K = 5;                         // UP: above 1.7 m a hand paints upward much farther (×6 at 2.1 m)
   let paintedN = 0, lastPaint = -1, waveT0 = -1, waveS = 0, lastHandT = 0;
   // studio 26-11 (Beltrán: «el anillo que recorre la sala cuando se activa, que suceda una vez más»): WAVE_PASSES fronts, one after the
@@ -1408,7 +1413,7 @@ export function create(ctx) {
     // ---- the reveal is whole: resonance (the figure spreads from the four buttons); 'start': the biggest wave
     if (reveal >= 1 && !wasRevealed && playing) {
       figT0 = time;
-      for (let i = 0; i < NW; i++) { const w = walls[i]; surfHit(_v.copy(w.centre).setY(RING_Y)); figAt[i].cu = hit.cu; figAt[i].cy = hit.cy; launch(hit.cu, hit.cy, 0.9, 3.4, 0, 0); }
+      for (let i = 0; i < NW; i++) { const w = walls[i]; surfHit(_v.copy(w.centre).setY(RING_Y)); figAt[i].cu = hit.cu; figAt[i].cy = hit.cy; if (!PERSIST) launch(hit.cu, hit.cy, 0.9, 3.4, 0, 0); }   // (26-11: with the rings closing on the windows, no outward pulses)
     }
     if (reveal < 1) figT0 = -1;
     wasRevealed = reveal >= 1 && (wasRevealed || playing);   // (T-058c: a reveal reached while the part was still arriving starts the figure once it plays)
@@ -1495,7 +1500,7 @@ export function create(ctx) {
     if (nh > 0) lastHandT = time;
     if (PERSIST && paintedN > 0 && time - lastHandT > RESET_AFTER && (!S || S.block === 'wait') && clearT0 < 0 && !btns.some((b) => b.t0 >= 0)) unpaint();
     // ---- the buttons and the charge (see THE BUTTONS)
-    const openNow = PERSIST && waveT0 >= 0 && time - waveT0 > 1.2 && (!S || S.block === 'wait') && clearT0 < 0;
+    const openNow = PERSIST && waveT0 >= 0 && time - waveT0 > (dB ? R0W / WIN_V - 0.4 : 1.2) && (!S || S.block === 'wait') && clearT0 < 0;
     for (const b of btns) {
       if (!b.seen) { surfHit(_v.copy(b.w.centre).addScaledVector(b.w.right, b.cx).setY(b.o.cy)); b.cu = hit.cu; b.cv = hit.cy; b.seen = new Uint16Array(NC); }
       let inside = false;
@@ -1504,7 +1509,7 @@ export function create(ctx) {
         const hx = _v2.subVectors(h.pos, b.w.centre).dot(b.w.right) - b.cx, hy = h.pos.y - b.o.cy;
         if (hx * hx + hy * hy < (b.r + 0.12) * (b.r + 0.12)) { inside = true; break; }
       }
-      if (inside) { b.offT = 0; if (b.t0 < 0) { b.t0 = time; b.gen = (b.gen % 65000) + 1; b.pulse = pulseNext; launch(b.cu, b.cv, 0.9, WAVE_V, 0, 0); } }   // studio 26-11 (Beltrán): the ring is BORN at the button and spreads (a ring of lifted, turning stones)
+      if (inside) { b.offT = 0; if (b.t0 < 0) { b.t0 = time; b.gen = (b.gen % 65000) + 1; } }   // studio 26-11 (Beltrán): the ring is BORN at the button and spreads (a band of turning stones, below)
       else if (b.t0 >= 0 && (b.offT += dt) > 0.35) { if (b.pulse >= 0) { const p = pulses[b.pulse]; if (p.t0 === b.t0) p.on = false; b.pulse = -1; } b.t0 = -1; }   // let go (0.35 s of grace): the ring and its charge are lost
       b.R = b.t0 >= 0 ? (time - b.t0) * WAVE_V : 0;
       const showTo = openNow && b.t0 < 0 ? 1 : 0, glowTo = b.t0 >= 0 ? 1 : 0;
@@ -1516,6 +1521,15 @@ export function create(ctx) {
         b.uR[j].value = rad; b.uA[j].value = smooth(0, 0.2, ph) * smooth(0.02, 0.14, rad - b.r) * b.show * 0.9;
       }
       b.uHand.value = b.show * (0.88 + 0.12 * Math.sin(time * 2.2)); b.uGlow.value = b.glow;
+    }
+    if (!dB && btns.length && btns.every((b) => b.seen)) {                            // once: every stone's distance to its nearest button
+      dB = new Float32Array(NC); dBr = new Float32Array(NC); let mx = 0;
+      for (let i = 0; i < NC; i++) {
+        let best = 1e9, br = 0.4;
+        for (const b of btns) { let d = CU[i] - b.cu; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; const e = Math.hypot(d, CY[i] - b.cv); if (e < best) { best = e; br = b.r; } }
+        dB[i] = best; dBr[i] = br; if (!cells[i].loose && cells[i].vis && best > mx) mx = best;
+      }
+      R0W = mx + 0.4;
     }
     chargeCov = clearT0 < 0 ? coverOf() : 1;
     if (clearT0 < 0 && chargeCov >= 0.999) { clearT0 = time; for (let i = 0; i < NC; i++) fallDelay[i] = rnd() * 1.8; for (const b of btns) b.t0 = -1; }
@@ -1545,7 +1559,7 @@ export function create(ctx) {
         if (ds > -3.6 && ds < 3.6) { const u = 1 - (ds * ds) / 12.96; sh = u * u * u; }
         ds = IDLE_CURL ? 1e9 : cu_ + cy_ * 0.4 + idleC * 0.6 - SH2; if (ds < -HL2) ds += LL; if (ds < -HL2) ds += LL; if (ds > HL2) ds -= LL; if (ds > HL2) ds -= LL;
         if (ds > -3 && ds < 3) { const u = 1 - (ds * ds) / 9; sh += 0.7 * u * u * u; }
-        let bump = 0, n = 0;
+        let bump = 0, n = 0, rg = 0;
         for (let q = 0; q < npa; q++) {                                                 // (T-058: only the live pulses, and a cheap reject before the root)
           const k = pa[q], p = pulses[k], rMax = paMax[k], dy = cy_ - p.y; if (dy > rMax || dy < -rMax) continue;
           let d = cu_ - p.s; if (d > HL2) d -= LL; else if (d < -HL2) d += LL; if (d > rMax || d < -rMax) continue;
@@ -1579,7 +1593,14 @@ export function create(ctx) {
             if (PERSIST) paintCell(i); else if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { vphi[i] += 5; }   /* studio 25-11: no glow under a landing hand (was glow 1.0), motion only */
           }
         }
-        if (waveT0 >= 0 && !gone[i]) {                                                   // the wave that opens the buttons: it paints what was left, then passes again
+        if (waveT0 >= 0 && !gone[i] && dB) {                                            // the rings that open the buttons: closing in on each window, painting what was left (then once more)
+          const d0 = dB[i], T1 = R0W / WIN_V + WAVE_GAP;
+          for (let p = 0; p < WAVE_PASSES; p++) {
+            const Rin = R0W - (time - waveT0 - p * T1) * WIN_V; if (Rin > R0W + 0.5) continue;
+            if (Rin <= d0) { if (colT[i] <= time) paintCell(i); if (wavePass[i] < p + 1) wavePass[i] = p + 1; }
+            const x = (d0 - Rin) / BAND_W; if (x > -3 && x < 3) { const k = Math.exp(-x * x) * smooth(dBr[i], dBr[i] + 0.6, Rin); if (k > rg) rg = k; }   // it goes out at the window
+          }
+        } else if (waveT0 >= 0 && !gone[i]) {                                            // (no round windows: the old wave along the room)
           let dw = cu_ - waveS; if (dw > HL2) dw -= LL; else if (dw < -HL2) dw += LL; dw = Math.abs(dw);
           if (colT[i] <= time && dw < (time - waveT0) * WAVE_V) { paintCell(i); wavePass[i] = 1; vphi[i] += 5 * (c.r2 < 0.5 ? -1 : 1); }   // (26-11: no glow — it whitened the backs)
           for (let p = Math.max(1, wavePass[i]); p < WAVE_PASSES; p++) {
@@ -1587,9 +1608,10 @@ export function create(ctx) {
             if (tp > 0 && dw < tp * WAVE_V) { wavePass[i] = p + 1; vphi[i] += 5 * (c.r2 < 0.5 ? -1 : 1); }
           }
         }
-        for (const b of btns) if (b.t0 >= 0 && b.seen[i] !== b.gen) {                    // a charge ring passing: the stone turns (once per ring)
-          let db = cu_ - b.cu; if (db > HL2) db -= LL; else if (db < -HL2) db += LL;
-          if (db * db + (cy_ - b.cv) * (cy_ - b.cv) < b.R * b.R) { b.seen[i] = b.gen; vphi[i] += 5 * (c.r2 < 0.5 ? -1 : 1); }   // a CIRCLE round the button
+        for (const b of btns) if (b.t0 >= 0) {                                         // a charge ring: from the button, round the room (a band, not a disc)
+          let db = cu_ - b.cu; if (db > HL2) db -= LL; else if (db < -HL2) db += LL; if (db > b.R + 1 || db < -b.R - 1) continue;
+          const e = Math.sqrt(db * db + (cy_ - b.cv) * (cy_ - b.cv)), x = (e - b.R) / BAND_W;
+          if (x > -3 && x < 3) { const k = Math.exp(-x * x) * smooth(b.r, b.r + 0.4, b.R) * (1 - smooth(HL2 - 1.5, HL2 + 0.5, b.R)); if (k > rg) rg = k; }
         }
         if (n >= 2 && time - resT[i] > 3) { resT[i] = time; glow[i] = 1.1; vphi[i] += 6 * (c.r2 < 0.5 ? -1 : 1); crossings++; }   // two fronts meet here
         let col = colT[i] > time ? 1 : 0, g = startGlow * (0.4 + 0.6 * c.r1);
@@ -1615,7 +1637,7 @@ export function create(ctx) {
           const oo = i * 4; offData[oo] = ux; offData[oo + 1] = uy; offData[oo + 2] = uz; windDirty = true;
           if (ux * ux + uy * uy + uz * uz < 1e-7 && vx * vx + vy * vy + vz * vz < 1e-6) { wOn[i] = 0; wOff.fill(0, o3, o3 + 3); wVel.fill(0, o3, o3 + 3); offData[oo] = offData[oo + 1] = offData[oo + 2] = 0; }
         }
-        if (settled && !figOn && sh === 0 && bump === 0 && g === 0 && glow[i] < 0.002 && !gone[i] && !wOn[i]) {
+        if (settled && !figOn && sh === 0 && bump === 0 && rg === 0 && g === 0 && glow[i] < 0.002 && !gone[i] && !wOn[i]) {
           const tg = col * Math.PI, e = phi[i] - tg;
           if (e < 0.002 && e > -0.002 && vphi[i] < 0.003 && vphi[i] > -0.003) {
             if (!sleep[i]) { sleep[i] = 1; phi[i] = tg; vphi[i] = 0; glow[i] = 0; stData[o] = (tg * 2) % 6.2831853; stData[o + 1] = 0; stData[o + 2] = col ? 8 : 0; stData[o + 3] = 1; }
@@ -1623,10 +1645,10 @@ export function create(ctx) {
           }
         }
         sleep[i] = 0;
-        target = col * Math.PI + sh * 0.06 + Math.min(bump, 1.3) * 0.36;   // T-066: the idle shimmer turns a piece ≤ 7° (was 23°: the joints opened, the vault floated)
+        target = col * Math.PI + sh * 0.06 + Math.min(bump, 1.3) * 0.36 + rg * RING_TURN * (c.r2 < 0.5 ? -1 : 1);   // T-066: the idle shimmer turns a piece ≤ 7° (was 23°: the joints opened, the vault floated)
         vphi[i] += (kSpring * (target - phi[i]) - cSpring * vphi[i]) * dt; phi[i] += vphi[i] * dt;
         turn = phi[i] * 2; kc = phi[i] > 1.5708 ? 8 : 0;
-        lift = Math.abs(Math.sin(phi[i])) * Math.min(0.07, c.rad * 1.1) + bump * 0.05 + sh * 0.008;   // ART: relief at rest ≤ 1.5 cm; a touched piece comes out 3–6 cm
+        lift = Math.abs(Math.sin(phi[i])) * Math.min(0.07, c.rad * 1.1) + bump * 0.05 + rg * 0.05 + sh * 0.008;   // ART: relief at rest ≤ 1.5 cm; a touched piece comes out 3–6 cm
       }
       glow[i] *= glowDecay;
       // it comes (a sweep round the room: every piece flies to its bed, turning) and goes (breaks away, towards the public and up)
