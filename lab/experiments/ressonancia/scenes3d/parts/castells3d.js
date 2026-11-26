@@ -75,7 +75,7 @@ export function create({ THREE, TSL, room, params }) {
   const uDust = uniform(1), uDustK = uniform(1);
   // params.mode 'outro' (the trailer's closing block): a soft gold over the bodies (uGoldK) and, while they form, the unborn points
   // are gold motes (uMote) — they condense out of a golden dust
-  const uGoldK = uniform(0), uMote = uniform(0);
+  const uGoldK = uniform(0), uMote = uniform(0), uEyeL = uniform(new THREE.Vector3(0, 1.6, 0));
 
   // ================================================================================================== points (4 poses per body)
   function pointType(body, seed, n) {
@@ -148,7 +148,16 @@ export function create({ THREE, TSL, room, params }) {
     const rel = i3.w, lift = fract(uTime.mul(0.42).add(r2.mul(9))), loose = smoothstep(0.86, 0.9, r1).mul(rel);
     p = p.add(vec3(sin(lift.mul(6).add(r3.mul(20))).mul(0.05), lift.mul(0.55), cos(lift.mul(5).add(r1.mul(20))).mul(0.05)).mul(loose));
     const hs = i0.w, yw = i1.x, rot = (q) => vec3(q.x.mul(cos(yw)).add(q.z.mul(sin(yw))), q.y, q.x.mul(sin(yw).negate()).add(q.z.mul(cos(yw))));
-    const local = i0.xyz.add(rot(p.mul(hs)));
+    const local0 = i0.xyz.add(rot(p.mul(hs)));
+    // the outro out of the tower's gold dust (i4.w = 1): each point starts as dust where the tower left it and streams round the room
+    // (round the eye, never through it) into its place as it forms (e)
+    const i4 = attribute('i4', 'vec4');
+    const dP = i4.xyz.add(vec3(r1.sub(0.5), r2.sub(0.5), r3.sub(0.5)).mul(0.8)).add(vec3(sin(uTime.mul(0.4).add(r1.mul(30))), cos(uTime.mul(0.33).add(r2.mul(20))).mul(0.5), cos(uTime.mul(0.37).add(r3.mul(25)))).mul(0.1));
+    const kf = smoothstep(0.0, 0.9, e), a0 = dP.xz.sub(uEyeL.xz), b0 = local0.xz.sub(uEyeL.xz);
+    const an0 = TSL.atan(a0.y, a0.x), an1 = TSL.atan(b0.y, b0.x), dA0 = an1.sub(an0), dA = dA0.sub(TSL.floor(dA0.add(Math.PI).div(Math.PI * 2)).mul(Math.PI * 2));
+    const rad = max(mix(length(a0), length(b0), kf), float(2.2)), an = an0.add(dA.mul(kf));
+    const pathP = vec3(uEyeL.x.add(TSL.cos(an).mul(rad)), mix(dP.y, local0.y, kf).add(sin(kf.mul(Math.PI)).mul(0.3)), uEyeL.z.add(TSL.sin(an).mul(rad)));
+    const local = mix(local0, mix(pathP, local0, smoothstep(0.85, 1.0, kf)), i4.w);
     const pw0 = modelWorldMatrix.mul(vec4(local, 1)).xyz, pw = pw0.add(brush(pw0, r2));
     const pv = cameraViewMatrix.mul(vec4(pw, 1)), c0 = clipOf(pv);
     const size = float(0.005).add(co.z.mul(0.005)).mul(float(1).sub(e).mul(0.8).add(1)).mul(float(1).sub(g0.mul(0.5))).mul(haze.mul(0.6).add(1)).mul(hs);
@@ -252,10 +261,10 @@ export function create({ THREE, TSL, room, params }) {
     for (const cs of castells) {
       const list = cs.bodies.filter((b, k) => (k + (b.seed < 0.5 ? 0 : 1)) % 2 === bi);
       if (!list.length) continue;
-      const buf = new THREE.InstancedInterleavedBuffer(new Float32Array(list.length * 16), 16, 1); buf.setUsage(THREE.DynamicDrawUsage);
+      const buf = new THREE.InstancedInterleavedBuffer(new Float32Array(list.length * 20), 20, 1); buf.setUsage(THREE.DynamicDrawUsage);
       const g = new THREE.InstancedBufferGeometry(), pt = types[bi][cs.lod];
       for (const [k, a] of Object.entries(pt.at)) g.setAttribute(k, a);
-      g.setIndex(pt.index); for (let i = 0; i < 4; i++) g.setAttribute('i' + i, new THREE.InterleavedBufferAttribute(buf, 4, i * 4));
+      g.setIndex(pt.index); for (let i = 0; i < 5; i++) g.setAttribute('i' + i, new THREE.InterleavedBufferAttribute(buf, 4, i * 4));
       g.instanceCount = list.length;
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(cs.C.x, cs.top / 2, cs.C.z), Math.hypot(cs.top / 2, cs.Rout) + 1.5);
       const mesh = new THREE.Mesh(g, bodyMat); mesh.renderOrder = 2; object.add(mesh);
@@ -298,7 +307,8 @@ export function create({ THREE, TSL, room, params }) {
   let time = 0, builtSent = false, dimSent = false, endSent = false, doneSent = false, lastT = -1, stageNow = -1, dimK = 0;
   const fired = new Set();
   const lastStamp = new Map(), stampT = new Float32Array(NSTAMP).fill(-99); let stampI = 0;
-  const tmpV = new THREE.Vector3(); let lastMode = null, dustSent = false, lingering = false, lingerT = 0, wasOutro = false;
+  const tmpV = new THREE.Vector3(); const invM4 = new THREE.Matrix4(); let outroTaken = false;
+  let lastMode = null, dustSent = false, lingering = false, lingerT = 0, wasOutro = false;
   // the outro's build: the same order (far first, ring by ring, tier by tier), squeezed into 0.3–3.4 s
   function remapOutro(cs) {
     let lo = Infinity, hi = -Infinity; for (const c of castells) for (const b of c.bodies) { if (b.t0i == null) b.t0i = b.t; lo = Math.min(lo, b.t0i); hi = Math.max(hi, b.t0i); }
@@ -349,6 +359,17 @@ export function create({ THREE, TSL, room, params }) {
     if (!outro && wasOutro) { for (const cs of castells) for (const b of cs.bodies) b.t = b.t0i; }
     wasOutro = outro;
     const dimAt = outro ? 1e9 : p.dimAt ?? 43.5, endAt = outro ? oD - 5 : p.endAt ?? 50.5, endDur = outro ? 3.5 : p.endTime ?? 4.5;
+    object.updateMatrixWorld(); invM4.copy(object.matrixWorld).invert(); uEyeL.value.copy(room.eye).applyMatrix4(invM4);
+    if (outro && !outroTaken && (p.arriveFrom ?? 'dust') === 'dust' && uArrive.value > 0.001 && castells.some((c) => c.meshes.length)) {
+      const d = handoff.take('torre');   // claimed: the tower's dust fades out with its leave over the same points (a cross-fade)
+      const src = []; if (d) for (let j = 0; j < d.count; j++) if (d.positions[j * 3 + 1] > -10) src.push(j);
+      if (src.length) {
+        outroTaken = true; let i = 0;
+        for (const cs of castells) for (const b of cs.bodies) { const k = src[(i++ * 7 + 3) % src.length]; b.dO = new THREE.Vector3(d.positions[k * 3], d.positions[k * 3 + 1], d.positions[k * 3 + 2]).applyMatrix4(invM4); b.dK = 1; b.t = b.t * 0.55 + 0.2; }
+        events.push('dust:taken');
+      }
+    }
+    if (!outro && outroTaken) { outroTaken = false; for (const cs of castells) for (const b of cs.bodies) { b.dO = null; b.dK = 0; } }
     uGoldK.value += ((outro ? (p.outroGold ?? 1) * (1 - 0.6 * clamp01((t - endAt) / endDur)) : 0) - uGoldK.value) * Math.min(1, dt * 2);
     uMote.value = outro ? 1 - smooth01((t - 2.6) / 2.2) : 0;
     dimK += ((t >= dimAt ? 1 : 0) - dimK) * Math.min(1, dt * 1.6);
@@ -376,7 +397,7 @@ export function create({ THREE, TSL, room, params }) {
     let builtAll = true;
     for (const cs of castells) {
       for (const b of cs.bodies) {
-        b.born = outroNow && cs.explain && !p.outroExplain ? 0 : clamp01((t - b.t) / (outroNow ? 0.8 : 1.2));
+        b.born = outroNow && cs.explain && !p.outroExplain ? 0 : clamp01((t - b.t) / (outroNow ? (b.dK ? 2.4 : 0.8) : 1.2));
         if (b.born < 1 && !(outroNow && cs.explain && !p.outroExplain)) builtAll = false;
         // the explaining castell's parts
         let g = 0, rel = 0, dim = 0;
@@ -394,11 +415,12 @@ export function create({ THREE, TSL, room, params }) {
       for (const M of cs.meshes) {
         const A = M.buf.array;
         M.list.forEach((b, k) => {
-          const o = k * 16;
+          const o = k * 20;
           A[o] = b.pos.x; A[o + 1] = b.pos.y; A[o + 2] = b.pos.z; A[o + 3] = b.hs;
           A[o + 4] = b.yaw; A[o + 5] = b.seed * 97; A[o + 6] = b.born; A[o + 7] = b.gone;
           A[o + 8] = b.w[1]; A[o + 9] = b.w[2]; A[o + 10] = b.w[3]; A[o + 11] = b.lean + 0.015 * Math.sin(time * 0.7 + b.seed * 9);
           A[o + 12] = b.glow; A[o + 13] = b.dim; A[o + 14] = cs.haze; A[o + 15] = b.rel;
+          if (b.dO) { A[o + 16] = b.dO.x; A[o + 17] = b.dO.y; A[o + 18] = b.dO.z; A[o + 19] = b.dK; } else A[o + 19] = 0;
         });
         M.buf.needsUpdate = true;
         M.mesh.frustumCulled = uLeave.value < 0.01 && goneAll <= 0;

@@ -81,5 +81,54 @@
   "st-festa-other": "m-festa",
   "st-pinya-bass": "m-pinya",
   "st-pinya-other": "m-pinya"
+ },
+ "trailer": {
+  "_about": "26-11 (Beltrán: modern new-media electronic, no brass, no folk): the trailer's own music, POST /v1/music, music_v2_5, force_instrumental, mp3_44100_128; artists' names in a prompt are refused (copyrighted_material_detected). Stems: /v1/music/stem-separation six_stems_v1 (only bass, drums, other non-silent). Keys measured offline (chroma, Krumhansl).",
+  "pieces": {
+   "tm-intro": {
+    "model": "music_v2_5",
+    "ms": 56000,
+    "prompt": "Instrumental, 56 seconds, the opening of an immersive new-media art installation, in D minor. Contemporary minimal electronic, modern new-media art style: it begins in near silence with a deep, clean sub-bass swell and fine granular dust; a slowly evolving analog pad on D grows underneath; delicate high digital shimmer and soft glitch textures; from the middle a subtle, muted electronic pulse appears like a far heartbeat, and the harmony opens gently toward the end, ending open and unresolved. Spacious and sparse, it leaves room for a narrator. Pristine modern production, wide stereo. No drum kit, no choir. No brass, no trumpets, no horns, no orchestra, no folk instruments, no shawm, no vocals.",
+    "measured": "D, no third (D A B C G); out of silence 0-6 s, gone by 55 s"
+   },
+   "tm-brasa": {
+    "model": "music_v2_5",
+    "ms": 64000,
+    "prompt": "Instrumental. Dark, driving contemporary electronic music for an immersive new-media installation about fire, in D minor, 120 BPM. A deep, clean, slightly distorted sub-bass pulse on D; dry, tight electronic percussion: crisp clicks, glitchy crackles like sparks, short noise bursts, a muted kick; hot granular textures that breathe; a dark evolving analog drone on D. Tense, hypnotic, energetic but elegant. No melody. Every element plays from the very first second to the last, steady density, no intro, no breakdown, no ending, so it loops. Pristine modern production, wide stereo. No brass, no trumpets, no horns, no orchestra, no folk instruments, no shawm, no vocals.",
+    "measured": "D mixolydian (D A C F# E B); loop 4-60 s"
+   },
+   "tm-pinya": {
+    "model": "music_v2_5",
+    "ms": 76800,
+    "prompt": "Instrumental. Warm, deep contemporary electronic ambient for an immersive new-media installation about many bodies pressing together, in A minor, 75 BPM. A felt, round sub-bass pulse like a slow heartbeat; warm evolving analog pads with breathy textures; soft granular warmth; a gentle, muted electronic beat (a soft kick and brushed noise) that gives a steady sense of pushing together; a simple sustained harmony on A minor. Intimate, strong and tender, modern and minimal. Steady from the very first second to the last, no intro, no breakdown, no ending, so it loops. Pristine modern production, wide stereo. No choir. No brass, no trumpets, no horns, no orchestra, no folk instruments, no shawm, no vocals.",
+    "measured": "A major (asked A minor); 75 BPM; NOT IN THE FOLDER: stems st-tpinya-bass / drums / other"
+   },
+   "tm-tronc": {
+    "model": "music_v2_5",
+    "ms": 76800,
+    "prompt": "Instrumental. Contemporary electronic music at exactly 100 BPM in 4/4, in D minor, for an immersive new-media installation about a human tower rising floor by floor. A deep, clean sub-bass locked to a precise kick on every beat; dry, tight, intricate electronic percussion (clicks, metallic ticks, glitch hats); a pulsing arpeggiated synth on D minor; a wide evolving pad that gives lift. Architectural, precise, hypnotic, rising energy. Every element plays from the very first second to the last, steady density, no intro, no breakdown, no ending, so it loops. Pristine modern production, wide stereo. No brass, no trumpets, no horns, no orchestra, no folk instruments, no shawm, no vocals.",
+    "measured": "D major, 99.98 BPM, first beat 0.023 s; NOT IN THE FOLDER: stems st-ttronc-bass / drums / other (bass from 19 s; loop bars 8-31)"
+   },
+   "tm-crown": {
+    "model": "music_v2_5",
+    "ms": 22000,
+    "prompt": "Instrumental, 22 seconds, the crowning moment of an immersive new-media installation, in D major. It opens with a breathless hush: a thin high tone and a reverse swell that rises for exactly four seconds, then a huge release: a deep, clean sub-bass drop under a vast, luminous D major synth chord that blooms and keeps ringing, shimmering granular textures and glassy digital sparkle pouring out; in the last eight seconds a soft electronic pulse lifts the energy. Euphoric, elegant, modern. Continuous sound, no silent gaps. No bells. No brass, no trumpets, no horns, no orchestra, no folk instruments, no shawm, no vocals.",
+    "measured": "C major (asked D major): played +2 semitones (rate 1.1225); release at 6.05 s"
+   },
+   "tm-acta": {
+    "model": "music_v2_5",
+    "ms": 20000,
+    "prompt": "Instrumental, 20 seconds, the tender ending of an immersive new-media installation, in D major. Minimal warm electronic ambient: a soft low analog pad on D, a few gentle felt-piano notes, delicate granular shimmer, one slow warm chord swell that resolves on D, then a long fade to complete silence by 17 seconds. Intimate, luminous, bittersweet. Sparse, leaving room for a narrator. No drums. No brass, no trumpets, no horns, no orchestra, no folk instruments, no shawm, no vocals.",
+    "measured": "D major (D G A); silent by 19 s"
+   }
+  },
+  "stems": {
+   "st-tpinya-bass": "tm-pinya",
+   "st-tpinya-drums": "tm-pinya",
+   "st-tpinya-other": "tm-pinya",
+   "st-ttronc-bass": "tm-tronc",
+   "st-ttronc-drums": "tm-tronc",
+   "st-ttronc-other": "tm-tronc"
+  }
  }
 }

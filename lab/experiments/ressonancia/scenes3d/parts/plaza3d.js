@@ -32,7 +32,7 @@ export function create(ctx) {
   const { THREE, TSL, room } = ctx;
   const P = ctx.params || {};
   const {
-    uniform, uniformArray, attribute, vec2, vec3, vec4, float, positionWorld, positionGeometry, modelViewMatrix, cameraProjectionMatrix,
+    uniform, uniformArray, attribute, vec2, vec3, vec4, float, positionWorld, positionGeometry, modelViewMatrix, modelWorldMatrix, cameraProjectionMatrix,
     mix, smoothstep, clamp, sin, cos, floor, pow, exp, length, normalize, dot, texture, atan, asin, select, varying, uv, hash,
     instanceIndex, mx_noise_float, max,
   } = TSL;
@@ -44,6 +44,7 @@ export function create(ctx) {
 
   // ------------------------------------------------------------------------------------------------ uniforms
   const uFade = uniform(0), uReveal = uniform(1), uShatter = uniform(0), uTime = uniform(0), uSil = uniform(0), uFog = uniform(1);
+  const uWave = uniform(new THREE.Vector4(0, 0, 0, -1));   // 26-11: the tower's golden wave (x, z, -, radius; radius < 0 = none) runs through the square's points
   const uPts = uniform(1), uEye = uniform(eye.clone()), uGain = uniform(0.05), uBreath = uniform(0), uCool = uniform(0);
   const G = Array.from({ length: 8 }, () => new THREE.Vector4());      // group intensities, four per light texture (the intro's bake)
   const uG = uniformArray(G, 'vec4');
@@ -204,18 +205,30 @@ export function create(ctx) {
     const buf = await (await fetch(new URL('points.bin', base))).arrayBuffer();
     const N = meta.count, xyz = new Float32Array(buf, 0, N * 3), rgba = new Uint8Array(buf, N * 12, N * 4);
     const kind = meta.bytesKind ? new Uint8Array(buf, N * 16, N) : new Uint8Array(N);
-    const aP = new Float32Array(N * 4);
-    for (let i = 0; i < N; i++) { aP[i * 4] = xyz[i * 3]; aP[i * 4 + 1] = xyz[i * 3 + 1]; aP[i * 4 + 2] = xyz[i * 3 + 2]; aP[i * 4 + 3] = kind[i]; }
-    const g = new THREE.InstancedBufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
-    g.setIndex([0, 1, 2, 0, 2, 3]);
-    g.setAttribute('aP', new THREE.InstancedBufferAttribute(aP, 4));
-    g.setAttribute('aC', new THREE.InstancedBufferAttribute(new Uint8Array(rgba), 4, true));
-    g.instanceCount = N; g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 8, 0), 80);
+    // (26-11 perf, the room: the intro is bound by vertices, 12 M triangles) the ~400 k points in SECTORS round the eye, each its own draw
+    // with a bounding sphere: a wall's camera draws only the sectors it can see (they were all drawn by all four). The point's own index
+    // rides in aP.w (kind + 4 × index), so its randomness (arrival, swirl, density subset) is exactly as before.
+    const K = 12, sec = new Uint32Array(N), cnt = new Uint32Array(K);
+    for (let i = 0; i < N; i++) { const a = Math.atan2(xyz[i * 3 + 2], xyz[i * 3]); let k = Math.floor(((a + Math.PI) / (2 * Math.PI)) * K); if (k >= K) k = K - 1; sec[i] = k; cnt[k]++; }
+    const quad = new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3), quv = new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2);
+    const geos = [];
+    for (let k = 0; k < K; k++) {
+      const n = cnt[k], aP = new Float32Array(n * 4), aC = new Uint8Array(n * 4), box = new THREE.Box3(); let j = 0;
+      for (let i = 0; i < N; i++) if (sec[i] === k) {
+        aP[j * 4] = xyz[i * 3]; aP[j * 4 + 1] = xyz[i * 3 + 1]; aP[j * 4 + 2] = xyz[i * 3 + 2]; aP[j * 4 + 3] = kind[i] + 4 * i;
+        aC[j * 4] = rgba[i * 4]; aC[j * 4 + 1] = rgba[i * 4 + 1]; aC[j * 4 + 2] = rgba[i * 4 + 2]; aC[j * 4 + 3] = rgba[i * 4 + 3];
+        box.expandByPoint(new THREE.Vector3(xyz[i * 3], xyz[i * 3 + 1], xyz[i * 3 + 2])); j++;
+      }
+      const g = new THREE.InstancedBufferGeometry();
+      g.setAttribute('position', quad); g.setAttribute('uv', quv); g.setIndex([0, 1, 2, 0, 2, 3]);
+      g.setAttribute('aP', new THREE.InstancedBufferAttribute(aP, 4)); g.setAttribute('aC', new THREE.InstancedBufferAttribute(aC, 4, true));
+      g.instanceCount = n;
+      box.expandByScalar(10);   // the scattered dust and the shatter carry a point up to ~9 m from its place
+      g.boundingSphere = n ? box.getBoundingSphere(new THREE.Sphere()) : new THREE.Sphere(new THREE.Vector3(), 0.01); geos.push(g);
+    }
     const Ap = attribute('aP', 'vec4'), Ac = attribute('aC', 'vec4');
-    const tgt = Ap.xyz, kd = Ap.w;
-    const h1 = hash(instanceIndex), h2 = hash(instanceIndex.add(7919)), h3 = hash(instanceIndex.add(104729));
+    const tgt = Ap.xyz, pid = floor(Ap.w.div(4)), kd = Ap.w.sub(pid.mul(4));
+    const h1 = hash(pid), h2 = hash(pid.add(7919)), h3 = hash(pid.add(104729));
     // order of arrival: edges and windows first, then surfaces, the floor last
     const d0 = select(kd.lessThan(0.5), float(0.16), select(kd.lessThan(1.5), float(0.0), select(kd.lessThan(2.5), float(0.3), float(0.02))));
     const delay = d0.add(h1.mul(0.24));
@@ -246,11 +259,14 @@ export function create(ctx) {
     const clip = cameraProjectionMatrix.mul(vec4(mv.xy.add(positionGeometry.xy.mul(size)), mv.z, mv.w));
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
     m.vertexNode = select(E.greaterThan(0.003).and(keep), clip, vec4(0, 0, 2, 1));
-    const vCol = varying(colr.mul(E).mul(uGain).mul(uPts.max(0.25).reciprocal().min(2.0)));
+    const pwz = modelWorldMatrix.mul(vec4(pos, 1)).xyz, wv = uWave.w.greaterThan(0).select(exp(length(pwz.xz.sub(uWave.xy)).sub(uWave.w).abs().mul(-1.5)), float(0));
+    const vCol = varying(colr.mul(E).mul(uGain).mul(uPts.max(0.25).reciprocal().min(2.0)).add(vec3(1.0, 0.66, 0.26).mul(wv.mul(E).mul(0.5))));
     const dd = uv().sub(0.5), gs = exp(dot(dd, dd).mul(-14));
     m.colorNode = vCol.mul(gs); m.fog = false;
-    const mesh = new THREE.Mesh(g, m); mesh.name = 'plaza3d:points'; mesh.frustumCulled = false; mesh.renderOrder = 5; mesh.visible = false;
-    return mesh;
+    const grp = new THREE.Group(); grp.name = 'plaza3d:points'; grp.visible = false;
+    for (const g of geos) { const mesh = new THREE.Mesh(g, m); mesh.name = 'plaza3d:points'; mesh.frustumCulled = true; mesh.renderOrder = 5; grp.add(mesh); }
+    grp.geometry = { dispose: () => geos.forEach((g) => g.dispose()) }; grp.material = m;   // (dispose() below)
+    return grp;
   }
 
   // ------------------------------------------------------------------------------------------------ per frame
@@ -270,6 +286,7 @@ export function create(ctx) {
     const reveal = num(P.reveal, 1), shatter = num(P.shatter, 0) || num(input?.leave, 0);
     const d = E_('dark', P.dark === true ? 1 : P.dark === false ? 0 : num(P.dark, 0));
     uReveal.value = reveal; uShatter.value = shatter; uSil.value = E_('sil', num(P.silhouette, 0)); uFog.value = E_('fog', num(P.fog, 1));
+    if (Array.isArray(P.wave) && P.wave[2] > 0) uWave.value.set(P.wave[0], P.wave[1], 0, P.wave[2]); else uWave.value.w = -1;
     uPts.value = num(P.points, 1); uGain.value = E_('gain', num(P.pointGain, 0.05)); uBreath.value = E_('breathe', num(P.breathe, 0)); uCool.value = E_('cool', num(P.cool, 0));
     uDark.value = dark ? d : 0;
     uFade.value = smooth(0.58, 1.0, reveal) * (1 - smooth(0.0, 0.45, shatter));

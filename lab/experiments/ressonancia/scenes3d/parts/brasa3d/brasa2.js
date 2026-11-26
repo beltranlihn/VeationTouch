@@ -23,6 +23,8 @@
 //   input   PARTS.md's: time, t (the block's clock: drives the opening), arrive, leave, hands [{ stroke, wall, y, s, … }], downs
 //   sound()    → { births [{ wall, u }], devils [{ wall, u, spd }], hands [{ wall, u, slide }], fires [{ wall, level, flash }], feeds,
 //                 boom, storm } this frame: what brasa2/sound.js (the fire's synthesis) plays — the director mounts it in the work's sound
+//   params.bakedBases true: the bases are in the baked plaza — their meshes are not drawn, only the live fire (flames on the fireSources,
+//                sparks, the additive pools, the hand's line); progress().embers [4] = the ember layer's level for the bake
 //   progress() → { fires: [P4, P1, P2, P3] (0..1, above 1 in the boom), total (0..1), devils, feeds, done, boom (0..1) }
 //   events  the array of this frame's events: 'feed:<w>' (wall index), 'boom', 'done', 'storm', 'storm:full', 'intro:strip', 'intro:boom',
 //           'dust' (the exit begins), 'dust:gone'
@@ -96,7 +98,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(90, 90, 1, 1), new THREE.MeshBasicNodeMaterial({ depthWrite: false }));
     floor.rotation.x = -Math.PI / 2;
     const pw = attribute('position', 'vec3');
-    floor.material.colorNode = vec3(0.0032, 0.0026, 0.0022).mul(float(1).sub(U.leave.mul(0.7)));
+    floor.material.colorNode = vec3(0.0032, 0.0026, 0.0022).mul(float(1).sub(U.leave));
     floor.material.transparent = true; floor.material.opacityNode = U.water.mul(float(1).sub(U.leave));   // (the water comes in with a long fade)
     floor.material.fog = false; floor.renderOrder = -2; world.add(floor); floorMesh = floor;
     void pw;
@@ -246,7 +248,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     const Lr = max(live, 0);
     const colr = mix(mix(vec3(0.35, 0.03, 0.01), vec3(1.0, 0.32, 0.06), smoothstep(0.15, 0.6, Lr)), vec3(1.0, 0.86, 0.6), smoothstep(0.75, 1.0, Lr));
     const q = uv().x.sub(0.5);
-    m.colorNode = colr.mul(exp(q.mul(q).mul(-16))).mul(pow(Lr, 1.4).mul(1.5).add(0.05)).mul(G1.mul(0.6).add(0.4)).mul(sin(uNow.mul(19.0).add(B4.w.mul(41.0))).mul(0.12).add(0.88)).mul(float(1).sub(U.leave.mul(0.7)));
+    m.colorNode = colr.mul(exp(q.mul(q).mul(-16))).mul(pow(Lr, 1.4).mul(1.5).add(0.05)).mul(G1.mul(0.6).add(0.4)).mul(sin(uNow.mul(19.0).add(B4.w.mul(41.0))).mul(0.12).add(0.88)).mul(float(1).sub(U.leave));
     m.fog = false;
     const mesh = new THREE.Mesh(tg, m); mesh.frustumCulled = false; mesh.renderOrder = 6; world.add(mesh); room.reactive?.(mesh); lineMesh = mesh;
   }
@@ -508,7 +510,7 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     if (sparkCompute) room.renderer.compute(sparkCompute);
     object.visible = arrive > 0.001 && (leave < 0.999 || lingering);
     // (once we are gone only the dust stays drawn)
-    { const gone = leave >= 0.995; for (const m of FIRE.meshes) { if (m.userData.vol) m.visible = m.visible && !gone; else m.visible = !gone && !m.userData.off && (m.userData.fire === undefined || appear[m.userData.fire] > 0.003); } if (gone) for (const m of DIA.meshes) m.visible = false; if (fons) { fons.meshes[0].visible = !gone; } if (floorMesh) floorMesh.visible = !gone; if (lineMesh) lineMesh.visible = !gone; }
+    { const gone = leave >= 0.995; for (const m of FIRE.meshes) { if (m.userData.vol) m.visible = m.visible && !gone; else m.visible = !gone && !m.userData.off && !(m.userData.base && P.bakedBases) && (m.userData.fire === undefined || appear[m.userData.fire] > 0.003); } if (gone) for (const m of DIA.meshes) m.visible = false; if (fons) { fons.meshes[0].visible = !gone; } if (floorMesh) floorMesh.visible = !gone; if (lineMesh) lineMesh.visible = !gone; }
     if (typeof window !== 'undefined') window.__brasa2 = { progress, devils, lvl, flash, FIRE, feeds: () => feeds, sites, last: { arrive, leave, tb, clock0, block: S?.block, st: S?.t, it: input.t, hands: hands.length, intro: introFired, I, introOn } };
   }
   // ---- the sound's view of the level (brasa2/sound.js): where things are on the walls (wall id, u 0..1 along it), how much
@@ -536,7 +538,9 @@ export function createBrasa2({ THREE, TSL, room, params }) {
     const fires = Array.from(lvl, (v, i) => v + (boomAt >= 0 ? 0.25 * Math.sin(Math.PI * Math.min(1, (prevT - boomAt) / 2)) : 0));
     const bAt = Number(P.boomAt ?? 0.72), bFeeds = Number(P.boomFeeds ?? 52);
     const total = boomAt >= 0 ? 1 : Math.min(0.99, Math.max(Math.min(...lvl) / bAt, feeds / bFeeds));
-    return { fires, total, devils: devils.filter((d) => d.on && d.dis === 0).length, feeds, done, boom: boomAt < 0 ? 0 : clamp01((prevT - boomAt) / 3), storm };
+    // the embers' own level (what the baked plaza lights its ember layer with): awake from the first flame, a flare on a feed, entry/exit
+    const embers = Array.from(lvl, (v, i) => Math.min(1, (0.22 + 0.78 * Math.min(1, v)) * (v > 0.005 ? 1 : 0.5) + flash[i] * 0.3) * appear[i] * (1 - (U.leave.value || 0)));
+    return { fires, embers, total, devils: devils.filter((d) => d.on && d.dis === 0).length, feeds, done, boom: boomAt < 0 ? 0 : clamp01((prevT - boomAt) / 3), storm };
   }
   return {
     object, update, progress, reset, sound,

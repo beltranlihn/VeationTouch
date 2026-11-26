@@ -74,6 +74,9 @@ export function create({ THREE, TSL, room, params }) {
   // the colour script: params.cool / params.warm as linear rgb arrays override these, eased here (~1.5 s); a NUMBER in params.warm is
   // still the bodies' warmth (0..1, as before)
   const uCoolC = uniform(new THREE.Vector3(...COLD)), uWarmC = uniform(new THREE.Vector3(...WARM));
+  // leaveTo 'dust' (default): at the golden end the bodies let go into a gold dust that hangs (uDust 1), fading only with the host's
+  // leave or params.dust; it is published (handoff 'torre') for the outro's castells to form out of
+  const uDust = uniform(1), uDustK = uniform(1);
 
   // ---- the front wall (P1 by default) and the tower's place: the ronda's near side just behind its plane
   const wallIdx = () => { const id = P.towerWall; let i = walls.findIndex((w) => w.id === id); if (i < 0) i = walls.findIndex((w) => w.id === 'P1'); return i < 0 ? Math.min(1, NW - 1) : i; };
@@ -176,7 +179,9 @@ export function create({ THREE, TSL, room, params }) {
     const swirl = vec3(sin(uTime.mul(0.4).add(r1.mul(30))), cos(uTime.mul(0.33).add(r2.mul(20))).mul(0.5), cos(uTime.mul(0.37).add(r3.mul(25)))).mul(0.12);
     p = p.add(scat.add(swirl).mul(float(1).sub(e)));
     const g0 = clamp(max(gone, uLeave).mul(1.6).sub(r3.mul(0.35)).sub(clamp(float(1).sub(p.y.div(1.8)), 0, 1).mul(0.25)), 0, 1);
-    p = p.add(vec3(r1.sub(0.5).mul(1.3), g0.mul(g0).mul(r2.mul(2.4).add(1.2)).add(g0.mul(0.25)), r3.sub(0.5).mul(1.2)).mul(g0));
+    const driftGo = vec3(r1.sub(0.5).mul(1.3), g0.mul(g0).mul(r2.mul(2.4).add(1.2)).add(g0.mul(0.25)), r3.sub(0.5).mul(1.2)).mul(g0);
+    const driftDust = vec3(r1.sub(0.5).mul(1.0).add(sin(uTime.mul(0.3).add(r2.mul(40))).mul(0.08)), r2.mul(0.8).add(0.4).add(sin(uTime.mul(0.25).add(r3.mul(30))).mul(0.06)), r3.sub(0.5).mul(1.0).add(cos(uTime.mul(0.27).add(r1.mul(25))).mul(0.08))).mul(g0);
+    p = p.add(mix(driftGo, driftDust, uDust));
     // the body in place (D, yaw) and where it formed (O, yawO)
     const hs = i0.w, rot = (yw, q) => vec3(q.x.mul(cos(yw)).add(q.z.mul(sin(yw))), q.y, q.x.mul(sin(yw).negate()).add(q.z.mul(cos(yw))));
     const ps = p.mul(hs);
@@ -210,7 +215,7 @@ export function create({ THREE, TSL, room, params }) {
     const vB = varying(vec4(i3.z, i3.w, faixa, shape)), vC = varying(vec4(aux2.x, handK, i2.x, 0));
     // i2.x = mote: a body made of someone else's dust (the pinya's) is lit dust before it is born; a point that is not lit is not drawn
     // (an opaque dark point would cut what is behind it)
-    const fade = max(smoothstep(0.0, 0.25, vA.x), vC.z.mul(0.85)).mul(float(1).sub(smoothstep(0.5, 1.0, vA.y)));
+    const fade = max(smoothstep(0.0, 0.25, vA.x), vC.z.mul(0.85)).mul(mix(float(1).sub(smoothstep(0.5, 1.0, vA.y)), mix(float(1), uDustK, smoothstep(0.3, 0.9, vA.y)), uDust));
     m.opacityNode = float(1).sub(smoothstep(0.999, 1.001, dot(vCo.xy, vCo.xy))).mul(smoothstep(0.015, 0.03, fade)); m.alphaTest = 0.5;
     const N = normalize(vN), Vd = normalize(cameraPosition.sub(vP));
     const rim = pow(float(1).sub(abs(dot(N, Vd))), 2.2);
@@ -225,7 +230,8 @@ export function create({ THREE, TSL, room, params }) {
     // in the stream the points are motes of light
     const mote = float(1).sub(vA.x).add(vA.y.mul(0.8)).add(float(1).sub(vB.w).mul(1.2));
     col = col.add(mix(uCoolC, tc(GOLD), uWarm.mul(0.6)).mul(mote.mul(twk.mul(0.6).add(0.06)).mul(0.3)));
-    col = col.add(uWarmC.mul(vC.z.mul(float(1).sub(vA.x))).mul(twk.mul(0.8).add(0.2)).mul(0.2));   // the dust it was made of keeps the pinya's warm light until it forms
+    col = col.add(uWarmC.mul(vC.z.mul(float(1).sub(vA.x))).mul(twk.mul(0.8).add(0.2)).mul(0.2));
+    col = col.add(tc(GOLD).mul(uDust.mul(smoothstep(0.3, 0.9, vA.y))).mul(twk.mul(0.9).add(0.25)).mul(0.35));   // the end's dust is gold   // the dust it was made of keeps the pinya's warm light until it forms
     m.colorNode = col.mul(fade).mul(vA.z.mul(0.5).add(0.5)).mul(uArrive);
     m.fog = false;
     return m;
@@ -584,7 +590,7 @@ export function create({ THREE, TSL, room, params }) {
   let beatPh = 0, pomT0 = -1, readyT = -1, chargedT = -1, charge = 0, lastHold = 0, autoW = -1;
   const pomP = new THREE.Vector3(0, -50, 0), handL = new THREE.Vector3(0, 6.5, 0);
   let time = 0, rise = 0, riseV = 0, slide = 2.5, completed = 0, topT = -1, aletaT = -1, endT = -1, doneSent = false, lastClimb = -99, firstT = -1, rondaBorn = 0;
-  let reactiveOn = false, dustTaken = false, dustClk = 0; const tmpL = new THREE.Vector3();
+  let reactiveOn = false, dustTaken = false, dustClk = 0, dustSent = false; const tmpL = new THREE.Vector3();
   const invW = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpW = new THREE.Vector3();
   const rr = rng(2024);
   // extra places: round the ronda, beyond its outer ring, on the sides and the far side (never between the ronda and the wall)
@@ -894,6 +900,8 @@ const landing = (b, out) => {
       for (let i = 0; i < NB; i++) { const B = beams[i]; BA[i].set(B.from.x, B.from.y, B.from.z, B.k * (chargedT >= 0 ? Math.max(0, 1 - (time - chargedT) * 2) : 1)); BB[i].set(tmpW.x, tmpW.y, tmpW.z, B.reach); }
     }
     const endDur = p.endTime ?? 6;
+    const dustMode = (p.leaveTo ?? 'dust') === 'dust';
+    uDust.value = dustMode ? 1 : 0; uDustK.value = clamp01((p.dust ?? 1) * (1 - uLeave.value));
     const goneAll = endT >= 0 ? clamp01((time - endT) / endDur) : 0;
     if (endT >= 0 && !doneSent && time - endT > endDur + 0.5) { doneSent = true; events.push('done'); }
     for (const b of [...ronda, ...climbers]) {
@@ -906,6 +914,12 @@ const landing = (b, out) => {
     }
     for (const M of meshes) if (M && M.list.length) M.buf.needsUpdate = true;
     if (aletaT < 0) uWave.value.w = -1;
+    // the gold dust is in the air: publish where it hangs (room frame) for the outro's castells
+    if (dustMode && endT >= 0 && !dustSent && goneAll >= 0.75) {
+      dustSent = true; const all = [...ronda, ...climbers], pos = new Float32Array(all.length * 3); world.updateMatrixWorld();
+      all.forEach((b, i) => { tmpW.set(b.pos.x, b.pos.y + b.hs * 1.0 + 0.6, b.pos.z).applyMatrix4(world.matrixWorld); pos[i * 3] = tmpW.x; pos[i * 3 + 1] = tmpW.y; pos[i * 3 + 2] = tmpW.z; });
+      handoff.put('torre', { positions: pos, count: all.length, gold: true }); events.push('dust:ready');
+    }
 
     // ---- rings: an invitation at each other wall's centre (while there are places), and a charge under every held hand
     const A = rA.array; let ri = 0;
@@ -968,6 +982,8 @@ const landing = (b, out) => {
       }
     }
     knownStrokes.clear(); for (const k of nowStrokes) knownStrokes.add(k);
+    // (26-11 QA) the castells take the dust while they still arrive (uArrive ~0): the tower's dust stays and fades with the leave, a
+    // cross-fade over the same points; hiding it in the claim frame left the room dark for ~1.5 s
     object.visible = uArrive.value > 0.001 && uLeave.value < 0.999;
   }
   const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
@@ -975,6 +991,7 @@ const landing = (b, out) => {
   function reset() {
     // a ronda still flying in from the pinya's dust keeps flying (the host resets at the block start; the flight crosses it)
     if (!ronda.some((b) => b.dustMode)) { dustTaken = false; dustClk = 0; }
+    if (dustSent) { if (!handoff.claimed('torre')) handoff.clear('torre'); dustSent = false; }
     for (const b of climbers) { const M = b.M; M.list.splice(M.list.indexOf(b), 1); }
     for (const M of meshes) if (M) { M.list.forEach((b, k) => { b.k = k; }); M.mesh.geometry.instanceCount = M.list.length; }
     climbers.length = 0; charges.length = 0; for (const s of slots) s.who = null; for (const s of extras) s.who = null; for (const T of tiers) T.seated = 0;
@@ -985,7 +1002,8 @@ const landing = (b, out) => {
   function progress() {
     const needed = slots.length, seated = climbers.filter((b) => b.slot.tier >= 0 && (b.state === 'seated' || b.state === 'settle')).length;
     return { worldY: +world.position.y.toFixed(3), worldSlide: +slide.toFixed(3), plazaSink: P.plazaSink ?? 0.35, dust: ronda.filter((b) => b.dustMode).length, tier: completed, tiers: tiers.length, climbers: seated, inFlight: climbers.filter((b) => b.slot.tier >= 0).length - seated, pinya: climbers.filter((b) => b.slot.tier < 0).length, needed, height: +rise.toFixed(2),
-      ending: endT >= 0 ? clamp01((time - endT) / (P.endTime ?? 6)) : 0, done: doneSent, charge: +charge.toFixed(3), ready: readyT >= 0 };
+      ending: endT >= 0 ? clamp01((time - endT) / (P.endTime ?? 6)) : 0, done: doneSent, charge: +charge.toFixed(3), ready: readyT >= 0,
+      wave: uWave.value.w > 0 ? [uWave.value.x, uWave.value.z, uWave.value.w] : null };   // 26-11: l'aleta's golden wave (room frame) for the trailer's square
   }
   function setParams(p) { if (p && p.tiers != null && String(p.tiers) !== String(P.__tiersBuilt ?? '')) { /* tiers change on reset */ } }
   function dispose() { beingMat.dispose(); jobs.length = 0; for (const M of meshes) if (M) M.mesh.geometry.dispose(); if (backdrop) { for (const m of backdrop.children) m.geometry.dispose(); backdropMat?.dispose(); } }
