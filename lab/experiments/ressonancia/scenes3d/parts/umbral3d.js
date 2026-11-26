@@ -1371,7 +1371,13 @@ export function create(ctx) {
     return free;
   }
 
-  function update(dt, input) {
+  // (26-11, the room: one ~0.6 s frame when the walls reach 25 %) a frame slower than 100 ms logs where its time went
+  const SLOW = [];
+  function update(dt, input) { SLOW.length = 0; const slow0 = performance.now(); try { updateInner(dt, input); } finally {
+    const tot = performance.now() - slow0;
+    if (tot > 100) { let prev = slow0, out = []; for (let k = 0; k < SLOW.length; k += 2) { out.push(SLOW[k] + ' ' + (SLOW[k + 1] - prev).toFixed(1)); prev = SLOW[k + 1]; } out.push('rest ' + (performance.now() - prev).toFixed(1)); console.info('umbral3d: slow frame ' + tot.toFixed(0) + ' ms (time before each mark) — ' + out.join(', ') + ' — events: ' + events.join(',')); }
+  } }
+  function updateInner(dt, input) {
     dt = Math.min(dt, 0.05); time += dt;
     const P = input.params || params || {};
     const hands = input.hands || [], downs = input.downs || [];
@@ -1380,6 +1386,7 @@ export function create(ctx) {
     const motion = num(P.motion, 1);
     fxWindow += dt; if (fxWindow > 1) { fxWindow = 0; fxCount = 0; }
 
+    SLOW.push('reveal', performance.now());
     // ---- reveal / start: from the score, or the study's own score, or fixed values
     let reveal, start, startEv = false;
     if (S) {
@@ -1406,6 +1413,7 @@ export function create(ctx) {
     revealV += (reveal - revealV) * (1 - Math.exp(-dt * 2.5)); startV += (start - startV) * (1 - Math.exp(-dt * 6));
     const playing = arrive > 0.6 && leave < 0.3;
 
+    SLOW.push('moves', performance.now());
     // ---- the room moves: the serpentine turns round the public, the far world the other way, and breathes
     hero.rotation.y = heroRot;   // T-058c: the shell follows the room — it no longer turns (the far world still does)
     _hq.setFromAxisAngle(UP, heroRot);
@@ -1413,6 +1421,7 @@ export function create(ctx) {
     const ba = time * (Math.PI * 2 / 26);                                               // the lighthouse: two lights, once round the room every 26 s
     beam.target.position.set(Math.cos(ba) * 9, 2.2, Math.sin(ba) * 9);
 
+    SLOW.push('whole', performance.now());
     // ---- the reveal is whole: resonance (the figure spreads from the four buttons); 'start': the biggest wave
     if (reveal >= 1 && !wasRevealed && playing) {
       figT0 = time;
@@ -1429,6 +1438,7 @@ export function create(ctx) {
     for (let i = 0; i < NW; i++) { const d = frames[i], k = 1 - smooth(0.75, 1, Math.max(pushV, leave)); d.position.copy(walls[i].normal).multiplyScalar(PUSH * pushV); d.userData.pivot.scale.setScalar(Math.max(0.001, smooth(0.3, 0.9, arrive) * k)); d.visible = arrive * k > 0.01; }
     const hold = 7;                                                                     // T-058b (ART): a touched piece goes back to rest in 6–8 s
 
+    SLOW.push('hands', performance.now());
     // ---- hands: light, waves, knocks, cascades; the mobiles
     emptyT = hands.length ? 0 : emptyT + dt;
     let nh = 0;
@@ -1489,9 +1499,11 @@ export function create(ctx) {
         if (s && s.state === 0 && u > 0.5) { s.vax += rr(-0.5, 0.5); s.vyaw += rr(-3, 3); }
       }
     }
+    SLOW.push('idle', performance.now());
     // ---- the chain: pieces whose turn has come let go
     for (const e of queue) if (e.on && time >= e.at) { e.on = false; if (letGo(e.cell, e.power) && rnd() < 0.3) { cellPose(e.cell, _v, _q); fx('hit', _v, 0.3, 0); } }
 
+    SLOW.push('chain', performance.now());
     // ---- the mosaic: every piece follows the waves on a spring; colour where the play has been; light where waves cross
     idleC = (idleC + dt * 1.5) % LL; uIdleT.value = time;
     for (const p of pulses) if (p.on) { const age = time - p.t0; if (age > LL / 2 / p.speed + 2.5 || p.amp * Math.exp(-age / 7) < 0.03) p.on = false; }
@@ -1505,6 +1517,7 @@ export function create(ctx) {
     const kSpring = 30, cSpring = 6.2, glowDecay = Math.exp(-dt * 1.3), startGlow = PERSIST ? 0 : startV * 0.7 + (exploded >= 0 && exploded < 2 ? Math.sin(exploded * Math.PI / 2) * 0.8 : 0);   // (26-11: the charge lights nothing white — «trazos blancos de la nada»)
     if (nh > 0) lastHandT = time;
     if (PERSIST && paintedN > 0 && time - lastHandT > RESET_AFTER && (!S || S.block === 'wait') && clearT0 < 0 && !btns.some((b) => b.t0 >= 0)) unpaint();
+    SLOW.push('mosaicPre', performance.now());
     // ---- the buttons and the charge (see THE BUTTONS)
     events.length = 0;
     const openNow = PERSIST && waveT0 >= 0 && time - waveT0 > (dB ? R0W / WIN_V - 0.4 : 1.2) && (!S || S.block === 'wait') && clearT0 < 0;
@@ -1672,6 +1685,7 @@ export function create(ctx) {
     }
     stTex.needsUpdate = true; if (maskDirty) maskTex.needsUpdate = true; if (windDirty) { offTex.needsUpdate = true; windDirty = false; }
 
+    SLOW.push('stones', performance.now());
     // ---- the fallen pieces of the serpentine
     const vis0 = arrive * (1 - smooth(0, 0.6, leave));
     for (const b of bodies) {
@@ -1682,6 +1696,7 @@ export function create(ctx) {
       meshes[b.mesh].setMatrixAt(b.idx, _m.compose(b.p, b.q, _s));
     }
 
+    SLOW.push('fallen', performance.now());
     // ---- the mobiles: pendulums, falls, rests, rises
     let ti = 0;
     for (const s of band) {
@@ -1714,6 +1729,7 @@ export function create(ctx) {
     threadGeo.attributes.position.needsUpdate = true;
     threadMat.opacity = 0.12 * arrive * (1 - leave);   // T-053 (ARTE r5): the threads at 40 %
 
+    SLOW.push('mobiles', performance.now());
     // ---- chips
     for (let i = 0; i < CHIPS; i++) {
       const c = chips[i];
@@ -1736,6 +1752,7 @@ export function create(ctx) {
     }
     chipMesh.instanceMatrix.needsUpdate = true;
 
+    SLOW.push('chips', performance.now());
     // ---- the ring: tiles fly in from the dark and lock round the button; start turns and lights it; 'start' blows it apart
     const startK = PERSIST ? 0 : startV;   // (26-11: the charge is the ring of stones only)
     ringSpin += dt * (0.05 + startK * 2.2);
@@ -1760,6 +1777,7 @@ export function create(ctx) {
     { const k = smooth(0.15, 0.75, revealV) * smooth(0, 0.5, arrive) * (1 - smooth(0.2, 0.9, leave)) * (1 - smooth(0.1, 0.6, ex)); ringBeds.forEach((b, wi) => { b.material.opacity = 0.9 * k; b.visible = k > 0.005 && ringWall[wi] > 0; }); }
     uRing.value = arrive * (1 - leave) * (smooth(0.6, 1, revealV) * 0.04 + startK * 0.14) * (1 - ex) + (ex > 0 && ex < 1 ? Math.sin(ex * Math.PI) * 0.4 : 0);   // ART: emissive ≤ 0.15 (the flash of 'start' a breath more)
 
+    SLOW.push('ring', performance.now());
     // ---- far arcs (they turn with the far world)
     for (const s of mid) {
       const a = s.a - rot + time * 0.012 * s.dir * motion;
@@ -1772,6 +1790,7 @@ export function create(ctx) {
     }
     for (const m of meshes) m.instanceMatrix.needsUpdate = true;
 
+    SLOW.push('arcs', performance.now());
     // ---- the far world and the light come and go with the part
     const farK = arrive * (1 - leave);
     for (const h of hazes) h.visible = false; skyMesh.visible = true; uSkyK.value = 1 - smooth(0.3, 1, leave);   // studio 25-11: no dunes, vaults or haze; the flat night always (the room's sand background never shows)
