@@ -672,9 +672,9 @@ export function create(ctx) {
     const glazed = UNPAINTED ? top.mul(kc) : top.mul(kc).add(back.mul(float(1).sub(kc)));                          // the side showing the glaze
     // the light of a crossing: the bevels light up (thin, warm-white — no neon); the glaze holds a breath of its own light (≤ 0.15)
     let pool = float(0);                                                                    // studio 25-11: where a hand is, the mosaic warms at once
-    for (const u of uHandP) { const d = positionWorld.sub(u.xyz); pool = pool.add(exp(dot(d, d).mul(-1 / (2 * 0.32 * 0.32))).mul(u.w)); }
+    if (HAND_POOL > 0) for (const u of uHandP) { const d = positionWorld.sub(u.xyz); pool = pool.add(exp(dot(d, d).mul(-1 / (2 * 0.32 * 0.32))).mul(u.w)); }   // studio 26-11 (the room server's test, 8a1fae7): off = not built (six exp() a pixel × 0)
     m.emissiveNode = vec3(1.0, 0.92, 0.78).mul(side.mul(0.3).add(top.add(back).mul(0.03))).mul(g).add(vGl.mul(glazed.mul(0.07))).mul(float(1).sub(quiet))
-      .add(vec3(1.0, 0.72, 0.42).mul(col).mul(pool.min(1.4).mul(HAND_POOL))).add(fill).add(vec3(1.0, 0.55, 0.22).mul(vEdge).mul(REVEAL_GLOW));   // studio 25-11: the reveal glows warm at the opening (ref «correfoc»)
+      .add(HAND_POOL > 0 ? vec3(1.0, 0.72, 0.42).mul(col).mul(pool.min(1.4).mul(HAND_POOL)) : vec3(0)).add(fill).add(vec3(1.0, 0.55, 0.22).mul(vEdge).mul(REVEAL_GLOW));   // studio 25-11: the reveal glows warm at the opening (ref «correfoc»)
     return m;
   }
   // studio 26-11 (OPTIMIZAR-60FPS, measured: the mosaic was ~70 % of the GPU time, drawn whole by each of the four wall cameras):
