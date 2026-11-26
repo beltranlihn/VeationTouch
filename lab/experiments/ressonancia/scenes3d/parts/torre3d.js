@@ -13,6 +13,7 @@
 // API: part.progress() → { tier, tiers, climbers, needed, height, ending, done }; part.events (this frame): 'joined:<tier>',
 // 'tier:<n>', 'top', 'aleta', 'end', 'done'; part.reset(); part.setBackdrop(positions Float32Array xyz[, colours]) swaps the square.
 import { bakeBodyGen, pose, rng, V } from './pinya3d/body.js';
+import { createGuideBeam } from './pinya3d/guidebeam.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth01 = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
@@ -54,6 +55,12 @@ export function create({ THREE, TSL, room, params }) {
     cameraPosition, cameraProjectionMatrix, cameraViewMatrix, modelWorldMatrix, modelViewMatrix, dot, exp, pow, length, cross, atan, floor, sqrt } = TSL;
   const P = params || {};
   const object = new THREE.Group(); object.name = 'torre3d';
+  // ---- the opening that teaches (director 26-11): while the voice explains, the guide beam (pinya3d/guidebeam.js, the pinya's) goes to
+  // P4, P2 and P3 and on each PRESSES AND HOLDS (the charge ring fills): a climber forms there, flies to the tower and climbs — the first
+  // three up are the beam's. The public's hands work from the first second. params.intro = { start, walls: [t0, t1, t2], hold } (s from
+  // the block's start, input.t); default cut to the recorded voice (0.5 «Now, the tower rises.» · 3.5 «Hold your hand on the wall…»).
+  const INTRO = { start: 0.5, walls: [3.5, 6.0, 8.5], hold: 1.7 };
+  const beam = createGuideBeam({ THREE, TSL, room }); object.add(beam.object);
   const world = new THREE.Group(); object.add(world);            // everything that sinks as we rise
   const walls = room.walls, NW = walls.length;
   const H = room.strip?.height || 912;
@@ -118,25 +125,30 @@ export function create({ THREE, TSL, room, params }) {
   }
   const instBuf = (count) => { const b = new THREE.InstancedInterleavedBuffer(new Float32Array(count * 20), 20, 1); b.setUsage(THREE.DynamicDrawUsage); return b; };
 
-  // the hand brush on the front wall: 12 stamps (room xyz, strength): points near the ray eye → stamp part, swirl and come home
-  const NSTAMP = 12, STAMPS = []; for (let i = 0; i < NSTAMP; i++) STAMPS.push(new THREE.Vector4(0, -50, 0, 0));
-  const uStamp = uniformArray(STAMPS, 'vec4');
+  // the hand on the front wall (Beltrán 26-11: «como optical flow, un poco más»): a velocity field. Every 70 ms a moving hand leaves a
+  // stamp: where it is (room xyz, amount) and its velocity (vx, vy, vz) with the time it was left. Points near the ray eye → stamp are
+  // dragged along that velocity (with a curl round it), the field widens as it ages (it diffuses), and they come home on a soft spring
+  // with a little overshoot (inertia) in ~1.8 s.
+  const NSTAMP = 16, STAMPS = [], SVEL = []; for (let i = 0; i < NSTAMP; i++) { STAMPS.push(new THREE.Vector4(0, -50, 0, 0)); SVEL.push(new THREE.Vector4(0, 0, 0, -99)); }
+  const uStamp = uniformArray(STAMPS, 'vec4'), uSVel = uniformArray(SVEL, 'vec4');
   const brush = (pw, rnd) => TSL.Fn(() => {
     const acc = vec3(0, 0, 0).toVar();
     TSL.Loop(NSTAMP, ({ i }) => {
-      const s = uStamp.element(i);
-      TSL.If(s.w.greaterThan(0.001), () => {
+      const s = uStamp.element(i), sv = uSVel.element(i), age = uTime.sub(sv.w);
+      TSL.If(s.w.greaterThan(0.001).and(age.lessThan(2.6)), () => {
         const toS = s.xyz.sub(cameraPosition), ls = length(toS), dir = toS.div(ls);
         const v = pw.sub(cameraPosition), along = dot(v, dir), perp = v.sub(dir.mul(along));
-        const d = length(perp), rad = along.div(ls).mul(0.3);   // ≈ 0.3 m on the wall, wider deeper
-        const f = s.w.mul(exp(d.mul(d).div(rad.mul(rad)).negate()));
-        const out = perp.div(d.add(1e-4)), sw = normalize(cross(dir, out).add(vec3(0, 1e-4, 0)));
-        const ang = sin(uTime.mul(1.7).add(rnd.mul(30)).add(d.mul(9)));
-        acc.addAssign(out.mul(rad.mul(0.32)).add(sw.mul(rad.mul(0.42).mul(ang))).add(vec3(0, rnd.sub(0.4).mul(rad).mul(0.3), 0)).mul(f));
+        const d = length(perp), depth = along.div(ls), rad = depth.mul(age.mul(0.14).add(0.2));   // ≈ 0.2 m on the wall at first, wider as it ages
+        const f = s.w.mul(exp(d.mul(d).div(rad.mul(rad)).negate())).mul(depth.mul(0.6).add(0.4));
+        // the envelope: it follows in fast, then springs home with a little overshoot (≈ 1.8 s)
+        const env = float(1).sub(exp(age.mul(-9))).mul(exp(age.mul(-1.25))).mul(cos(age.mul(1.9)));
+        const vel = sv.xyz, sp = length(vel), vn = vel.div(sp.add(1e-4));
+        const curl = normalize(cross(dir, vn).add(vec3(0, 1e-4, 0))).mul(sin(d.div(rad).mul(3.2).sub(age.mul(2.4)).add(rnd.mul(2))));
+        acc.addAssign(vn.mul(0.34).add(curl.mul(0.16)).mul(min(sp, float(1.2))).mul(env).mul(f).mul(depth));
       });
     });
     const la = length(acc);
-    return acc.mul(min(float(1), float(0.22).div(la.add(1e-5))));   // a stir, never a blast: ≤ 22 cm
+    return acc.mul(min(float(1), float(0.2).div(la.add(1e-5))));   // fluid but moderate: ≤ 20 cm
   })();
 
   // per instance (16): i0 = (D xyz: the body's place, height) · i1 = (O xyz: where it formed, travel 0..1) · i2 = (pose 0..2, yaw, seed, yawO)
@@ -478,11 +490,14 @@ export function create({ THREE, TSL, room, params }) {
   // ================================================================================================== the light in her hand · the golden beams
   const pomU = uniform(new THREE.Vector4(0, -50, 0, 0)), pomV = uniform(new THREE.Vector4(0.06, 1, 0, 0));   // pos (world), on · size, intensity
   {
+    // a quad of ±0.6 m round the light; in metres: the core (radius pomV.x), its glow, and a halo ring (radius pomV.z, strength pomV.w)
     const g = new THREE.PlaneGeometry(2, 2), m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
-    const mv = modelViewMatrix.mul(vec4(pomU.xyz, 1));
-    m.vertexNode = TSL.select(pomU.w.greaterThan(0.001), cameraProjectionMatrix.mul(vec4(mv.xy.add(TSL.positionGeometry.xy.mul(pomV.x.mul(3))), mv.z, mv.w)), vec4(0, 0, 2, 1));
-    const d = TSL.uv().sub(0.5).mul(2), r2 = dot(d, d).mul(9);
-    m.colorNode = mix(tc(GOLD), vec3(1, 0.95, 0.82), exp(r2.mul(-6))).mul(exp(r2.mul(-1.2)).mul(0.35).add(exp(r2.mul(-7)).mul(0.9))).mul(pomV.y).mul(pomU.w).mul(float(1).sub(uLeave));
+    const mv = modelViewMatrix.mul(vec4(pomU.xyz, 1)), HQ = 0.6;
+    m.vertexNode = TSL.select(pomU.w.greaterThan(0.001), cameraProjectionMatrix.mul(vec4(mv.xy.add(TSL.positionGeometry.xy.mul(HQ)), mv.z, mv.w)), vec4(0, 0, 2, 1));
+    const rm = length(TSL.uv().sub(0.5).mul(2 * HQ)), rc = rm.div(pomV.x);
+    const core = exp(rc.mul(rc).mul(-2.2)).mul(1.0).add(exp(rc.mul(rc).mul(-0.35)).mul(0.28));
+    const halo = exp(rm.sub(pomV.z).mul(rm.sub(pomV.z)).mul(-900)).mul(pomV.w).add(exp(rm.mul(rm).div(pomV.z.mul(pomV.z).add(1e-4)).mul(-1.5)).mul(pomV.w).mul(0.12));
+    m.colorNode = mix(tc(GOLD), vec3(1, 0.95, 0.82), exp(rc.mul(rc).mul(-3))).mul(core.mul(pomV.y).add(halo)).mul(pomU.w).mul(float(1).sub(uLeave)).mul(float(1).sub(smoothstep(HQ * 0.85, HQ, rm)));
     m.fog = false;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 8; world.add(mesh);
   }
@@ -532,17 +547,26 @@ export function create({ THREE, TSL, room, params }) {
   const climbers = [];
   const charges = [];         // { stroke, wall, pos (room), t0, done, auto }
   const events = [];
-  let pomT0 = -1, readyT = -1, chargedT = -1, charge = 0, lastHold = 0, autoW = -1;
+  let beatPh = 0, pomT0 = -1, readyT = -1, chargedT = -1, charge = 0, lastHold = 0, autoW = -1;
   const pomP = new THREE.Vector3(0, -50, 0), handL = new THREE.Vector3(0, 6.5, 0);
   let time = 0, rise = 0, riseV = 0, slide = 2.5, completed = 0, topT = -1, aletaT = -1, endT = -1, doneSent = false, lastClimb = -99, firstT = -1, rondaBorn = 0;
   let reactiveOn = false; const tmpL = new THREE.Vector3();
   const invW = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpW = new THREE.Vector3();
   const rr = rng(2024);
+  // extra places: round the ronda, beyond its outer ring, on the sides and the far side (never between the ronda and the wall)
+  const extras = [];
+  { const r0 = rng(515), aN = Math.atan2(N1.z, N1.x);
+    for (const [R, n] of [[R3 + 0.5, 14], [R3 + 1.0, 16]]) for (let j = 0; j < n; j++) {
+      const side = j % 2 ? 1 : -1, a = aN + side * (1.15 + (Math.floor(j / 2) / Math.ceil(n / 2)) * 1.9 + (r0() - 0.5) * 0.08);
+      const pos = new THREE.Vector3(C.x + Math.cos(a) * R, 0, C.z + Math.sin(a) * R);
+      extras.push({ tier: -1, j, pos, yaw: Math.atan2(C.x - pos.x, C.z - pos.z), hs: 0.95 + r0() * 0.08, who: null, final: 1 });
+    } }
   const otherWalls = () => walls.map((_, i) => i).filter((i) => i !== TW);
 
   // a climber is born at a hand (wall wi, room point h): it forms behind the wall, its forward palm on the hand
   function makeClimber(wi, h, auto) {
-    const slot = slots.find((s) => !s.who); if (!slot) return null;
+    // the tower's places first; once they are all taken, the extra one still forms, flies and joins the pinya round the ronda (Beltrán: your gesture always made someone)
+    const slot = slots.find((s) => !s.who) || extras.find((s) => !s.who); if (!slot) return null;
     const enx = slot.tier === tiers.length - 1;
     const t = enx ? 4 : (rr() < 0.5 ? 2 : 3); if (!meshes[t]) return null;
     const W = walls[wi], bi = TYPES[t][0], hs = slot.hs, pl = reachPalm[bi];
@@ -561,7 +585,7 @@ export function create({ THREE, TSL, room, params }) {
 // is only two short steps of the organic climb. The baixos land on their place on the ground. Its frame is the world's: it follows the rise.
 const slotAng = (S) => (S.pos.distanceTo(tmpL.set(C.x, S.pos.y, C.z)) < 0.05 ? Math.atan2(N1.z, N1.x) : Math.atan2(S.pos.z - C.z, S.pos.x - C.x));
 const landing = (b, out) => {
-  const S = b.slot; if (S.tier === 0) return out.copy(S.pos);
+  const S = b.slot; if (S.tier <= 0) return out.copy(S.pos);
   const a = slotAng(S) - (b.seed < 0.5 ? -1 : 1) * 0.45, r = Math.hypot(S.pos.x - C.x, S.pos.z - C.z) + 0.38;
   return out.set(C.x + Math.cos(a) * r, Math.max(0, S.pos.y - 1.05), C.z + Math.sin(a) * r);
 };
@@ -619,6 +643,7 @@ const landing = (b, out) => {
     if (v >= 1) { b.phase = 'done'; b.pos.copy(S.pos); b.yaw = S.yaw; }
   }
 
+  let introKey = '', introPlan = null, introEnd = -1, introOn = false;
   const knownStrokes = new Set(), nowStrokes = new Set();
   const stampT = []; for (let i = 0; i < NSTAMP; i++) stampT.push({ t: -99, s: 0 });
   let stampI = 0; const lastStamp = new Map();
@@ -659,10 +684,15 @@ const landing = (b, out) => {
     for (const h of hands) {
       nowStrokes.add(h.stroke);
       if (h.wall === TW) {
-        const ls = lastStamp.get(h.stroke);
-        if (!ls || time - ls.t > 0.18 || ls.p.distanceTo(h.pos) > 0.18) {   // a stamp every 0.12 s or 12 cm: a wake that heals
-          const st = stampT[stampI]; st.t = time; st.s = 1; STAMPS[stampI].set(h.pos.x, h.pos.y, h.pos.z, 1); stampI = (stampI + 1) % NSTAMP;
-          lastStamp.set(h.stroke, { t: time, p: h.pos.clone() });
+        let ls = lastStamp.get(h.stroke);
+        if (!ls) { ls = { t: time, p: h.pos.clone(), v: new THREE.Vector3(), q: h.pos.clone() }; lastStamp.set(h.stroke, ls); }
+        // the hand's velocity, smoothed (m/s, room frame)
+        tmpV.subVectors(h.pos, ls.q).multiplyScalar(1 / Math.max(dt, 1e-3)); ls.v.lerp(tmpV, Math.min(1, dt * 10)); ls.q.copy(h.pos);
+        if (time - ls.t > 0.07) {   // a stamp every 70 ms: a still hand stirs a little, a moving one drags
+          const sp = ls.v.length(), amt = Math.min(1, 0.25 + sp / 0.7);
+          STAMPS[stampI].set(h.pos.x, h.pos.y, h.pos.z, amt); SVEL[stampI].set(ls.v.x, ls.v.y, ls.v.z, time); stampT[stampI].t = time;
+          if (sp < 0.05) SVEL[stampI].set(0, 0.08, 0, time);   // still: a slow rise and curl
+          stampI = (stampI + 1) % NSTAMP; ls.t = time;
         }
         continue;
       }
@@ -674,21 +704,31 @@ const landing = (b, out) => {
       if (!ch.done && time - ch.t0 >= holdT && endT < 0 && topT < 0) { ch.done = true; if (!makeClimber(h.wall, h.pos, false)) ch.full = true; }
     }
     for (const [k] of lastStamp) if (!nowStrokes.has(k)) lastStamp.delete(k);
-    for (let i = 0; i < NSTAMP; i++) { const st = stampT[i]; const age = time - st.t; const s = age < 0.08 ? age / 0.08 : Math.exp(-(age - 0.08) / 0.5); STAMPS[i].w = age > 3 ? 0 : s * 0.7; }
+    for (let i = 0; i < NSTAMP; i++) if (time - stampT[i].t > 2.6) STAMPS[i].w = 0;   // the envelope is in the shader (by the stamp's age)
     // charges: let go before the end → the ring empties
     for (let i = charges.length - 1; i >= 0; i--) { const ch = charges[i]; if (!nowStrokes.has(ch.stroke) && time - ch.seen > 0.35) { ch.gone = (ch.gone ?? 0) + dt; if (ch.gone > 0.6) charges.splice(i, 1); } }
 
+    // ---- the opening: the beam holds on each other wall; its charge ring fills like a hand's and makes a climber
+    {
+      const intro = p.intro === false ? false : (p.intro ?? INTRO), key = JSON.stringify(intro);
+      if (key !== introKey) { introKey = key; introPlan = beam.planOf(intro, otherWalls().map((wi) => ({ wall: wi, x: 0, y: 1.2 }))); introEnd = introPlan ? Math.max(...introPlan.targets.map((q) => q.t + q.hold)) + 1.5 : -1; }
+      const bt = input.t ?? time;
+      for (const e of beam.update(dt, bt, introPlan)) {
+        if ((e.type === 'hold' || e.type === 'press') && topT < 0) { charges.push({ stroke: 'beam' + e.i + ':' + time, beam: true, wall: e.wall, pos: e.pos.clone(), t0: time, done: false, seen: time, a: 0 }); events.push(`intro:${e.i}`); }
+      }
+      introOn = !!introPlan && bt < introEnd;
+    }
     // ---- solo help: after a while with no new climber, the room calls one by itself (a ring charges on a wall without a hand)
     const assist = p.assist ?? 3.5;
-    if (assist > 0 && topT < 0 && slots.some((s) => !s.who) && time > (p.assistDelay ?? 5) && time - lastClimb > assist) {
+    if (!introOn && assist > 0 && topT < 0 && slots.some((s) => !s.who) && time > (p.assistDelay ?? 5) && time - lastClimb > assist) {
       if (!charges.some((q) => q.auto)) {
         const ws = otherWalls(), wi = ws[Math.floor(rr() * ws.length)], W = walls[wi];
         const pos = new THREE.Vector3().copy(W.centre).addScaledVector(W.right, (rr() - 0.5) * W.width * 0.5); pos.y = 1.1 + rr() * 0.4;
         charges.push({ stroke: 'auto' + time, auto: true, wall: wi, pos, t0: time, done: false, seen: time, a: 0 });
       }
     }
-    for (const ch of charges) if (ch.auto) { ch.seen = time; if (!ch.done && time - ch.t0 >= holdT * 1.3) { ch.done = true; makeClimber(ch.wall, ch.pos, true); ch.stroke = null; } if (ch.done) ch.gone = (ch.gone ?? 0) + dt; }
-    for (let i = charges.length - 1; i >= 0; i--) if (charges[i].auto && charges[i].gone > 0.6) charges.splice(i, 1);
+    for (const ch of charges) if (ch.auto || ch.beam) { ch.seen = time; if (!ch.done && time - ch.t0 >= holdT * (ch.beam ? 1 : 1.3)) { ch.done = true; if (topT < 0) makeClimber(ch.wall, ch.pos, true); ch.stroke = null; } if (ch.done) ch.gone = (ch.gone ?? 0) + dt; }
+    for (let i = charges.length - 1; i >= 0; i--) if ((charges[i].auto || charges[i].beam) && charges[i].gone > 0.6) charges.splice(i, 1);
 
     // ---- the ronda: formed out of the dust when the part arrives
     rondaBorn = Math.min(1, rondaBorn + dt / 2.6);
@@ -697,7 +737,7 @@ const landing = (b, out) => {
     // ---- climbers: form at the hand → fly round the room → land on the ronda → climb → their place
     const formT = 0.95, flyT = p.flyTime ?? 2.8;
     for (const b of climbers) {
-      const tt = time - b.t0, S = b.slot, T = tiers[S.tier];
+      const tt = time - b.t0, S = b.slot, T = S.tier >= 0 ? tiers[S.tier] : null;
       b.glow = Math.max(0, b.glow - dt / 3);
       if (b.state === 'form') {
         // it forms at the hand, its forward palm on the visitor's (step R), then lets go into the stream
@@ -706,14 +746,14 @@ const landing = (b, out) => {
       } else if (b.state === 'fly') {
         // it re-forms where it lands hugging the shoulders it lands on (pull)
         b.O.copy(b.Or).applyMatrix4(invW);
-        const below = S.tier === 0 || tiers[S.tier - 1].seated >= tiers[S.tier - 1].n;
+        const below = S.tier <= 0 || tiers[S.tier - 1].seated >= tiers[S.tier - 1].n;
         b.tf = (b.tf ?? 0) + (below || b.travel < 0.8 ? dt : 0);   // the tier below is not up yet: the stream hovers near the tower
         b.travel = Math.min(below ? 1 : 0.8, clamp01(b.tf / flyT)); landing(b, b.pos); b.yaw = Math.atan2(C.x - b.pos.x, C.z - b.pos.z);
         const k = smooth01((b.travel - 0.55) / 0.45); setW(b.w, 0, 1 - k, k, 0);
         if (b.travel >= 1) { b.state = 'climb'; b.t2 = time; planClimb(b); }
       } else if (b.state === 'climb') {
         climbStep(b, time - b.t2, p);
-        if (b.phase === 'done') { b.state = 'settle'; b.t3 = time; T.seated++; events.push(`joined:${S.tier}`); b.glow = 0.8; }
+        if (b.phase === 'done') { b.state = 'settle'; b.t3 = time; if (T) T.seated++; events.push(S.tier >= 0 ? `joined:${S.tier}` : 'joined:pinya'); b.glow = 0.8; }
       } else if (b.state === 'settle' || b.state === 'seated') {
         // it settles: a small give in the knees, a sway to find its balance, then it breathes (the shader's breath)
         const ts = time - (b.t3 ?? time);
@@ -771,10 +811,13 @@ const landing = (b, out) => {
     // the light in her hand: it beats, waiting; it grows and brightens with the charge; at l'aleta it flares and goes with the wave
     {
       const on = pomT0 >= 0 && time > pomT0 && endT < 0 ? 1 : endT >= 0 ? Math.max(0, 1 - (time - endT) / 2) : 0;
-      const beat = 0.5 + 0.5 * Math.sin(time * (2.2 + 3 * charge));
-      const flare = aletaT >= 0 ? Math.exp(-(time - aletaT) * 1.2) * 1.5 : 0;
-      pomU.value.set(pomP.x, pomP.y, pomP.z, on);
-      pomV.value.set(0.05 + 0.13 * charge + 0.04 * beat * (readyT >= 0 ? 1 : 0.3) + flare * 0.25, (0.55 + 0.45 * beat) * (0.6 + 1.4 * charge) + flare, 0, 0);
+      // it beats (faster as it charges), grows 1× → 2.5× in size and light, a halo widens round it; near the end it trembles, then l'aleta
+      beatPh += dt * (2.0 + 6.5 * charge); const beat = 0.5 + 0.5 * Math.sin(beatPh);
+      const flare = aletaT >= 0 ? Math.exp(-(time - aletaT) * 1.2) : 0, tens = smooth01((charge - 0.82) / 0.18) * (chargedT < 0 ? 1 : 0);
+      const k = 1 + 1.5 * smooth01(charge), tr = tens * 0.012;
+      pomU.value.set(pomP.x + (Math.random() - 0.5) * tr, pomP.y + (Math.random() - 0.5) * tr, pomP.z + (Math.random() - 0.5) * tr, on);
+      const size = 0.045 * k * (1 + 0.12 * beat * (readyT >= 0 ? 1 : 0.4)) * (1 + 0.15 * tens * Math.sin(time * 37)) + flare * 0.1;
+      pomV.value.set(size, (0.7 + 0.3 * beat) * k * (1 + 0.25 * tens) + flare * 2.2, Math.min(0.28, 0.06 + 0.15 * charge + 0.03 * beat * charge + flare * 0.3), (readyT >= 0 ? 0.08 + 0.32 * charge : 0) * (1 - flare * 0.3) + flare * 0.6);
       // beams in the room's frame: from the wall's point to the hand
       world.updateMatrixWorld(); tmpW.copy(pomP).applyMatrix4(world.matrix);   // the part's frame (the beams hang from `object`)
       for (let i = 0; i < NB; i++) { const B = beams[i]; BA[i].set(B.from.x, B.from.y, B.from.z, B.k * (chargedT >= 0 ? Math.max(0, 1 - (time - chargedT) * 2) : 1)); BB[i].set(tmpW.x, tmpW.y, tmpW.z, B.reach); }
@@ -804,7 +847,7 @@ const landing = (b, out) => {
     }
     for (const ch of charges) {
       if (ri >= NRING) break; const W = walls[ch.wall], o = ri * 8;
-      const prog = ch.done ? 1 : clamp01((time - ch.t0) / (holdT * (ch.auto ? 1.3 : 1)));
+      const prog = ch.done ? 1 : clamp01((time - ch.t0) / (holdT * (ch.auto && !ch.beam ? 1.3 : 1)));
       ch.a = ch.gone ? Math.max(0, 1 - ch.gone / 0.6) : Math.min(1, ch.a + dt * 10);
       A[o] = ch.pos.x - W.normal.x * 0.005; A[o + 1] = ch.pos.y; A[o + 2] = ch.pos.z - W.normal.z * 0.005; A[o + 3] = ch.a * (ch.full ? 0.3 : 1) * (ch.auto ? 0.7 : 1);
       A[o + 4] = W.right.x; A[o + 5] = W.right.z; A[o + 6] = Math.max(0.001, prog); A[o + 7] = 0.24; ri++;
@@ -853,14 +896,14 @@ const landing = (b, out) => {
   function reset() {
     for (const b of climbers) { const M = b.M; M.list.splice(M.list.indexOf(b), 1); }
     for (const M of meshes) if (M) { M.list.forEach((b, k) => { b.k = k; }); M.mesh.geometry.instanceCount = M.list.length; }
-    climbers.length = 0; charges.length = 0; for (const s of slots) s.who = null; for (const T of tiers) T.seated = 0;
+    climbers.length = 0; charges.length = 0; for (const s of slots) s.who = null; for (const s of extras) s.who = null; for (const T of tiers) T.seated = 0;
     pomT0 = -1; readyT = -1; chargedT = -1; charge = 0; autoW = -1; for (const B of beams) { B.k = 0; B.reach = 0; B.on = false; }
     completed = 0; topT = -1; aletaT = -1; endT = -1; doneSent = false; lastClimb = time; firstT = -1; rondaBorn = 0; riseV = 0;
   }
   function finish() { P.end = true; }
   function progress() {
-    const needed = slots.length, seated = climbers.filter((b) => b.state === 'seated' || b.state === 'settle').length;
-    return { tier: completed, tiers: tiers.length, climbers: seated, inFlight: climbers.length - seated, needed, height: +rise.toFixed(2),
+    const needed = slots.length, seated = climbers.filter((b) => b.slot.tier >= 0 && (b.state === 'seated' || b.state === 'settle')).length;
+    return { tier: completed, tiers: tiers.length, climbers: seated, inFlight: climbers.filter((b) => b.slot.tier >= 0).length - seated, pinya: climbers.filter((b) => b.slot.tier < 0).length, needed, height: +rise.toFixed(2),
       ending: endT >= 0 ? clamp01((time - endT) / (P.endTime ?? 6)) : 0, done: doneSent, charge: +charge.toFixed(3), ready: readyT >= 0 };
   }
   function setParams(p) { if (p && p.tiers != null && String(p.tiers) !== String(P.__tiersBuilt ?? '')) { /* tiers change on reset */ } }

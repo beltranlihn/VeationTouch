@@ -27,6 +27,34 @@ The end is played by the room (Beltrán 26-11, «me gusta todo dorado»):
    - With nobody touching for `chargeAssist` (10 s), a point charges by itself.
 4. Charged (`aleta:charged`): l'aleta flares, a golden wave runs round the room, and the tower and the square let go into rising particles.
 
+## The opening that teaches
+While the voice explains (director 26-11), the guide beam (`pinya3d/guidebeam.js`, shared with the pinya) goes to P4, P2 and P3.
+On each it presses and holds: the charge ring fills, a climber forms there, flies to the tower and climbs. The first three up are the
+beam's.
+- The public's hands work from the first second. Solo help waits until the opening is over.
+- Times: `params.intro = { start, walls: [t0, t1, t2], hold }`, in s from the block's start (`input.t`).
+  - Default: `{ start: 0.5, walls: [3.5, 6.0, 8.5], hold: 1.7 }`, cut to the recorded voice.
+  - `intro: false` turns it off.
+- Event: `intro:<i>`.
+
+## Every gesture makes someone (Beltrán 26-11)
+Until her light appears, every held hand makes its climber: the ring, the being at the hand, the stream.
+- Once the tower's places are all taken, the extra ones fly to the pinya round the ronda and join it, with their hands on the backs
+  there (30 extra places beyond the outer ring, on the sides and the far side).
+- Climbers waiting for their tier hover as streams near the tower.
+- From the light on, the walls send golden beams instead and nobody else climbs.
+- `progress().pinya` = the climbers that joined the pinya.
+
+## The light in her hand
+It grows 1× → 2.5× in size and light with the charge. A halo widens round it (≤ 0.28 m) and the beat quickens. Above 82 % it
+trembles, and at 100 % it bursts into l'aleta.
+
+## P1: a fluid stir (Beltrán 26-11: «como optical flow, un poco más nomás»)
+Every 70 ms a moving hand leaves a stamp of its velocity. Points near the ray eye → stamp are dragged along it, with a curl.
+- The field widens as it ages: it diffuses.
+- The points come home on a soft spring with a little overshoot in ~1.8 s.
+- The drag is at most 20 cm. A still hand stirs a little.
+
 ## Solo path
 Hold a hand on any wall but P1: one climber per hold. With nobody holding, a ring charges by itself on another wall every 3.5 s,
 starting 5 s after the part arrives. A single visitor completes the tower in about 60–90 s. In the harness, a virtual walker that
