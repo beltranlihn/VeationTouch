@@ -53,7 +53,7 @@ export function createDiables(ctx) {
   const {
     uniformArray, attribute, varying, positionGeometry, uv, vec2, vec3, vec4, float, int, sin, cos, exp, mix, clamp, smoothstep, max,
     abs, fract, floor, pow, dot, normalize, length, select, modelViewMatrix, modelWorldMatrix, cameraProjectionMatrix, cameraPosition,
-    mx_noise_float, atan, fwidth, instanceIndex, Fn, Discard,
+    mx_noise_float, atan, fwidth, instanceIndex, Fn, If, varyingProperty, min,
   } = TSL;
   const { meta, bin } = ASSET;
   const NB = meta.bones.length;
@@ -92,6 +92,8 @@ export function createDiables(ctx) {
   const uDS = uniformArray(DS, 'vec4');     // k (assemble), dis (dissolve), gain (heat), floor y (incl. the leap)
   const uDV = uniformArray(DV, 'vec4');     // velocity (local, m/s), h (scale)
   const uDF = uniformArray(DF, 'vec4');     // facing (horizontal unit), seed
+  const DC = []; for (let i = 0; i < MAXD; i++) DC.push(new THREE.Vector4(0, -50, 0, 0));
+  const uDC = uniformArray(DC, 'vec4');     // bounding sphere (local centre, radius): per-camera culling in the vertex shader
 
   // ------------------------------------------------------------------------------------------------ the mesh
   const L = meta.layout;
@@ -121,15 +123,17 @@ export function createDiables(ctx) {
   const skin = (pk, I, W, p, w) => apply(skinRows(pk, I, W), p, w);
   // the ember-dash pattern on the rest pose: a 3D cell lattice stretched along y, one dash per live cell (teardrop: wide below)
   const hash3 = (c) => fract(sin(dot(c, vec3(127.1, 311.7, 74.7))).mul(43758.5453));
+  // (thin drips of lava, 3–6 cm, running down: denser and brighter up high — shoulders, chest, the robe's top — cooling below)
   const dashes = (r, tm) => {
-    const q = r.mul(vec3(42, 6, 42)), cell = floor(q), f = fract(q);
+    const q = r.mul(vec3(34, 6, 34)), cell = floor(q), f = fract(q);
     const h1 = hash3(cell), h2 = hash3(cell.add(17.3)), h3 = hash3(cell.add(41.7));
-    const o = vec3(h2, h3, fract(h1.mul(7.1))).mul(0.4).add(0.3);
-    const d = f.sub(o), wide = clamp(d.y.mul(-1.6).add(0.6), 0.25, 1.0);          // wider at the bottom of the dash
+    const o = vec3(h2, h3, fract(h1.mul(7.1))).mul(0.3).add(0.35);
+    const d = f.sub(o), wide = clamp(d.y.mul(-1.8).add(0.65), 0.3, 1.0);          // a drop at the bottom, a thin tail above
     const dd = length(vec3(d.x.div(wide), d.y, d.z.div(wide)));
-    const on = select(h1.greaterThan(0.72), float(1), float(0));
+    const up = smoothstep(0.5, 1.3, r.y);
+    const on = select(h1.greaterThan(mix(float(0.8), float(0.45), up)), float(1), float(0));
     const fl = sin(tm.mul(h2.mul(3).add(1.5)).add(h1.mul(40))).mul(0.3).add(0.7);
-    return float(1).sub(smoothstep(0.12, 0.24, dd)).mul(on).mul(fl);
+    return float(1).sub(smoothstep(0.12, 0.22, dd)).mul(on).mul(fl).mul(mix(float(0.35), float(1.0), smoothstep(0.35, 1.25, r.y)));
   };
   // the build / burn factor: assemble from the feet up, dissolve from the top down; a ragged burning front
   const grow = (py, ds, h, rag) => {
@@ -139,78 +143,118 @@ export function createDiables(ctx) {
     return { g: eA.mul(float(1).sub(vD)), yRel };
   };
 
+  // a sphere (local centre c, radius r) against the camera's frustum: its 4 side planes in clip space and the near side
+  const sphereVisible = (c, r) => {
+    const v = modelViewMatrix.mul(vec4(c, 1)), P = cameraProjectionMatrix, k = P.mul(v);
+    const gx = P.mul(vec4(1, 0, 0, 0)), gy = P.mul(vec4(0, 1, 0, 0)), gz = P.mul(vec4(0, 0, 1, 0));
+    const side = (sx, sy) => {
+      const f = k.w.add(k.x.mul(sx)).add(k.y.mul(sy));
+      const g = vec3(gx.w.add(gx.x.mul(sx)).add(gx.y.mul(sy)), gy.w.add(gy.x.mul(sx)).add(gy.y.mul(sy)), gz.w.add(gz.x.mul(sx)).add(gz.y.mul(sy)));
+      return f.add(r.mul(length(g))).greaterThanEqual(0);
+    };
+    return side(-1, 0).and(side(1, 0)).and(side(0, -1)).and(side(0, 1)).and(v.z.lessThan(r));
+  };
   const meshes = [];
   const addMesh = (geo, mat, order) => { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.renderOrder = order; world.add(m); meshes.push(m); return m; };
-  const mirrors = mirP ? [false, true] : [false];
+  // lab-only measurement switches (nothing changes without them): d2nomotes, d2nomirror, d2flat
+  const QS = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+  const mirrors = mirP && !QS.has('d2nomirror') ? [false, true] : [false];
+
+  // the look (shared): the body's fragments run it per pixel; its mirror runs it per VERTEX (a soft copy on rippled water)
+  const shade = ({ N, Vv, wP, R, A, dsv, toTop, edge, mirror }) => {
+    const mt = A.x, glow = A.y, tp = A.z, sd = A.w;
+    const isM = (k) => select(abs(mt.sub(k)).lessThan(0.5), float(1), float(0));
+    const ndv = abs(dot(N, Vv)), rimT = pow(float(1).sub(ndv), 4.0);
+    const dTop = length(toTop), Lt = toTop.div(max(dTop, 1e-3));
+    const fireLight = max(dot(N, Lt), 0).mul(0.55).div(dTop.mul(dTop).mul(0.6).add(1.0));       // the carretilles above
+    const ringLight = max(N.y.negate(), 0).mul(0.3).add(0.1);                                     // the bed below
+    const warm = vec3(1.0, 0.42, 0.13);
+    const lit = fireLight.mul(1.8).add(ringLight);
+    const heat = dsv.z;
+    let alb = C.char;
+    alb = mix(alb, C.cloth, max(isM(1), isM(2)));
+    alb = mix(alb, C.claw, isM(9)); alb = mix(alb, C.medal, isM(5)); alb = mix(alb, C.forca, isM(6));
+    let c = alb.mul(0.8).add(alb.mul(warm).mul(lit).mul(2.4)).add(C.rim.mul(rimT).mul(0.22));
+    // emission: lava drips, feather tips, the hem's glow, the robe's inner glow, the hexagon
+    const solid = float(1).sub(max(isM(4), max(isM(5), max(isM(6), max(isM(7), max(isM(8), isM(9)))))));
+    const dsh = mirror ? solid.mul(0.06) : dashes(R, U.time).mul(solid);
+    const pulse = sin(U.time.mul(2.3).add(R.x.mul(30.0)).add(R.y.mul(9.0))).mul(0.25).add(0.75);
+    const tipG = pow(tp, 4.0).mul(isM(3)).mul(1.1);
+    let em = mix(C.lavaMid, C.lavaCore, pulse.mul(dsh)).mul(dsh.mul(1.25));
+    em = em.add(mix(C.lavaEdge, C.lavaMid, pulse).mul(tipG));
+    em = em.add(C.hem.mul(glow).mul(pulse.mul(0.3).add(0.85)));
+    em = em.add(C.hem.mul(isM(1).mul(smoothstep(0.85, 0.36, R.y))).mul(0.12));
+    c = c.add(em.mul(heat));
+    // the flames: cream at the root, orange, red at the tip; matte, self-lit (below the bloom threshold)
+    const fc = mix(mix(C.cream, C.amber, smoothstep(0.0, 0.25, tp)), mix(C.orange, C.red, smoothstep(0.45, 0.7, tp)), smoothstep(0.2, 0.5, tp));
+    const flame = mix(fc, C.deep, smoothstep(0.7, 0.95, tp)).mul(sin(U.time.mul(9.0).add(sd.mul(30.0))).mul(0.08).add(0.92)).mul(heat.mul(0.25).add(0.75));
+    c = mix(c, flame, isM(4));
+    // the carretilles: a small hot wheel, five spokes turning 3.5×/s
+    const spokes = pow(sin(atan(R.z, R.y.sub(PRONG[0].y)).mul(5.0).sub(U.time.mul(Math.PI * 2 * 3.5))).mul(0.5).add(0.5), 6.0);
+    c = mix(c, C.sparkHot.mul(spokes.mul(1.05).add(0.42)), isM(7));
+    c = c.add(C.lavaMid.mul(flashN(wP)).mul(rimT).mul(0.5));
+    c = c.add(mix(C.lavaMid, C.lavaCore, edge).mul(edge).mul(1.6));                      // the burning front (assemble / dissolve)
+    c = c.mul(float(1).sub(U.leave.mul(0.6)));
+    return mirror ? c.mul(tint) : c;
+  };
 
   for (const mirror of mirrors) {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
     if (mirror) { m.transparent = true; m.depthWrite = true; m.blending = THREE.NormalBlending; }
     const pk = int(instanceIndex);
     const I = attribute('aSkI', 'vec4'), W = attribute('aSkW', 'vec4'), A = attribute('aAttr', 'vec4');
-    const ds = uDS.element(pk), dv = uDV.element(pk), df = uDF.element(pk), h = dv.w, tm = U.time;
+    const ds = uDS.element(pk), dv = uDV.element(pk), h = dv.w, tm = U.time;
     const mat = A.x, tip = A.z, seed = A.w;
     const isFlame = abs(mat.sub(4)).lessThan(0.5);
     // the flames lick (rest space, before the skin): sway grows to the tip, each tongue its own phase
     const ph = tm.mul(seed.mul(2.0).add(3.0)).add(seed.mul(40.0));
     const lick = vec3(sin(ph), sin(ph.mul(1.3).add(1.7)).mul(0.6), cos(ph.mul(0.9))).mul(pow(tip, 1.6).mul(0.025));
     const pR = positionGeometry.add(select(isFlame, lick, vec3(0, 0, 0)));
-    const rows = skinRows(pk, I, W);
-    let p = apply(rows, pR, 1.0);
-    // the run combs the flames back
-    p = p.sub(dv.xyz.mul(select(isFlame, pow(tip, 1.5).mul(0.05), float(0))));
-    const n = normalize(apply(rows, attribute('normal', 'vec3'), 0.0).add(vec3(0, 1e-5, 0)));
+    // per-camera culling: a devil out of this camera's frustum skips the skin (its vertices collapse to one point). Every devil
+    // used to be skinned in all 8 passes (4 walls + their mirror) although each wall sees only a few of them.
+    const dc = uDC.element(pk);
+    const vis = sphereVisible(mirror ? vec3(dc.x, dc.y.negate(), dc.z) : dc.xyz, dc.w.mul(mirror ? 1.15 : 1.0));
+    const sfx = mirror ? 'm' : '';
+    const vNs = varyingProperty('vec3', 'vD2N' + sfx), vEs = varyingProperty('float', 'vD2E' + sfx), vCs = varyingProperty('vec3', 'vD2C' + sfx);
+    const forcaRow = (r) => uB.element(pk.mul(NB * 3).add(BI.forca * 3 + r));
+    const topR = vec4(RH[BI.forca].x, RH[BI.forca].y + meta.forca.length + 0.1, RH[BI.forca].z, 1);
+    const top = vec3(dot(forcaRow(0), topR), dot(forcaRow(1), topR), dot(forcaRow(2), topR));
+    const p = Fn(() => {
+      const out = vec3(dc.x, -500, dc.z).toVar();
+      vNs.assign(vec3(0, 1, 0)); vEs.assign(0); vCs.assign(vec3(0, 0, 0));
+      If(vis, () => {
+        const rows = skinRows(pk, I, W);
+        // (the run combs the flames back)
+        const q = apply(rows, pR, 1.0).sub(dv.xyz.mul(select(isFlame, pow(tip, 1.5).mul(0.05), float(0)))).toVar();
+        // ASSEMBLE / DISSOLVE without discarding fragments (a discard costs the early depth test on every pixel of the body):
+        // a burning front rises from the feet (k) or sinks from the peak (dis), ragged; what is above it is pulled down onto
+        // it and in to the body's axis, so the figure builds up from the embers and melts down into them
+        const fa = select(ds.x.greaterThan(0.999), float(100), ds.x.mul(1.5).sub(0.12));
+        const fd = select(ds.y.lessThan(0.001), float(100), float(1.4).sub(ds.y.mul(1.6)));
+        const frontY = ds.w.add(min(fa, fd).add(mx_noise_float(positionGeometry.mul(9.0)).mul(0.05)).mul(h.mul(1.9)));
+        const above = q.y.sub(frontY);
+        const pull = clamp(above.div(h.mul(0.22)), 0, 1);
+        q.assign(select(above.greaterThan(0), vec3(mix(q.x, dc.x, pull), max(frontY, ds.w.sub(0.03)), mix(q.z, dc.z, pull)), q));
+        vEs.assign(float(1).sub(smoothstep(0.0, h.mul(0.12), above.negate())));
+        out.assign(q);
+        const nn = apply(rows, attribute('normal', 'vec3'), 0.0);
+        const n = normalize(mirror ? vec3(nn.x, nn.y.negate(), nn.z) : nn);
+        vNs.assign(n);
+        if (mirror) {                                                                 // the mirror: shaded here, per vertex
+          const pfm = mirP(q), wP = modelWorldMatrix.mul(vec4(pfm, 1)).xyz;
+          vCs.assign(shade({ N: n, Vv: normalize(cameraPosition.sub(wP)), wP, R: positionGeometry, A, dsv: ds, toTop: top.sub(q), edge: vEs, mirror: true }));
+        }
+      });
+      return out;
+    })();
     const pf = mirror ? mirP(p) : p;
     m.positionNode = pf;
-    const vN = varying(mirror ? vec3(n.x, n.y.negate(), n.z) : n), vW = varying(modelWorldMatrix.mul(vec4(pf, 1)).xyz);
-    const vR = varying(positionGeometry);                                              // rest position (dashes, seams, the ragged front)
-    const vA = varying(A);
-    const vP = varying(vec4(p.y, mx_noise_float(positionGeometry.mul(9.0)), 0, 0)), vDS = varying(ds), vH = varying(h);   // y: the ragged front (per vertex)
-    const ft = uB.element(pk.mul(NB * 3).add(BI.forca * 3));                           // (rows of the forca's matrix: its top is the light)
-    const fr1 = uB.element(pk.mul(NB * 3).add(BI.forca * 3 + 1)), fr2 = uB.element(pk.mul(NB * 3).add(BI.forca * 3 + 2));
-    const topR = vec4(RH[BI.forca].x, RH[BI.forca].y + meta.forca.length + 0.1, RH[BI.forca].z, 1);
-    const top = vec3(dot(ft, topR), dot(fr1, topR), dot(fr2, topR));
-    const vTop = varying(top.sub(p));
-    m.colorNode = Fn(() => {
-      const N = normalize(vN), Vv = normalize(cameraPosition.sub(vW)), mt = vA.x, glow = vA.y, tp = vA.z, sd = vA.w;
-      const isM = (k) => select(abs(mt.sub(k)).lessThan(0.5), float(1), float(0));
-      const rag = vP.y;
-      const gr = grow(vP.x, vDS, vH, rag);
-      Discard(gr.g.lessThan(0.5));
-      const edge = float(1).sub(smoothstep(0.5, 0.95, gr.g));                            // the burning band at the front
-      const ndv = abs(dot(N, Vv)), rimT = pow(float(1).sub(ndv), 4.0);
-      const dTop = length(vTop), Lt = vTop.div(max(dTop, 1e-3));
-      const fireLight = max(dot(N, Lt), 0).mul(0.55).div(dTop.mul(dTop).mul(0.6).add(1.0));       // the carretilles above
-      const ringLight = max(N.y.negate(), 0).mul(0.3).add(0.1);                                     // the bed below
-      const warm = vec3(1.0, 0.42, 0.13);
-      const lit = fireLight.mul(1.8).add(ringLight);
-      const heat = vDS.z;
-      // albedo by part
-      let alb = C.char;
-      alb = mix(alb, C.cloth, max(isM(1), isM(2)));
-      alb = mix(alb, C.claw, isM(9)); alb = mix(alb, C.medal, isM(5)); alb = mix(alb, C.forca, isM(6));
-      let c = alb.mul(0.8).add(alb.mul(warm).mul(lit).mul(2.4)).add(C.rim.mul(rimT).mul(0.22));
-      // emission: ember dashes, lava seams on the limbs, thorn tips, the hem, the hexagon
-      const solid = float(1).sub(max(isM(4), max(isM(5), max(isM(6), max(isM(7), isM(9))))));
-      const dsh = mirror ? solid.mul(0.06) : dashes(vR, U.time).mul(solid);
-      const pulse = sin(U.time.mul(2.3).add(vR.x.mul(30.0)).add(vR.y.mul(9.0))).mul(0.25).add(0.75);
-      const tipG = pow(tp, 2.5).mul(max(isM(3), isM(9))).mul(0.9);
-      let em = mix(C.lavaMid, C.lavaCore, pulse.mul(dsh)).mul(dsh.mul(1.25));
-      em = em.add(mix(C.lavaEdge, C.lavaMid, pulse).mul(tipG));
-      em = em.add(C.hem.mul(glow).mul(pulse.mul(0.35).add(0.85)).mul(1.15));
-      c = c.add(em.mul(heat));
-      // the flames: cream at the root, orange, red at the tip; matte, self-lit (below the bloom threshold)
-      const fc = mix(mix(C.cream, C.amber, smoothstep(0.0, 0.25, tp)), mix(C.orange, C.red, smoothstep(0.45, 0.7, tp)), smoothstep(0.2, 0.5, tp));
-      const flame = mix(fc, C.deep, smoothstep(0.7, 0.95, tp)).mul(sin(U.time.mul(9.0).add(sd.mul(30.0))).mul(0.08).add(0.92)).mul(heat.mul(0.25).add(0.75));
-      c = mix(c, flame, isM(4));
-      // the carretilles: a small hot wheel, five spokes turning 3.5×/s
-      const spokes = pow(sin(atan(vR.z, vR.y.sub(PRONG[0].y)).mul(5.0).sub(U.time.mul(Math.PI * 2 * 3.5))).mul(0.5).add(0.5), 6.0);
-      c = mix(c, C.sparkHot.mul(spokes.mul(1.05).add(0.42)), isM(7));
-      c = c.add(C.lavaMid.mul(flashN(vW)).mul(rimT).mul(0.5));
-      c = c.add(mix(C.lavaMid, C.lavaCore, edge).mul(edge).mul(1.6));                    // the burning edge (assemble / dissolve)
-      c = c.mul(float(1).sub(U.leave.mul(0.6)));
-      return mirror ? c.mul(tint) : c;
-    })();
+    if (mirror) m.colorNode = vCs;
+    else {
+      const vW = varying(modelWorldMatrix.mul(vec4(pf, 1)).xyz), vR = varying(positionGeometry), vA = varying(A), vDS = varying(ds), vTop = varying(top.sub(p));
+      m.colorNode = shade({ N: normalize(vNs), Vv: normalize(cameraPosition.sub(vW)), wP: vW, R: vR, A: vA, dsv: vDS, toTop: vTop, edge: vEs, mirror: false });
+    }
+    if (QS.has('d2flat')) m.colorNode = vec3(0.3, 0.1, 0.05);
     if (mirror) m.opacityNode = U.refl.mul(0.6);
     m.fog = false;
     addMesh(bodyGeo, m, mirror ? -1 : 2);
@@ -297,7 +341,7 @@ export function createDiables(ctx) {
       return mirror ? out.mul(tint).mul(U.refl).mul(0.6) : out;
     })();
     m.fog = false;
-    addMesh(moteGeo, m, mirror ? -1 : 4);
+    const mm = addMesh(moteGeo, m, mirror ? -1 : 4); if (QS.has('d2nomotes')) mm.layers.set(31);
   }
 
   // ------------------------------------------------------------------------------------------------ the solver (CPU)
@@ -482,7 +526,7 @@ export function createDiables(ctx) {
           const span = Ay - tA.y, at = clamp01((Ay - legP.y) / Math.max(1e-3, span));
           if (at < 0.15) continue;
           const rH = tD.subVectors(tA, pel).setY(0).dot(dk), rY = rA + (rH - rA) * at;
-          const e = tD.subVectors(legP, pel).setY(0).dot(dk) + 0.045 * h - rY;
+          const e = tD.subVectors(legP, pel).setY(0).dot(dk) + (q ? 0.05 : 0.085) * h - rY;   // (the bell is concave: more room at the knee)
           if (e > 0) tA.addScaledVector(dk, e / at);
         }
       }
@@ -533,6 +577,7 @@ export function createDiables(ctx) {
       DS[n].set(k, dis, (0.92 + 0.08 * Math.sin(time * 7 + i)) * (sl.gain || 1), floorY);
       DV[n].set(st.vel.x, 0, st.vel.z, h);
       DF[n].set(st.F.x, 0, st.F.z, st.seed);
+      DC[n].set(st.root.x, floorY + 1.15 * h, st.root.z, 1.7 * h);
       n++;
       // the carretilles: an umbrella of sparks into BRA's GPU sparks (2 emitters), a last flash when it dissolves
       if (!emit) continue;

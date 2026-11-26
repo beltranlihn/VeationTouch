@@ -144,8 +144,8 @@ for s, L in ((1, 'L'), (-1, 'R')):
     node('fam' + L, lerp(JP['elb' + L], JP['wri' + L], 0.35), (0.032, 0.03), 'elb' + L)   # the forearm's belly
     node('wri' + L, JP['wri' + L], (0.018, 0.017), 'fam' + L)
     node('palm' + L, JP['palm' + L], (0.027, 0.014), 'wri' + L)
-    node('hip' + L, (s * 0.09, 0.0, 0.86), (0.04, 0.04), 'pelvis')          # (thighs thin: never seen, the robe stays outside)
-    node('kne' + L, (s * 0.135, -0.025, 0.47), (0.037, 0.036), 'hip' + L)
+    node('hip' + L, (s * 0.09, 0.0, 0.86), (0.026, 0.026), 'pelvis')          # (thighs thin: never seen, the robe stays outside)
+    node('kne' + L, (s * 0.135, -0.025, 0.47), (0.032, 0.032), 'hip' + L)
     node('shm' + L, (s * 0.15, 0.0, 0.29), (0.031, 0.031), 'kne' + L)
     node('ank' + L, (s * 0.165, 0.02, 0.10), (0.032, 0.03), 'shm' + L)
     node('heel' + L, (s * 0.165, 0.03, 0.05), (0.025, 0.023), 'ank' + L)
@@ -478,6 +478,15 @@ for i in range(BODY_END, len(G.v)):
         else: f = min(1.0, (t - 0.6) / 0.25); W[i] = {'hood1': 1 - f, 'hood2': f}
     else:
         W[i] = {bd[0]: 1.0}
+
+# the hips, the thighs and the knees are never seen under the robe: drop their faces (they would only poke through it)
+_keep = []
+for _i, _f in enumerate(G.f):
+    _c = sum((G.v[k] for k in _f), V()) / len(_f)
+    _hidden = all(k < BODY_END for k in _f) and 0.41 < _c.z < Z_WAIST - 0.03 and inside_robe(_c, -0.01)
+    if not _hidden: _keep.append(_i)
+print('hidden body faces dropped', len(G.f) - len(_keep))
+G.f = [G.f[i] for i in _keep]; G.smooth = [G.smooth[i] for i in _keep]
 
 # ------------------------------------------------------------------------------------------------ 9. the Blender mesh, rig and material
 def make_mesh():

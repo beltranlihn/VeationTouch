@@ -5,9 +5,9 @@
  "front": "+z",
  "height": 1.75,
  "crown": 1.875,
- "vertexCount": 8086,
- "indexCount": 31749,
- "triangles": 10583,
+ "vertexCount": 7845,
+ "indexCount": 30225,
+ "triangles": 10075,
  "layout": {
   "position": [
    0,
@@ -15,27 +15,27 @@
    "f32"
   ],
   "normal": [
-   97032,
+   94140,
    3,
    "f32"
   ],
   "aAttr": [
-   194064,
+   188280,
    4,
    "f32"
   ],
   "aSkI": [
-   323440,
+   313800,
    4,
    "u8"
   ],
   "aSkW": [
-   355784,
+   345180,
    4,
    "f32"
   ],
   "index": [
-   485160,
+   470700,
    1,
    "u16"
   ]
