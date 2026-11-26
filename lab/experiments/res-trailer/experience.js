@@ -721,6 +721,14 @@ function frame(dt) {
       score.setStart(st);
       if (Math.abs(st - (link.stSent ?? -1)) > 0.01 || st >= 1 || time - (link.stAt ?? -9) > 1) { link.stSent = st; link.stAt = time; tell({ start: st }); }
     } }
+  // studio 26-11 (Beltrán: «la interactividad funciona cuando es sinestésica»): every part's events of this frame go to the sound piece
+  // ({ type: 'ev', part, block, ev: [...] }), and its progress about 4× a second ({ type: 'st', part, block, p }), so every touch, birth,
+  // climb, tier, feed, boom and ending can sound
+  for (const e of list) {
+    if (e.state === 'off' || !e.part) continue;
+    const ev = e.part.events; if (ev && ev.length) try { bc?.postMessage({ type: 'ev', part: e.name, block: S.block, ev: ev.slice(0, 32) }); } catch { /* alone */ }
+    if (time - (e.stAt ?? -9) > 0.25) { e.stAt = time; const pr = e.part.progress?.() ?? e.part.fill?.() ?? e.part.charge?.(); if (pr) try { bc?.postMessage({ type: 'st', part: e.name, block: S.block, p: pr }); } catch { /* alone */ } }
+  }
   subs.update(dt);
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
   p1 = performance.now(); const ib = stepIntroBreak();
