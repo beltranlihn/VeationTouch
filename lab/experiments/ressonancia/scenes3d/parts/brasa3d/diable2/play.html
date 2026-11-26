@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ressonància — diable v2 play</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0908; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+  #hud { position: fixed; left: 16px; bottom: 14px; font: 12px/1.5 system-ui, sans-serif; color: #B8B8B8; background: #111c; border: 1px solid #262626;
+         border-radius: 6px; padding: 8px 12px; pointer-events: none; }
+  #hud b { color: #E0E0E0; font-weight: 600; }
+</style>
+<!-- three.js r187, vendored (MIT) -->
+<script type="importmap">
+{ "imports": {
+  "three": "../../../../vendor/three-r187/build/three.webgpu.js",
+  "three/webgpu": "../../../../vendor/three-r187/build/three.webgpu.js",
+  "three/tsl": "../../../../vendor/three-r187/build/three.tsl.js",
+  "three/addons/": "../../../../vendor/three-r187/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><b>Click the floor</b>: a devil builds up from the embers and runs the ring · <b>Shift+click</b>: it stays and dances · <b>Space</b>: all leap · <b>X</b>: dissolve all · <span id="n">0</span>/14</div>
+<script type="module" src="./play.js"></script>
+</body>
+</html>
