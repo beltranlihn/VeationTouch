@@ -143,10 +143,12 @@ export function create({ THREE, room }) {
       const s1 = at('intro'), s2 = at('brasa'), s3 = at('festa'), s4 = at('end');
       const g = 1 - clamp01((input.leave ?? 0) * 3);                // leaving the room: everything gone fast
       // the square
-      drive(L.presents, t, s1 + 3, s1 + 9.5, 0.8, g);
-      drive(L.title, t, s1 + 11, s1 + 26, 1.2, g);
-      drive(L.subtitle, t, s1 + 14, s1 + 26, 0.8, g);
-      L.four.forEach((x, i) => drive(x, t, s1 + 28 + i * 1.6, s1 + 42, 0.9, g));
+      // studio 26-11 (Beltrán): the new intro speaks its own script — the square's old cards are off (input.introCards = true brings them back)
+      const gi = input.introCards ? g : 0;
+      drive(L.presents, t, s1 + 3, s1 + 9.5, 0.8, gi);
+      drive(L.title, t, s1 + 11, s1 + 26, 1.2, gi);
+      drive(L.subtitle, t, s1 + 14, s1 + 26, 0.8, gi);
+      L.four.forEach((x, i) => drive(x, t, s1 + 28 + i * 1.6, s1 + 42, 0.9, gi));
       // the correfoc
       L.trailer.forEach((x, i) => drive(x, t, s2 + 5 + i * 3.5, s2 + 23, 0.9, g));
       L.data[0].forEach((x, i) => drive(x, t, s2 + 25 + i * 0.8, s2 + 36.5, 0.8, g));
