@@ -262,7 +262,7 @@ export function createFogueres(ctx) {
       })();
       m.fog = false;
       m.transparent = true; m.opacityNode = uFA.element(int(f)).x;   // (the entry: it fades in, never a black cut-out)
-      procBase[f] = add(new THREE.Mesh(g, m), 2); procBase[f].userData.fire = f;
+      procBase[f] = add(new THREE.Mesh(g, m), 2); procBase[f].userData.fire = f; procBase[f].userData.base = true;
     }
   }
 
@@ -304,7 +304,7 @@ export function createFogueres(ctx) {
     })();
     m.fog = false;
     m.transparent = true; m.opacityNode = uFA.element(int(f)).x;
-    const mesh = new THREE.Mesh(g, m); mesh.userData.fire = f;
+    const mesh = new THREE.Mesh(g, m); mesh.userData.fire = f; mesh.userData.base = true;
     const yaw = Math.atan2(st.face.x, st.face.z), cy = Math.cos(yaw), sy = Math.sin(yaw);
     mesh.rotation.y = yaw; mesh.position.set(st.x, 0, st.z);
     add(mesh, 2); ctx.room?.reactive?.(mesh);
@@ -368,7 +368,7 @@ export function createFogueres(ctx) {
         })();
         m.fog = false;
         m.transparent = true; m.opacityNode = uFA.element(int(f)).x;
-        const mesh = new THREE.Mesh(src.geometry, m); mesh.userData.fire = f;
+        const mesh = new THREE.Mesh(src.geometry, m); mesh.userData.fire = f; mesh.userData.base = true;
         mesh.rotation.y = Math.atan2(st.face.x, st.face.z); mesh.position.set(st.x, 0, st.z);
         add(mesh, 2); ctx.room?.reactive?.(mesh);
         glbBase[f] = mesh;
@@ -437,7 +437,7 @@ export function createFogueres(ctx) {
         const [w, h, d] = v.src.size, H = h * (0.12 + 0.95 * L) * wave * breath, k = 0.55 + 0.6 * Math.min(1.15, L);
         const m = v.F.mesh;
         m.scale.set(w * k * 1.75, H * 1.3, d * k * 1.75);          // (wider than its source box: the flame's body fills it, neighbours merge)
-        m.position.set(v.src.pos[0], v.src.pos[1] + H * 1.3 * 0.5 - 0.06, v.src.pos[2]);
+        m.position.set(v.src.pos[0], v.src.pos[1] + H * 1.3 * (0.5 - 0.09), v.src.pos[2]);   // (the faded root straddles the source: the flame is born in the wood)
         v.F.u.bright.value = (0.5 + 0.7 * Math.min(1, lv) + fk * 1.1 + bm * 0.6) * (1 - 0.7 * Number(U.leave.value || 0)) * FA[i].x;
         v.F.u.magnitude.value = VSTY[sites[i].type].mag + fk * 0.7;
         m.visible = FA[i].x > 0.002;
