@@ -15,6 +15,7 @@
 // Study (no input.state): params in res-3d-study/parts/pinya3d2.json. Hands by `stroke`; the sensor may drop one (held 0.35 s).
 import { bakeBodyGen, pose, rng, V } from './pinya3d/body.js';
 import { createGuideBeam } from './pinya3d/guidebeam.js';
+import * as handoff from './pinya3d/handoff.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth01 = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
@@ -89,6 +90,11 @@ export function create({ THREE, TSL, room, params }) {
   const redMatter = (k) => mix(tc(RED), vec3(1.0, 0.3, 0.2), clamp(k, 0, 1));
   // the colour script: cold blue-grey → a soft reddish light (linear RGB)
   const COLD = [0.34, 0.42, 0.56], WARM = [1.0, 0.27, 0.19], RED = [0.85, 0.05, 0.035], BONE = [0.87, 0.78, 0.7];
+  // the colour script: params.cool (the dark's cold) and params.warm (the red of the full room) override these, eased here (~1.5 s)
+  const uCool = uniform(new THREE.Vector3(...COLD)), uWarmC = uniform(new THREE.Vector3(...WARM));
+  // leaveTo 'dust' (default): at the end the beings do not go, they let go into dust that stays in the air (uDust 1) and fades only with
+  // the host's leave or params.dust; the tower takes it (handoff 'pinya') and builds its ronda out of it
+  const uDust = uniform(1), uDustK = uniform(1);
 
   // ---- perimeter: s (m) along the walls in strip order, continuous round the room (P3 → P4 has no seam)
   const offs = []; let PER = 0; for (const w of walls) { offs.push(PER); PER += w.width; }
@@ -153,7 +159,9 @@ export function create({ THREE, TSL, room, params }) {
     p = p.add(scat.add(swirl).mul(float(1).sub(e)));
     // gone (the end, or the host's leave): the being lets go into particles that rise and drift apart, turning
     const g0 = clamp(max(gone, uLeave).mul(1.6).sub(r3.mul(0.35)).sub(clamp(float(1).sub(p.y.div(1.8)), 0, 1).mul(0.25)), 0, 1);
-    const drift = vec3(r1.sub(0.5).mul(1.3).add(sin(uTime.mul(0.5).add(r2.mul(40))).mul(0.15).mul(g0)), g0.mul(g0).mul(r2.mul(2.4).add(1.2)).add(g0.mul(0.25)), r3.sub(0.65).mul(1.2)).mul(g0);
+    const driftGo = vec3(r1.sub(0.5).mul(1.3).add(sin(uTime.mul(0.5).add(r2.mul(40))).mul(0.15).mul(g0)), g0.mul(g0).mul(r2.mul(2.4).add(1.2)).add(g0.mul(0.25)), r3.sub(0.65).mul(1.2)).mul(g0);
+    const driftDust = vec3(r1.sub(0.5).mul(0.9).add(sin(uTime.mul(0.3).add(r2.mul(40))).mul(0.08)), r2.mul(0.9).add(0.4).add(sin(uTime.mul(0.25).add(r3.mul(30))).mul(0.06)), r3.sub(0.5).mul(0.9).add(cos(uTime.mul(0.27).add(r1.mul(25))).mul(0.08))).mul(g0);
+    const drift = mix(driftGo, driftDust, uDust);
     p = p.add(drift);
     // the host's arrive (a being that already stands when the part comes in): out of the dust as at birth
     p = p.add(scat.mul(float(1).sub(uArrive)).mul(1.4));
@@ -173,13 +181,13 @@ export function create({ THREE, TSL, room, params }) {
     const vCo = varying(co), vNdc = varying(c0.xy.div(c0.w));
     const vA = varying(vec4(e, g0, float(1).div(k.mul(k)), clamp(p.y.div(1.7), 0, 1)));
     const vB = varying(vec4(i1.w, i3.z, i3.w, row)), vC = varying(vec4(aux2.x, aux2.y, aux.w, sh.w));
-    const q = vCo.xy; m.opacityNode = float(1).sub(smoothstep(0.999, 1.001, dot(q, q))); m.alphaTest = 0.5;
+    const q = vCo.xy; m.opacityNode = float(1).sub(smoothstep(0.999, 1.001, dot(q, q))).mul(max(float(1).sub(uDust.mul(smoothstep(0.3, 0.9, vA.y))), smoothstep(0.02, 0.03, uDustK))); m.alphaTest = 0.5;
     // light: the silhouette catches it (rim), soft ambient occlusion, the legs sink into the dark, the rows behind are dimmer
     const N = normalize(vN), Vd = normalize(cameraPosition.sub(vP));
     const rim = pow(float(1).sub(abs(dot(N, Vd))), 2.2);
     const ao = vC.x.mul(0.6).add(0.4), low = smoothstep(0.02, 0.75, vA.w).mul(0.85).add(0.15);
     const warm = clamp(uWarm, 0, 1);
-    const base = mix(tc(COLD), tc(WARM), min(warm.mul(warm.mul(-0.4).add(1.2)), 1)).mul(mix(float(0.75), float(1.15), vCo.z));
+    const base = mix(uCool, uWarmC, min(warm.mul(warm.mul(-0.4).add(1.2)), 1)).mul(mix(float(0.75), float(1.15), vCo.z));
     const rowK = mix(float(1), float(0.55), vB.w);
     let col = base.mul(float(0.26).mul(rim.mul(1.9).add(0.28)).mul(ao).mul(low).mul(rowK).mul(uLight).mul(warm.mul(0.5).add(0.8)));
     const twk = pow(sin(uTime.mul(vCo.z.mul(2.2).add(0.5)).add(vCo.w.mul(60))).mul(0.5).add(0.5), 28);
@@ -187,12 +195,12 @@ export function create({ THREE, TSL, room, params }) {
     // the hand's answer: the palm that meets the visitor glows (contact), the newborn being shines and settles (born flash)
     const palmK = exp(vC.z.mul(vC.z).mul(-14)), contact = vB.z.mul(palmK.mul(0.55).add(rim.mul(0.12)));
     const flashC = vB.y.mul(rim.mul(0.6).add(0.25)).mul(0.55);
-    const glowC = mix(vec3(0.75, 0.85, 1.0), tc(WARM), warm.mul(0.7).add(0.3));
+    const glowC = mix(vec3(0.75, 0.85, 1.0), uWarmC, warm.mul(0.7).add(0.3));
     col = col.add(glowC.mul(contact.add(flashC).add(vB.x.mul(rim).mul(0.35))).mul(uGlow).mul(0.5));
     // assembling and dissolving points are motes of light: brighter, cooler, then thin out
     const mote = float(1).sub(vA.x).add(vA.y.mul(0.8));
-    col = col.add(mix(tc(COLD), glowC, warm).mul(mote.mul(twk.mul(0.6).add(0.05)).mul(0.25)));
-    const fade = smoothstep(0.0, 0.25, vA.x).mul(float(1).sub(smoothstep(0.5, 1.0, vA.y)));
+    col = col.add(mix(uCool, glowC, warm).mul(mote.mul(twk.mul(0.6).add(0.05)).mul(0.25)));
+    const fade = smoothstep(0.0, 0.25, vA.x).mul(mix(float(1).sub(smoothstep(0.5, 1.0, vA.y)), mix(float(1), uDustK, smoothstep(0.3, 0.9, vA.y)), uDust));
     col = col.mul(float(1).sub(calmOf(vNdc)));
     m.colorNode = col.mul(fade).mul(vA.z.mul(0.5).add(0.5));
     m.fog = false;
@@ -244,7 +252,7 @@ export function create({ THREE, TSL, room, params }) {
     const mv = modelViewMatrix.mul(vec4(g0.xyz, 1));
     m.vertexNode = TSL.select(g0.w.greaterThan(0.001), cameraProjectionMatrix.mul(vec4(mv.xy.add(TSL.positionGeometry.xy.mul(0.2)), mv.z, mv.w)), vec4(0, 0, 2, 1));
     const dd = TSL.uv().sub(0.5).mul(2), r2 = dot(dd, dd);
-    const gc = mix(vec3(0.7, 0.82, 1.0), tc(WARM), uWarm.mul(0.8).add(0.1));
+    const gc = mix(vec3(0.7, 0.82, 1.0), uWarmC, uWarm.mul(0.8).add(0.1));
     m.colorNode = mix(gc, vec3(1, 0.95, 0.9), exp(r2.mul(-60))).mul(exp(r2.mul(-9)).mul(0.22).add(exp(r2.mul(-45)).mul(0.5))).mul(g0.w).mul(uGlow).mul(float(1).sub(uLeave));
     m.fog = false;
     const gm = new THREE.Mesh(gGeo, m); gm.frustumCulled = false; gm.renderOrder = 6; object.add(gm);
@@ -333,7 +341,7 @@ export function create({ THREE, TSL, room, params }) {
     m.vertexNode = vec4(c0.xy.add(co.xy.mul(d).mul(k).mul(c0.w)), c0.z, c0.w);
     const vC = varying(co), vK = varying(float(1).div(k.mul(k))), vD = varying(back);
     const r2 = dot(vC.xy, vC.xy), twk = pow(sin(uTime.mul(vC.z.mul(0.8).add(0.2)).add(vC.z.mul(90))).mul(0.5).add(0.5), 10);
-    const c = mix(tc(COLD), tc(WARM), uWarm.mul(0.85)).mul(float(1).sub(smoothstep(0.2, 1.0, r2))).mul(twk.mul(1.6).add(0.25))
+    const c = mix(uCool, uWarmC, uWarm.mul(0.85)).mul(float(1).sub(smoothstep(0.2, 1.0, r2))).mul(twk.mul(1.6).add(0.25))
       .mul(exp(vD.mul(-0.09)).mul(0.85).add(0.15)).mul(0.07).mul(vK.mul(0.6).add(0.4));
     m.colorNode = c.mul(uArrive).mul(float(1).sub(uLeave)).mul(uLight);
     m.fog = false;
@@ -346,7 +354,7 @@ export function create({ THREE, TSL, room, params }) {
   const events = [];
   let time = 0, total = 0, warmS = 0, threadCover = 0, fullT = -1, endT = -1, ended = false, doneSent = false, assistAcc = 0, firstT = -1, joinedSent = 0;
   const fillW = new Float32Array(NW);
-  let endFrom = 0, beingId = 0;   // the end starts where the last being was called and travels both ways round the room
+  let endFrom = 0, beingId = 0, dustSent = false; const tmpC3 = new THREE.Vector3();   // the end starts where the last being was called and travels both ways round the room
   const rr = rng(4242);
   const prm = () => P;
 
@@ -527,6 +535,9 @@ export function create({ THREE, TSL, room, params }) {
     // ---- colour: from cold to warm with the fill (smooth, no step)
     const warmT = Math.min(1, (p.warm ?? 1) * smooth01(total * 1.05)) + (fullT >= 0 ? 0.1 : 0);
     warmS += (warmT - warmS) * Math.min(1, dt * 0.35); uWarm.value = warmS;
+    { const kc = Math.min(1, dt / 1.5); if (Array.isArray(p.cool)) uCool.value.lerp(tmpC3.fromArray(p.cool), kc); if (Array.isArray(p.warm)) uWarmC.value.lerp(tmpC3.fromArray(p.warm), kc); }
+    const dustMode = (p.leaveTo ?? 'dust') === 'dust';
+    uDust.value = dustMode ? 1 : 0; uDustK.value = clamp01((p.dust ?? 1) * (1 - uLeave.value));
 
     // ---- full → hold → they let go into particles (the way out)
     let minW = 1; for (let w = 0; w < NW; w++) minW = Math.min(minW, fillW[w]);
@@ -556,6 +567,14 @@ export function create({ THREE, TSL, room, params }) {
     }
     for (const T of meshes) if (T) for (const W of T) for (const M of W) if (M.list.length) M.buf.needsUpdate = true;
     if (ended && !doneSent && time - endT > endDur + 0.5) { doneSent = true; events.push('done'); }
+    // the dust is in the air: publish where each being's dust hangs (room frame), for the tower to build its ronda out of it
+    if (dustMode && ended && !dustSent && time - endT > endDur * 0.75) {
+      dustSent = true; const n = beings.length, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), wc = uWarmC.value, cc = uCool.value;
+      object.updateMatrixWorld();
+      beings.forEach((b, i) => { const A = b.M?.buf?.array, o = b.k * 16; if (A && b.k >= 0) tmpC3.set(A[o], A[o + 1] + A[o + 3] * 0.85 + 0.8, A[o + 2]).applyMatrix4(object.matrixWorld); else tmpC3.set(0, -50, 0);   // its chest, where its dust hangs (room frame)
+        pos[i * 3] = tmpC3.x; pos[i * 3 + 1] = tmpC3.y; pos[i * 3 + 2] = tmpC3.z; const k = warmS; col[i * 3] = cc.x + (wc.x - cc.x) * k; col[i * 3 + 1] = cc.y + (wc.y - cc.y) * k; col[i * 3 + 2] = cc.z + (wc.z - cc.z) * k; });
+      handoff.put('pinya', { positions: pos, colors: col, count: n }); events.push('dust:ready');
+    }
 
     // ---- the palm flashes
     const ga = gA.array;
@@ -565,6 +584,8 @@ export function create({ THREE, TSL, room, params }) {
       ga[i * 4] = g.pos.x; ga[i * 4 + 1] = g.pos.y; ga[i * 4 + 2] = g.pos.z; ga[i * 4 + 3] = g.a * 0.8;
     });
     gA.needsUpdate = true;
+    // the tower took the dust: in this same frame it starts from it, so the pinya goes (no double image, no gap)
+    if (dustSent && handoff.claimed('pinya')) { object.visible = false; return; }
     object.visible = uArrive.value > 0.001 && uLeave.value < 0.999;
   }
 
@@ -625,12 +646,13 @@ export function create({ THREE, TSL, room, params }) {
   }
 
   function reset() {
+    if (dustSent) { handoff.clear('pinya'); dustSent = false; }
     for (const b of beings) { b.dead = true; }
     beings.length = 0; for (const G of grid) for (const c of G) c.fill(null);
     for (const T of meshes) if (T) for (const W of T) for (const M of W) { M.list.length = 0; M.mesh.geometry.instanceCount = 0; }
     edges.clear(); netN = -1; joins = 0; cov.fill(0); fullT = -1; endT = -1; ended = false; doneSent = false; firstT = -1; assistAcc = 0; joinedSent = 0; warmS = 0; total = 0; threadCover = 0;
   }
-  function fill() { return { total: +total.toFixed(3), walls: Array.from(fillW, (v) => +v.toFixed(3)), full: fullT >= 0, threadCover: +threadCover.toFixed(3), beings: beings.length, ending: ended ? clamp01((time - endT) / ((P.endTime ?? 7))) : 0, done: doneSent }; }
+  function fill() { return { total: +total.toFixed(3), walls: Array.from(fillW, (v) => +v.toFixed(3)), full: fullT >= 0, threadCover: +threadCover.toFixed(3), beings: beings.length, ending: ended ? clamp01((time - endT) / ((P.endTime ?? 7))) : 0, done: doneSent, dust: dustSent ? uDustK.value : 0 }; }
   function setParams() {}
   function dispose() { ptMat.dispose(); gGeo.dispose(); net.g.dispose(); for (const T of meshes) if (T) for (const W of T) for (const M of W) M.mesh.geometry.dispose(); jobs.length = 0; }
   const api = { object, update, setParams, dispose, fill, reset, events };

@@ -19,6 +19,7 @@
 // { built 0..1, stage, dimmed, ending, done } · part.events (this frame): 'built', 'stage:<name>', 'dim', 'end', 'done'.
 // params.castells = [{ wall, x, depth, scale, tiers, rings, fire, explain, start }] (the art's layout; see CASTELLS below).
 import { bakeBodyGen, pose, rng, V } from './pinya3d/body.js';
+import * as handoff from './pinya3d/handoff.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth01 = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
@@ -67,6 +68,11 @@ export function create({ THREE, TSL, room, params }) {
   const ndcScale = (pv, c0, size) => { const c1 = clipOf(vec4(pv.xy.add(vec2(size, size)), pv.z, 1)); return abs(c1.xy.div(c1.w).sub(c0.xy.div(c0.w))).add(1e-7); };
   const tc = (c) => vec3(c[0], c[1], c[2]);
   const CREAM = [1.0, 0.86, 0.62], COOL = [0.5, 0.58, 0.76], NIGHT = [0.03, 0.045, 0.085], GOLD = [1.0, 0.7, 0.3], FIRE = [1.0, 0.42, 0.12];
+  // the colour script: params.warm (the near cream) and params.cool (the far blue), linear rgb, override these, eased here (~1.5 s)
+  const uCream = uniform(new THREE.Vector3(...CREAM)), uCoolC = uniform(new THREE.Vector3(...COOL));
+  // leaveTo 'dust' (default): at the end the castells do not go, they let go into dust that hangs in the air (uDust 1), fading only with
+  // the host's leave or params.dust; it is published (handoff 'castells') for whoever comes next to take
+  const uDust = uniform(1), uDustK = uniform(1);
 
   // ================================================================================================== points (4 poses per body)
   function pointType(body, seed, n) {
@@ -130,7 +136,9 @@ export function create({ THREE, TSL, room, params }) {
     const scat = vec3(r1.sub(0.5).mul(1.2), r2.mul(-1.4).sub(0.2), r3.sub(0.5).mul(1.2)).add(vec3(sin(uTime.mul(0.5).add(r1.mul(30))), 0, cos(uTime.mul(0.43).add(r2.mul(20)))).mul(0.15));
     p = p.add(scat.mul(float(1).sub(e)));
     const g0 = clamp(max(gone, uLeave).mul(1.6).sub(r3.mul(0.35)).sub(clamp(float(1).sub(p.y.div(1.8)), 0, 1).mul(0.25)), 0, 1);
-    p = p.add(vec3(r1.sub(0.5).mul(1.3), g0.mul(g0).mul(r2.mul(2.6).add(1.4)).add(g0.mul(0.3)), r3.sub(0.5).mul(1.2)).mul(g0));
+    const driftGo = vec3(r1.sub(0.5).mul(1.3), g0.mul(g0).mul(r2.mul(2.6).add(1.4)).add(g0.mul(0.3)), r3.sub(0.5).mul(1.2)).mul(g0);
+    const driftDust = vec3(r1.sub(0.5).mul(1.0).add(sin(uTime.mul(0.3).add(r2.mul(40))).mul(0.08)), r2.mul(0.8).add(0.35).add(sin(uTime.mul(0.25).add(r3.mul(30))).mul(0.06)), r3.sub(0.5).mul(1.0).add(cos(uTime.mul(0.27).add(r1.mul(25))).mul(0.08))).mul(g0);
+    p = p.add(mix(driftGo, driftDust, uDust));
     // the parts that explain let particles go: a few points rise off and come back, while lit
     const rel = i3.w, lift = fract(uTime.mul(0.42).add(r2.mul(9))), loose = smoothstep(0.86, 0.9, r1).mul(rel);
     p = p.add(vec3(sin(lift.mul(6).add(r3.mul(20))).mul(0.05), lift.mul(0.55), cos(lift.mul(5).add(r1.mul(20))).mul(0.05)).mul(loose));
@@ -147,13 +155,13 @@ export function create({ THREE, TSL, room, params }) {
     const vA = varying(vec4(e, g0, float(1).div(kq.mul(kq)), clamp(p.y.div(1.7), 0, 1)));
     const vB = varying(i3), vC = varying(vec4(aux2.x, loose, 0, 0));
     // a point not yet formed (or gone) is not drawn at all: an opaque dark point would cut the square behind it
-    m.opacityNode = float(1).sub(smoothstep(0.999, 1.001, dot(vCo.xy, vCo.xy))).mul(step01(vA.x.sub(0.12))).mul(step01(float(0.9).sub(vA.y))); m.alphaTest = 0.5;
+    m.opacityNode = float(1).sub(smoothstep(0.999, 1.001, dot(vCo.xy, vCo.xy))).mul(step01(vA.x.sub(0.12))).mul(max(step01(float(0.9).sub(vA.y)), uDust.mul(smoothstep(0.02, 0.03, uDustK)))); m.alphaTest = 0.5;
     const N = normalize(vN), Vd = normalize(cameraPosition.sub(vP));
     const rim = pow(float(1).sub(abs(dot(N, Vd))), 2.2);
     const ao = vC.x.mul(0.6).add(0.4), low = smoothstep(0.02, 0.75, vA.w).mul(0.8).add(0.2);
     // depth: near = warm cream and sharp; far = cool, dimmer, sinking into the night's haze
     const hz = vB.z;
-    const base = mix(tc(CREAM), tc(COOL), smoothstep(0.15, 0.85, hz)).mul(mix(float(0.78), float(1.15), vCo.z));
+    const base = mix(uCream, uCoolC, smoothstep(0.15, 0.85, hz)).mul(mix(float(0.78), float(1.15), vCo.z));
     let col = base.mul(float(0.6).mul(rim.mul(1.9).add(0.36)).mul(ao).mul(low).mul(uLight));
     const twk = pow(sin(uTime.mul(vCo.z.mul(2.2).add(0.5)).add(vCo.w.mul(60))).mul(0.5).add(0.5), 20);
     col = col.mul(twk.mul(4.0).mul(float(1).sub(hz.mul(0.6))).add(1)).add(vec3(1.0, 0.95, 0.85).mul(smoothstep(0.965, 0.975, vCo.w)).mul(twk.mul(1.2).add(0.15)).mul(float(1).sub(hz.mul(0.7))));   // the art's sparkles
@@ -164,8 +172,8 @@ export function create({ THREE, TSL, room, params }) {
     col = col.mul(mix(float(1), rim.mul(0.9).add(0.05), vB.y.mul(0.9))).mul(float(1).sub(vB.y.mul(0.35)));
     col = mix(col, tc(NIGHT), hz.mul(0.42)).mul(float(1).sub(hz.mul(0.22)));
     const mote = float(1).sub(vA.x).add(vA.y.mul(0.8));
-    col = col.add(tc(CREAM).mul(mote.mul(twk.mul(0.6).add(0.05)).mul(0.3)).mul(float(1).sub(hz.mul(0.5))));
-    const fade = smoothstep(0.0, 0.25, vA.x).mul(float(1).sub(smoothstep(0.5, 1.0, vA.y)));
+    col = col.add(uCream.mul(mote.mul(twk.mul(0.6).add(0.05)).mul(0.3)).mul(float(1).sub(hz.mul(0.5))));
+    const fade = smoothstep(0.0, 0.25, vA.x).mul(mix(float(1).sub(smoothstep(0.5, 1.0, vA.y)), mix(float(1), uDustK, smoothstep(0.3, 0.9, vA.y)), uDust));
     m.colorNode = col.mul(fade).mul(vA.z.mul(0.5).add(0.5)).mul(uArrive);
     m.fog = false;
     return m;
@@ -277,7 +285,7 @@ export function create({ THREE, TSL, room, params }) {
   let time = 0, builtSent = false, dimSent = false, endSent = false, doneSent = false, lastT = -1, stageNow = -1, dimK = 0;
   const fired = new Set();
   const lastStamp = new Map(), stampT = new Float32Array(NSTAMP).fill(-99); let stampI = 0;
-  const tmpV = new THREE.Vector3();
+  const tmpV = new THREE.Vector3(); let dustSent = false, lingering = false, lingerT = 0;
   const env = (t, t0, hold) => (t < t0 ? 0 : t < t0 + 0.55 ? smooth01((t - t0) / 0.55) : t < t0 + 0.55 + hold ? 1 : 0.2 + 0.8 * Math.exp(-(t - t0 - 0.55 - hold) / 1.4));
 
   function update(dt, input) {
@@ -291,10 +299,18 @@ export function create({ THREE, TSL, room, params }) {
     const p = input.params || P;
     time = input.time ?? time + dt;
     const t = input.t ?? time;
-    if (lastT > t + 0.5) { fired.clear(); builtSent = dimSent = endSent = doneSent = false; }   // the clock went back: a new pass
+    if (lastT > t + 0.5) { fired.clear(); builtSent = dimSent = endSent = doneSent = false; if (dustSent) { handoff.clear('castells'); dustSent = false; } }   // the clock went back: a new pass
     lastT = t;
     uTime.value = time; uLight.value = p.light ?? 1;
     uLeave.value = clamp01(input.leave ?? p.leave ?? 0); uArrive.value = clamp01(input.arrive ?? p.arrive ?? 1);
+    { const kc = Math.min(1, dt / 1.5); if (Array.isArray(p.warm)) uCream.value.lerp(tmpV.fromArray(p.warm), kc); if (Array.isArray(p.cool)) uCoolC.value.lerp(tmpV.fromArray(p.cool), kc); }
+    const dustMode = (p.leaveTo ?? 'dust') === 'dust';
+    // the dust fades with the host's leave; or, with params.dustTime (s), it outlives the leave by that long (part.lingering meanwhile,
+    // like the correfoc's), so the next block comes in through it
+    const dT = +(p.dustTime ?? 0);
+    if (dustMode && dT > 0 && uLeave.value >= 0.999) lingerT += dt; else if (uLeave.value < 0.999) lingerT = 0;
+    lingering = dustMode && dT > 0 && uLeave.value >= 0.999 && lingerT < dT;
+    uDust.value = dustMode ? 1 : 0; uDustK.value = clamp01((p.dust ?? 1) * (dT > 0 ? 1 - smooth01(lingerT / dT) : 1 - uLeave.value));
     if (!input.state && room.setBackground) room.setBackground({ bottom: [0.006, 0.008, 0.02], top: [0.012, 0.018, 0.04], gain: 1 });   // alone in the study: the night blue (the square is Plaza's)
 
     // ---- the stages (the explaining castell): the clock's moments, or the host's highlight()
@@ -361,14 +377,24 @@ export function create({ THREE, TSL, room, params }) {
       }
     }
     if (builtAll && castells.length && types.length && !builtSent) { builtSent = true; events.push('built'); }
-    object.visible = uArrive.value > 0.001 && uLeave.value < 0.999 && goneAll < 1;
+    // the dust is in the air: publish where it hangs (room frame) for whoever comes next; once taken, the castells go in that same frame
+    if (dustMode && endSent && !dustSent && goneAll >= 0.75) {
+      dustSent = true; const pos = [], col = [], wc = uCream.value, cc = uCoolC.value;
+      for (const cs of castells) for (const M of cs.meshes) { M.mesh.updateMatrixWorld(); for (const b of M.list) {
+        tmpV.set(b.pos.x, b.pos.y + b.hs * 1.2 + 0.6, b.pos.z).applyMatrix4(M.mesh.matrixWorld); pos.push(tmpV.x, tmpV.y, tmpV.z);
+        const k = Math.min(1, Math.max(0, (cs.haze - 0.15) / 0.7)); col.push(wc.x + (cc.x - wc.x) * k, wc.y + (cc.y - wc.y) * k, wc.z + (cc.z - wc.z) * k);
+      } }
+      handoff.put('castells', { positions: new Float32Array(pos), colors: new Float32Array(col), count: pos.length / 3 }); events.push('dust:ready');
+    }
+    if (dustSent && handoff.claimed('castells')) { object.visible = false; return; }
+    object.visible = uArrive.value > 0.001 && (uLeave.value < 0.999 || lingering) && (dustMode ? uDustK.value > 0.02 : goneAll < 1);
   }
   function highlight(stage, k) { const i = typeof stage === 'number' ? stage : STAGES.indexOf(stage); if (i >= 0 && i < STAGES.length) manual[i] = k == null ? null : clamp01(k); }
   function progress() {
     let n = 0, b0 = 0; for (const cs of castells) for (const b of cs.bodies) { n++; b0 += b.born; }
-    return { built: n ? +(b0 / n).toFixed(3) : 0, stage: stageNow >= 0 ? STAGES[stageNow] : null, dimmed: +dimK.toFixed(2), ending: endSent ? clamp01((lastT - (P.endAt ?? 50.5)) / (P.endTime ?? 4.5)) : 0, done: doneSent, readyMs };
+    return { built: n ? +(b0 / n).toFixed(3) : 0, stage: stageNow >= 0 ? STAGES[stageNow] : null, dimmed: +dimK.toFixed(2), ending: endSent ? clamp01((lastT - (P.endAt ?? 50.5)) / (P.endTime ?? 4.5)) : 0, done: doneSent, dust: dustSent ? +uDustK.value.toFixed(3) : 0, readyMs };
   }
   function dispose() { bodyMat.dispose(); jobs.length = 0; for (const cs of castells) for (const M of cs.meshes) M.mesh.geometry.dispose(); }
   if (typeof window !== 'undefined') window.__castells3d = { castells, progress, highlight, events };
-  return { object, update, dispose, highlight, progress, events, setParams() {} };
+  return { object, update, dispose, highlight, progress, events, setParams() {}, get lingering() { return lingering; } };
 }
