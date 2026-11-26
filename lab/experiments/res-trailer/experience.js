@@ -101,7 +101,7 @@ for (const [name, pr] of loads) {
     const params = {};
     for (const d of Array.isArray(defs) ? defs : []) params[d.key] = d.default;
     if (name === 'umbral3d') { params.mosaic = P.mosaic || 'image'; params.resetAfter = P['trailer.resetAfter'] ?? 60; params.restSat = P.restSat ?? 0.15; }   // studio 25-11: the entrance's stones — one colour each, or his picture printed on them
-    if (name === 'brasa3d') { params.devil2 = P.devil2 !== false; params.fons = !parts.plaza3d || P.plaza3d === false; }   // the baked dark square replaces brasa v2's stand-in (fons)   // studio 26-11: the correfoc devil v3 (reload to change)
+    if (name === 'brasa3d') { params.devil2 = P.devil2 !== false; params.fons = !parts.plaza3d || P.plaza3d === false; params.bakedBases = !params.fons && P['plaza.bakedBases'] !== false; }   /* 26-11: the fogueres' bases are in the dark bake (Plaza 8e42afa): brasa draws only the live fire */   // the baked dark square replaces brasa v2's stand-in (fons)   // studio 26-11: the correfoc devil v3 (reload to change)
     if (name === 'atmos') params.demoLamps = false;                // the square's own lamps light the dust
     if (name === 'plaza') params.glow = 0.3;
     if (name === 'torre3d' && parts.plaza3d && P.plaza3d !== false) params.backdrop = false;   // the trailer's one square stands behind the tower                       // atmos draws the lamps' glow in the air too
@@ -712,14 +712,14 @@ function frame(dt) {
         p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.4 * (1 - k) + 0.05 * k; p.breathe = 1 - k; p.cool = 0.5;
       } else if (e.home === 'pinya') {   // (26-11 QA) the correfoc's light dies with its dust, over ~4 s, not in one frame
         const k = 1 - smooth((serving ? S.t : 9) / 4.5);
-        p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6;   /* (QA) reveal isn't eased in the part: the lit plate fades with the fires */ p.fires = (e.lastFires || [0, 0, 0, 0]).map((f) => f * k); p.lit = (e.lastLit || 0) * k; }
+        p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6;   /* (QA) reveal isn't eased in the part: the lit plate fades with the fires */ p.fires = (e.lastFires || [0, 0, 0, 0]).map((f) => f * k); p.lit = (e.lastLit || 0) * k; p.embers = (e.lastEmbers || [0, 0, 0, 0]).map((f) => f * k); }
       if (e.home === 'tronc') {   // the tower: points only, no occluder, moved down with the tower's world (its plazaSink parallax)
         const g = parts.torre3d?.part?.progress?.() || {};
-        p.dark = 1; p.reveal = 0.55; p.occlude = 0; p.pointGain = 0.35; p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0;
+        p.dark = 1; p.reveal = 0.55; p.occlude = 0; p.pointGain = 0.35; p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.embers = [0, 0, 0, 0];
         e.part.object.position.y = (g.worldY || 0) * (1 + (g.plazaSink ?? 0.35));
       } else e.part.object.position.y = 0;
       const D = P['trailer.outro'] ?? 18;
-      if (e.home === 'acta') { const ta = serving ? S.t : 0; p.dark = 0; p.reveal = 0.55; p.occlude = parts.torre3d && parts.torre3d.state !== 'off' ? 0 : 1;   /* (QA) no occluder while the tower's gold dust still leaves */ p.pointGain = 0.35 + 0.05 * sm(0, 3, ta); p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.shatter = Math.max(e.leave || 0, sm(D - 5, D - 1.5, ta)); }
+      if (e.home === 'acta') { const ta = serving ? S.t : 0; p.dark = 0; p.reveal = 0.55; p.occlude = parts.torre3d && parts.torre3d.state !== 'off' ? 0 : 1;   /* (QA) no occluder while the tower's gold dust still leaves */ p.pointGain = 0.35 + 0.05 * sm(0, 3, ta); p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.embers = [0, 0, 0, 0]; p.shatter = Math.max(e.leave || 0, sm(D - 5, D - 1.5, ta)); }
       else p.shatter = e.leave || 0;
     } else if (e.name === 'castells3d' || e.name === 'introp1') {
       if (e.home === 'acta') { t = serving ? S.t : 0; p.mode = 'outro'; p.outroDur = P['trailer.outro'] ?? 18; }   // the closing: its own clock and mode
@@ -749,7 +749,7 @@ function frame(dt) {
     if (bp?.progress) { const g = bp.progress(), ev = bp.events || [];
       if (ev.includes('storm:full')) link.stormFull = true;
       score.setFill(g.total ?? 0); if (Math.abs((g.total ?? 0) - (link.fiSent ?? -1)) > 0.01 || time - (link.fiAt ?? -9) > 1) { link.fiSent = g.total ?? 0; link.fiAt = time; tell({ fill: g.total ?? 0 }); }
-      const pd = parts.plaza3d; if (pd && pd.home === 'brasa') { const k = 1 - 0.6 * (g.storm || 0); pd.params.fires = (g.fires || [0, 0, 0, 0]).map((f) => f * k); pd.params.lit = (g.boom || 0) * k; pd.lastFires = pd.params.fires.slice(); pd.lastLit = pd.params.lit; }
+      const pd = parts.plaza3d; if (pd && pd.home === 'brasa') { const k = 1 - 0.6 * (g.storm || 0); pd.params.fires = (g.fires || [0, 0, 0, 0]).map((f) => f * k); pd.params.lit = (g.boom || 0) * k; pd.params.embers = (g.embers || g.fires || [0, 0, 0, 0]).map((f) => Math.min(1, f) * k); pd.lastFires = pd.params.fires.slice(); pd.lastLit = pd.params.lit; pd.lastEmbers = pd.params.embers.slice(); }
       if (bp.sound) try { bc?.postMessage({ type: 'brasa', s: bp.sound() }); } catch { /* alone */ } }
     const tp = S.block === 'tronc' ? parts.torre3d?.part : null;
     if (tp?.progress) { const g = tp.progress(), v = Math.min(1, 0.9 * (g.needed ? g.climbers / g.needed : 0) + 0.1 * (g.charge || 0));
