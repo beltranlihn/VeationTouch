@@ -839,6 +839,12 @@ export default async function start(host) {
   const charges = new Map();                                    // key → { w, u, t0, dur, ev }: a ring charging on a wall
   const trlTone = { reset() { charges.clear(); for (const r of ringTone) toneTo(r, 62, 0); toneTo(goldT, 69, 0); INV.goldK = 0; } };
   let torreEv = false, joins = 0, goldBeat = 0;
+  let tapN = 0, tapAt = -1e9;
+  function ghostSound(w, u) {                                   // a being that cannot climb (the tower is full): the form sound at −6 dB, rising, no flight
+    const id = wid(w); if (id == null) return; const t = now() + 0.01, g = handVoice(id, u, 3, 1.0);
+    [5, 7, 9].forEach((d, j) => modal(t + j * 0.07, midiHz(keyNote(d + j, 0)), 0.01, g, GLASS)); modal(t + 0.3, midiHz(keyNote(12, 0)), 0.008, g, GLASS);
+    breath(t, w, u, 0.015, true);
+  }
   function formSound(w, u) {                                    // a character forms at the hand: a glass chord and a breath, then it flies
     const id = wid(w); if (id == null) return; const t = now() + 0.01, g = handVoice(id, u, 3, 0.9);
     [5, 7, 9].forEach((d, j) => modal(t + j * 0.05, midiHz(keyNote(d, 0)), 0.02, g, GLASS)); drum(t, g, { f0: 110, f1: 73, dur: 0.5, gain: 0.04, noise: 0.05, sub: 0.3, subDest: touchSub });
@@ -902,6 +908,11 @@ export default async function start(host) {
         if (k === 'charge') { torreEv = true; const w = +a[1] || 0, key = 't' + w + ':'; if (!charges.has(key)) charges.set(key, { w, u: clamp(+a[2] || 0.5, 0, 1), t0: wt, dur: 1.7, ev: true }); }   // (a hand sliding re-sends it: the ring keeps its charge)
         else if (k === 'uncharge') { const w = +a[1] || 0; for (const key of [...charges.keys()]) if (key.startsWith('t' + w + ':')) charges.delete(key); modal(t, midiHz(keyNote(-1, 0)), 0.01, toWall(w), GLASS, 0.8); }
         else if (k === 'form') { torreEv = true; const w = +a[1] || 0; for (const key of [...charges.keys()]) if (key.startsWith('t' + w + ':')) charges.delete(key); formSound(w, clamp(+a[2] || 0.5, 0, 1)); }
+        else if (k === 'ghost') { torreEv = true; ghostSound(+a[1] || 0, clamp(+a[2] || 0.5, 0, 1)); }   // 26-11 (a tap, not a hold): the tower is full, the being dissolves
+        else if (k === 'touch') {   // a tap on a golden point, or when nothing can be made: the gold point's tone, one step up the scale per tap
+          torreEv = true; const w = +a[1] || 0, id = wid(w); if (id == null) continue; if (wt - tapAt > 6) tapN = 0; tapAt = wt;
+          const g = handVoice(id, clamp(+a[2] || 0.5, 0, 1), 3, 0.9); modal(t, midiHz(keyNote(7 + (tapN++ % 8), 0)), 0.024, g, GLASS);
+        }
         else if (k === 'land') { modal(t, midiHz(keyNote(+a[1] || 0, 0)), 0.024, toWall(towerW()), CERAMIC, 0.5); }   // (on the tower's wall, where the climber lands)
         else if (k === 'joined') {   // a climber takes its place: a soft thump and a ceramic note of its tier
           if (landNow) continue; const tier = a[1] === 'pinya' ? -1 : +a[1] || 0, w = towerW();   // (a land in this frame already spoke for it)
@@ -921,6 +932,7 @@ export default async function start(host) {
   }
   // the tower without its own charge events (until torre3d sends them): a still hand on a wall other than the title's charges a ring
   function torreHands(hands, wt) {
+    return;   // 26-11: torre3d answers a tap now (form / ghost / touch), no hold: no rings from still hands
     if (torreEv || block !== 'tronc' || !trailer()) return;
     const P0 = partSt.torre3d || {}; if (P0.ready) return;
     const live = new Set();
