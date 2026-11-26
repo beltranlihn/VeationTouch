@@ -335,7 +335,7 @@ function wanted(b) {
     case 'intro': return [SQ() ? 'plaza3d' : 'plaza', 'atmos', has('castells3d') && P.castells3d !== false ? 'castells3d' : 'castell', ...(has('introp1') ? ['introp1'] : []), ...T];   // 26-11: the new baked square (plaza3d) and the castells of particles at many depths (castells3d); = false: the old ones
     case 'brasa': return has('brasa3d') ? ['brasa3d', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];   // 26-11: the SAME square goes on (Beltrán: «dentro del mismo mundo»)
     case 'pinya': return has('pinya3d2') ? ['pinya3d2', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];
-    case 'acta': return [...(SQ() ? ['plaza3d'] : []), ...(has('castells3d') ? ['castells3d'] : []), ...(has('introp1') && P['trailer.outroText'] === true ? ['introp1'] : []), 'atmos'];   // the closing (its words: introp1's outro mode, once Título delivers it)   // studio 26-11: the pinya v2
+    case 'acta': return [...(SQ() ? ['plaza3d'] : []), ...(has('castells3d') ? ['castells3d'] : []), ...(has('introp1') && P['trailer.outroText'] !== false ? ['introp1'] : []), 'atmos'];   // the closing (its words: introp1's outro mode, once Título delivers it)   // studio 26-11: the pinya v2
     case 'tronc': return has('torre3d') ? ['torre3d', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the tower (score block 'tronc')
     case 'festa': case 'crown': return has('festa3d') ? ['festa3d', 'atmos', ...T] :   // (26-11: the dust stays through the credits)
                                     ['plaza', 'castell', 'atmos', ...T];

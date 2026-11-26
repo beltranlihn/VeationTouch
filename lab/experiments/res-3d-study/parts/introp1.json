@@ -1,4 +1,6 @@
 [
+  {"key": "mode", "label": "Intro P1: mode", "type": "select", "default": "intro", "options": [["intro", "Intro (titles, stages, frame)"],["outro", "Outro (the closing)"]]},
+  {"key": "outroDur", "label": "Outro: block length", "type": "number", "min": 8, "max": 40, "step": 0.5, "default": 18, "unit": "s"},
   {"key": "introp1.reach", "label": "Intro: stages this trailer climbs (framed)", "type": "number", "min": 0, "max": 5, "step": 1, "default": 3},
   {"key": "introp1.title", "label": "Intro: beat «Welcome» (both titles)", "type": "number", "min": 0, "max": 60, "step": 0.1, "default": 17, "unit": "s"},
   {"key": "introp1.list", "label": "Intro: the stages' lines draw in", "type": "number", "min": 0, "max": 60, "step": 0.1, "default": 28.5, "unit": "s"},
@@ -19,5 +21,7 @@
   {"key": "introp1.y3", "label": "Intro: tronc line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 1.95, "unit": "m"},
   {"key": "introp1.y4", "label": "Intro: pom de dalt line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 2.85, "unit": "m"},
   {"key": "introp1.y5", "label": "Intro: l'aleta line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 3.15, "unit": "m"},
-  {"key": "introp1.frameAlpha", "label": "Intro: trailer frame opacity", "type": "number", "min": 0, "max": 0.3, "step": 0.005, "default": 0.035}
+  {"key": "introp1.frameAlpha", "label": "Intro: trailer frame opacity", "type": "number", "min": 0, "max": 0.3, "step": 0.005, "default": 0.035},
+  {"key": "introp1.outroLine", "label": "Outro: the line in", "type": "number", "min": 0, "max": 30, "step": 0.1, "default": 4, "unit": "s"},
+  {"key": "introp1.outroThanks", "label": "Outro: the thanks in", "type": "number", "min": 0, "max": 30, "step": 0.1, "default": 7, "unit": "s"}
 ]
