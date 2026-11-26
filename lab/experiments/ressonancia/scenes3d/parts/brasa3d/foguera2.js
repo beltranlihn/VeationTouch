@@ -32,6 +32,7 @@
 // Switches (lab only): ?f2noflame, ?f2nobase, ?f2nolight.
 
 import { createVolumeFire, makeFireTexture } from './fire3/fire3.js';
+import { GLTFLoader } from '../../../vendor/three-r187/jsm/loaders/GLTFLoader.js';
 
 export const D_FIRE = 5.0;                  // metres beyond the wall (behind the devils' lanes, 1.4–4.2 m)
 
@@ -182,7 +183,7 @@ export function createFogueres(ctx) {
   const Y0 = [0.2, -0.04, 0.7, -0.04];                          // the flame's root per type: in the tower, on the ground, in the bowl
 
   // ------------------------------------------------------------------------------------------------ 2. the bases (logs, bowl, stones)
-  const baseGeos = [];
+  const baseGeos = [], procBase = [];
   if (!QS.has('f2nobase')) {
     import_utils();
   }
@@ -256,7 +257,46 @@ export function createFogueres(ctx) {
         return c.mul(float(1).sub(U.leave.mul(0.7)));
       })();
       m.fog = false;
-      add(new THREE.Mesh(g, m), 2);
+      procBase[f] = add(new THREE.Mesh(g, m), 2);
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------ 2b. the modelled bases (Plaza 3D, 26-11)
+  // Four GLBs baked by the Plaza 3D session (Poly Haven CC0 + own modelling; bases/SOURCES.md): charcoal albedo + the ember mask in
+  // the emissive map. They load in the background and replace the procedural bases (kept as the fallback; ?f2procbases keeps them).
+  const BASE_FILE = ['base_P4_pira.glb', 'base_P1_santjoan.glb', 'base_P2_brasero.glb', 'base_P3_anella.glb'];
+  const glbBase = [];
+  if (!QS.has('f2nobase') && !QS.has('f2procbases') && ctx.bases !== 'procedural') {
+    const loader = new GLTFLoader();
+    for (let f = 0; f < NF; f++) {
+      const T = sites[f].type, st = sites[f];
+      loader.loadAsync(new URL('./bases/' + BASE_FILE[T], import.meta.url).href).then((gl) => {
+        let src = null; gl.scene.traverse((o) => { if (!src && o.isMesh) src = o; });
+        if (!src) return;
+        const mat0 = src.material, albedo = mat0.map, emis = mat0.emissiveMap;
+        const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
+        const fs = uFS.element(int(f)), lvl = fs.x, flash = fs.y;
+        const top = vec3(st.x, 0.6 + TYPES[T].H1 * 0.25, st.z);
+        const uvN = TSL.uv();
+        m.colorNode = (() => {
+          const N = normalize(normalWorld), Pw = positionWorld, Lv = top.sub(Pw), dl = length(Lv);
+          // lit only by its own fire (from above, falling off), a faint warm bed below
+          const lit = max(dot(N, Lv.div(max(dl, 1e-3))), 0).mul(float(1.0).div(dl.mul(dl).mul(0.6).add(0.35))).mul(lvl.mul(0.85).add(0.15)).add(max(N.y.negate(), 0).mul(0.05));
+          const alb = albedo ? TSL.texture(albedo, uvN).rgb : C.char;
+          const em = emis ? TSL.texture(emis, uvN).rgb : vec3(0, 0, 0);
+          const flick = sin(U.time.mul(2.1).add(Pw.x.mul(4.0)).add(Pw.z.mul(3.0))).mul(0.12).add(sin(U.time.mul(5.3).add(Pw.y.mul(9.0))).mul(0.06)).add(0.82);
+          const glow = lvl.mul(2.6).add(0.45).mul(flick).mul(flash.mul(0.9).add(1));
+          const c = alb.mul(float(0.16).add(vec3(1.0, 0.5, 0.2).mul(lit).mul(5.0))).add(em.mul(glow));
+          return c.mul(float(1).sub(U.leave.mul(0.7)));
+        })();
+        m.fog = false;
+        const mesh = new THREE.Mesh(src.geometry, m);
+        mesh.rotation.y = Math.atan2(st.face.x, st.face.z); mesh.position.set(st.x, 0, st.z);
+        add(mesh, 2); ctx.room?.reactive?.(mesh);
+        glbBase[f] = mesh;
+        if (procBase[f]) procBase[f].visible = false;
+        mat0.dispose?.();
+      }).catch((e) => console.warn('[foguera2] base ' + BASE_FILE[T] + ' did not load; the procedural base stays', e?.message || e));
     }
   }
 
