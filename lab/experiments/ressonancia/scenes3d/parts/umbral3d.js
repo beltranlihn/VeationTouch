@@ -1323,6 +1323,7 @@ export function create(ctx) {
     return n;
   }
   // the piece of the mosaic nearest a point (-1: none within 1.6 m)
+  const nearC = new Map();   // stroke → { cu, cy, i }: the last nearest() of each hand
   function nearest(cu, cy) {
     let best = 2.56, bi = -1;
     for (let i = 0; i < NC; i++) { const c = cells[i]; if (c.loose) continue; const du = wrapU(c.cu - cu), dy = c.cy - cy, d = du * du + dy * dy - (c.mother ? 0.12 : 0); if (d < best) { best = d; bi = i; } }
@@ -1443,7 +1444,10 @@ export function create(ctx) {
         if (nh < MAXH) { hhy[nh] = hy; hcu[nh] = hit.cu; hcy[nh] = hit.cy; hfresh[nh] = fresh ? 1 : 0; hsp[nh] = speed; hvu[nh] = h.vx * wallSgn[h.wall] * 1.15; hvv[nh] = h.vy * 1.15; nh++; }
         if (nh <= HL) { const l = handLights[nh - 1]; l.position.copy(hit.p).multiplyScalar(0.9); l.position.y = hit.p.y + 0.15; l.intensity += (HAND_LIGHT * arrive * (1 - leave) - l.intensity) * (1 - Math.exp(-dt * 18)); }   // studio 25-11: brighter (was 2.0)
         if (nh <= uHandP.length) { const U = uHandP[nh - 1].value; U.set(hit.p.x, hit.p.y, hit.p.z, U.w + ((fresh ? 1.4 : 1) * arrive * (1 - leave) - U.w) * (1 - Math.exp(-dt * 25))); }
-        const under = nearest(hit.cu, hit.cy), ros = under >= 0 ? cells[under].ros : -1;
+        // (26-11 perf) nearest() scans every stone (~0.6 ms): a hand that has moved < 3 cm keeps its stone (the result is the same piece)
+        let nc = nearC.get(h.stroke); if (!nc) { nc = { cu: 1e9, cy: 1e9, i: -1 }; nearC.set(h.stroke, nc); if (nearC.size > 64) nearC.clear(); }
+        { const du = wrapU(hit.cu - nc.cu), dv = hit.cy - nc.cy; if (du * du + dv * dv > 0.0009 || (nc.i >= 0 && cells[nc.i].loose)) { nc.i = nearest(hit.cu, hit.cy); nc.cu = hit.cu; nc.cy = hit.cy; } }
+        const under = nc.i, ros = under >= 0 ? cells[under].ros : -1;
         // QA (T-058c): the LiDAR may drop a still hand and give it a new stroke ~every 2 s — a landing within ~0.15 m (on the wall) of a hand
         // that left < 0.5 s ago is the same hand: no new wave, knock or sound, and it keeps that hand's hold
         let reland = null;
@@ -1642,7 +1646,7 @@ export function create(ctx) {
         }
         if (settled && !figOn && sh === 0 && bump === 0 && rg === 0 && g === 0 && glow[i] < 0.002 && !gone[i] && !wOn[i]) {
           const tg = col * Math.PI, e = phi[i] - tg;
-          if (e < 0.002 && e > -0.002 && vphi[i] < 0.003 && vphi[i] > -0.003) {
+          if (e < 0.003 && e > -0.003 && vphi[i] < 0.004 && vphi[i] > -0.004) {   /* (26-11 perf) a little looser: more stones sleep; the snap home is < 0.2° */
             if (!sleep[i]) { sleep[i] = 1; phi[i] = tg; vphi[i] = 0; glow[i] = 0; stData[o] = (tg * 2) % 6.2831853; stData[o + 1] = 0; stData[o + 2] = col ? 8 : 0; stData[o + 3] = 1; }
             continue;
           }
@@ -1661,7 +1665,10 @@ export function create(ctx) {
       if (WIND && wOn[i]) { const o3 = i * 3; turn += Math.min(1.3, Math.hypot(wVel[o3], wVel[o3 + 1]) * 1.6) * (c.r1 < 0.5 ? -1 : 1); }   // it tilts with its speed
       stData[o] = turn % 6.2831853; stData[o + 1] = lift; stData[o + 2] = Math.min(glow[i], 3.5) + kc; stData[o + 3] = sc;
       if (WIND && wOn[i]) { const o3 = i * 3; stampHole(CU[i], CY[i], c.rad * 1.35, smooth(0.015, 0.06, Math.hypot(wOff[o3], wOff[o3 + 1]) + wOff[o3 + 2])); }
-      if (!c.loose) stampHole(CU[i], CY[i], c.rad * 1.35, Math.max(1 - sc, smooth(0.012, 0.04, lift), Math.abs(Math.sin(turn * 0.5)) * 0.9));   // studio 25-11: the night behind
+      if (!c.loose) {   // studio 25-11: the night behind — (26-11 perf) the same test as stampHole's own early-out (a < 0.04), without the call, smooth or sin for the ~24k stones at rest
+        const ht = turn * 0.5, hr = ht - Math.PI * Math.round(ht / Math.PI);
+        if (sc < 0.96 || lift > 0.012 || hr > 0.0444 || hr < -0.0444) stampHole(CU[i], CY[i], c.rad * 1.35, Math.max(1 - sc, smooth(0.012, 0.04, lift), Math.abs(Math.sin(ht)) * 0.9));
+      }
     }
     stTex.needsUpdate = true; if (maskDirty) maskTex.needsUpdate = true; if (windDirty) { offTex.needsUpdate = true; windDirty = false; }
 
