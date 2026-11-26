@@ -34,6 +34,7 @@ import * as TSL from 'three/tsl';
 import { createRoom3D } from '../ressonancia/scenes3d/room3d.js';
 import { createScore, TIMES } from '../ressonancia/score.js';
 import { createGuide } from '../ressonancia/scenes3d/guide3d.js';
+import { createSubtitles } from './subtitles.js';
 import { overrides as tuneOverrides, applyTimes } from '../ressonancia/tuning.js';   // T-052: the score's thresholds as live params
 
 const vt = await connectExperience();
@@ -182,6 +183,7 @@ function stepBloom(dt) {
   room.setBloom(bloomNow);
 }
 room.setBloom(bloomNow);
+const subs = createSubtitles({ THREE, TSL, room }); try { window.__subs = subs; } catch { /* no window */ }                     // studio 26-11: English subtitles over every wall (subtitles.js)
 const TITLE_WALL = 1;                                                // studio 25-11 (Beltrán): P1 opens a window for the title — no start ring there
 // studio 26-11 (Beltrán: «subí los círculos donde se tendrá que apretar»): the start button sits in the picture's round windows, at
 // 1.51 m of its 3.75 m (MosaicEtapa1_1094.png) — the same fraction of each wall's height here; a hand counts within 0.5 m of the
@@ -201,7 +203,9 @@ const score = createScore(NW, { noButton: BUTTON.noButton, buttonY: BUTTON.y, bu
 const link = { at: -1e9, ts: 0, pace: 1, beat: 0, events: [], acta: null, told: 0 };
 const bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null;
 if (bc) bc.onmessage = (ev) => {
-  const m = ev.data; if (m?.type !== 'state' || !m.s || !('block' in m.s)) return;
+  const m = ev.data;
+  if (m?.type === 'sub') { if (m.name) subs?.say(m.name, m.in || 0, m.dur || 3); else subs?.clear(); return; }   // studio 26-11: the voice's subtitles
+  if (m?.type !== 'state' || !m.s || !('block' in m.s)) return;
   const { events, ...s } = m.s; Object.assign(S, s);
   link.events.push(...(events || [])); link.at = performance.now(); link.ts = m.ts; link.pace = m.pace || 1; link.beat = s.beat; link.acta = m.acta;
 };
@@ -646,8 +650,17 @@ function frame(dt) {
   }
   // studio 26-11: the share of the entrance's picture uncovered opens the buttons — this score's reveal and the sound's (it leads)
   { const pt = parts.umbral3d?.part?.paint?.();
-    if (pt) { const rv = Math.min(1, pt.share / Math.max(0.05, P.paintOpen ?? 0.35)); score.setReveal(rv);
-      if (Math.abs(rv - (link.rvSent ?? -1)) > 0.01 || time - (link.rvAt ?? -9) > 1) { link.rvSent = rv; link.rvAt = time; tell({ reveal: rv }); } } }
+    if (pt) { const rv = Math.min(1, pt.share / Math.max(0.01, P.paintOpen ?? 0.15)); score.setReveal(rv);
+      if (Math.abs(rv - (link.rvSent ?? -1)) > 0.01 || time - (link.rvAt ?? -9) > 1) { link.rvSent = rv; link.rvAt = time; tell({ reveal: rv }); } }
+    // studio 26-11: the START is the charge ring round the room (umbral3d: one hand in a circle, or several) — this score's and the sound's
+    // (its start tone rises with it); once the mosaic has fallen (CLEAR) and the room has stayed blue CLEAR_HOLD s, the trailer goes on
+    const ch = parts.umbral3d?.part?.charge?.();
+    if (ch && S.block === 'wait') {
+      const st = ch.cleared ? (ch.clearedFor >= (P['trailer.clearHold'] ?? 6) ? 1 : 0.999) : Math.min(0.998, ch.cover);
+      score.setStart(st);
+      if (Math.abs(st - (link.stSent ?? -1)) > 0.01 || st >= 1 || time - (link.stAt ?? -9) > 1) { link.stSent = st; link.stAt = time; tell({ start: st }); }
+    } }
+  subs.update(dt);
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
   p1 = performance.now(); const ib = stepIntroBreak();
   for (const e of list) e.rig.visible = !e.torn;

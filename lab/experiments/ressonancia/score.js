@@ -54,7 +54,9 @@ export function createScore(nWalls, opt = {}) {
   const BTN = { no: opt.noButton || [], y: opt.buttonY || null, r: opt.buttonR || 0.5 };
   // studio 26-11 (res-trailer): an EXTERNAL reveal — the share of the entrance's picture the public has uncovered (0..1 of what opens the
   // buttons). Set (not null), it IS the wait's reveal (the play bank is not used); null = as before.
-  let extReveal = null;
+  let extReveal = null, extStart = null;
+  // studio 26-11: an EXTERNAL start too — the charge of the entrance's ring round the room (0..1; 1 = start); null = the button as before
+  function setStart(v) { extStart = v == null || !isFinite(v) ? null : Math.max(0, Math.min(1, v)); }
   function setReveal(v) { extReveal = v == null || !isFinite(v) ? null : Math.max(0, Math.min(1, v)); }
   function setButton(o = {}) { if (Array.isArray(o.noButton)) BTN.no = o.noButton; if (Array.isArray(o.y)) BTN.y = o.y; if (o.r > 0) BTN.r = o.r; }
   const zeros = (v = 0) => Array.from({ length: W }, () => v);
@@ -357,7 +359,8 @@ export function createScore(nWalls, opt = {}) {
         if (S.reveal >= 1) { revealedAt = now; emit('reveal'); }
       } else if (emptyFor >= R.keep) S.reveal = 1 - 1e-6;               // everybody left long ago: it starts to fade again
       const pressing = S.reveal >= 1 && now - revealedAt >= R.settle && onButton > 0;
-      S.start = pressing ? Math.min(1, S.start + (dt / T.start) * (onButton >= 2 ? 1 : 1 / 1.5)) : Math.max(0, S.start - dt / (T.start * 2)); S.progress = S.start;
+      if (extStart != null) { S.start = extStart; S.progress = S.start; if (S.start >= 1) extStart = null; }   // (the start itself: below, once)
+      else S.start = pressing ? Math.min(1, S.start + (dt / T.start) * (onButton >= 2 ? 1 : 1 / 1.5)) : Math.max(0, S.start - dt / (T.start * 2)); S.progress = S.start;
       if (S.start >= 1) { S.pass++; emit('start'); go('intro'); }
     } else if (S.block === 'intro') {
       // T-055 (proposal §4.1): no goals; each hand that lands lights the lamp nearest to it (the visual picks it): 'lamp:w'
@@ -754,5 +757,5 @@ export function createScore(nWalls, opt = {}) {
     if (block === 'baixada') downT = 0;
     go(block);
   }
-  return { state: S, step, acta, jump, times: T, setButton, setReveal };
+  return { state: S, step, acta, jump, times: T, setButton, setReveal, setStart };
 }

@@ -212,10 +212,11 @@ export default async function start(host) {
     if (vo && t < vo.end) { if (polite) return false; vo.h.stop(0.15); }
     const at = t + delay, h = play(name, { gain: L.voice, dest: voiceBus, at }); if (!h) return false;
     vo = { h, end: h.end, name }; if (!name.startsWith('v-wait')) saidThisPass.add(name);
+    try { bc?.postMessage({ type: 'sub', name, in: Math.max(0, at - t), dur: Math.max(0.5, h.end - at) }); } catch { /* no channel (yet) */ }   // studio 26-11: the visual shows its subtitle
     duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(L.duck, Math.max(t, at - 0.35), 0.15); duck.gain.setTargetAtTime(1, h.end + 0.3, 0.7);
     return true;
   }
-  const hush = (fade = 0.5) => { if (vo) { vo.h.stop(fade); vo = null; } ramp(duck.gain, 1, 0.3); };
+  const hush = (fade = 0.5) => { if (vo) { vo.h.stop(fade); vo = null; try { bc?.postMessage({ type: 'sub', name: null }); } catch { /* no channel */ } } ramp(duck.gain, 1, 0.3); };
 
   // ---------------------------------------------------------------- the music sets (layers, loops, the bar grid)
   const sets = {};
@@ -1113,7 +1114,7 @@ export default async function start(host) {
   let bc = null;
   try { bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { bc = null; }
   // 25-11 (studio): ctl.lang — a visual piece may set the voice's language (res-trailer: Catalan by default)
-  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (['es', 'en', 'ca'].includes(m.lang) && m.lang !== P.lang) { P.lang = m.lang; for (const n of VOICE_SET) { buffers.delete(n); peaks.delete(n); failed.delete(n); } Promise.all([...VOICE_SET].map(load)); } if (m.button && typeof m.button === 'object') score.setButton?.(m.button); if ('reveal' in m) score.setReveal?.(m.reveal); if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
+  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (['es', 'en', 'ca'].includes(m.lang) && m.lang !== P.lang) { P.lang = m.lang; for (const n of VOICE_SET) { buffers.delete(n); peaks.delete(n); failed.delete(n); } Promise.all([...VOICE_SET].map(load)); } if (m.button && typeof m.button === 'object') score.setButton?.(m.button); if ('reveal' in m) score.setReveal?.(m.reveal); if ('start' in m) score.setStart?.(m.start); if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
   const lastPos = new Map(), hands = [], handPool = [];
   const wallS0 = walls.reduce((a, w, i) => { a.push(i ? a[i - 1] + (walls[i - 1].width || 4) : 0); return a; }, []);   // where each wall starts along the perimeter (m)
   let last = performance.now();
