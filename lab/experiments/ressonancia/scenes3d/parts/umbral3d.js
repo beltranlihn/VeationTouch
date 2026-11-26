@@ -756,8 +756,8 @@ export function create(ctx) {
   hero.add(groutMesh);
   // studio 26-11 (Beltrán: «hay que agregar el título»): the title in the P1 window (umbral3d/title.png, «Resonnancia Asset/Final/1x/Titulo.png»:
   // white text and logos on transparent, drawn at the strip's own scale — 1036 × 237 px of the 7196 × 1094 picture). A plane ON the wall,
-  // centred in the wide opening, 1 cm towards the public: the wall's camera maps it 1 : 1 to the strip. Its white is lifted so that after
-  // the tone mapping it reads white, kept under the bloom's threshold.
+  // centred in the wide opening, 1 cm towards the public: the wall's camera maps it 1 : 1 to the strip. Its white sits just under
+  // the tone mapping (0.9: under the bloom's threshold, no halo).
   const titleMesh = (() => {
     const o = OPEN.find((q) => q.hw / q.hh >= 1.4); if (!o) return null;
     const w = walls[o.wi], pw = STONES?.walls?.[o.wi], kx = pw ? w.width / pw[2] : 1, ky = (w.height || 3.75) / 3.75;
@@ -765,7 +765,7 @@ export function create(ctx) {
     const tex = new THREE.TextureLoader().load(new URL('./umbral3d/title.png', import.meta.url).href);
     tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
-    const t = TSL.texture(tex); m.colorNode = t.rgb.mul(1.25); m.opacityNode = t.a;
+    const t = TSL.texture(tex); m.colorNode = t.rgb.mul(0.9); m.opacityNode = t.a;   // (Beltrán: «sácale el bloom»): below the bloom's threshold
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(W, H), m);
     mesh.position.copy(w.centre).addScaledVector(w.right, o.cx - w.width / 2).addScaledVector(w.normal, 0.01); mesh.position.y = o.cy;
     mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, new THREE.Vector3(0, 1, 0), w.normal)); mesh.renderOrder = 5;
@@ -1042,7 +1042,7 @@ export function create(ctx) {
     const dAttr = new THREE.InstancedBufferAttribute(dustP, 4), ip = TSL.instancedBufferAttribute(dAttr);
     const dm = new THREE.SpriteNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, fog: false });
     dm.positionNode = ip.xyz.add(vec3(sin(uDustT.mul(0.11).add(ip.w.mul(40))).mul(0.6), sin(uDustT.mul(0.07).add(ip.w.mul(17))).mul(0.45), cos(uDustT.mul(0.09).add(ip.w.mul(29))).mul(0.6)));
-    dm.scaleNode = TSL.vec2(0.07, 0.07).mul(ip.w.mul(0.9).add(0.5));
+    dm.scaleNode = TSL.vec2(0.035, 0.035).mul(ip.w.mul(0.9).add(0.5));   // studio 26-11 (Beltrán: «las partículas de atrás más pequeñas»): half (was 0.07)
     dm.colorNode = Fn(() => { const r = TSL.length(TSL.uv().sub(0.5)).mul(2), gs = exp(r.mul(r).mul(-4.5)); return vec4(vec3(0.62, 0.66, 0.82).mul(gs).mul(ip.w.mul(0.5).add(0.25)).mul(uDustK), 1); })();
     const dust = new THREE.Sprite(dm); dust.count = DUST_N; dust.frustumCulled = false; dust.renderOrder = -800; world.add(dust);
   }
