@@ -23,6 +23,21 @@ tower stands against the night sky. Streets leave the square at the room's corne
   the windows by id), depth and a floor mask; the runtime composes them in one full-screen pass (target ≪ 5 ms) and reveals
   the square as particles reconstructed from the depth panorama.
 
+## Runtime part (`../parts/plaza3d.js`)
+- THE PLATE: `blender/plaza_bake.py` path-traces one equirectangular panorama from the eye (8192 × 1593, −30°…+40°) with 22
+  light groups (each standing lamp; per side: wall lanterns, arcade lanterns, lit windows; stained glass; lamp glass; sky),
+  denoised one by one in the compositor; `blender/plaza_bake_encode.py` writes `../parts/plaza3d/bake/` (beauty in 4 RGBM PNG
+  slices, light SHARES 4 per PNG at half size, depth + floor mask, bake.json). The part draws a sphere round the eye with its
+  vertices at the baked depth (castells and points hide behind lamps and facades) and samples the panorama by direction (exact
+  from the eye), relit as beauty · Σ k_i · share_i.
+- THE POINTS: `points.bin` as instanced billboards; `reveal` 0–0.6 condenses them out of a swirling dust (edges and windows
+  first, surfaces, the floor last), 0.5–1 hands over to the plate; `shatter` breaks the square back into rising points.
+- params: reveal, shatter (or input.leave), lamps, windows, stained, sky, calm (dims P1's arcades / windows / lanterns: P1 is the
+  wall that explains), fog (live mist), silhouette, points (density), pointGain, handLamp (a hand boosts the nearest standing
+  lamp, T-056). Study page: `/experiences/res-3d-study/index.html?part=plaza3d` (params in `res-3d-study/parts/plaza3d.json`).
+- Not carried over from `plaza.js`: the 3D mirror-panel break (replaced by `shatter` into points), stars/moon/glow/wet/drift
+  knobs (baked).
+
 ## Solo path / Group path
 Not interactive by itself; the intro's lamp event (T-056) will light one lamp layer.
 

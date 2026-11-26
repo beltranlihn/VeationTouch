@@ -76,18 +76,18 @@ for inst in dg.object_instances:
     info = [lookup(mats[min(i, len(mats) - 1)]) for i in range(max(1, len(mats)))]
     A, B, C = co[vi[:, 0]], co[vi[:, 1]], co[vi[:, 2]]
     cr = np.cross(B - A, C - A); area = 0.5 * np.linalg.norm(cr, axis=1); nrm = cr / np.maximum(2 * area[:, None], 1e-12)
-    is_face = ob.name.startswith(FACE_PREFIX) and not ob.name.startswith(('square_', 'streets_'))
+    is_face = ob.name.startswith(FACE_PREFIX) and not ob.name.startswith(('square', 'streets_'))
     kinds = []
     for i in range(nt):
         alb, kind, em = info[min(mi[i], len(info) - 1)]
         if is_face and kind == 'detail' and em == 0: kind = 'face'
-        if not is_face and kind == 'face' and ob.name.startswith(('square_', 'streets_')): kind = 'plain'   # bodies, naves, chimneys
+        if not is_face and kind == 'face' and ob.name.startswith(('square', 'streets_')): kind = 'plain'   # bodies, naves, chimneys
         kinds.append((alb, kind, em))
     keep = area > 1e-7
     # the floor: only the square and the street mouths
     tris.append((A[keep], B[keep], C[keep], nrm[keep], area[keep], [k for k, ok in zip(kinds, keep) if ok]))
     # sharp edges of facades and details: outlines of openings, cornices, balconies
-    if is_face or ob.name.startswith(('square_stone2', 'square_iron', 'streets_stone2', 'square_church')) or inst.is_instance:
+    if is_face or ob.name.endswith(('_stone2', '_iron', '_church')) or inst.is_instance:
         bm = bmesh.new(); bm.from_mesh(me); bm.edges.ensure_lookup_table()
         P0, P1 = [], []
         for e in bm.edges:
@@ -115,10 +115,11 @@ cnt = np.floor(lam + rng.random(len(lam))).astype(np.int64)
 idx = np.repeat(np.arange(len(cnt)), cnt)
 r1, r2 = rng.random(len(idx)), rng.random(len(idx)); s1 = np.sqrt(r1)
 P = A[idx] * (1 - s1)[:, None] + B[idx] * (s1 * (1 - r2))[:, None] + C[idx] * (s1 * r2)[:, None]
-PN = NRM[idx]; PA = alb[idx]; PE = emv[idx]
+PN = NRM[idx]; PA = alb[idx]; PE = emv[idx]; PK = np.where(emv[idx] > 0, 3, 0).astype(np.uint8)
 Fp = np.stack([rng.uniform(-FLOOR_HALF, FLOOR_HALF, n_floor), rng.uniform(-FLOOR_HALF, FLOOR_HALF, n_floor), np.zeros(n_floor)], 1)
 P = np.concatenate([P, Fp]); PN = np.concatenate([PN, np.tile([[0, 0, 1.0]], (n_floor, 1))])
 PA = np.concatenate([PA, np.tile(np.array([ALB['floor'][0]], np.float32), (n_floor, 1))]); PE = np.concatenate([PE, np.zeros(n_floor, np.uint8)])
+PK = np.concatenate([PK, np.full(n_floor, 2, np.uint8)])
 # ------------------------------------------------------------------------------------------------ edge samples
 E0 = np.concatenate([e[0] for e in edges]); E1 = np.concatenate([e[1] for e in edges])
 L = np.linalg.norm(E1 - E0, axis=1)
@@ -131,7 +132,7 @@ ce = np.floor(le + rng.random(len(le))).astype(np.int64)
 ie = np.repeat(np.arange(len(ce)), ce); t = rng.random(len(ie))
 PE_pos = E0[ie] + (E1[ie] - E0[ie]) * t[:, None]
 P = np.concatenate([P, PE_pos]); PN = np.concatenate([PN, np.zeros_like(PE_pos)])
-PA = np.concatenate([PA, np.tile(np.array([[0.7, 0.62, 0.5]], np.float32), (len(PE_pos), 1))]); PE = np.concatenate([PE, np.zeros(len(PE_pos), np.uint8)])
+PA = np.concatenate([PA, np.tile(np.array([[0.7, 0.62, 0.5]], np.float32), (len(PE_pos), 1))]); PE = np.concatenate([PE, np.zeros(len(PE_pos), np.uint8)]); PK = np.concatenate([PK, np.ones(len(PE_pos), np.uint8)])
 # ------------------------------------------------------------------------------------------------ light: the square's lamps + moon + sky
 Lp = np.array([[l[0].x, l[0].y, l[0].z] for l in LIGHTS]); Lw = np.array([l[1] for l in LIGHTS])
 E = np.zeros(len(P))
@@ -154,15 +155,16 @@ rgba = np.concatenate([(srgbv * 255 + 0.5).astype(np.uint8), np.where(PE == 0, 0
 # Blender (x, y, z) → three (x, z, −y)
 xyz = np.stack([P[:, 0], P[:, 2], -P[:, 1]], 1).astype(np.float32)
 order = rng.permutation(len(xyz))            # shuffled: any prefix is an even, lower-density subset
-xyz, rgba = xyz[order], rgba[order]
-with open(os.path.join(DST, 'points.bin'), 'wb') as f: f.write(xyz.tobytes()); f.write(rgba.tobytes())
+xyz, rgba, kind = xyz[order], rgba[order], PK[order]
+with open(os.path.join(DST, 'points.bin'), 'wb') as f: f.write(xyz.tobytes()); f.write(rgba.tobytes()); f.write(kind.tobytes())
 facades = []
 for k in range(4):
     c, tt, n = SIDES[k]
     facades.append({'wall': WALLS[k][0], 'normal_into_room': three(n), 'facade_distance_from_centre_m': D[k],
                     'wall_distance_from_centre_m': round(-c.dot(n), 3), 'castell_base': three(c - n * PUSH)})
 meta = {
-    'format': 'points.bin = Float32 xyz (count × 3), then Uint8 rgba (count × 4); little-endian',
+    'format': 'points.bin = Float32 xyz (count × 3), then Uint8 rgba (count × 4), then Uint8 kind (count × 1); little-endian',
+    'kind': '0 = surface, 1 = edge (outlines of openings, cornices, balconies), 2 = floor, 3 = window / stained glass / lamp glass', 'bytesKind': int(len(xyz)),
     'count': int(len(xyz)), 'bytesPosition': int(xyz.nbytes), 'bytesColor': int(rgba.nbytes),
     'coords': 'three.js / room3d: metres, y up; origin = centre of the room on the floor (the eye is at (0, 1.6, 0))',
     'shuffled': 'yes: the first k points are an even subset (use a prefix for a lower density)',

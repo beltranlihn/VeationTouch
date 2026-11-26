@@ -917,12 +917,13 @@ LAYOUT = {
 
 for k in range(4):
     F = side_frame(k); ua, ub = ext(k)
+    grp = f'square{k}'                     # one set of objects per side: the bake gives each side its own light groups
     for kind, a, b, sp in LAYOUT[k]:
         a, b = max(a, ua), min(b, ub)
-        if kind == 'h': house(f'S{k}_{a:+.0f}', F, a, b, sp)
-        elif kind == 'church': church(F, a, b)
-        elif kind == 'tower': bell_tower(F, a, b)
-        elif kind == 'chapel': chapel(F, a, b)
+        if kind == 'h': house(f'S{k}_{a:+.0f}', F, a, b, sp, grp)
+        elif kind == 'church': church(F, a, b, grp)
+        elif kind == 'tower': bell_tower(F, a, b, grp)
+        elif kind == 'chapel': chapel(F, a, b, grp)
     # the street leaving at the LEFT corner of this side: this facade goes on into it
     house(f'S{k}_st1', F, ua - LS, ua - LS * 0.5, H_(n=3, bays=3, top='eave', lit=0.25), 'streets')
     house(f'S{k}_st2', F, ua - LS * 0.5, ua, H_(n=3, bays=3, top='cornice', lit=0.25), 'streets')
