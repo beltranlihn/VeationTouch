@@ -651,8 +651,9 @@ function frame(dt) {
       // animación siguiente»): in the entrance, atmos only comes once the mosaic has fallen, and it comes as the square's air (intro's mood,
       // dust and haze, no line); lvlFloor keeps it full when the square's clock starts at 0, so the motes go on without a blink
       const early = e.home === 'wait' && has('umbral3d');
-      if (early) { t = 0; if (!e.carry) { e.mood = 1; e.dustK = 0.5; e.acta = 0; } e.carry = 1; }   // it arrives already as the square's air (no ease from the acta's dark) else if (e.home !== 'intro') e.carry = 0;
-      const look = early ? 'intro' : e.home;
+      if (early) { t = 0; if (!e.carry) { e.mood = 1; e.dustK = 0.5; e.acta = 0; } e.carry = 1; } else if (e.home !== 'intro' && e.home !== 'acta') e.carry = 0;   // it arrives already as the square's air (no ease from the acta's dark)
+      // 26-11 (Beltrán: «la sala nunca se puede ver de un color plano»): the closing keeps the intro's full air of motes (not the acta's black)
+      const look = early || e.home === 'acta' ? 'intro' : e.home;
       e.mood = ease(e.mood ?? 1, look === 'baixada' ? 0.22 : look === 'tronc' ? 0.2 : look === 'acta' ? 0.15 : look === 'wait' ? 0.08 : look === 'pinya' ? 0.25 : 1, dt, 1.2);   // the wait: almost total dark, a line of embers   // the acta: black and typography   // the baixada: the air clears so the falling light reads
       for (const key of ['dust', 'haze', 'line']) p[key] = (e.base[key] ?? 1) * smooth(k) * (key === 'line' ? 1 : e.mood);
       e.dustK = ease(e.dustK ?? 1, look === 'intro' ? 0.5 : e.home === 'brasa' ? 0 : 1, dt, 1.2); p.dust *= e.dustK;   // Vicente 25-11 (ARTE-BRASA): no motes in the Brasa, only sparks (in res-obra3d the multiply ended up inside the comment)   // art 24-11: in the square at half (it read as snow)
@@ -660,7 +661,7 @@ function frame(dt) {
       e.acta = ease(e.acta ?? 0, look === 'acta' || look === 'wait' ? 1 : 0, dt, 1.2);   // acta and wait: no lamps in the air, no haze
       e.noHaze = ease(e.noHaze ?? 0, e.home === 'pinya' ? 1 : 0, dt, 1.2); p.haze *= 1 - e.noHaze;   // pinya: no haze (the motes read as static)
       if (e.acta > 0.001) { p.haze *= 1 - e.acta; p.lampGain = (e.base.lampGain ?? 1) * (1 - e.acta); } else p.lampGain = e.base.lampGain ?? 1;
-      e.stirK = ease(e.stirK ?? 1, e.home === 'pinya' ? 0 : e.home === 'tronc' ? 0.3 : e.home === 'baixada' ? 0.5 : 1, dt, 1.2);   // where figures stand behind the buttons, the hands' warm dust is softer
+      e.stirK = ease(e.stirK ?? 1, e.home === 'pinya' ? 0.4 : e.home === 'tronc' ? 0.3 : e.home === 'baixada' ? 0.5 : 1, dt, 1.2);   // where figures stand behind the buttons, the hands' warm dust is softer
       p.stir = (e.base.stir ?? 1) * e.stirK;
       p.warm = pal.warm; p.cool = pal.cool; p.air = pal.air;   // the colour script
       p.lineColor = pal.line; p.lineHalo = pal.halo; p.line *= pal.lineK; if (early || (e.home === 'intro' && has('plaza3d') && P.plaza3d !== false)) p.line = 0;   // (26-11: the new intro has no horizon line)
