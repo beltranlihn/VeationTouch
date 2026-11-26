@@ -24,7 +24,8 @@
 //   sky, calm, stained, fog, silhouette) follows its target with this spring, so the host may jump between values.
 //   dark (0..1, live: crossfades to the CORREFOC's square, ./plaza3d/bake_dark/: lights off, a low moon) with fires [f0..f3] (0..1+, one foguera
 //   per wall in strip order P4 P1 P2 P3: its warm light on the wet floor and the low facades), lit (0..1, the boom: lamps and
-//   windows of the intro's bake come on) and night (the dark sky's level).
+//   windows of the intro's bake come on) and night (the dark sky's level). embers [e0..e3] (default = fires): the glow of each
+//   foguera's MODELLED base, baked into the dark square with its contact, shadow, reflection and halo (fire_bases2.py's meshes).
 // Cost: plate = one draw per wall, ~11 texture reads per pixel; points = one instanced draw per wall, hidden when reveal = 1 and
 // shatter = 0 (no cost at rest).
 export function create(ctx) {
@@ -46,7 +47,7 @@ export function create(ctx) {
   const uPts = uniform(1), uEye = uniform(eye.clone()), uGain = uniform(0.05), uBreath = uniform(0), uCool = uniform(0);
   const G = Array.from({ length: 8 }, () => new THREE.Vector4());      // group intensities, four per light texture (the intro's bake)
   const uG = uniformArray(G, 'vec4');
-  const uNight = uniform(1), uFires = uniform(new THREE.Vector4()), uDark = uniform(0);   // the dark bake (correfoc): sky, fires, its weight
+  const uNight = uniform(1), uFires = uniform(new THREE.Vector4()), uEmbers = uniform(new THREE.Vector4()), uDark = uniform(0);   // the dark bake (correfoc): sky, fires, its weight
   let darkMesh = null;
   let bake = null, dark = null, plate = null, points = null, ready = false;
   const LOAD_DARK = P.loadDark !== false;                               // both bakes live in ONE part: `dark` crossfades them (26-11)
@@ -59,10 +60,10 @@ export function create(ctx) {
     t.colorSpace = THREE.NoColorSpace; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
     t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.ClampToEdgeWrapping; res(t);
   }, undefined, rej));
-  const loadImageData = (name) => new Promise((res, rej) => {
+  const loadImageData = (name, dir = 'bake/') => new Promise((res, rej) => {
     const im = new Image(); im.onload = () => { const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
       const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0); res(g.getImageData(0, 0, im.width, im.height)); };
-    im.onerror = rej; im.src = new URL('bake/' + name, base).href;
+    im.onerror = rej; im.src = new URL(dir + name, base).href;
   });
 
   (async () => {
@@ -74,18 +75,26 @@ export function create(ctx) {
       loadImageData('depth.png'),
     ]);
     bake.groups.forEach((g, i) => { groupK[i] = 1; if (g.kind === 'fanal') lampBoost[i] = 0; });
-    plate = makePlate({ meta: bake, beauty, lights }, dimg); object.add(plate);
+    // the dark bake (correfoc): its own depth (the modelled fogueres are in it), its fires and the embers of each base
+    let darkSet = null;
     if (LOAD_DARK) {
       try {
-      dark = await (await fetch(new URL('bake_dark/bake.json', base))).json();
-      const fires = dark.groups.filter((g) => g.kind === 'fire');
-      const [db, ft] = await Promise.all([
-        Promise.all([...Array(dark.slices).keys()].map((k) => loadTex(`beauty_${k}.png`, 'bake_dark/'))),
-        Promise.all(fires.map((g) => loadTex(g.file, 'bake_dark/'))),
-      ]);
-      darkMesh = makeDarkPlate(plate.geometry, { meta: dark, beauty: db, fires: fires.map((g, i) => ({ side: g.side, tex: ft[i] })) });
+        dark = await (await fetch(new URL('bake_dark/bake.json', base))).json();
+        const layers = dark.groups.filter((g) => g.kind === 'fire' || g.kind === 'embers');
+        const hasBases = dark.depthB === 'base mask';
+        const [db, lt, ddimg, dtex] = await Promise.all([
+          Promise.all([...Array(dark.slices).keys()].map((k) => loadTex(`beauty_${k}.png`, 'bake_dark/'))),
+          Promise.all(layers.map((g) => loadTex(g.file, 'bake_dark/'))),
+          hasBases ? loadImageData('depth.png', 'bake_dark/') : Promise.resolve(null),
+          hasBases ? loadTex('depth.png', 'bake_dark/') : Promise.resolve(null),
+        ]);
+        darkSet = { meta: dark, beauty: db, layers: layers.map((g, i) => ({ kind: g.kind, side: g.side, tex: lt[i] })), ddimg, mask: dtex };
+      } catch (e) { console.warn('plaza3d: no dark bake', e); darkSet = null; dark = null; }
+    }
+    plate = makePlate({ meta: bake, beauty, lights }, dimg, darkSet?.mask || null); object.add(plate);
+    if (darkSet) {
+      darkMesh = makeDarkPlate(darkSet.ddimg ? buildGeom(dark, darkSet.ddimg) : plate.geometry, darkSet, !!darkSet.ddimg);
       object.add(darkMesh);
-      } catch (e) { console.warn('plaza3d: no dark bake', e); }
     }
     try { points = await makePoints(); if (points) object.add(points); } catch (e) { console.warn('plaza3d: no points', e); }
     ready = true;
@@ -103,8 +112,8 @@ export function create(ctx) {
   }
 
   // ------------------------------------------------------------------------------------------------ the plate
-  function makePlate(setA, dimg) {
-    const NU = 768, NV = Math.round(NU * (bake.latMax - bake.latMin) / 360);
+  function buildGeom(meta, dimg) {
+    const NU = 768, NV = Math.round(NU * (meta.latMax - meta.latMin) / 360);
     const dw = dimg.width, dh = dimg.height, D = dimg.data;
     const fwd = new THREE.Vector3(...bake.forward).normalize(), right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
     const pos = new Float32Array((NU + 1) * (NV + 1) * 3);
@@ -113,13 +122,13 @@ export function create(ctx) {
       let m = 1e9;
       for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
         const x = (cx + i + dw) % dw, y = Math.min(dh - 1, Math.max(0, cy + j)), o = (y * dw + x) * 4;
-        m = Math.min(m, ((D[o] * 256 + D[o + 1]) / 65535) * bake.depthMax);
+        m = Math.min(m, ((D[o] * 256 + D[o + 1]) / 65535) * meta.depthMax);
       }
-      return m >= bake.depthMax * 0.98 ? 250 : Math.min(m, 250);
+      return m >= meta.depthMax * 0.98 ? 250 : Math.min(m, 250);
     };
     let k = 0;
     for (let j = 0; j <= NV; j++) {
-      const vTop = j / NV, lat = (bake.latMax - vTop * (bake.latMax - bake.latMin)) * Math.PI / 180;
+      const vTop = j / NV, lat = (meta.latMax - vTop * (meta.latMax - meta.latMin)) * Math.PI / 180;
       for (let i = 0; i <= NU; i++) {
         const u = i / NU, az = (u - 0.5) * Math.PI * 2;
         const dx = Math.cos(lat) * Math.sin(az), dy = Math.sin(lat), dz = Math.cos(lat) * Math.cos(az);
@@ -134,6 +143,10 @@ export function create(ctx) {
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
     g.computeBoundingSphere();
+    return g;
+  }
+  function makePlate(setA, dimg, baseMask) {
+    const g = buildGeom(bake, dimg);
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, transparent: true, depthWrite: true });
     const dir = normalize(positionWorld.sub(uEye));
     const uvp = panoUV(dir);
@@ -147,7 +160,9 @@ export function create(ctx) {
       set.lights.forEach((t, jj) => { f = f.add(dot(texture(t, uvp), U.element(jj))); });
       return c.mul(f);
     };
-    const col = shade(setA, uG);
+    let col = shade(setA, uG);
+    // where the dark bake has a modelled foguera, the intro's square steps aside as the dark one comes in (no floor through the logs)
+    if (baseMask) col = col.mul(float(1).sub(texture(baseMask, uvp).b.mul(uDark)));
     // live mist over the baked one: slow, low, warm-grey
     const lat = asin(clamp(dir.y, -1, 1));
     const n = mx_noise_float(vec3(atan(dir.x, dir.z).mul(3.0).add(uTime.mul(0.02)), lat.mul(9.0), uTime.mul(0.03))).mul(0.5).add(0.5);
@@ -164,8 +179,10 @@ export function create(ctx) {
   // ------------------------------------------------------------------------------------------------ the dark plate (correfoc)
   // drawn additively over the plate (same mesh, same depth): the square with its lights off (sky and moon only) + each foguera's
   // light, exact RGBM layers (no shares: an unlit fire leaves no hole). The intro's plate adds the lamps and windows with `lit`.
-  function makeDarkPlate(geom, set) {
-    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, transparent: true, depthWrite: false, depthTest: true,
+  function makeDarkPlate(geom, set, ownDepth) {
+    // with its own depth (the bases modelled in it) it writes depth too: correfocs passing behind a foguera are hidden by it
+    // (no depth test against the intro's plate: the two bakes' depths differ by noise; it is background, drawn right after it)
+    const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, transparent: true, depthWrite: ownDepth, depthTest: !ownDepth,
       depthFunc: THREE.LessEqualDepth, blending: THREE.AdditiveBlending });
     const dir = normalize(positionWorld.sub(uEye)), uvp = panoUV(dir);
     const dec = (t) => { const c = texture(t, uvp); return pow(c.rgb, vec3(set.meta.rgbGamma)).mul(c.a.mul(set.meta.rgbmRange)); };
@@ -174,7 +191,8 @@ export function create(ctx) {
     for (let s_ = 1; s_ < S; s_++) rgbm = select(ks.greaterThanEqual(s_), texture(set.beauty[s_], vec2(lu, uvp.y)), rgbm);
     let col = pow(rgbm.rgb, vec3(set.meta.rgbGamma)).mul(rgbm.a.mul(set.meta.rgbmRange)).mul(uNight);
     const order = ['P4', 'P1', 'P2', 'P3'];
-    for (const f of set.fires) col = col.add(dec(f.tex).mul([uFires.x, uFires.y, uFires.z, uFires.w][order.indexOf(f.side)]));
+    const fv = [uFires.x, uFires.y, uFires.z, uFires.w], ev = [uEmbers.x, uEmbers.y, uEmbers.z, uEmbers.w];
+    for (const f of set.layers) col = col.add(dec(f.tex).mul((f.kind === 'embers' ? ev : fv)[order.indexOf(f.side)]));
     m.colorNode = col.mul(uDark).mul(float(1).sub(uSil.mul(0.96))); m.opacityNode = uFade; m.fog = false;
     const mesh = new THREE.Mesh(geom, m); mesh.name = 'plaza3d:dark'; mesh.frustumCulled = false; mesh.renderOrder = -9; mesh.visible = false;
     return mesh;
@@ -288,7 +306,11 @@ export function create(ctx) {
     if (dark) {
       const fires = Array.isArray(P.fires) ? P.fires : [];
       uNight.value = E_('night', num(P.night, 1));
-      for (let i = 0; i < 4; i++) uFires.value.setComponent(i, E_('fire' + i, num(fires[i], 0)) * (1 + 0.12 * Math.sin(t * 7.3 + i * 2.1) * Math.sin(t * 3.1 + i)));
+      const emb = Array.isArray(P.embers) ? P.embers : fires;          // the bases' embers: their own levels, or the fires'
+      for (let i = 0; i < 4; i++) {
+        uFires.value.setComponent(i, E_('fire' + i, num(fires[i], 0)) * (1 + 0.12 * Math.sin(t * 7.3 + i * 2.1) * Math.sin(t * 3.1 + i)));
+        uEmbers.value.setComponent(i, E_('emb' + i, num(emb[i], 0)) * (0.85 + 0.15 * Math.sin(t * 1.7 + i * 2.3) * Math.sin(t * 0.9 + i)));
+      }
     }
     if (darkMesh) darkMesh.visible = !!plate?.visible && uDark.value > 0.002;
   }

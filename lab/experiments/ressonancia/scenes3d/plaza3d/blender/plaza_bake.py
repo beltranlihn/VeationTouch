@@ -11,6 +11,7 @@
 # The panorama is equirectangular: column u ↔ azimuth around the eye (u = 0.5 straight at side 0 = P4), row v ↔ elevation
 # from LAT_MAX (top row) to LAT_MIN (bottom row).
 import bpy, json, math, os, sys, runpy
+from mathutils import Vector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 G = runpy.run_path(os.path.join(HERE, 'plaza_gen.py'), run_name='plaza_gen')
@@ -24,6 +25,9 @@ MODE = a('--mode', 'intro')          # intro | dark (the correfoc: lamps and win
 FOG_D = float(a('--fogd', '3.3'))    # foguera: this far beyond each wall's centre (brasa3d/foguera.js FOG_D)
 FOG_H = float(a('--fogh', '1.2'))    # its light's height above the floor
 FOG_W = float(a('--fogw', '2600'))   # its power (W)
+FOGUERES = os.path.abspath(a('--fogueres', os.path.join(HERE, '..', '..', 'parts', 'brasa3d', 'fogueres')))   # the modelled bases (fire_bases2.py)
+FOG_FILE = ['foguera_P4_pira', 'foguera_P1_santjoan', 'foguera_P2_brasero', 'foguera_P3_corona']                # strip order P4 P1 P2 P3
+EMBER_K = float(a('--embers', '3.0'))                                                                          # ember emission in the bake
 LIGHTS, EYE, three, SIDES, WALLS = G['LIGHTS'], G['EYE'], G['three'], G['SIDES'], G['WALLS']
 sc = bpy.context.scene; vl = bpy.context.view_layer
 
@@ -49,11 +53,33 @@ else:
             kill_emission(m)
     moon_ = bpy.data.objects.get('moon')
     if moon_: moon_.data.energy *= float(a('--moon', '0.5'))
+    import json as _json
+    from mathutils import Matrix as _M
     for k, (c, t, n) in enumerate(SIDES):
-        p = c - n * FOG_D; p.z = FOG_H
-        ld = bpy.data.lights.new(f'fire_{WALLS[k][0]}', 'POINT'); ld.energy = FOG_W; ld.shadow_soft_size = 0.35
-        ld.color = (1.0, 0.42, 0.12)                                     # ≈ 1800–1900 K
-        lo = bpy.data.objects.new(ld.name, ld); sc.collection.objects.link(lo); lo.location = p
+        site = c - n * FOG_D; site.z = 0
+        theta = math.atan2(n.x, -n.y)                                    # the model's front (glTF +Z = Blender −Y) towards the eye
+        R_ = _M.Rotation(theta, 4, 'Z')
+        glb = os.path.join(FOGUERES, FOG_FILE[k] + '.glb'); meta_ = os.path.join(FOGUERES, FOG_FILE[k] + '.json')
+        flames = []
+        if os.path.exists(glb):
+            before = set(bpy.data.objects); bpy.ops.import_scene.gltf(filepath=glb)
+            for ob in [o for o in bpy.data.objects if o not in before]:
+                if ob.parent is None: ob.matrix_world = _M.Translation(site) @ R_ @ ob.matrix_world
+                if ob.type == 'MESH':
+                    ob.name = f'base_{WALLS[k][0]}'; ob.pass_index = 2
+                    for sl in ob.material_slots:
+                        bs_ = sl.material.node_tree.nodes.get('Principled BSDF') if sl.material and sl.material.use_nodes else None
+                        if bs_: bs_.inputs['Emission Strength'].default_value = EMBER_K
+            fs = _json.load(open(meta_)).get('fireSources', [])
+            for f_ in fs:
+                if f_['kind'] != 'flame': continue
+                lp = Vector((f_['pos'][0], -f_['pos'][2], f_['pos'][1] + min(0.6, f_['size'][1] * 0.3)))
+                flames.append(site + (R_ @ lp.to_4d()).to_3d())
+        if not flames: flames = [site + Vector((0, 0, FOG_H))]
+        for j, fp in enumerate(flames):
+            ld = bpy.data.lights.new(f'fire_{WALLS[k][0]}_{j}', 'POINT'); ld.energy = FOG_W / len(flames); ld.shadow_soft_size = 0.3
+            ld.color = (1.0, 0.42, 0.12)                                 # ≈ 1800–1900 K
+            lo = bpy.data.objects.new(ld.name, ld); sc.collection.objects.link(lo); lo.location = fp
 for c in bpy.data.collections:
     if c.name.startswith('lib_') or c.name == 'castells':
         lc = vl.layer_collection.children.get(c.name)
@@ -84,7 +110,8 @@ for ob in bpy.data.objects:
     if ob.type != 'MESH': continue
     if MODE != 'intro':
         if ob.name.startswith('floor'): ob.pass_index = 1
-        continue                                         # the dark square: nothing of it emits, only the sky and the fires
+        if ob.name.startswith('base_'): ob.lightgroup = lg(f'embers_{ob.name[5:]}', 'embers', None, ob.name[5:])
+        continue                                         # the dark square: nothing else of it emits — the sky, the fires, the embers
     if ob.name.endswith('_lit'):
         k = ob.name[6] if ob.name.startswith('square') and ob.name[6].isdigit() else None
         side = WALLS[int(k)][0] if k is not None else 'streets'
