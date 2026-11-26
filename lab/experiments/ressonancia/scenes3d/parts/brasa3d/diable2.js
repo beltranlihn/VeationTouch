@@ -108,15 +108,17 @@ export function createDiables(ctx) {
   bodyGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
 
   // skinning: p (rest, vec3) by 4 bones of the packed devil `pk` (int); w = 1 for points, 0 for directions
-  const skin = (pk, I, W, p, w) => {
-    const p4 = vec4(p, w);
-    let acc = vec3(0, 0, 0);
+  // (linear blend: the 4 bones' rows are blended once, then applied to the point and to the normal)
+  const skinRows = (pk, I, W) => {
+    let r0 = vec4(0), r1 = vec4(0), r2 = vec4(0);
     for (const c of ['x', 'y', 'z', 'w']) {
       const base = pk.mul(NB * 3).add(int(I[c]).mul(3));
-      acc = acc.add(vec3(dot(uB.element(base), p4), dot(uB.element(base.add(1)), p4), dot(uB.element(base.add(2)), p4)).mul(W[c]));
+      r0 = r0.add(uB.element(base).mul(W[c])); r1 = r1.add(uB.element(base.add(1)).mul(W[c])); r2 = r2.add(uB.element(base.add(2)).mul(W[c]));
     }
-    return acc;
+    return [r0, r1, r2];
   };
+  const apply = (rows, p, w) => { const p4 = vec4(p, w); return vec3(dot(rows[0], p4), dot(rows[1], p4), dot(rows[2], p4)); };
+  const skin = (pk, I, W, p, w) => apply(skinRows(pk, I, W), p, w);
   // the ember-dash pattern on the rest pose: a 3D cell lattice stretched along y, one dash per live cell (teardrop: wide below)
   const hash3 = (c) => fract(sin(dot(c, vec3(127.1, 311.7, 74.7))).mul(43758.5453));
   const dashes = (r, tm) => {
@@ -153,16 +155,17 @@ export function createDiables(ctx) {
     const ph = tm.mul(seed.mul(2.0).add(3.0)).add(seed.mul(40.0));
     const lick = vec3(sin(ph), sin(ph.mul(1.3).add(1.7)).mul(0.6), cos(ph.mul(0.9))).mul(pow(tip, 1.6).mul(0.025));
     const pR = positionGeometry.add(select(isFlame, lick, vec3(0, 0, 0)));
-    let p = skin(pk, I, W, pR, 1.0);
+    const rows = skinRows(pk, I, W);
+    let p = apply(rows, pR, 1.0);
     // the run combs the flames back
     p = p.sub(dv.xyz.mul(select(isFlame, pow(tip, 1.5).mul(0.05), float(0))));
-    const n = normalize(skin(pk, I, W, attribute('normal', 'vec3'), 0.0).add(vec3(0, 1e-5, 0)));
+    const n = normalize(apply(rows, attribute('normal', 'vec3'), 0.0).add(vec3(0, 1e-5, 0)));
     const pf = mirror ? mirP(p) : p;
     m.positionNode = pf;
     const vN = varying(mirror ? vec3(n.x, n.y.negate(), n.z) : n), vW = varying(modelWorldMatrix.mul(vec4(pf, 1)).xyz);
     const vR = varying(positionGeometry);                                              // rest position (dashes, seams, the ragged front)
     const vA = varying(A);
-    const vP = varying(vec4(p.y, 0, 0, 0)), vDS = varying(ds), vH = varying(h);
+    const vP = varying(vec4(p.y, mx_noise_float(positionGeometry.mul(9.0)), 0, 0)), vDS = varying(ds), vH = varying(h);   // y: the ragged front (per vertex)
     const ft = uB.element(pk.mul(NB * 3).add(BI.forca * 3));                           // (rows of the forca's matrix: its top is the light)
     const fr1 = uB.element(pk.mul(NB * 3).add(BI.forca * 3 + 1)), fr2 = uB.element(pk.mul(NB * 3).add(BI.forca * 3 + 2));
     const topR = vec4(RH[BI.forca].x, RH[BI.forca].y + meta.forca.length + 0.1, RH[BI.forca].z, 1);
@@ -171,7 +174,7 @@ export function createDiables(ctx) {
     m.colorNode = Fn(() => {
       const N = normalize(vN), Vv = normalize(cameraPosition.sub(vW)), mt = vA.x, glow = vA.y, tp = vA.z, sd = vA.w;
       const isM = (k) => select(abs(mt.sub(k)).lessThan(0.5), float(1), float(0));
-      const rag = mx_noise_float(vR.mul(9.0));
+      const rag = vP.y;
       const gr = grow(vP.x, vDS, vH, rag);
       Discard(gr.g.lessThan(0.5));
       const edge = float(1).sub(smoothstep(0.5, 0.95, gr.g));                            // the burning band at the front
@@ -189,13 +192,11 @@ export function createDiables(ctx) {
       let c = alb.mul(0.8).add(alb.mul(warm).mul(lit).mul(2.4)).add(C.rim.mul(rimT).mul(0.22));
       // emission: ember dashes, lava seams on the limbs, thorn tips, the hem, the hexagon
       const solid = float(1).sub(max(isM(4), max(isM(5), max(isM(6), max(isM(7), isM(9))))));
-      const dsh = dashes(vR, U.time).mul(solid);
-      const nz = mx_noise_float(vR.mul(vec3(3.0, 1.2, 3.0)));
-      const seam = float(1).sub(smoothstep(0.0, fwidth(nz).mul(0.8).add(1e-4), abs(nz))).mul(isM(0)).mul(smoothstep(0.55, 0.75, mx_noise_float(vR.mul(2.0)).add(0.5))).mul(0.35);
+      const dsh = mirror ? solid.mul(0.06) : dashes(vR, U.time).mul(solid);
       const pulse = sin(U.time.mul(2.3).add(vR.x.mul(30.0)).add(vR.y.mul(9.0))).mul(0.25).add(0.75);
       const tipG = pow(tp, 2.5).mul(max(isM(3), isM(9))).mul(0.9);
       let em = mix(C.lavaMid, C.lavaCore, pulse.mul(dsh)).mul(dsh.mul(1.25));
-      em = em.add(mix(C.lavaEdge, C.lavaMid, pulse).mul(seam.add(tipG)));
+      em = em.add(mix(C.lavaEdge, C.lavaMid, pulse).mul(tipG));
       em = em.add(C.hem.mul(glow).mul(pulse.mul(0.35).add(0.85)).mul(1.15));
       c = c.add(em.mul(heat));
       // the flames: cream at the root, orange, red at the tip; matte, self-lit (below the bloom threshold)
