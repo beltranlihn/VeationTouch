@@ -153,7 +153,7 @@ export function createFogueres(ctx) {
       c = mix(c, C.cream, smoothstep(0.88, 1.05, temp));
       const a = smoothstep(0.0, 0.45, d).mul(smoothstep(1.0, 0.7, y));
       const k = mix(float(0.35), float(0.62), smoothstep(0.0, 0.4, vA.x)).mul(vA.y.mul(0.6).add(1));
-      return c.mul(a).mul(k).mul(float(1).sub(U.leave.mul(0.7)));
+      return c.mul(a).mul(k).mul(float(1).sub(U.leave));
     })();
     m.fog = false;
     const mesh = new THREE.Mesh(flameGeo, m); mesh.frustumCulled = false; add(mesh, 4);
@@ -258,7 +258,7 @@ export function createFogueres(ctx) {
         const cracks = smoothstep(0.62, 0.8, fbm(vec2(Pw.x.add(Pw.z).mul(9.0), Pw.y.mul(14.0)).add(U.time.mul(0.15))));
         const glow = e.mul(cracks.mul(0.7).add(e.mul(0.35))).mul(lvl.mul(0.8).add(0.2)).mul(sin(U.time.mul(2.3).add(Pw.x.mul(5))).mul(0.15).add(0.85));
         const c = alb.mul(0.5).add(vec3(1.0, 0.45, 0.15).mul(lit).mul(mix(float(0.45), float(0.12), isIron))).add(mix(C.ember, C.emberHot, cracks).mul(glow).mul(0.7).mul(fs.y.mul(0.6).add(1)));
-        return c.mul(float(1).sub(U.leave.mul(0.7))).mul(uFA.element(int(f)).x);
+        return c.mul(float(1).sub(U.leave)).mul(uFA.element(int(f)).x);
       })();
       m.fog = false;
       m.transparent = true; m.opacityNode = uFA.element(int(f)).x;   // (the entry: it fades in, never a black cut-out)
@@ -300,7 +300,7 @@ export function createFogueres(ctx) {
       const flick = sin(U.time.mul(2.1).add(Pw.x.mul(4.0)).add(Pw.z.mul(3.0))).mul(0.12).add(sin(U.time.mul(5.3).add(Pw.y.mul(9.0))).mul(0.06)).add(0.82);
       const glow = lvl.mul(2.4).add(0.4).mul(flick).mul(flash.mul(0.9).add(1));
       const c = alb.mul(float(0.14).add(vec3(1.0, 0.5, 0.2).mul(lit).mul(4.5))).add(em.mul(glow));
-      return c.mul(float(1).sub(U.leave.mul(0.7))).mul(uFA.element(int(f)).x);
+      return c.mul(float(1).sub(U.leave)).mul(uFA.element(int(f)).x);
     })();
     m.fog = false;
     m.transparent = true; m.opacityNode = uFA.element(int(f)).x;
@@ -364,7 +364,7 @@ export function createFogueres(ctx) {
           const flick = sin(U.time.mul(2.1).add(Pw.x.mul(4.0)).add(Pw.z.mul(3.0))).mul(0.12).add(sin(U.time.mul(5.3).add(Pw.y.mul(9.0))).mul(0.06)).add(0.82);
           const glow = lvl.mul(2.6).add(0.45).mul(flick).mul(flash.mul(0.9).add(1));
           const c = alb.mul(float(0.16).add(vec3(1.0, 0.5, 0.2).mul(lit).mul(5.0))).add(em.mul(glow));
-          return c.mul(float(1).sub(U.leave.mul(0.7))).mul(uFA.element(int(f)).x);
+          return c.mul(float(1).sub(U.leave)).mul(uFA.element(int(f)).x);
         })();
         m.fog = false;
         m.transparent = true; m.opacityNode = uFA.element(int(f)).x;
@@ -401,7 +401,7 @@ export function createFogueres(ctx) {
       // the boom: a ring of light running out over the floor (radius uBoom · 16 m), fading
       const ring = exp(rr.sub(uBoom).mul(rr.sub(uBoom)).mul(-180.0)).mul(float(1).sub(uBoom)).mul(select(uBoom.greaterThan(0.001), float(0.5), float(0)));
       const out = select(vS.w.greaterThan(0.5), C.amber.mul(ring), C.orange.mul(pool).mul(vAp));
-      return out.mul(float(1).sub(U.leave.mul(0.7)));
+      return out.mul(float(1).sub(U.leave));
     })();
     m.fog = false;
     const mesh = new THREE.Mesh(lightGeo, m); mesh.frustumCulled = false; add(mesh, 1);
@@ -438,7 +438,7 @@ export function createFogueres(ctx) {
         const m = v.F.mesh;
         m.scale.set(w * k * 1.75, H * 1.3, d * k * 1.75);          // (wider than its source box: the flame's body fills it, neighbours merge)
         m.position.set(v.src.pos[0], v.src.pos[1] + H * 1.3 * (0.5 - 0.09), v.src.pos[2]);   // (the faded root straddles the source: the flame is born in the wood)
-        v.F.u.bright.value = (0.5 + 0.7 * Math.min(1, lv) + fk * 1.1 + bm * 0.6) * (1 - 0.7 * Number(U.leave.value || 0)) * FA[i].x;
+        v.F.u.bright.value = (0.5 + 0.7 * Math.min(1, lv) + fk * 1.1 + bm * 0.6) * (1 - Number(U.leave.value || 0)) * FA[i].x;
         v.F.u.magnitude.value = VSTY[sites[i].type].mag + fk * 0.7;
         m.visible = FA[i].x > 0.002;
         v.F.update();
@@ -452,7 +452,7 @@ export function createFogueres(ctx) {
       const m = v.F.mesh;
       m.scale.set(Wd, H * 1.25, Wd);
       m.position.set(sites[i].x + v.ox, Y0[sites[i].type] + H * 1.25 * 0.5, sites[i].z + v.oz);
-      v.F.u.bright.value = (0.5 + 0.7 * Math.min(1, lv) + fk * 1.1 + bm * 0.6) * (1 - 0.7 * Number(U.leave.value || 0)) * FA[i].x;
+      v.F.u.bright.value = (0.5 + 0.7 * Math.min(1, lv) + fk * 1.1 + bm * 0.6) * (1 - Number(U.leave.value || 0)) * FA[i].x;
       m.visible = FA[i].x > 0.002;
       v.F.u.magnitude.value = VSTY[sites[i].type].mag + fk * 0.7;
       v.F.update();
