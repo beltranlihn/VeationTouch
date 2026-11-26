@@ -35,13 +35,14 @@ import { createRoom3D } from '../ressonancia/scenes3d/room3d.js';
 import { createScore, TIMES } from '../ressonancia/score.js';
 import { createGuide } from '../ressonancia/scenes3d/guide3d.js';
 import { createSubtitles } from './subtitles.js';
+import { createHints } from './hints.js';
 import { overrides as tuneOverrides, applyTimes } from '../ressonancia/tuning.js';   // T-052: the score's thresholds as live params
 
 const vt = await connectExperience();
 const canvas = document.getElementById('c');
 canvas.width = vt.size.width; canvas.height = vt.size.height;
 const q = new URLSearchParams(location.search);
-const P = Object.assign({ jump: 'none', pace: 1, guide: false, lang: 'ca', bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: true, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab', warmSets: true, prewarmRT: true, entranceFirst: false }, vt.params);   // T-057: warmSets / prewarmRT (see 'pre-warming'), false = as before · T-065: entranceFirst (see 'entrance first'), false = as before
+const P = Object.assign({ jump: 'none', pace: 1, guide: false, lang: 'ca', bloom: 0.6, exposure: 1, quality: 'high', renderer: 'auto', tiles: false, eye: true, aa: 'auto', mode: 'auto', tuning: 'lab', warmSets: true, prewarmRT: true, entranceFirst: false }, vt.params);   // T-057: warmSets / prewarmRT (see 'pre-warming'), false = as before · T-065: entranceFirst (see 'entrance first'), false = as before
 // T-052 «modo sala»: in the room (mode 'room', or 'auto' inside the app, which opens the page with ?run=1) the lab's URL switches are
 // ignored, so a stray ?q3 / ?parts / ?tiles can never reach the walls. Read at load: changing `mode` needs a reload (Stop / Play).
 const LAB = P.mode === 'lab' || (P.mode !== 'room' && !q.has('run'));
@@ -55,17 +56,19 @@ const QS = { low: 0.6, medium: 0.8, high: 1 }, DENS = { low: 0.4, medium: 0.6, h
 const LT = { start: performance.now() }; const lt = (k) => { LT[k] = Math.round(performance.now() - LT.start); };   // T-057: load phases (ms), window.__obra.load
 // ------------------------------------------------------------------------------------------------ the parts (their files)
 // TRAILER: only the universes the trailer shows, plus its presentation layer (./parts/trailertext.js)
-const NAMES = ['umbral3d', 'atmos', 'plaza', 'castell', 'brasa3d', 'festa3d', 'trailertext'];
-const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'festa3d']);
-const OWN = new Set(['trailertext']);                                           // TRAILER: parts of this folder, not of ../ressonancia
+const NAMES = ['umbral3d', 'atmos', 'plaza', 'plaza3d', 'castell', 'castells3d', 'introp1', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d', 'trailertext'];   // 26-11: + the tower (climb onto the castell)   // studio 26-11: + the pinya v2 (a being for every hand)
+const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d']);
+const OWN = new Set(['trailertext']);
+const ALIAS = { plazaDark: 'plaza3d' };                                          // 26-11: a second square, the correfoc's dark bake (params.dark)                                           // TRAILER: parts of this folder, not of ../ressonancia
 const only = LAB ? q.get('parts') : null;                                       // lab: ?parts=plaza,castell loads only those
 // T-065 (LOAD): every part's module and defaults are fetched at once, while the renderer starts (they were fetched one part after
 // another — HEAD, HEAD, defaults, import: 13 × 4 round trips, seconds when the machine is busy or the sound piece loads its files)
 const loads = new Map();
 for (const name of NAMES) {
   if (only && !only.split(',').includes(name)) continue;
-  const src = new URL(OWN.has(name) ? `./parts/${name}.js` : `../ressonancia/scenes3d/parts/${name}.js`, import.meta.url).href;
-  const defsUrl = new URL(`../res-3d-study/parts/${name}.json`, import.meta.url).href;
+  const file = ALIAS[name] || name;
+  const src = new URL(OWN.has(name) ? `./parts/${file}.js` : `../ressonancia/scenes3d/parts/${file}.js`, import.meta.url).href;
+  const defsUrl = new URL(`../res-3d-study/parts/${file}.json`, import.meta.url).href;
   loads.set(name, Promise.all([import(src).then((mod) => ({ mod }), (err) => ({ err })), OWN.has(name) ? Promise.resolve([]) : fetch(defsUrl).then((r) => (r.ok ? r.json() : [])).catch(() => [])]));
 }
 const room = await createRoom3D(vt, canvas, { forceWebGL: P.renderer === 'webgl2', bloom: { strength: P.bloom }, exposure: P.exposure, renderScale: QS[P.quality] ?? 1, samples: P.quality === 'high' ? 2 : 0, aa: P.aa === 'auto' ? (P.quality === 'high' ? 'taa' : 'msaa') : P.aa });   // aa 'auto': TAA at high (RND-F's variance-clipped TAA), MSAA below — switch the default after QA's fps window   // MSAA 2 at high (T-011, DECISIONES 23:26; was 4)
@@ -94,9 +97,12 @@ for (const [name, pr] of loads) {
     const params = {};
     for (const d of Array.isArray(defs) ? defs : []) params[d.key] = d.default;
     if (name === 'umbral3d') { params.mosaic = P.mosaic || 'image'; params.resetAfter = P['trailer.resetAfter'] ?? 60; params.restSat = P.restSat ?? 0.15; }   // studio 25-11: the entrance's stones — one colour each, or his picture printed on them
+    if (name === 'brasa3d') { params.devil2 = P.devil2 !== false; params.fons = !parts.plaza3d || P.plaza3d === false; }   // the baked dark square replaces brasa v2's stand-in (fons)   // studio 26-11: the correfoc devil v3 (reload to change)
     if (name === 'atmos') params.demoLamps = false;                // the square's own lamps light the dust
-    if (name === 'plaza') params.glow = 0.3;                       // atmos draws the lamps' glow in the air too
+    if (name === 'plaza') params.glow = 0.3;
+    if (name === 'torre3d' && parts.plaza3d && P.plaza3d !== false) params.backdrop = false;   // the trailer's one square stands behind the tower                       // atmos draws the lamps' glow in the air too
     if (name === 'castell') params.density = DENS[P.quality] ?? 1;
+    if (name === 'castells3d') { params.quality = P.quality; if (P['castells.density'] != null) params.density = P['castells.density']; }   // 26-11: medium → half the points
     if (name === 'pinya3d') params.density = DENS[P.quality] ?? 1;
     if (name === 'baixada3d') params.town = false;                // the real square (plaza, silhouette) is the town behind the dawn   // 3D-PI: fewer points at medium / low
     if (name === 'fall3d') params.duration = TIMES.fall;           // its 15 s script rescaled to the score's fall
@@ -183,6 +189,7 @@ function stepBloom(dt) {
   room.setBloom(bloomNow);
 }
 room.setBloom(bloomNow);
+const hints = createHints({ THREE, TSL, room });   // 26-11: a hand and a few words per wall, until someone does it there
 const subs = createSubtitles({ THREE, TSL, room }); try { window.__subs = subs; } catch { /* no window */ }                     // studio 26-11: English subtitles over every wall (subtitles.js)
 const TITLE_WALL = 1;                                                // studio 25-11 (Beltrán): P1 opens a window for the title — no start ring there
 // studio 26-11 (Beltrán: «subí los círculos donde se tendrá que apretar»): the start button sits in the picture's round windows, at
@@ -237,8 +244,22 @@ doJump();
 // play early), a move into the NEXT segment's block jumps the clock there; any other move is put back.
 const TRL = { tt: 0, seg: -1, jumpedAt: -9, loops: 0 };
 const segments = () => {
-  const pre = P['trailer.preroll'] ?? 12, title = 50, fire = 53, res = 62;   // title 50: the intro's 4th line (41 s, ~5.4 s) ends before the correfoc
-  return [['wait', 0], ['intro', pre], ['brasa', pre + title], ['festa', pre + title + fire], ['end', pre + title + fire + res]];
+  const pre = P['trailer.preroll'] ?? 12, title = 55, fire = parts.brasa3d?.part?.sound ? (P['trailer.brasaMax'] ?? 150) : 53, res = 62;   // 26-11: the correfoc v2 lasts until its storm (at most trailer.brasaMax s)   // 26-11: the new intro script ends at ~52.6 s   // title 50: the intro's 4th line (41 s, ~5.4 s) ends before the correfoc
+  // studio 26-11 (Beltrán): the PINYA after the correfoc — not timed: it lasts until the room is full and the beings have let go (the
+  // part's fill().done), at most trailer.pinyaMax s; trailer.pinya = false leaves it out
+  const pin = P['trailer.pinya'] === false || !has('pinya3d2') ? 0 : (P['trailer.pinyaMax'] ?? 180);
+  const SG = [['wait', 0], ['intro', pre], ['brasa', pre + title]];
+  if (pin) SG.push(['pinya', pre + title + fire]);
+  const tow = P['trailer.torre'] === false || !has('torre3d') ? 0 : (P['trailer.torreMax'] ?? 240);   // the tower: until its golden ending is done
+  if (tow) SG.push(['tronc', pre + title + fire + pin]);
+  // studio 26-11 (Beltrán: «ya no vamos a hacer créditos»): after the tower's golden ending the room goes back to the mosaic (the
+  // entrance assembles again); trailer.credits = true brings the credits back
+  // … and closes on a poetic line (26-11, Beltrán): the square of particles and the castells again, «When bodies resonate together,
+  // culture is born» on one wall, «Thank you for joining Ressonància» on another, the voice, then black and the mosaic (score block 'acta')
+  const out = P['trailer.outro'] === 0 ? 0 : (P['trailer.outro'] ?? 18), e0 = pre + title + fire + pin + tow;
+  if (P['trailer.credits'] === true) SG.push(['festa', e0], ['end', e0 + res]);
+  else { if (out) SG.push(['acta', e0]); SG.push(['end', e0 + (out || (tow ? 0 : 8))]); }
+  return SG;
 };
 function trailerStep(dt) {
   if (!bg.ready) return;
@@ -252,6 +273,12 @@ function trailerStep(dt) {
   // studio 26-11 (Beltrán, the narrative): the entrance is not timed — it lasts until the public, having uncovered enough of the picture
   // (paintOpen), holds a button (the score moves to 'intro' and the trailer follows, below). trailer.waitButton = false: the preroll timer
   if (P['trailer.waitButton'] !== false && S.block === 'wait' && TRL.seg <= 0 && TRL.tt > SG[1][1] - 0.05) TRL.tt = SG[1][1] - 0.05;
+  { const k = SG.findIndex((g) => g[0] === 'pinya'), pt = parts.pinya3d2?.part;   // the pinya ends when its part is done
+    if (k > 0 && TRL.seg === k && S.block === 'pinya' && pt?.fill && pt.fill().done && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; }
+  { const k = SG.findIndex((g) => g[0] === 'brasa');   // the correfoc v2 ends when its storm has filled the room
+    if (k > 0 && TRL.seg === k && S.block === 'brasa' && link.stormFull && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; }
+  { const k = SG.findIndex((g) => g[0] === 'tronc'), pt = parts.torre3d?.part;   // and the tower when its golden ending is done
+    if (k > 0 && TRL.seg === k && S.block === 'tronc' && pt?.progress && pt.progress().done && TRL.tt < SG[k + 1][1]) TRL.tt = SG[k + 1][1]; }
   if (TRL.tt >= SG[SG.length - 1][1]) { TRL.tt = 0; TRL.loops++; }
   let i = 0; while (i + 1 < SG.length - 1 && TRL.tt >= SG[i + 1][1]) i++;
   const want = SG[i][0];
@@ -302,13 +329,18 @@ function readHands() {
 // ------------------------------------------------------------------------------------------------ which parts, block by block
 let fallSet = ['atmos'];
 // TRAILER: the trailer's blocks; the presentation layer stays on from the square to the resonance (it never crosses a tile pass)
+const SQ = () => has('plaza3d') && P.plaza3d !== false;   // the one square of the trailer (intro → correfoc → pinya)
 function wanted(b) {
   const T = has('trailertext') ? ['trailertext'] : [];
   switch (b) {
     case 'wait': return has('umbral3d') ? (parts.umbral3d?.part?.charge?.().cleared ? ['umbral3d', 'atmos'] : ['umbral3d']) : ['atmos'];   // studio 26-11 (Beltrán): once the mosaic falls, the square's air is already there behind it
-    case 'intro': return ['plaza', 'atmos', 'castell', ...T];
-    case 'brasa': return has('brasa3d') ? ['brasa3d', 'atmos', ...T] : ['atmos', ...T];
-    case 'festa': case 'crown': return has('festa3d') ? ['festa3d', ...T] : ['plaza', 'castell', 'atmos', ...T];
+    case 'intro': return [SQ() ? 'plaza3d' : 'plaza', 'atmos', has('castells3d') && P.castells3d !== false ? 'castells3d' : 'castell', ...(has('introp1') ? ['introp1'] : []), ...T];   // 26-11: the new baked square (plaza3d) and the castells of particles at many depths (castells3d); = false: the old ones
+    case 'brasa': return has('brasa3d') ? ['brasa3d', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];   // 26-11: the SAME square goes on (Beltrán: «dentro del mismo mundo»)
+    case 'pinya': return has('pinya3d2') ? ['pinya3d2', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];
+    case 'acta': return [...(SQ() ? ['plaza3d'] : []), ...(has('castells3d') ? ['castells3d'] : []), ...(has('introp1') && P['trailer.outroText'] !== false ? ['introp1'] : []), 'atmos'];   // the closing (its words: introp1's outro mode, once Título delivers it)   // studio 26-11: the pinya v2
+    case 'tronc': return has('torre3d') ? ['torre3d', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];   // 26-11: the same square, as points sinking behind the tower   // studio 26-11: the tower (score block 'tronc')
+    case 'festa': case 'crown': return has('festa3d') ? ['festa3d', 'atmos', ...T] :   // (26-11: the dust stays through the credits)
+                                    ['plaza', 'castell', 'atmos', ...T];
     default: return ['atmos', ...T];
   }
 }
@@ -377,7 +409,7 @@ const PAL = {
   wait: { warm: [1.0, 0.42, 0.18], cool: [0.35, 0.40, 0.62], air: [0.0016, 0.0016, 0.0024], thread: [1.0, 0.42, 0.16], shape: 'point' },
   intro: { warm: [1.0, 0.62, 0.32], cool: [0.55, 0.66, 1.0], air: [0.0035, 0.0058, 0.0125], thread: [1.0, 0.66, 0.34], shape: 'point' },
   brasa: { warm: [1.0, 0.36, 0.12], cool: [0.62, 0.48, 0.55], air: [0.0080, 0.0030, 0.0022], thread: [1.0, 0.34, 0.10], shape: 'point' },
-  pinya: { warm: [1.0, 0.46, 0.38], cool: [0.30, 0.95, 0.90], air: [0.0018, 0.0070, 0.0080], thread: [0.35, 1.0, 0.92], shape: 'point' },
+  pinya: { warm: [1.0, 0.27, 0.19], cool: [0.50, 0.58, 0.72], air: [0.0030, 0.0036, 0.0060], thread: [0.89, 0.23, 0.18], shape: 'point' },   // studio 26-11: pinya v2 — cold blue-grey dust, the red of its net (was turquoise)
   tronc: { warm: [0.95, 0.52, 0.30], cool: [0.70, 0.80, 0.95], air: [0.0050, 0.0040, 0.0040], thread: [0.95, 0.55, 0.32], shape: 'tile' },
   pom: { warm: [1.0, 0.82, 0.45], cool: [0.86, 0.90, 1.0], air: [0.0030, 0.0032, 0.0040], thread: [0.95, 0.96, 1.0], shape: 'line' },
   crown: { warm: [1.0, 0.85, 0.55], cool: [0.90, 0.85, 1.0], air: [0.0040, 0.0036, 0.0050], thread: [1.0, 0.86, 0.5], shape: 'line' },
@@ -428,8 +460,8 @@ function startTransition(from, to) {
   tr.on = true; tr.t = 0; tr.at = time; tr.from = from; tr.to = to; tr.mv = MOVES[to] || MOVES.wait; tr.dur = tr.mv.dur;
   tr.delay = from === 'wait' ? 1.0 : 0.15;                              // T-060: out of the noon the slabs wait 1 s: the dusk falls first, they carry dusk → night
   tr.origin = (Math.random() * 4 | 0) * 0.25 + 0.125;                  // the front starts at the centre of one wall
-  room.setTiles({ on: P.tiles !== false, seed: Math.random() * 100, origin: tr.origin, origins: 1, mix: 0, amount: 1, accentFrom: (PAL[from] || PAL.intro).thread, accentTo: (PAL[to] || PAL.intro).thread });
-  thread.begin(from, to);
+  room.setTiles({ on: P.tiles === true, seed: Math.random() * 100, origin: tr.origin, origins: 1, mix: 0, amount: 1, accentFrom: (PAL[from] || PAL.intro).thread, accentTo: (PAL[to] || PAL.intro).thread });
+  if (P.tiles === true) thread.begin(from, to);   // 26-11 (Beltrán: «transiciones súper orgánicas, con disolución de partículas»): no slabs, no thread — every part comes and goes as particles
 }
 function stepTransition(dt) {
   if (!tr.on) return;
@@ -443,7 +475,7 @@ function stepTransition(dt) {
     else if (e.state === 'on') placeRig(e.rig, 0, tr.mv);
     // a part that has gone ('off') keeps its last pose while hidden: no snap (QA 24-11); it is put back at the next arrival
   }
-  thread.update(dt, k);
+  if (P.tiles === true) thread.update(dt, k);
   if (k >= 1 && m >= 1) { tr.on = false; room.setTiles({ on: false }); for (const e of list) { if (e.state !== 'off') placeRig(e.rig, 0, tr.mv); e.came = false; } thread.end(); }
 }
 function pass(which) {                       // room.render's hook: the outgoing world, then the incoming one (shared parts in both)
@@ -456,7 +488,7 @@ function passIntro(which) { for (const e of list) e.rig.visible = !e.torn && (wh
 function stepIntroBreak() {
   const pl = parts.plaza; if (!pl) return null;
   if (pl.state === 'off' || pl.state === 'in') pl.torn = false;
-  if (tr.on || P.tiles === false || pl.home !== 'intro' || S.block !== 'intro' || pl.torn) return null;
+  if (tr.on || P.tiles !== true || pl.home !== 'intro' || S.block !== 'intro' || pl.torn) return null;
   const k = clamp((S.t - 46.3) / 11.5, 0, 1);
   if (k <= 0) return null;
   if (k >= 1) { pl.torn = true; room.setTiles({ on: false }); return null; }
@@ -557,7 +589,7 @@ function frame(dt) {
   trailerStep(dt);                                                  // TRAILER
   if (following()) {
     if (S.block === 'tronc') S.beat = (link.beat + (((Date.now() - link.ts) / 1000) * link.pace) / score.times.tronc.period) % 1;   // between two messages the pulse keeps moving
-    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: timesNow(), lang: P.lang, button: BUTTON }); }   // TRAILER: lang — the voice speaks the trailer's language
+    if (time - link.told > 1) { link.told = time; tell({ pace: P.pace || 1, times: timesNow(), lang: P.lang, button: BUTTON, intro: 'trailer' }); }   // TRAILER: lang — the voice speaks the trailer's language
     frameEvents.push(...link.events.splice(0));
   } else { score.step(dt * (P.pace || 1), scoreHands); frameEvents.push(...S.events); S.events.length = 0; }
   if ((time - actaAt > 0.5 || S.block !== lastBlock) && S.block !== 'wait' && S.block !== 'intro') { actaAt = time; acta = link.acta && following() ? link.acta : score.acta(); }   // kept through the wait: the acta leaving must not read a reset score
@@ -565,7 +597,7 @@ function frame(dt) {
   if (S.block !== lastBlock) {
     prevBlock = lastBlock;
     try { room.setEnvironment?.(S.block); } catch (err) { console.info('res-obra3d: setEnvironment skipped (' + err.message + ')'); }   // RND-F: the shared envMap per block (HDRI / tint), re-baked in place
-    room.setBackground?.(S.block);                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
+    room.setBackground?.(S.block === 'wait' && has('umbral3d') ? { bottom: [0.012, 0.022, 0.066], top: [0.012, 0.022, 0.066], gain: 1 } : S.block);   // 26-11 QA: the mosaic comes back over its own night blue, never a flash of sand                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
     if ((S.block === 'wait' || S.block === 'intro') && parts.baixada3d?.part.releaseTronc) { try { parts.baixada3d.part.releaseTronc(); } catch (err) { console.info('res-obra3d: releaseTronc skipped (' + err.message + ')'); } }   // 3D-PO: a new pass gives the tower's floors back to tronc3d
     if (S.block === 'fall') {
       fallSet = ['atmos']; for (const n of ['plaza', 'castell', 'tronc3d']) if (parts[n] && (parts[n].state === 'on' || parts[n].state === 'in')) fallSet.push(n);   // tronc3d: fall3d (3D-PI) calls its collapse()
@@ -585,10 +617,10 @@ function frame(dt) {
 
   // who comes, who goes
   const W = wanted(S.block);
-  const tk = tr.on && P.tiles !== false ? room.tiles.mix.value : -1;
+  const tk = tr.on && P.tiles === true ? room.tiles.mix.value : -1;
   for (const e of list) {
     if (W.includes(e.name)) {
-      if (e.home !== S.block) { e.home = S.block; e.fallK = 0; }
+      if (e.home !== S.block) { e.home = S.block; e.fallK = 0; if ((e.name === 'pinya3d2' && S.block === 'pinya') || (e.name === 'torre3d' && S.block === 'tronc') || (e.name === 'brasa3d' && S.block === 'brasa')) { e.part.reset?.(); if (e.name === 'brasa3d') link.stormFull = false; } }   // (26-11: every pass starts an empty room)
       if (e.state === 'off') { for (const l of e.lights) l.visible = true; placeRig(e.rig, 0, tr.mv); e.state = 'in'; e.came = true; e.arrive = 0; e.leave = 0; e.clock = 0; steadyOn(e); e.wait = S.block === 'baixada' && prevBlock === 'festa' ? 0.9 : 0; e.part.object.visible = true; }   // festa→baixada: the festa is dark by ~1.5 s, the bajada starts at 0.9 s so the two cross
       else if (e.state === 'out') { e.state = 'in'; e.came = true; e.arrive = 1 - e.leave; e.leave = 0; }
     } else if (e.state === 'on' || e.state === 'in') { e.leave = 1 - e.arrive; e.arrive = 1; e.state = 'out'; e.outAt = time; e.came = false; }   // came: a part arriving in an unfinished transition must not stay in the 'in' world (RND-F 24-11: else it is in neither)
@@ -596,11 +628,11 @@ function frame(dt) {
     // one stays whole until most of its slabs have turned (then it breaks, quickly, under the last of them); a part left over from an
     // earlier change (rapid jumps) goes quickly; the acta's words never linger over the threshold (QA 24-11): 1.2 s, no hold
     if (e.state === 'in') { if (e.wait > 0) e.wait -= dt; else { e.arrive = Math.min(1, e.arrive + dt / (tk >= 0 ? 1.6 : TR)); if (e.arrive >= 1) e.state = 'on'; } }
-    else if (e.state === 'out') { e.leave = Math.min(1, e.leave + (e.name === 'actatext' ? dt / 1.2 : tk < 0 ? dt / TR : e.outAt < tr.at - 1.0 ? dt / 1.2 : tk < 0.6 ? 0 : dt / 1.5)); if (e.leave >= 1) { e.state = 'off'; e.part.object.visible = false; for (const l of e.lights) l.visible = false; steadyOff(e); } }
+    else if (e.state === 'out') { e.leave = Math.min(1, e.leave + (e.name === 'actatext' ? dt / 1.2 : tk < 0 ? dt / TR : e.outAt < tr.at - 1.0 ? dt / 1.2 : tk < 0.6 ? 0 : dt / 1.5)); if (e.leave >= 1 && !e.part.lingering) { e.state = 'off';   /* 26-11: a part whose dust still floats (part.lingering) keeps playing */ e.part.object.visible = false; for (const l of e.lights) l.visible = false; steadyOff(e); } }
   }
 
   if (changed) {
-    if ((P.tiles !== false || P.eye !== false) && list.some((e) => e.state === 'out')) startTransition(fromBlock, S.block);
+    if ((P.tiles === true || P.eye !== false) && list.some((e) => e.state === 'out')) startTransition(fromBlock, S.block);
     else if (!tr.on) for (const e of list) e.came = false;
   }
   stepTransition(dt);
@@ -621,8 +653,9 @@ function frame(dt) {
       // animación siguiente»): in the entrance, atmos only comes once the mosaic has fallen, and it comes as the square's air (intro's mood,
       // dust and haze, no line); lvlFloor keeps it full when the square's clock starts at 0, so the motes go on without a blink
       const early = e.home === 'wait' && has('umbral3d');
-      if (early) { t = 0; if (!e.carry) { e.mood = 1; e.dustK = 0.5; e.acta = 0; } e.carry = 1; }   // it arrives already as the square's air (no ease from the acta's dark) else if (e.home !== 'intro') e.carry = 0;
-      const look = early ? 'intro' : e.home;
+      if (early) { t = 0; if (!e.carry) { e.mood = 1; e.dustK = 0.5; e.acta = 0; } e.carry = 1; } else if (e.home !== 'intro' && e.home !== 'acta') e.carry = 0;   // it arrives already as the square's air (no ease from the acta's dark)
+      // 26-11 (Beltrán: «la sala nunca se puede ver de un color plano»): the closing keeps the intro's full air of motes (not the acta's black)
+      const look = early || e.home === 'acta' ? 'intro' : e.home;
       e.mood = ease(e.mood ?? 1, look === 'baixada' ? 0.22 : look === 'tronc' ? 0.2 : look === 'acta' ? 0.15 : look === 'wait' ? 0.08 : look === 'pinya' ? 0.25 : 1, dt, 1.2);   // the wait: almost total dark, a line of embers   // the acta: black and typography   // the baixada: the air clears so the falling light reads
       for (const key of ['dust', 'haze', 'line']) p[key] = (e.base[key] ?? 1) * smooth(k) * (key === 'line' ? 1 : e.mood);
       e.dustK = ease(e.dustK ?? 1, look === 'intro' ? 0.5 : e.home === 'brasa' ? 0 : 1, dt, 1.2); p.dust *= e.dustK;   // Vicente 25-11 (ARTE-BRASA): no motes in the Brasa, only sparks (in res-obra3d the multiply ended up inside the comment)   // art 24-11: in the square at half (it read as snow)
@@ -630,13 +663,13 @@ function frame(dt) {
       e.acta = ease(e.acta ?? 0, look === 'acta' || look === 'wait' ? 1 : 0, dt, 1.2);   // acta and wait: no lamps in the air, no haze
       e.noHaze = ease(e.noHaze ?? 0, e.home === 'pinya' ? 1 : 0, dt, 1.2); p.haze *= 1 - e.noHaze;   // pinya: no haze (the motes read as static)
       if (e.acta > 0.001) { p.haze *= 1 - e.acta; p.lampGain = (e.base.lampGain ?? 1) * (1 - e.acta); } else p.lampGain = e.base.lampGain ?? 1;
-      e.stirK = ease(e.stirK ?? 1, e.home === 'pinya' ? 0 : e.home === 'tronc' ? 0.3 : e.home === 'baixada' ? 0.5 : 1, dt, 1.2);   // where figures stand behind the buttons, the hands' warm dust is softer
+      e.stirK = ease(e.stirK ?? 1, e.home === 'pinya' ? 0.4 : e.home === 'tronc' ? 0.3 : e.home === 'baixada' ? 0.5 : 1, dt, 1.2);   // where figures stand behind the buttons, the hands' warm dust is softer
       p.stir = (e.base.stir ?? 1) * e.stirK;
       p.warm = pal.warm; p.cool = pal.cool; p.air = pal.air;   // the colour script
-      p.lineColor = pal.line; p.lineHalo = pal.halo; p.line *= pal.lineK; if (early) p.line = 0;
+      p.lineColor = pal.line; p.lineHalo = pal.halo; p.line *= pal.lineK; if (early || (e.home === 'intro' && has('plaza3d') && P.plaza3d !== false)) p.line = 0;   // (26-11: the new intro has no horizon line)
       p.lvlFloor = e.carry ? 1 : 0;   // hands still stir it, less: the warm swirls were the bright cloud by the targets
     } else if (e.name === 'plaza') {
-      if (e.home === 'intro') { t = S.block === 'intro' ? S.t : 70; p.noBreak = P.tiles !== false; p.skyTint = INTRO_SKY; p.silhouette = 0; p.shatter = 0; p.reveal = 0; p.lamps = e.base.lamps ?? 1; p.sky = e.base.sky ?? 1; p.windows = Math.max(0.55, e.base.windows ?? 0.45); p.pool = 1.5; p.moonKey = 1.0; p.night = 1; p.reach = 0.4; p.glow = e.base.glow ?? 0.3; p.haze = e.base.haze ?? 1; p.moon = e.base.moon ?? 1; e.mood = 1; }
+      if (e.home === 'intro') { t = S.block === 'intro' ? S.t : 70; p.noBreak = P.tiles === true; p.skyTint = INTRO_SKY; p.silhouette = 0; p.shatter = 0; p.reveal = 0; p.lamps = e.base.lamps ?? 1; p.sky = e.base.sky ?? 1; p.windows = Math.max(0.55, e.base.windows ?? 0.45); p.pool = 1.5; p.moonKey = 1.0; p.night = 1; p.reach = 0.4; p.glow = e.base.glow ?? 0.3; p.haze = e.base.haze ?? 1; p.moon = e.base.moon ?? 1; e.mood = 1; }
       else {
         t = 30; p.noBreak = false; p.skyTint = pal.sky; p.silhouette = e.home === 'baixada' || e.home === 'fall' ? 1 : 0; p.silDrop = 13.5;   // director 24-11: rooftops at ~30–40 % of the wall, the dawn sky dominates p.pool = 1; p.moonKey = 1; p.night = 0; p.reach = 1;
         let sh = e.state === 'in' ? 1 - smooth(e.arrive) : e.state === 'out' ? 1 - (1 - e.leave) * (1 - e.leave) : 0;   // leaving: it starts breaking at once
@@ -648,9 +681,38 @@ function frame(dt) {
         p.lamps = (e.base.lamps ?? 1) * dim * e.mood; p.sky = (e.base.sky ?? 1) * dim * (0.15 + 0.85 * night); p.windows = (e.base.windows ?? 0.45) * dim * (0.15 + 0.85 * night); p.moon = (e.base.moon ?? 1) * (0.12 + 0.88 * night);
         p.glow = (e.base.glow ?? 0.3) * e.mood; p.haze = (e.base.haze ?? 1) * (0.2 + 0.8 * night);
       }
-    } else if (e.name === 'actatext') t = serving ? S.t : 40;
+    } else if (e.name === 'plaza3d') {
+      // studio 26-11 (Beltrán's intro): the square condenses out of the dust with the first lines (1.5–14 s), becomes points again on
+      // «Welcome to Ressonància» (17–19 s) and stays a square of particles behind the castells and the titles, then lifts away (50.5–55 s)
+      // … and it stays the SAME square after the intro (26-11): the correfoc darkens it (dark, its fires light it), the pinya keeps it as
+      // faint points; its parameters ease inside the part (params.ease), so a block may set them at once; reveal / shatter are the clock
+      const sm = (a, b, x) => smooth((x - a) / (b - a));
+      if (e.home === 'intro') {
+        t = serving ? S.t : 60; const back = sm(17, 19, t);
+        p.reveal = sm(1.5, 14, t) * (1 - 0.45 * back); p.dark = 0; p.occlude = 1;
+        p.pointGain = 0.05 + ((P['intro.pointGain'] ?? 0.4) - 0.05) * back; p.breathe = back; p.cool = 0.5 * back;
+      } else if (e.home === 'brasa') {
+        const k = sm(0.5, 5.5, serving ? S.t : 9);                    // the particles of the intro turn into the dark square of the fires
+        p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.4 * (1 - k) + 0.05 * k; p.breathe = 1 - k; p.cool = 0.5;
+      } else if (e.home === 'pinya') {   // (26-11 QA) the correfoc's light dies with its dust, over ~4 s, not in one frame
+        const k = 1 - smooth((serving ? S.t : 9) / 4.5);
+        p.dark = 1; p.reveal = 0.55; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6; p.fires = (e.lastFires || [0, 0, 0, 0]).map((f) => f * k); p.lit = (e.lastLit || 0) * k; }
+      if (e.home === 'tronc') {   // the tower: points only, no occluder, moved down with the tower's world (its plazaSink parallax)
+        const g = parts.torre3d?.part?.progress?.() || {};
+        p.dark = 1; p.reveal = 0.55; p.occlude = 0; p.pointGain = 0.35; p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0;
+        e.part.object.position.y = (g.worldY || 0) * (1 + (g.plazaSink ?? 0.35));
+      } else e.part.object.position.y = 0;
+      const D = P['trailer.outro'] ?? 18;
+      if (e.home === 'acta') { const ta = serving ? S.t : 0; p.dark = 0; p.reveal = 0.55; p.occlude = 1; p.pointGain = 0.4 * sm(0, 3, ta); p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.shatter = Math.max(e.leave || 0, sm(D - 5, D - 1.5, ta)); }
+      else p.shatter = e.leave || 0;
+    } else if (e.name === 'castells3d' || e.name === 'introp1') {
+      if (e.home === 'acta') { t = serving ? S.t : 0; p.mode = 'outro'; p.outroDur = P['trailer.outro'] ?? 18; }   // the closing: its own clock and mode
+      else { t = S.block === 'intro' && serving ? S.t : 60; p.mode = 'intro'; }
+    }   // its build, stages and end ride the intro's clock
+    else if (e.name === 'actatext') t = serving ? S.t : 40;
     else if (e.name === 'trailertext') { t = TRL.tt; input.segments = segments(); input.lang = P.lang; }   // TRAILER: its own clock
     else if (e.name === 'introtext') t = S.block === 'intro' && serving ? S.t : 76 + 3 * Math.min(1, e.leave * 8);   // the title goes in ~1.5 s: it must not sit under Brasa's card
+    else if (e.name === 'brasa3d') p.tint = e.state === 'out' ? (PAL[S.block] || PAL.pinya).cool : null;   // its dust cools to the next block's air
     else if (e.name === 'castell') { p.tint = pal.tint; if (e.home === 'intro') t = S.block === 'intro' ? S.t : 70; driveCastell(e, dt, time, frameEvents); }
     input.t = t; input.progress = e.progress; input.params = p; input.arrive = e.arrive; input.leave = e.leave;
     const p0 = performance.now(); e.part.update(dt, input); prof.max(e.name, performance.now() - p0);
@@ -661,12 +723,46 @@ function frame(dt) {
       if (Math.abs(rv - (link.rvSent ?? -1)) > 0.01 || time - (link.rvAt ?? -9) > 1) { link.rvSent = rv; link.rvAt = time; tell({ reveal: rv }); } }
     // studio 26-11: the START is the charge ring round the room (umbral3d: one hand in a circle, or several) — this score's and the sound's
     // (its start tone rises with it); once the mosaic has fallen (CLEAR) and the room has stayed blue CLEAR_HOLD s, the trailer goes on
+    // studio 26-11: the pinya v2 says how full the room is — this score's and the sound's pinya hold on it (they never end it themselves)
+    const pf = S.block === 'pinya' ? parts.pinya3d2?.part?.fill?.() : null;
+    if (pf) { score.setFill(pf.total); if (Math.abs(pf.total - (link.fiSent ?? -1)) > 0.01 || time - (link.fiAt ?? -9) > 1) { link.fiSent = pf.total; link.fiAt = time; tell({ fill: pf.total }); }
+      const k = pf.total; room.setBackground?.({ bottom: [0.0035 + 0.006 * k, 0.0045 + 0.0015 * k, 0.008], top: [0.008 + 0.01 * k, 0.011 + 0.002 * k, 0.02 - 0.004 * k], gain: 1 }); }   // the part's dark, warming with the fill
+    // the tower: its climbers (and the golden charge) hold both scores' tronc; «hold the golden light» when it is ready for it
+    // the correfoc v2: its fires hold both scores' brasa, light the dark square (plazaDark), feed the fire's sound; its storm ends it
+    const bp = S.block === 'brasa' ? parts.brasa3d?.part : null;
+    if (bp?.progress) { const g = bp.progress(), ev = bp.events || [];
+      if (ev.includes('storm:full')) link.stormFull = true;
+      score.setFill(g.total ?? 0); if (Math.abs((g.total ?? 0) - (link.fiSent ?? -1)) > 0.01 || time - (link.fiAt ?? -9) > 1) { link.fiSent = g.total ?? 0; link.fiAt = time; tell({ fill: g.total ?? 0 }); }
+      const pd = parts.plaza3d; if (pd && pd.home === 'brasa') { const k = 1 - 0.6 * (g.storm || 0); pd.params.fires = (g.fires || [0, 0, 0, 0]).map((f) => f * k); pd.params.lit = (g.boom || 0) * k; pd.lastFires = pd.params.fires.slice(); pd.lastLit = pd.params.lit; }
+      if (bp.sound) try { bc?.postMessage({ type: 'brasa', s: bp.sound() }); } catch { /* alone */ } }
+    const tp = S.block === 'tronc' ? parts.torre3d?.part : null;
+    if (tp?.progress) { const g = tp.progress(), v = Math.min(1, 0.9 * (g.needed ? g.climbers / g.needed : 0) + 0.1 * (g.charge || 0));
+      score.setFill(v); if (Math.abs(v - (link.fiSent ?? -1)) > 0.01 || time - (link.fiAt ?? -9) > 1) { link.fiSent = v; link.fiAt = time; tell({ fill: v }); }
+      if ((tp.events || []).includes('aleta:ready')) tell({ say: 'v-torre-gold' }); }
     const ch = parts.umbral3d?.part?.charge?.();
     if (ch && S.block === 'wait') {
       const st = ch.cleared ? (ch.clearedFor >= (P['trailer.clearHold'] ?? 6) ? 1 : 0.999) : Math.min(0.998, ch.cover);
       score.setStart(st);
       if (Math.abs(st - (link.stSent ?? -1)) > 0.01 || st >= 1 || time - (link.stAt ?? -9) > 1) { link.stSent = st; link.stAt = time; tell({ start: st }); }
     } }
+  // studio 26-11 (Beltrán: «la interactividad funciona cuando es sinestésica»): every part's events of this frame go to the sound piece
+  // ({ type: 'ev', part, block, ev: [...] }), and its progress about 4× a second ({ type: 'st', part, block, p }), so every touch, birth,
+  // climb, tier, feed, boom and ending can sound
+  for (const e of list) {
+    if (e.state === 'off' || !e.part) continue;
+    const ev = e.part.events; if (ev && ev.length) try { bc?.postMessage({ type: 'ev', part: e.name, block: S.block, ev: ev.slice(0, 32) }); } catch { /* alone */ }
+    if (time - (e.stAt ?? -9) > 0.25) { e.stAt = time; const pr = e.part.progress?.() ?? e.part.fill?.() ?? (e.part.charge ? { ...e.part.charge(), paint: e.part.paint?.() } : null); if (pr) try { bc?.postMessage({ type: 'st', part: e.name, block: S.block, p: pr }); } catch { /* alone */ } }
+  }
+  // studio 26-11 (Beltrán): the hints per wall — after each stage's opening, a hand and two or three words; gone on a wall once someone
+  // does it there, back after `idle` s with nobody doing it on that wall (P['trailer.hints'] = false: none)
+  { let cfg = null;
+    if (P['trailer.hints'] !== false) {
+      if (S.block === 'brasa') cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 12, idle: 15, y: 1.25, dx: -1.8 };   // beside the fire, not on it
+      else if (S.block === 'pinya') cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 11, idle: 15, y: 1.35, dx: -1.8 };   // beside the opening's beings
+      else if (S.block === 'tronc') { const g = parts.torre3d?.part?.progress?.() || {};
+        cfg = g.ending > 0 ? null : g.ready ? { text: 'Hold the light', walls: [0, 2, 3], from: 0, idle: 10, y: 1.75, hold: 1 } : { text: 'Hold your hand', walls: [0, 2, 3], from: 9.5, idle: 15, y: 1.75, hold: 1.5 }; }
+    }
+    hints.update(dt, time, { block: S.block, t: S.t || 0, hands: hs, downs, cfg }); }
   subs.update(dt);
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
   p1 = performance.now(); const ib = stepIntroBreak();
@@ -788,6 +884,10 @@ async function bgWarm() {
         if (e.state === 'off') {                                     // (a part already on screen — a sound piece far into its pass — is left alone)
           const u0 = performance.now(); wi.t = tw; wi.params = e.params; const s0 = e.params.shatter; if (e.name === 'plaza') e.params.shatter = sh;
           try { e.part.update(1 / 60, wi); } catch (err) { console.info(`res-obra3d: warm-up of "${e.name}" skipped (${err.message})`); }
+          // 26-11 QA: castells3d, pinya3d2 and torre3d bake their bodies a few ms per update and only then make their meshes — let them
+          // finish here (during the mosaic) so the compile below sees them, instead of a stall when the block arrives
+          const baked = () => { const r = e.part.progress?.()?.readyMs ?? globalThis['__' + e.name]?.readyMs; return r == null || r > 0; };
+          for (let kb = 0; kb < 900 && !baked(); kb++) { await nextFrame(); try { e.part.update(1 / 60, wi); } catch { break; } }
           if (e.name === 'plaza') e.params.shatter = s0;
           const du = performance.now() - u0; worst = Math.max(worst, du); if (du > 30) bg.slow.push([e.name + ':update', Math.round(du)]);
           await nextFrame();

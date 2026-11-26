@@ -822,7 +822,8 @@ export function create(ctx) {
       }
     }).catch((e) => console.info('umbral3d: the button picture skipped (' + e.message + ')'));
   }
-  let clearT0 = -1, chargeCov = 0;
+  let clearT0 = -1, chargeCov = 0, wasOpen = false;
+  const events = [];   // studio 26-11: this frame's events for the host / sound ('open' the buttons appear, 'charge:<w>' / 'uncharge:<w>' a hand in a circle, 'cleared' the mosaic falls)
   const fallDelay = new Float32Array(NC);
   function coverOf() {                                                                // the share of the perimeter the charge rings cover now
     const iv = [];
@@ -1500,7 +1501,9 @@ export function create(ctx) {
     if (nh > 0) lastHandT = time;
     if (PERSIST && paintedN > 0 && time - lastHandT > RESET_AFTER && (!S || S.block === 'wait') && clearT0 < 0 && !btns.some((b) => b.t0 >= 0)) unpaint();
     // ---- the buttons and the charge (see THE BUTTONS)
+    events.length = 0;
     const openNow = PERSIST && waveT0 >= 0 && time - waveT0 > (dB ? R0W / WIN_V - 0.4 : 1.2) && (!S || S.block === 'wait') && clearT0 < 0;
+    if (openNow && !wasOpen) events.push('open'); wasOpen = openNow;
     for (const b of btns) {
       if (!b.seen) { surfHit(_v.copy(b.w.centre).addScaledVector(b.w.right, b.cx).setY(b.o.cy)); b.cu = hit.cu; b.cv = hit.cy; b.seen = new Uint16Array(NC); }
       let inside = false;
@@ -1509,8 +1512,8 @@ export function create(ctx) {
         const hx = _v2.subVectors(h.pos, b.w.centre).dot(b.w.right) - b.cx, hy = h.pos.y - b.o.cy;
         if (hx * hx + hy * hy < (b.r + 0.12) * (b.r + 0.12)) { inside = true; break; }
       }
-      if (inside) { b.offT = 0; if (b.t0 < 0) { b.t0 = time; b.gen = (b.gen % 65000) + 1; } }   // studio 26-11 (Beltrán): the ring is BORN at the button and spreads (a band of turning stones, below)
-      else if (b.t0 >= 0 && (b.offT += dt) > 0.35) { if (b.pulse >= 0) { const p = pulses[b.pulse]; if (p.t0 === b.t0) p.on = false; b.pulse = -1; } b.t0 = -1; }   // let go (0.35 s of grace): the ring and its charge are lost
+      if (inside) { b.offT = 0; if (b.t0 < 0) { b.t0 = time; b.gen = (b.gen % 65000) + 1; events.push('charge:' + b.w.index); } }   // studio 26-11 (Beltrán): the ring is BORN at the button and spreads (a band of turning stones, below)
+      else if (b.t0 >= 0 && (b.offT += dt) > 0.35) { events.push('uncharge:' + b.w.index); if (b.pulse >= 0) { const p = pulses[b.pulse]; if (p.t0 === b.t0) p.on = false; b.pulse = -1; } b.t0 = -1; }   // let go (0.35 s of grace): the ring and its charge are lost
       b.R = b.t0 >= 0 ? (time - b.t0) * CHARGE_V : 0;   // (26-11: the same band as the opening, slower)
       const showTo = openNow && b.t0 < 0 ? 1 : 0, glowTo = b.t0 >= 0 ? 1 : 0;
       b.show += (showTo - b.show) * Math.min(1, dt * 3.5); b.glow += (glowTo - b.glow) * Math.min(1, dt * 5);
@@ -1532,7 +1535,7 @@ export function create(ctx) {
       R0W = mx + 0.4;
     }
     chargeCov = clearT0 < 0 ? coverOf() : 1;
-    if (clearT0 < 0 && chargeCov >= 0.999) { clearT0 = time; for (let i = 0; i < NC; i++) fallDelay[i] = rnd() * rnd() * 1.4; for (const b of btns) b.t0 = -1; }
+    if (clearT0 < 0 && chargeCov >= 0.999) { events.push('cleared'); clearT0 = time; for (let i = 0; i < NC; i++) fallDelay[i] = rnd() * rnd() * 1.4; for (const b of btns) b.t0 = -1; }
     uTitleK.value = clearT0 >= 0 ? 1 - smooth(clearT0 + 0.2, clearT0 + 1.8, time) : 1;
     const bedK = smooth(0, 0.45, arrive) * (1 - smooth(0.35, 1, leave));
     uBed.value = bedK * (clearT0 >= 0 ? 1 - smooth(clearT0 + 0.6, clearT0 + 2.6, time) : 1);   // studio 26-11: CLEAR — the joints' bed crumbles away too: the night and all its dust
@@ -1775,6 +1778,7 @@ export function create(ctx) {
     update,
     setParams() { /* read live from params */ },
     paint: () => { let m = 1; const walls_ = []; for (let w = 0; w < NW; w++) if (visW[w] > 0) { const k = paintedW[w] / visW[w]; walls_.push(+k.toFixed(3)); m = Math.min(m, k); } return { share: m, total: paintedN / visN, walls: walls_, painted: paintedN, of: visN, wave: waveT0 >= 0 }; },
+    events,
     charge: () => ({ cover: chargeCov, cleared: clearT0 >= 0, clearedFor: clearT0 >= 0 ? time - clearT0 : 0, holding: btns.filter((b) => b.t0 >= 0).length }),   // studio 26-11
     wavePasses: () => { const n = [0, 0, 0]; for (const v of wavePass) n[Math.min(2, v)]++; return n; },   // lab: stones by passes received   // studio 26-11: how much of the picture is uncovered
     touch(wall, x, y) { const w = walls[wall]; surfHit(_v2.copy(w.centre).addScaledVector(w.right, x).setY(y)); land(_v2, nearest(hit.cu, hit.cy), 40); },   // lab checks only: a landing at a point of a wall (x from its centre, y from the floor, m)

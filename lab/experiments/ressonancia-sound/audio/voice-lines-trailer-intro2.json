@@ -1,0 +1,26 @@
+{
+ "en": {
+  "v-trl-2": "[hushed] No stone. No rope. Only bodies, one standing on another. They call them castells.",
+  "v-trl-welcome": "[warm, softly] Welcome to Ressonància.",
+  "v-trl-what": "[softly] An interactive work, where all of us, together, build a castell with our hands.",
+  "v-trl-stages": "[slowly, softly] It begins with fire: the correfoc. Then the pinya: strength. The tronc: balance. The pom de dalt: courage. And l'aleta, when it is crowned.",
+  "v-trl-preview": "[softly] Tonight, in this trailer, we will climb as far as the castell has been built.",
+  "v-trl-close": "[softly] Put your hands on the wall."
+ },
+ "es": {
+  "v-trl-2": "[hushed] Sin piedra. Sin cuerdas. Solo cuerpos, uno sobre otro. Los llaman castells.",
+  "v-trl-welcome": "[warm, softly] Bienvenidos a Ressonància.",
+  "v-trl-what": "[softly] Una obra interactiva, donde entre todos, con nuestras manos, levantamos un castell.",
+  "v-trl-stages": "[slowly, softly] Empieza con el fuego: el correfoc. Después, la pinya: fuerza. El tronc: equilibrio. El pom de dalt: valor. Y l'aleta, cuando se corona.",
+  "v-trl-preview": "[softly] Esta noche, en este tráiler, subiremos hasta donde el castell ya está construido.",
+  "v-trl-close": "[softly] Poned las manos sobre el muro."
+ },
+ "ca": {
+  "v-trl-2": "[hushed] Sense pedra. Sense cordes. Només cossos, l'un sobre l'altre. En diuen castells.",
+  "v-trl-welcome": "[warm, softly] Benvinguts a Ressonància.",
+  "v-trl-what": "[softly] Una obra interactiva, on tots junts, amb les nostres mans, aixequem un castell.",
+  "v-trl-stages": "[slowly, softly] Comença amb el foc: el correfoc. Després, la pinya: força. El tronc: equilibri. El pom de dalt: valor. I l'aleta, quan es corona.",
+  "v-trl-preview": "[softly] Aquesta nit, en aquest tràiler, pujarem fins on el castell ja està construït.",
+  "v-trl-close": "[softly] Poseu les mans sobre el mur."
+ }
+}

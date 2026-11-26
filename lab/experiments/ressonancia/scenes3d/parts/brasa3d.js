@@ -48,6 +48,8 @@
 import { createFoguera, FOG_D } from './brasa3d/foguera.js';
 import { createFons } from './brasa3d/fons.js';
 import { createDiables } from './brasa3d/diables.js';
+import { createDiables as createDiable2 } from './brasa3d/diable2.js';
+import { createBrasa2 } from './brasa3d/brasa2.js';   // brasa v2 (26-11, Personaje): the four fires fed by the correfocs, the boom, the dark plaza lit; params.brasa2 = false brings back this level   // studio 26-11 (Beltrán): the correfoc devil v3 (Personaje, lab/diable-v2) — params.devil2 = false brings back DIA's
 
 const NC = 512;                         // heat cells round the perimeter
 const NSP = 131072;                     // sparks
@@ -64,6 +66,7 @@ const smoother = (v) => { const s = clamp01(v); return s * s * s * (s * (s * 6 -
 function rng(seed) { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 export function create({ THREE, TSL, room, params }) {
+  if ((params || {}).brasa2 !== false) return createBrasa2({ THREE, TSL, room, params });
   const P = params || {};
   const {
     Fn, uniform, uniformArray, instancedArray, instanceIndex, attribute, varying, positionWorld, positionGeometry, uv, texture,
@@ -534,7 +537,7 @@ export function create({ THREE, TSL, room, params }) {
     }
     return meshes;
   })();
-  const DIA = useOldDevils ? null : createDiables({ THREE, TSL, room, world, U, mirP, CHROME, fireRamp, emit, MAXD, ringPoint, eye });
+  const DIA = useOldDevils ? null : (P.devil2 !== false ? createDiable2 : createDiables)({ THREE, TSL, room, world, U, mirP, CHROME, fireRamp, emit, MAXD, ringPoint, eye });
   if (DIA) for (const m of DIA.meshes) room.reactive?.(m);           // T-070: fast movers drop the TAA history (no ghost)
   for (const m of [].concat(sparkMesh)) room.reactive?.(m);
   const devils = [];

@@ -1,0 +1,26 @@
+{
+ "en": {
+  "v-pinya2-1": "[softly] The pinya is the base: many hands, pressed together.",
+  "v-pinya2-2": "[softly] Touch the wall, and someone will push with you.",
+  "v-pinya2-3": "[warm] Fill the room.",
+  "v-torre-1": "[hushed] Now, the tower rises.",
+  "v-torre-2": "[softly] Hold your hand on the wall, and climb onto the castell.",
+  "v-torre-gold": "[softly] Hold the golden light, and send it to the top."
+ },
+ "es": {
+  "v-pinya2-1": "[softly] La pinya es la base: muchas manos, apretadas.",
+  "v-pinya2-2": "[softly] Tocad el muro, y alguien empujará con vosotros.",
+  "v-pinya2-3": "[warm] Llenad la sala.",
+  "v-torre-1": "[hushed] Ahora, la torre sube.",
+  "v-torre-2": "[softly] Mantened la mano en el muro, y subid al castell.",
+  "v-torre-gold": "[softly] Sostened la luz dorada, y enviadla hasta arriba."
+ },
+ "ca": {
+  "v-pinya2-1": "[softly] La pinya és la base: moltes mans, estretes.",
+  "v-pinya2-2": "[softly] Toqueu el mur, i algú empenyerà amb vosaltres.",
+  "v-pinya2-3": "[warm] Ompliu la sala.",
+  "v-torre-1": "[hushed] Ara, la torre puja.",
+  "v-torre-2": "[softly] Mantingueu la mà al mur, i pugeu al castell.",
+  "v-torre-gold": "[softly] Sostingueu la llum daurada, i envieu-la fins a dalt."
+ }
+}

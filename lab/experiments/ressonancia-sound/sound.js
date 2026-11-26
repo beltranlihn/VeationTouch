@@ -28,7 +28,8 @@
 // scheduled while the context is not running (so nothing piles up to burst out when it resumes); a wanted bed starts late,
 // where it would be, once the context runs or its file arrives.
 import { createScore, TIMES } from './score.js';
-import { applyTimes } from './tuning.js';   // T-052: the visual piece sends the room's thresholds (ctl.times)
+import { applyTimes } from './tuning.js';
+import { createBrasaSound } from '../ressonancia/scenes3d/parts/brasa3d/brasa2-sound.js';   // 26-11: the correfoc v2's fire (Personaje's synthesis), fed by the visual piece   // T-052: the visual piece sends the room's thresholds (ctl.times)
 
 // ---------------------------------------------------------------------------------------------------------------- the voice
 // The intro's six lines, in seconds from the start of the 70 s intro, against the picture of ressonancia/scenes/intro.js
@@ -45,6 +46,17 @@ const INTRO_VOICE = [
 // the same six cues for the Spanish voice (audio/es/, see audio/es/voice-lines-es.json): its own lengths, the same picture
 //    Mía Evans (peninsular Spanish, eleven_v4): 6.4 · 9.5 · 9.1 · 5.4 · 5.1 · 2.2 s — they fit the same cues.
 const INTRO_VOICE_ES = [[8.5, 'v-intro-1'], [17, 'v-intro-2'], [29, 'v-intro-3'], [41, 'v-intro-4'], [53.3, 'v-intro-5']];   // v-intro-6 silenced (24-11)
+// studio 26-11 (Beltrán's approved script): the TRAILER's intro — what castells are, welcome, what the work is, its stages, how far the
+// trailer climbs, hands on the wall. EN / ES / CA recorded 26-11 (audio/voice-lines-trailer-intro2.json; Lily · Mía Evans · Gabriel,
+// eleven_v4): 7.5 · 2.5 · 5.9 · 13.5 · 5.4 · 2.1 s (ES and CA within ±0.4 s, the same cues). The trailer asks for it (ctl intro: 'trailer').
+const INTRO_TRAILER = [[1.5, 'v-intro-1'], [8.6, 'v-trl-2'], [17, 'v-trl-welcome'], [21, 'v-trl-what'], [28.5, 'v-trl-stages'], [43.5, 'v-trl-preview'], [50.5, 'v-trl-close']];
+// studio 26-11 (Beltrán): the trailer's correfoc opens by teaching — a strip of light, a first correfoc lights every bonfire — while
+// the voice says it: 4.3 · 2.7 · 4.3 s (ES / CA within 0.5 s); from the block's start (brasa v2's opening times: strip 0.5, boom 4.2, run 5–12)
+const BRASA_TRAILER = [[0.5, 'v-brasa2-1'], [5.0, 'v-brasa2-2'], [9.0, 'v-brasa2-3']];
+// the pinya (pinya3d2) and the tower (torre3d, block 'tronc') open the same way, 26-11: 4.4 · 3.3 · 1.9 s and 2.5 · 3.7 s (ES / CA ≤ 0.5 s
+// shorter); the tower's «hold the golden light» (3.7 s) is said when the part is ready for it (the trailer sends ctl say)
+const TRAILER_CUES = { brasa: BRASA_TRAILER, pinya: [[0.5, 'v-pinya2-1'], [5.5, 'v-pinya2-2'], [11, 'v-pinya2-3']], tronc: [[0.5, 'v-torre-1'], [3.5, 'v-torre-2']] };
+const TRAILER_SAY = ['v-torre-gold'];
 const ACTA_AT = { outcome: 4.5, final: 24.5 };   // acta.js: the castell appears at 4 s, the last sentence at 24 s
 // 24-11 (plan de interacción): the voice invites (≤ 7 words where it can), never counts, never repeats a line in a pass. Silenced, kept:
 // v-pinya-1 / v-pinya-2 (circles), v-tronc-1 / v-tronc-3 (the drum and the beat), v-aleta-1 (raise the hand AFTER the crown), v-baixada-1.
@@ -78,12 +90,12 @@ const SETS = {
 const CROWN_IMPACT = 4.0;                    // m-crown: the reverse swell ends and the release hits at 4.0 s (measured)
 const AMBIENCE = ['s-embers-loop', 's-fire-loop', 's-breath-loop', 's-wind-loop', 's-rain-loop', 's-crowd-loop'];
 const SHOTS = ['s-bells', 's-tabals', 's-ember-burst', 's-clay', 's-ceramic', 's-impact', 's-crack', 's-gralla', 's-timbal', 'sfx-crown', 'sfx-fall', 'sfx-tile'];
-const VOICES = [...(WAIT_VOICES ? ['v-wait-invite', 'v-wait-start'] : []), ...INTRO_VOICE.map((c) => c[1]), ...Object.values(TITLE_LINE), 'v-brasa-2', 'v-brasa-3', 'v-pinya-3', 'v-tronc-2',
+const VOICES = [...(WAIT_VOICES ? ['v-wait-invite', 'v-wait-start'] : []), ...new Set([...INTRO_VOICE, ...INTRO_TRAILER, ...Object.values(TRAILER_CUES).flat()].map((c) => c[1])), ...TRAILER_SAY, ...Object.values(TITLE_LINE), 'v-brasa-2', 'v-brasa-3', 'v-pinya-3', 'v-tronc-2',
   'v-pom-2', 'v-pom-3', 'v-aleta-2', ...Object.values(OUTCOME_LINE), 'v-cierre-final', 'v-tronc-wobble', 'v-aleta-raise', 'v-aleta-yours', 'v-aleta-crowned', 'v-baixada-gently', 'v-pinya-closein'];
 const FILES = [...new Set([...Object.values(SETS).flatMap((s) => Object.values(s.layers)), ...AMBIENCE, ...SHOTS, ...VOICES])];
 const VOICE_SET = new Set(VOICES);
 // 25-11 (studio, for res-trailer): the Catalan voice (Gabriel - Clear Catalan, eleven_v4; audio/ca/voice-lines-ca.json) has only these lines
-const VOICE_CA = new Set(['v-wait-invite', 'v-wait-start', 'v-intro-1', 'v-intro-2', 'v-intro-3', 'v-intro-4', 'v-intro-5', 'v-brasa-1', 'v-brasa-2', 'v-brasa-3', 'v-aleta-2', 'v-cierre-final']);
+const VOICE_CA = new Set(['v-wait-invite', 'v-wait-start', 'v-intro-1', 'v-intro-2', 'v-intro-3', 'v-intro-4', 'v-intro-5', 'v-brasa-1', 'v-brasa-2', 'v-brasa-3', 'v-aleta-2', 'v-cierre-final', ...INTRO_TRAILER.map((c) => c[1]), ...Object.values(TRAILER_CUES).flat().map((c) => c[1]), ...TRAILER_SAY]);
 const GROUP = (name) => (name.startsWith('st-') ? name.split('-').slice(0, 2).join('-') : name);   // stems share one normalisation
 const GRALLA_HZ = 415;                       // s-gralla's pitch (G#4, measured): grains are tuned from it
 
@@ -695,6 +707,7 @@ export default async function start(host) {
   });
 
   // ---------------------------------------------------------------- the score's events
+  let introSet = null, brasaCue = 0, brasaS = null, brasaLast = 0;   // 'trailer': the trailer's intro (INTRO_TRAILER), set by the visual piece
   let block = S.block, introCue = 0, bellsCue = 0, crownAt = -1, crownMusic = false, bloomUntil = -1, actaCue = 0;
   let nextHeart = 0, lastHandClock = -1e9, waitSaid = -1e9, pace = 1, festaIn = false, gustUntil = 0;
   // the visual's tile transition (INT, T-028: res-obra3d/experience.js › MOVES): on every block change the whole room breaks into tiles
@@ -717,7 +730,8 @@ export default async function start(host) {
     drum(pk, drumBus, { f0: 90, f1: 40, dur: 0.9, gain: 0.045 * k, noise: 0.05, sub: 0.28 * k });
   }
   function enterBlock(b) {
-    const prev = block; block = b; const t = now();
+    const prev = block; block = b; const t = now(); brasaCue = 0;
+    if (prev === 'brasa' && brasaS) { const g = brasaS; brasaS = null; g.stop(2500).catch?.(() => {}); }   // the fire's sound leaves with its block   // (the trailer's opening cues: every block starts them again)
     if (b === 'intro' || b === 'wait') saidThisPass.clear();
     musicBus.gain.setTargetAtTime(P.music, t, 0.3);   // a tronc's wobble may have left the music down
     if (prev !== b) tileSweep(b);
@@ -788,7 +802,7 @@ export default async function start(host) {
   function uncut() { const t = now(); for (const p of [tocDrum.gain, tocSub.gain]) { p.cancelScheduledValues(t); p.setTargetAtTime(1, t, 0.02); } ramp(wet.gain, L.verb, 0.4); }
   function enterPhase(p) {
     const t = now();
-    if (p === 'title') say(TITLE_LINE[block]);
+    if (p === 'title' && !(introSet === 'trailer' && TRAILER_CUES[block])) say(TITLE_LINE[block]);   // (the trailer's correfoc speaks BRASA_TRAILER)
     if (block === 'tronc' && p === 'play') {   // the take starts on the play's first instant: its next downbeat is the score's first pulse
       musicOn('tronc', { at: t + 0.03, offset: GRID_A, fade: 0.05 });
       layer('tronc', 'bass', 0.65, 0.05); layer('tronc', 'drums', 0, 0.05); layer('tronc', 'other', 0, 0.05); setNow(sets.tronc.lp.frequency, 1800);
@@ -939,8 +953,10 @@ export default async function start(host) {
     const t = now(), b = block, ph = S.phase, prog = S.progress || 0, on = running();
     if (S.hands > 0) lastHandClock = S.clock;
     // the voice by the clock: the intro's lines, the waiting call, the acta's lines
-    const IV = P.lang === 'en' ? INTRO_VOICE : INTRO_VOICE_ES;   // 25-11: the Catalan lines (audio/ca/) fit the Spanish cues: 5.5 · 10.0 · 8.3 · 5.3 · 4.6 s
+    const IV = introSet === 'trailer' ? INTRO_TRAILER : P.lang === 'en' ? INTRO_VOICE : INTRO_VOICE_ES;   // 25-11: the Catalan lines (audio/ca/) fit the Spanish cues: 5.5 · 10.0 · 8.3 · 5.3 · 4.6 s
     if (b === 'intro') while (introCue < IV.length && S.t >= IV[introCue][0]) say(IV[introCue++][1], { delay: 0.05 });
+    const TC = introSet === 'trailer' ? TRAILER_CUES[b] : null;
+    if (TC) while (brasaCue < TC.length && S.t >= TC[brasaCue][0]) { const c = TC[brasaCue++]; if (S.t - c[0] < 2) say(c[1], { delay: 0.05 }); }   // (a line already 2 s late is skipped, never two at once)
     if (b === 'wait' && S.hands === 0) { const gone = S.clock - lastHandClock; if (gone >= WAIT_AFTER && gone <= WAIT_RECENT && S.clock - waitSaid >= WAIT_EVERY) { waitSaid = S.clock; if (WAIT_VOICES && (S.reveal || 0) < 1) say('v-wait-invite', { polite: true, delay: 0.2 }); } }
     if (b === 'acta') {
       if (actaCue === 0 && S.t >= ACTA_AT.outcome) { actaCue = 1; say(OUTCOME_LINE[S.outcome] || OUTCOME_LINE.descarregat, { delay: 0.05 }); }
@@ -1114,7 +1130,7 @@ export default async function start(host) {
   let bc = null;
   try { bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { bc = null; }
   // 25-11 (studio): ctl.lang — a visual piece may set the voice's language (res-trailer: Catalan by default)
-  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (['es', 'en', 'ca'].includes(m.lang) && m.lang !== P.lang) { P.lang = m.lang; for (const n of VOICE_SET) { buffers.delete(n); peaks.delete(n); failed.delete(n); } Promise.all([...VOICE_SET].map(load)); } if (m.button && typeof m.button === 'object') score.setButton?.(m.button); if ('reveal' in m) score.setReveal?.(m.reveal); if ('start' in m) score.setStart?.(m.start); if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
+  if (bc) bc.onmessage = (ev) => { const m = ev.data; if (m?.type === 'brasa') { if (block === 'brasa' && m.s) { try { if (!brasaS) { brasaS = createBrasaSound(audio, { gain: 1 }); brasaLast = ctx.currentTime; } const tn = ctx.currentTime, d = Math.min(0.1, Math.max(0.001, tn - brasaLast)); brasaLast = tn; brasaS.update(d, m.s); } catch (e) { console.error('ressonancia-sound: brasa', e); } } return; } if (m?.type === 'fx') { if (m.fx === 'impact') { try { impact(m); } catch (e) { console.error('ressonancia-sound: fx', e); } } return; } if (m?.type !== 'ctl') return; if (m.pace > 0) pace = Math.min(32, m.pace); if (['es', 'en', 'ca'].includes(m.lang) && m.lang !== P.lang) { P.lang = m.lang; for (const n of VOICE_SET) { buffers.delete(n); peaks.delete(n); failed.delete(n); } Promise.all([...VOICE_SET].map(load)); } if (m.button && typeof m.button === 'object') score.setButton?.(m.button); if ('reveal' in m) score.setReveal?.(m.reveal); if ('start' in m) score.setStart?.(m.start); if ('fill' in m) score.setFill?.(m.fill); if (m.intro) introSet = m.intro; if (typeof m.say === 'string' && TRAILER_SAY.includes(m.say)) say(m.say, { delay: 0.05 }); if (m.jump) score.jump(m.jump); if (m.times && typeof m.times === 'object') { try { applyTimes(T, m.times, TIMES); } catch (e) { console.error('ressonancia-sound: times', e); } } };
   const lastPos = new Map(), hands = [], handPool = [];
   const wallS0 = walls.reduce((a, w, i) => { a.push(i ? a[i - 1] + (walls[i - 1].width || 4) : 0); return a; }, []);   // where each wall starts along the perimeter (m)
   let last = performance.now();
