@@ -510,7 +510,7 @@ export function create(ctx) {
   // the rings are FORCES in the stones, not lines: a narrow band of stones turning (RING_TURN rad at its crest, BAND_W m wide) that moves —
   // closing in on every round window when the room opens (dB: each stone's distance to its nearest button), opening from the button
   // round the room while a hand charges it
-  let dB = null, dBr = null, R0W = 0; const WIN_V = 2.2, BAND_W = 0.3, RING_TURN = 1.15;
+  let dB = null, dBr = null, R0W = 0; const WIN_V = 2.2, CHARGE_V = 1.6, BAND_W = 0.3, RING_TURN = 1.15;
   const PERSIST = true, WAVE_V = 2.6, UP_FROM = 1.7, UP_K = 5;                         // UP: above 1.7 m a hand paints upward much farther (×6 at 2.1 m)
   let paintedN = 0, lastPaint = -1, waveT0 = -1, waveS = 0, lastHandT = 0;
   // studio 26-11 (Beltrán: «el anillo que recorre la sala cuando se activa, que suceda una vez más»): WAVE_PASSES fronts, one after the
@@ -1496,7 +1496,7 @@ export function create(ctx) {
     figK += ((figOn ? 1 : 0) - figK) * (1 - Math.exp(-dt * 1.5));
     let npa = 0; const settled = arrive >= 1 && leave <= 0;
     for (let k = 0; k < PULSES; k++) { const p = pulses[k]; if (!p.on) continue; const age = time - p.t0, r = p.speed * age; pa[npa++] = k; paR[k] = r; paMax[k] = r + 1.43; paMin2[k] = r > 1.43 ? (r - 1.43) * (r - 1.43) : 0; paAmp[k] = p.amp * Math.exp(-age / 7); }
-    const kSpring = 30, cSpring = 6.2, glowDecay = Math.exp(-dt * 1.3), startGlow = startV * 0.7 + (exploded >= 0 && exploded < 2 ? Math.sin(exploded * Math.PI / 2) * 0.8 : 0);
+    const kSpring = 30, cSpring = 6.2, glowDecay = Math.exp(-dt * 1.3), startGlow = PERSIST ? 0 : startV * 0.7 + (exploded >= 0 && exploded < 2 ? Math.sin(exploded * Math.PI / 2) * 0.8 : 0);   // (26-11: the charge lights nothing white — «trazos blancos de la nada»)
     if (nh > 0) lastHandT = time;
     if (PERSIST && paintedN > 0 && time - lastHandT > RESET_AFTER && (!S || S.block === 'wait') && clearT0 < 0 && !btns.some((b) => b.t0 >= 0)) unpaint();
     // ---- the buttons and the charge (see THE BUTTONS)
@@ -1511,7 +1511,7 @@ export function create(ctx) {
       }
       if (inside) { b.offT = 0; if (b.t0 < 0) { b.t0 = time; b.gen = (b.gen % 65000) + 1; } }   // studio 26-11 (Beltrán): the ring is BORN at the button and spreads (a band of turning stones, below)
       else if (b.t0 >= 0 && (b.offT += dt) > 0.35) { if (b.pulse >= 0) { const p = pulses[b.pulse]; if (p.t0 === b.t0) p.on = false; b.pulse = -1; } b.t0 = -1; }   // let go (0.35 s of grace): the ring and its charge are lost
-      b.R = b.t0 >= 0 ? (time - b.t0) * WAVE_V : 0;
+      b.R = b.t0 >= 0 ? (time - b.t0) * CHARGE_V : 0;   // (26-11: the same band as the opening, slower)
       const showTo = openNow && b.t0 < 0 ? 1 : 0, glowTo = b.t0 >= 0 ? 1 : 0;
       b.show += (showTo - b.show) * Math.min(1, dt * 3.5); b.glow += (glowTo - b.glow) * Math.min(1, dt * 5);
       for (let j = 0; j < 4; j++) {
@@ -1532,7 +1532,7 @@ export function create(ctx) {
       R0W = mx + 0.4;
     }
     chargeCov = clearT0 < 0 ? coverOf() : 1;
-    if (clearT0 < 0 && chargeCov >= 0.999) { clearT0 = time; for (let i = 0; i < NC; i++) fallDelay[i] = rnd() * 1.8; for (const b of btns) b.t0 = -1; }
+    if (clearT0 < 0 && chargeCov >= 0.999) { clearT0 = time; for (let i = 0; i < NC; i++) fallDelay[i] = rnd() * rnd() * 1.4; for (const b of btns) b.t0 = -1; }
     uTitleK.value = clearT0 >= 0 ? 1 - smooth(clearT0 + 0.2, clearT0 + 1.8, time) : 1;
     const bedK = smooth(0, 0.45, arrive) * (1 - smooth(0.35, 1, leave));
     uBed.value = bedK * (clearT0 >= 0 ? 1 - smooth(clearT0 + 0.6, clearT0 + 2.6, time) : 1);   // studio 26-11: CLEAR — the joints' bed crumbles away too: the night and all its dust
@@ -1545,12 +1545,11 @@ export function create(ctx) {
         lift = 0.15 + c.over * (0.5 + c.r2) + Math.sin(time * 0.31 + c.r1 * 6.28) * 0.12; sc = 1 - 0.55 * c.over;
       } else {
         const cu_ = CU[i], cy_ = CY[i];
-        if (clearT0 >= 0) {                                                              // CLEAR: every stone falls, staggered, and is gone
+        if (clearT0 >= 0 && time - clearT0 > fallDelay[i]) {                             // CLEAR: every stone lets go at its own moment (until then it lives on as it was)
           const tc = time - clearT0 - fallDelay[i], oo = i * 4;
-          if (tc <= 0) { kc = colT[i] > time ? 8 : 0; stData[o] = (phi[i] * 2) % 6.2831853; stData[o + 1] = 0; stData[o + 2] = kc; stData[o + 3] = 1; continue; }
           offData[oo] = Math.sin(c.r1 * 40) * 0.25 * tc; offData[oo + 1] = -3.2 * tc * tc; offData[oo + 2] = 0.35 * tc; wOn[i] = 0; windDirty = true;
           if (tc < dt * 1.5 && rnd() < 0.08) fx('hit', c.c, 0.55 + 0.3 * c.r2, 0);
-          stData[o] = (phi[i] * 2 + tc * 7 * (c.r2 < 0.5 ? -1 : 1)) % 6.2831853; stData[o + 1] = 0.02; stData[o + 2] = colT[i] > time ? 8 : 0; stData[o + 3] = tc < 1.6 ? 1 : 0;
+          stData[o] = (phi[i] * 2 + tc * 7 * (c.r2 < 0.5 ? -1 : 1)) % 6.2831853; stData[o + 2] = colT[i] > time ? 8 : 0;   // (the lift it had stays: no jump) stData[o + 3] = tc < 1.6 ? 1 : 0;
           continue;
         }
         if (rub[i] > 0) rub[i] *= Math.exp(-dt * 0.25);
@@ -1727,7 +1726,8 @@ export function create(ctx) {
     chipMesh.instanceMatrix.needsUpdate = true;
 
     // ---- the ring: tiles fly in from the dark and lock round the button; start turns and lights it; 'start' blows it apart
-    ringSpin += dt * (0.05 + startV * 2.2);
+    const startK = PERSIST ? 0 : startV;   // (26-11: the charge is the ring of stones only)
+    ringSpin += dt * (0.05 + startK * 2.2);
     const ex = exploded >= 0 ? smooth(0, 2.2, exploded) : 0;
     const ringOff = revealV < 0.0005 || arrive <= 0 || leave >= 0.9 || ex >= 1;         // nothing of the frame shows: zero it once, then skip (T-058: ~1,400 tiles)
     const ringCalm = revealV > 0.999 && startV < 0.03 && ex === 0 && settled; ringTick = (ringTick + 1) % 4;   // locked and slow: its pose at 15 Hz is enough
@@ -1747,7 +1747,7 @@ export function create(ctx) {
     if (!(ringOff && ringZeroed) && !(ringCalm && ringTick)) ringMesh.instanceMatrix.needsUpdate = true;
     ringZeroed = ringOff;
     { const k = smooth(0.15, 0.75, revealV) * smooth(0, 0.5, arrive) * (1 - smooth(0.2, 0.9, leave)) * (1 - smooth(0.1, 0.6, ex)); ringBeds.forEach((b, wi) => { b.material.opacity = 0.9 * k; b.visible = k > 0.005 && ringWall[wi] > 0; }); }
-    uRing.value = arrive * (1 - leave) * (smooth(0.6, 1, revealV) * 0.04 + startV * 0.14) * (1 - ex) + (ex > 0 && ex < 1 ? Math.sin(ex * Math.PI) * 0.4 : 0);   // ART: emissive ≤ 0.15 (the flash of 'start' a breath more)
+    uRing.value = arrive * (1 - leave) * (smooth(0.6, 1, revealV) * 0.04 + startK * 0.14) * (1 - ex) + (ex > 0 && ex < 1 ? Math.sin(ex * Math.PI) * 0.4 : 0);   // ART: emissive ≤ 0.15 (the flash of 'start' a breath more)
 
     // ---- far arcs (they turn with the far world)
     for (const s of mid) {
