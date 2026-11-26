@@ -758,7 +758,7 @@ export function create(ctx) {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });   // unlit: the joint is in the pieces' shade anyway (and it is cheap)
     m.positionNode = positionLocal.add(normalize(vec3(positionLocal.x, 0, positionLocal.z)).mul(uPush.negate()));
     const pw = positionWorld, hsh = fract(sin(dot(floor(pw.xz.mul(3.0)).add(floor(pw.y.mul(3.0))), vec3(12.9898, 78.233, 37.719).xy)).mul(43758.5453));
-    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return mix(vec3(0.012, 0.022, 0.066), vec3(0.765, 0.606, 0.418), GROUT_BONE.mul(float(1).sub(max(TSL.texture(maskTex, TSL.uv()).r.mul(1.6).min(1), smoothstep(0.98, 0.6, uBed))))); })();   // studio 25-11: while the mosaic assembles (or goes) the bed is night, never sand   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
+    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return mix(vec3(0.0085, 0.0155, 0.047), vec3(0.765, 0.606, 0.418), GROUT_BONE.mul(float(1).sub(max(TSL.texture(maskTex, TSL.uv()).r.mul(1.6).min(1), smoothstep(0.98, 0.6, uBed))))); })();   // studio 25-11: while the mosaic assembles (or goes) the bed is night, never sand   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; return mesh;
   })();
   hero.add(groutMesh);
@@ -841,8 +841,11 @@ export function create(ctx) {
   const visN = Math.max(1, cells.reduce((a, c) => a + (c.vis && !c.loose ? 1 : 0), 0));
   // studio 26-11 (Beltrán: «mínimo por muro, un 25 % en cada uno»): the share is counted per wall too; paint().share = the LEAST painted wall's
   const visW = new Int32Array(NW), paintedW = new Int32Array(NW);
-  for (const c of cells) if (c.vis && !c.loose) visW[c.wi]++;
-  function paintCell(i) { if (colT[i] === Infinity) return; colT[i] = Infinity; if (cells[i].vis && !cells[i].loose) { paintedN++; paintedW[cells[i].wi]++; } lastPaint = i; }
+  // (26-11, Beltrán in the room: «la gente pasa la mano a 1,50–1,70 m… casi no pinta arriba ni abajo») the share that opens the room
+  // counts only the stones within reach (0.5–2.4 m up the wall); the rest still paint, they just don't hold the room back
+  const REACH0 = vOf(0.5), REACH1 = vOf(2.4), inReach = (c) => c.vis && !c.loose && c.cy >= REACH0 && c.cy <= REACH1;
+  for (const c of cells) if (inReach(c)) visW[c.wi]++;
+  function paintCell(i) { if (colT[i] === Infinity) return; colT[i] = Infinity; if (cells[i].vis && !cells[i].loose) paintedN++; if (inReach(cells[i])) paintedW[cells[i].wi]++; lastPaint = i; }
   function resetPaint() { colT.fill(-1); paintedN = 0; paintedW.fill(0); lastPaint = -1; waveT0 = -1.5; lastHandT = time; wavePass.fill(0);
     if (clearT0 >= 0) { offData.fill(0); windDirty = true; } clearT0 = -1.5; chargeCov = 0; for (const b of btns) { b.t0 = -1.5; b.show = b.glow = 0; } }
   function unpaint() { for (let i = 0; i < NC; i++) if (colT[i] === Infinity) colT[i] = time + rnd() * 3; paintedN = 0; paintedW.fill(0); lastPaint = -1; waveT0 = -1.5; wavePass.fill(0); }
@@ -1098,7 +1101,7 @@ export function create(ctx) {
     m.colorNode = Fn(() => {
       const d = normalize(positionLocal), y = d.y;
       // studio 25-11 (Beltrán: «detrás del portal, un azul plano con unas motas de polvo»): one flat night blue, nothing else
-      return vec3(0.012, 0.022, 0.066).mul(uSkyK);   // studio 26-11 (Beltrán: «que sean iguales, el oscuro me gusta más»): the joints' night (groutMesh) is this same blue
+      return vec3(0.0085, 0.0155, 0.047).mul(uSkyK);   // studio 26-11 (Beltrán: «que sean iguales, el oscuro me gusta más»): the joints' night (groutMesh) is this same blue
     })();
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(150, 48, 24), m); mesh.renderOrder = -900; mesh.frustumCulled = false; return mesh;
   })();
@@ -1429,7 +1432,7 @@ export function create(ctx) {
     }
     if (reveal < 1) figT0 = -1;
     wasRevealed = reveal >= 1 && (wasRevealed || playing);   // (T-058c: a reveal reached while the part was still arriving starts the figure once it plays)
-    if (startEv) { exploded = 0; for (let i = 0; i < NW; i++) { surfHit(_v.copy(walls[i].centre).setY(RING_Y)); launch(hit.cu, hit.cy, 1.6, 5, 99, 30); } }
+    if (startEv) { exploded = 0; if (clearT0 < 0) for (let i = 0; i < NW; i++) { surfHit(_v.copy(walls[i].centre).setY(RING_Y)); launch(hit.cu, hit.cy, 1.6, 5, 99, 30); } }   // (26-11, Beltrán: «las piedras se resetean y vuelven a sonar») after the CLEAR the stones are down: no second burst over them
     if (exploded >= 0) exploded += dt;
     // 'start' (and the way out): the world closes in round the eye, eased, 2.5 s — every wall walks through its own door
     const pushT = Math.max(exploded >= 0 ? smooth(0, 2.5, exploded) : 0, smooth(0, 0.7, leave));
@@ -1807,6 +1810,7 @@ export function create(ctx) {
     object,
     update,
     setParams() { /* read live from params */ },
+    cleared: () => clearT0 >= 0,
     paint: () => { let m = 1; const walls_ = []; for (let w = 0; w < NW; w++) if (visW[w] > 0) { const k = paintedW[w] / visW[w]; walls_.push(+k.toFixed(3)); m = Math.min(m, k); } return { share: m, total: paintedN / visN, walls: walls_, painted: paintedN, of: visN, wave: waveT0 >= 0 }; },
     events,
     charge: () => ({ cover: chargeCov, cleared: clearT0 >= 0, clearedFor: clearT0 >= 0 ? time - clearT0 : 0, holding: btns.filter((b) => b.t0 >= 0).length }),   // studio 26-11

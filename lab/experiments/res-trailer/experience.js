@@ -174,6 +174,7 @@ function duskEnd() {
 function stepDusk(dt) {
   const U = parts.umbral3d;
   if (!dusk.far || !U || S.block === 'wait' || U.state === 'off') { if (dusk.t >= 0 || dusk.far?.mesh.visible) duskEnd(); return; }
+  if (U.part.cleared?.()) { if (dusk.t >= 0 || dusk.far.mesh.visible) duskEnd(); return; }   // (26-11, Beltrán: «se va a negro… y luego aparece el azul») the mosaic has fallen: nothing left to hide, the night blue runs on into the intro
   dusk.t = dusk.t < 0 ? 0 : dusk.t + dt;
   const t = dusk.t, a = smooth(t / 1.0), b = smooth((t - 1.2) / 1.4), c = smooth((t - 1.0) / 1.9);   // dusk 0–1 s · the sky's hue to night 1.2–2.6 s · everything down 1–2.9 s (sky never darker than the ground)
   const f = dusk.far.col.value, g = dusk.all.col.value;
@@ -609,7 +610,7 @@ const input = { time: 0, t: 0, dt: 0, progress: 0, hands: [], downs, ups, params
 // the simulated visitors' targets: what a visitor who follows the hint would hold (the entrance's buttons once the walls are painted,
 // the tower's places on the other walls, her golden point at 1.2 m); elsewhere they just touch, drag and hold where they stand
 function simTarget() {
-  if (S.block === 'wait') { const pt = parts.umbral3d?.part?.paint?.(); return { walls: [0, 1, 2, 3], dx: 0, y: 1.5, hold: 3.5, p: pt && pt.share >= (P.paintOpen ?? 0.25) ? 0.55 : 0.04 }; }
+  if (S.block === 'wait') { const pt = parts.umbral3d?.part?.paint?.(); return { walls: [0, 1, 2, 3], dx: 0, y: 1.5, hold: 3.5, p: pt && pt.share >= (P.paintOpen ?? 0.2) ? 0.55 : 0.04 }; }
   if (S.block === 'tronc') { const g = parts.torre3d?.part?.progress?.() || {}; if (g.ending > 0) return null; return g.ready ? { walls: [0, 2, 3], dx: 0, y: 1.2, hold: 2.5, p: 0.6 } : { walls: [0, 2, 3], dx: null, y: null, hold: 2, p: 0.6 }; }
   return null;
 }
@@ -630,7 +631,7 @@ function frame(dt) {
   if (S.block !== lastBlock) {
     prevBlock = lastBlock;
     try { room.setEnvironment?.(S.block); } catch (err) { console.info('res-obra3d: setEnvironment skipped (' + err.message + ')'); }   // RND-F: the shared envMap per block (HDRI / tint), re-baked in place
-    room.setBackground?.(S.block === 'wait' && has('umbral3d') ? { bottom: [0.012, 0.022, 0.066], top: [0.012, 0.022, 0.066], gain: 1 } : S.block);   // 26-11 QA: the mosaic comes back over its own night blue, never a flash of sand                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
+    room.setBackground?.(S.block === 'wait' && has('umbral3d') ? { bottom: [0.0085, 0.0155, 0.047], top: [0.0085, 0.0155, 0.047], gain: 1 } : S.block);   // 26-11 QA: the mosaic comes back over its own night blue, never a flash of sand                                  // T-048 (SIS): the block's deep background gradient (never #000), eased in room3d
     if ((S.block === 'wait' || S.block === 'intro') && parts.baixada3d?.part.releaseTronc) { try { parts.baixada3d.part.releaseTronc(); } catch (err) { console.info('res-obra3d: releaseTronc skipped (' + err.message + ')'); } }   // 3D-PO: a new pass gives the tower's floors back to tronc3d
     if (S.block === 'fall') {
       fallSet = ['atmos']; for (const n of ['plaza', 'castell', 'tronc3d']) if (parts[n] && (parts[n].state === 'on' || parts[n].state === 'in')) fallSet.push(n);   // tronc3d: fall3d (3D-PI) calls its collapse()
@@ -752,7 +753,7 @@ function frame(dt) {
   }
   // studio 26-11: the share of the entrance's picture uncovered opens the buttons — this score's reveal and the sound's (it leads)
   { const pt = parts.umbral3d?.part?.paint?.();
-    if (pt) { const rv = Math.min(1, pt.share / Math.max(0.01, P.paintOpen ?? 0.25));   // share = the LEAST painted wall's (26-11: «mínimo por muro, un 25 % en cada uno») score.setReveal(rv);
+    if (pt) { const rv = Math.min(1, pt.share / Math.max(0.01, P.paintOpen ?? 0.2));   // share = the LEAST painted wall's (26-11: «mínimo por muro, un 25 % en cada uno») score.setReveal(rv);
       if (Math.abs(rv - (link.rvSent ?? -1)) > 0.01 || time - (link.rvAt ?? -9) > 1) { link.rvSent = rv; link.rvAt = time; tell({ reveal: rv }); } }
     // studio 26-11: the START is the charge ring round the room (umbral3d: one hand in a circle, or several) — this score's and the sound's
     // (its start tone rises with it); once the mosaic has fallen (CLEAR) and the room has stayed blue CLEAR_HOLD s, the trailer goes on
@@ -790,8 +791,11 @@ function frame(dt) {
   // does it there, back after `idle` s with nobody doing it on that wall (P['trailer.hints'] = false: none)
   { let cfg = null;
     if (P['trailer.hints'] !== false) {
-      if (S.block === 'brasa') cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 12, idle: 15, y: 1.25, dx: -1.8 };   // beside the fire, not on it
-      else if (S.block === 'pinya') cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 11, idle: 15, y: 1.35, dx: -1.8 };   // beside the opening's beings
+      // 26-11 (Beltrán in the room): the entrance's circles say it before the room opens; the correfoc and the pinya: two or three
+      // smaller, softer hints per wall that leave when a hand comes near and come back elsewhere; the pinya's go once it is complete
+      if (S.block === 'wait' && has('umbral3d')) { const pt = parts.umbral3d.part?.paint?.(); if (pt && pt.share < (P.paintOpen ?? 0.2)) cfg = { text: 'Touch the wall', walls: [0, 2, 3], from: 2, idle: 10, y: BUTTON.y[0], dx: 0, scale: 0.8, alpha: 0.75 }; }
+      else if (S.block === 'brasa') cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 12, idle: 15, y: 1.3, per: 3, scale: 0.7, alpha: 0.6, move: true };
+      else if (S.block === 'pinya') { const pf = parts.pinya3d2?.part?.fill?.(); if (!pf || !(pf.done || pf.total >= 0.98)) cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 11, idle: 15, y: 1.35, per: 2, scale: 0.75, alpha: 0.65, move: true }; }
       else if (S.block === 'tronc') { const g = parts.torre3d?.part?.progress?.() || {};
         cfg = g.ending > 0 ? null : g.ready ? { text: 'Hold the light', walls: [0, 2, 3], from: 0, idle: 10, y: 1.75, hold: 1 } : { text: 'Hold your hand', walls: [0, 2, 3], from: 9.5, idle: 15, y: 1.75, hold: 1.5 }; }
     }

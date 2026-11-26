@@ -79,17 +79,27 @@ export function createHints({ THREE, TSL, room }) {
   };
   img.src = new URL('../ressonancia/scenes3d/parts/umbral3d/hand.png', import.meta.url).href;
 
-  const up = new THREE.Vector3(0, 1, 0), NW = room.walls.length;
-  const W = room.walls.map((w, i) => {
+  const up = new THREE.Vector3(0, 1, 0), NW = room.walls.length, PER = 3;   // up to PER hints on a wall (26-11: the correfoc asks for 2–3, smaller)
+  const W = room.walls.map((w) => ({ w, last: -1e9, holdFrom: new Map(), fill: 0, done: 0 }));
+  const SL = [];
+  room.walls.forEach((w, i) => { for (let k = 0; k < PER; k++) {
     const group = new THREE.Group(); group.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, up, w.normal)); group.visible = false;
     const mk = (mat, wm, hm, y) => { const mesh = new THREE.Mesh(new THREE.PlaneGeometry(wm, hm), mat); mesh.position.set(0, y, 0); mesh.renderOrder = 49; mesh.frustumCulled = false; group.add(mesh); return mesh; };
-    const hand = pieceMat(handC.tex, handC.cv.width / PPM, handC.cv.height / PPM, { wipe: 'y', soft: 0.7, blur: 0.03, riseIn: 0.03, riseOut: 0.07, twinkle: true, seed: 13 * i });
+    const hand = pieceMat(handC.tex, handC.cv.width / PPM, handC.cv.height / PPM, { wipe: 'y', soft: 0.7, blur: 0.03, riseIn: 0.03, riseOut: 0.07, twinkle: true, seed: 13 * i + 5 * k });
     const txt = canvasTex(TXT_W, TXT_H), word = pieceMat(txt.tex, TXT_W, TXT_H, { wipe: 'x', soft: 0.55, blur: 0.025, riseIn: 0.025, riseOut: 0.07 });
     const ring = ringMat();
     mk(hand.m, handC.cv.width / PPM, handC.cv.height / PPM, HAND_Y); mk(word.m, TXT_W, TXT_H, TXT_Y); mk(ring.m, RING_S, RING_S, HAND_Y);
     room.overlay.add(group);
-    return { w, group, hand, word, ring, txt, text: null, want: null, phase: 'off', p: 0, last: -1e9, holdFrom: new Map(), fill: 0, done: 0 };
-  });
+    SL.push({ wi: i, k, wall: W[i], w, group, hand, word, ring, txt, text: null, phase: 'off', p: 0, dx: 0, y: 0, placed: false, away: -1e9 });
+  } });
+  let seedM = 7; const rndM = () => { seedM = (seedM * 16807) % 2147483647; return seedM / 2147483647; };
+  // a slot's place: spread along its wall (k of n), or, when it moved away from a hand, somewhere else on the wall, ≥ 1.4 m from it
+  function place(s, cfg, n, avoid = null) {
+    const half = Math.max(0.5, s.w.width / 2 - 1.0);
+    let dx = n > 1 ? -half + ((s.k + 0.5) / n) * 2 * half : (cfg.dx ?? 0);
+    if (avoid != null) for (let tries = 0; tries < 12; tries++) { const c = -half + rndM() * 2 * half; if (Math.abs(c - avoid) > 1.4 && SL.every((o) => o === s || o.wi !== s.wi || o.phase === 'off' || Math.abs(o.dx - c) > 1.0)) { dx = c; break; } }
+    s.dx = dx; s.y = (cfg.y ?? 1.25) + (n > 1 ? (s.k % 2 ? 0.12 : -0.08) : 0); s.placed = true;
+  }
   function draw(s, text) {
     const g = s.txt.g, Wc = s.txt.cv.width, Hc = s.txt.cv.height; g.clearRect(0, 0, Wc, Hc);
     g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `${Math.round(TXT * PPM)}px "Hint Serif", Georgia, serif`;
@@ -101,7 +111,7 @@ export function createHints({ THREE, TSL, room }) {
   return {
     update(dt, time, { block: b, t, hands, downs, cfg }) {
       uT.value = time;
-      if (b !== block) { block = b; for (const s of W) { s.last = -1e9; s.holdFrom.clear(); } }
+      if (b !== block) { block = b; for (const s of W) { s.last = -1e9; s.holdFrom.clear(); } for (const s of SL) { s.away = -1e9; s.placed = s.placed && s.phase !== 'off'; } }
       // what counts as «done» on a wall: a hand landing (touch), or a hand staying cfg.hold s (hold)
       for (const s of W) s.fill = 0;
       if (cfg) {
@@ -112,30 +122,38 @@ export function createHints({ THREE, TSL, room }) {
             const s = W[h.wall]; if (!s) continue; seen.add(h.stroke);
             if (!s.holdFrom.has(h.stroke)) s.holdFrom.set(h.stroke, time);
             const k = (time - s.holdFrom.get(h.stroke)) / cfg.hold; s.fill = Math.max(s.fill, Math.min(1, k));
-            if (k >= 1 && s.phase !== 'out') { s.last = time; s.done = 1e-3; }
+            if (k >= 1 && s.done === 0) { s.last = time; s.done = 1e-3; }
           }
           for (const s of W) for (const k of [...s.holdFrom.keys()]) if (!seen.has(k)) s.holdFrom.delete(k);
         }
       }
-      for (let i = 0; i < NW; i++) {
-        const s = W[i], on = !!cfg && cfg.walls.includes(i) && t >= (cfg.from ?? 0) && time - s.last > (cfg.idle ?? 15);
+      const n = cfg ? Math.max(1, Math.min(PER, cfg.per || 1)) : 1, sc = cfg?.scale ?? 1, alpha = cfg?.alpha ?? 1;
+      for (const s of SL) {
+        const Wl = s.wall, i = s.wi;
+        // a moving hint (cfg.move): a hand near it makes it leave and come back elsewhere on its wall a little later
+        if (cfg?.move && (s.phase === 'in' || s.phase === 'on')) for (const h of hands || []) {
+          if (h.wall !== i) continue; const hx = (h.u - 0.5) * s.w.width, hy = h.pos.y;
+          if (Math.abs(hx - s.dx) < 0.8 && Math.abs(hy - s.y) < 0.8) { s.away = time; s.avoid = hx; s.phase = 'out'; s.p = 0; break; }
+        }
+        const quiet = cfg?.move ? time - s.away > OUT_S + 2.5 : time - Wl.last > (cfg?.idle ?? 15);
+        const on = !!cfg && cfg.walls.includes(i) && s.k < n && t >= (cfg.from ?? 0) && quiet;
         const want = on && fontReady ? cfg.text : null;
         // phases: off → in (resolving) → on → out (leaving) → off; new words while shown: out, then in with them
-        if (want && (s.phase === 'off' || (s.phase === 'out' && s.p >= 1))) { if (s.text !== want) draw(s, want); s.phase = 'in'; s.p = 0; s.done = 0; }
+        if (want && (s.phase === 'off' || (s.phase === 'out' && s.p >= 1))) { if (s.text !== want) draw(s, want); place(s, cfg, n, s.away > 0 && time - s.away < 30 ? s.avoid : null); s.phase = 'in'; s.p = 0; if (s.k === 0) Wl.done = 0; }
         else if ((!want || want !== s.text) && (s.phase === 'in' || s.phase === 'on')) { s.phase = 'out'; s.p = 0; }
         if (s.phase === 'in') { s.p += dt / IN_S; if (s.p >= 1) { s.p = 1; s.phase = 'on'; } }
-        else if (s.phase === 'out') { s.p += dt / OUT_S; if (s.p >= 1) { s.p = 1; if (!want) s.phase = 'off'; } }
-        if (on) s.group.position.copy(s.w.centre).addScaledVector(s.w.normal, 0.025).addScaledVector(s.w.right, cfg.dx ?? 0).setY(cfg.y ?? 1.25);
+        else if (s.phase === 'out') { s.p += dt / OUT_S; if (s.p >= 1) { s.p = 1; if (!want || cfg?.move) s.phase = 'off'; } }
+        if (s.placed) { s.group.position.copy(s.w.centre).addScaledVector(s.w.normal, 0.025).addScaledVector(s.w.right, s.dx).setY(s.y); s.group.scale.setScalar(sc); }
         const rev = s.phase === 'in' ? s.p : s.phase === 'off' ? 0 : 1, out = s.phase === 'out' ? s.p : 0;
-        const breath = 0.88 + 0.12 * Math.sin(time * 1.3 + i * 1.7);
-        s.hand.U.a.value = breath; s.hand.U.rev.value = rev; s.hand.U.out.value = Math.min(1, out * 1.15);
-        s.word.U.a.value = 1; s.word.U.rev.value = Math.max(0, rev * 1.2 - 0.2); s.word.U.out.value = out;
+        const breath = 0.88 + 0.12 * Math.sin(time * 1.3 + i * 1.7 + s.k * 2.1);
+        s.hand.U.a.value = breath * alpha; s.hand.U.rev.value = rev; s.hand.U.out.value = Math.min(1, out * 1.15);
+        s.word.U.a.value = alpha; s.word.U.rev.value = Math.max(0, rev * 1.2 - 0.2); s.word.U.out.value = out;
         // the ring: only for a hold; fills with the longest hand on that wall, breathes out once when it closes
-        if (s.done > 0) s.done = Math.min(1, s.done + dt / 1.2);
         const ringOn = cfg?.hold ? (s.phase === 'in' ? s.p : s.phase === 'on' ? 1 : s.phase === 'out' ? 1 - s.p : 0) : 0;
-        s.ring.U.a.value = ringOn; s.ring.U.fill.value = s.done > 0 ? 1 : s.fill; s.ring.U.done.value = s.done;
+        s.ring.U.a.value = ringOn * alpha; s.ring.U.fill.value = Wl.done > 0 ? 1 : Wl.fill; s.ring.U.done.value = Wl.done;
         s.group.visible = s.phase !== 'off';
       }
+      for (const Wl of W) if (Wl.done > 0) Wl.done = Math.min(1, Wl.done + dt / 1.2);
     },
   };
 }

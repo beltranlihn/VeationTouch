@@ -18,7 +18,7 @@
     {"key": "trailer.credits", "label": "Credits after the tower", "type": "bool", "default": false},
     {"key": "devil2", "label": "Correfoc: the new devil", "type": "bool", "default": true},
     {"key": "trailer.clearHold", "label": "Blue room after the mosaic falls", "type": "number", "min": 1, "max": 60, "step": 1, "default": 6, "unit": "s"},
-    {"key": "paintOpen", "label": "Painted share of EACH wall that opens the buttons", "type": "number", "min": 0.01, "max": 0.9, "step": 0.01, "default": 0.25},
+    {"key": "paintOpen", "label": "Painted share of EACH wall that within reach (0.5–2.4 m) that opens the buttons", "type": "number", "min": 0.01, "max": 0.9, "step": 0.01, "default": 0.2},
     {"key": "jump", "label": "Hold a block (rehearsal)", "type": "select", "default": "none", "options": [["none", "— (the trailer runs)"], ["wait", "Entrance"], ["intro", "The square: title"], ["brasa", "Correfoc: data"], ["pinya", "Pinya: fill the room"], ["tronc", "Tower: climb onto the castell"], ["acta", "Closing"], ["festa", "Credits (if on)"]]},
     {"key": "guide", "label": "Hand targets and instructions", "type": "bool", "default": false},
     {"key": "mosaic", "label": "Entrance stones (reload)", "type": "select", "default": "image", "options": [["stone", "One colour per stone"], ["image", "The picture printed on the stones"]]},
