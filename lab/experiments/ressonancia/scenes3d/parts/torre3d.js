@@ -527,8 +527,8 @@ export function create({ THREE, TSL, room, params }) {
     for (let i = charges.length - 1; i >= 0; i--) { const ch = charges[i]; if (!nowStrokes.has(ch.stroke) && time - ch.seen > 0.35) { ch.gone = (ch.gone ?? 0) + dt; if (ch.gone > 0.6) charges.splice(i, 1); } }
 
     // ---- solo help: after a while with no new climber, the room calls one by itself (a ring charges on a wall without a hand)
-    const assist = p.assist ?? 4.5;
-    if (assist > 0 && topT < 0 && slots.some((s) => !s.who) && time > (p.assistDelay ?? 7) && time - lastClimb > assist) {
+    const assist = p.assist ?? 3.5;
+    if (assist > 0 && topT < 0 && slots.some((s) => !s.who) && time > (p.assistDelay ?? 5) && time - lastClimb > assist) {
       if (!charges.some((q) => q.auto)) {
         const ws = otherWalls(), wi = ws[Math.floor(rr() * ws.length)], W = walls[wi];
         const pos = new THREE.Vector3().copy(W.centre).addScaledVector(W.right, (rr() - 0.5) * W.width * 0.5); pos.y = 1.1 + rr() * 0.4;
@@ -584,7 +584,7 @@ export function create({ THREE, TSL, room, params }) {
     const topY = tiers[tiers.length - 1].y + 1.0 * tiers[tiers.length - 1].hs;
     let pomY = -9;
     if (topT >= 0) {
-      const tp = (time - topT - 1.0) / (p.pomTime ?? 3);
+      const tp = p.end === false ? -1 : (time - topT - 1.0) / (p.pomTime ?? 3);   // end: false → the host starts the end (part.finish())
       pomY = tp < 0 ? -9 : smooth01(tp) * topY;
       if (tp >= 1.05 && aletaT < 0) { aletaT = time; events.push('aleta'); }
     }
@@ -659,6 +659,7 @@ export function create({ THREE, TSL, room, params }) {
     climbers.length = 0; charges.length = 0; for (const s of slots) s.who = null; for (const T of tiers) T.seated = 0;
     completed = 0; topT = -1; aletaT = -1; endT = -1; doneSent = false; lastClimb = time; firstT = -1; rondaBorn = 0; riseV = 0;
   }
+  function finish() { P.end = true; }
   function progress() {
     const needed = slots.length, seated = climbers.filter((b) => b.state === 'seated').length;
     return { tier: completed, tiers: tiers.length, climbers: seated, inFlight: climbers.length - seated, needed, height: +rise.toFixed(2),
@@ -667,5 +668,5 @@ export function create({ THREE, TSL, room, params }) {
   function setParams(p) { if (p && p.tiers != null && String(p.tiers) !== String(P.__tiersBuilt ?? '')) { /* tiers change on reset */ } }
   function dispose() { beingMat.dispose(); jobs.length = 0; for (const M of meshes) if (M) M.mesh.geometry.dispose(); if (backdrop) { backdrop.geometry.dispose(); backdrop.material.dispose(); } }
   if (typeof window !== 'undefined') window.__torre3d = { progress, reset, climbers, ronda, slots, tiers, events, get readyMs() { return readyMs; }, make: (wi, x, y) => { const W = walls[wi]; const h = new THREE.Vector3().copy(W.centre).addScaledVector(W.right, x); h.y = y; return !!makeClimber(wi, h, false); }, TW: () => TW };
-  return { object, update, setParams, dispose, progress, reset, events, setBackdrop };
+  return { object, update, setParams, dispose, progress, reset, events, setBackdrop, finish };
 }
