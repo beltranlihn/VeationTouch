@@ -250,8 +250,11 @@ const segments = () => {
   if (tow) SG.push(['tronc', pre + title + fire + pin]);
   // studio 26-11 (Beltrán: «ya no vamos a hacer créditos»): after the tower's golden ending the room goes back to the mosaic (the
   // entrance assembles again); trailer.credits = true brings the credits back
-  if (P['trailer.credits'] === true) SG.push(['festa', pre + title + fire + pin + tow], ['end', pre + title + fire + pin + tow + res]);
-  else SG.push(['end', pre + title + fire + pin + tow + (tow ? 0 : 8)]);
+  // … and closes on a poetic line (26-11, Beltrán): the square of particles and the castells again, «When bodies resonate together,
+  // culture is born» on one wall, «Thank you for joining Ressonància» on another, the voice, then black and the mosaic (score block 'acta')
+  const out = P['trailer.outro'] === 0 ? 0 : (P['trailer.outro'] ?? 18), e0 = pre + title + fire + pin + tow;
+  if (P['trailer.credits'] === true) SG.push(['festa', e0], ['end', e0 + res]);
+  else { if (out) SG.push(['acta', e0]); SG.push(['end', e0 + (out || (tow ? 0 : 8))]); }
   return SG;
 };
 function trailerStep(dt) {
@@ -329,7 +332,8 @@ function wanted(b) {
     case 'wait': return has('umbral3d') ? (parts.umbral3d?.part?.charge?.().cleared ? ['umbral3d', 'atmos'] : ['umbral3d']) : ['atmos'];   // studio 26-11 (Beltrán): once the mosaic falls, the square's air is already there behind it
     case 'intro': return [SQ() ? 'plaza3d' : 'plaza', 'atmos', has('castells3d') && P.castells3d !== false ? 'castells3d' : 'castell', ...(has('introp1') ? ['introp1'] : []), ...T];   // 26-11: the new baked square (plaza3d) and the castells of particles at many depths (castells3d); = false: the old ones
     case 'brasa': return has('brasa3d') ? ['brasa3d', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];   // 26-11: the SAME square goes on (Beltrán: «dentro del mismo mundo»)
-    case 'pinya': return has('pinya3d2') ? ['pinya3d2', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the pinya v2
+    case 'pinya': return has('pinya3d2') ? ['pinya3d2', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];
+    case 'acta': return [...(SQ() ? ['plaza3d'] : []), ...(has('castells3d') ? ['castells3d'] : []), ...(has('introp1') && P['trailer.outroText'] === true ? ['introp1'] : []), 'atmos'];   // the closing (its words: introp1's outro mode, once Título delivers it)   // studio 26-11: the pinya v2
     case 'tronc': return has('torre3d') ? ['torre3d', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the tower (score block 'tronc')
     case 'festa': case 'crown': return has('festa3d') ? ['festa3d', 'atmos', ...T] :   // (26-11: the dust stays through the credits)
                                     ['plaza', 'castell', 'atmos', ...T];
@@ -686,8 +690,13 @@ function frame(dt) {
         const k = sm(0.5, 5.5, serving ? S.t : 9);                    // the particles of the intro turn into the dark square of the fires
         p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.4 * (1 - k) + 0.05 * k; p.breathe = 1 - k; p.cool = 0.5;
       } else if (e.home === 'pinya') { p.dark = 1; p.reveal = 0.55; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6; p.fires = [0, 0, 0, 0]; p.lit = 0; }
-      p.shatter = e.leave || 0;
-    } else if (e.name === 'castells3d' || e.name === 'introp1') t = S.block === 'intro' && serving ? S.t : 60;   // its build, stages and end ride the intro's clock
+      const D = P['trailer.outro'] ?? 18;
+      if (e.home === 'acta') { const ta = serving ? S.t : 0; p.dark = 0; p.reveal = 0.55; p.occlude = 1; p.pointGain = 0.4 * sm(0, 3, ta); p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.shatter = Math.max(e.leave || 0, sm(D - 5, D - 1.5, ta)); }
+      else p.shatter = e.leave || 0;
+    } else if (e.name === 'castells3d' || e.name === 'introp1') {
+      if (e.home === 'acta') { t = serving ? S.t : 0; p.mode = 'outro'; p.outroDur = P['trailer.outro'] ?? 18; }   // the closing: its own clock and mode
+      else { t = S.block === 'intro' && serving ? S.t : 60; p.mode = 'intro'; }
+    }   // its build, stages and end ride the intro's clock
     else if (e.name === 'actatext') t = serving ? S.t : 40;
     else if (e.name === 'trailertext') { t = TRL.tt; input.segments = segments(); input.lang = P.lang; }   // TRAILER: its own clock
     else if (e.name === 'introtext') t = S.block === 'intro' && serving ? S.t : 76 + 3 * Math.min(1, e.leave * 8);   // the title goes in ~1.5 s: it must not sit under Brasa's card
