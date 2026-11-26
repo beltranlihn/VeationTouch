@@ -458,13 +458,14 @@ export async function createRoom3D(vt, canvas, opt = {}) {
   function setBackground(what = 'wait', over = null) {
     const base = typeof what === 'string' ? PALETTE[what] || PALETTE.wait : what;
     const c = { ...base, ...(over || {}) };
-    if (c.bottom) bg.to.bottom = [...c.bottom]; if (c.top) bg.to.top = [...c.top]; if (c.gain != null) bg.gain.value = c.gain;
+    if (c.bottom) bg.to.bottom = [...c.bottom]; if (c.top) bg.to.top = [...c.top]; if (c.gain != null) bg.toGain = c.gain;   // 26-11 (QA): the gain eases too (it jumped: a flash at block changes)
     bg.name = typeof what === 'string' ? what : 'custom';
-    if (c.now) { bg.bottom.value.fromArray(bg.to.bottom); bg.top.value.fromArray(bg.to.top); }
+    if (c.now) { bg.bottom.value.fromArray(bg.to.bottom); bg.top.value.fromArray(bg.to.top); if (bg.toGain != null) bg.gain.value = bg.toGain; }
   }
   function stepBackground(dt) {
     const k = 1 - Math.exp(-dt * 2.2);
     for (const key of ['bottom', 'top']) { const v = bg[key].value, t = bg.to[key]; v.x += (t[0] - v.x) * k; v.y += (t[1] - v.y) * k; v.z += (t[2] - v.z) * k; }
+    if (bg.toGain != null) bg.gain.value += (bg.toGain - bg.gain.value) * k;
   }
 
   // ---- «la mano es una linterna» (refs/saltmere gradient-border-flashlight): up to FL_N hands as soft lights, world positions ON the wall

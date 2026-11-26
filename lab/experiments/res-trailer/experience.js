@@ -782,6 +782,13 @@ async function warmUp() {
   const first = (e) => !EF || ENTRY.has(e.name);                    // T-065: entrance first — only the entrance's parts here, the rest in bgWarm
   const hideRest = () => { for (const e of list) if (!first(e)) e.rig.visible = false; };   // after a traverse that saved every visibility
   for (const e of list) e.part.object.visible = first(e);
+  // 26-11 QA: with entranceFirst off, bgWarm() never runs — bake the bodies here (castells3d, pinya3d2, torre3d), before the states
+  // loop, so the compiles below see their meshes (no stall when their block arrives); the load is longer by the bake time
+  if (!EF) for (const e of list) {
+    const baked = () => { const r = e.part.progress?.()?.readyMs ?? globalThis['__' + e.name]?.readyMs; return r == null || r > 0; };
+    wi.params = e.params; wi.t = 30;
+    for (let kb = 0; kb < 900 && !baked(); kb++) { try { e.part.update(1 / 60, wi); } catch { break; } await new Promise((r) => setTimeout(r, 0)); }
+  }
   // two states: at rest (t 30) and breaking / arriving (t 52, the square's shatter at half): some parts switch what they draw
   // and once more without the square: its moon and sky light change every material's light set (a render object per light set)
   for (const [tw, sh, noSquare] of (EF ? [[30, 0, false], [52, 0.5, false]] : [[30, 0, false], [52, 0.5, false], [30, 0, true]])) {
