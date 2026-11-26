@@ -16,6 +16,9 @@
 //   shatter 0..1 (the reverse: the plate breaks back into points that drift up and thin out), lamps, windows, sky, stained, calm
 //   (0..1, how much P1's arcades and windows are dimmed: it is the wall that explains), fog (live mist over the baked one),
 //   silhouette (0..1, the square drawn dark), points (0..1 density), handLamp (a hand lights the nearest standing lamp, T-056).
+//   THE SQUARE OF PARTICLES (intro 17–55 s): reveal back to 0.55 (the plate goes, its depth stays so only what the eye sees of the
+//   square remains, settled), with pointGain ≈ 0.09, breathe 1 (a slow breathing), cool ≈ 0.5 (cold stone, warm windows);
+//   then shatter 0 → 1 lifts them away from there without a jump.
 //   dark (at creation: the CORREFOC's square, ./plaza3d/bake_dark/: lights off, a low moon) with fires [f0..f3] (0..1+, one foguera
 //   per wall in strip order P4 P1 P2 P3: its warm light on the wet floor and the low facades), lit (0..1, the boom: lamps and
 //   windows of the intro's bake come on) and night (the dark sky's level).
@@ -37,7 +40,7 @@ export function create(ctx) {
 
   // ------------------------------------------------------------------------------------------------ uniforms
   const uFade = uniform(0), uReveal = uniform(1), uShatter = uniform(0), uTime = uniform(0), uSil = uniform(0), uFog = uniform(1);
-  const uPts = uniform(1), uEye = uniform(eye.clone()), uGain = uniform(0.05);
+  const uPts = uniform(1), uEye = uniform(eye.clone()), uGain = uniform(0.05), uBreath = uniform(0), uCool = uniform(0);
   const G = Array.from({ length: 8 }, () => new THREE.Vector4());      // group intensities, four per light texture (the intro's bake)
   const uG = uniformArray(G, 'vec4');
   const uNight = uniform(1), uFires = uniform(new THREE.Vector4());     // the dark bake (correfoc): sky level, the four fires
@@ -115,7 +118,7 @@ export function create(ctx) {
       for (let i = 0; i <= NU; i++) {
         const u = i / NU, az = (u - 0.5) * Math.PI * 2;
         const dx = Math.cos(lat) * Math.sin(az), dy = Math.sin(lat), dz = Math.cos(lat) * Math.cos(az);
-        const d = depthAt(u % 1, vTop) * 0.995;
+        const d = depthAt(u % 1, vTop) * 1.012;          // a little behind the surfaces: the points ON them stay visible
         pos[k++] = eye.x + (right.x * dx + fwd.x * dz) * d; pos[k++] = eye.y + dy * d; pos[k++] = eye.z + (right.z * dx + fwd.z * dz) * d;
       }
     }
@@ -200,17 +203,20 @@ export function create(ctx) {
     const rnd = normalize(vec3(h1.sub(0.5), h2.sub(0.5).mul(0.6), h3.sub(0.5)));
     const sw = vec3(sin(uTime.mul(0.41).add(tgt.y.mul(0.35)).add(h1.mul(6.283))), cos(uTime.mul(0.33).add(tgt.x.mul(0.21)).add(h2.mul(6.283))).mul(0.55),
       sin(uTime.mul(0.37).add(tgt.z.mul(0.27)).add(h3.mul(6.283))));
-    const inPos = tgt.add(rnd.mul(h2.mul(5.0).add(2.5)).add(vec3(0, h3.mul(2.0), 0)).add(sw.mul(1.2)).mul(q.mul(q)));
+    const inPos = tgt.add(rnd.mul(h2.mul(5.0).add(2.5)).add(vec3(0, h3.mul(2.0), 0)).add(sw.mul(1.2)).mul(q.mul(q))).add(sw.mul(uBreath.mul(0.02)));
     // shatter: the square breaks back into points that rise, turn and thin out
     const sh = uShatter, sv = clamp(sh.mul(1.4).sub(h1.mul(0.4)), 0, 1);
     const outPos = tgt.add(sw.mul(sv.mul(1.8))).add(vec3(0, sv.mul(sv).mul(h2.mul(6.0).add(3.0)), 0));
     const pos = select(sh.greaterThan(0.0), outPos, inPos);
     let E = smoothstep(delay.sub(0.2), delay, rr).mul(0.3).add(p.mul(0.7));
-    E = E.mul(float(1).sub(smoothstep(0.55, 0.95, uReveal)));                          // hand over to the plate
-    E = select(sh.greaterThan(0.0), smoothstep(0.0, 0.15, sh).mul(float(1).sub(smoothstep(0.35, 1.0, sv))), E);
+    const shown = float(1).sub(smoothstep(0.55, 0.95, uReveal));                      // 1 while the points are the square (reveal ≤ 0.55)
+    E = E.mul(shown);                                                                    // hand over to the plate
+    E = select(sh.greaterThan(0.0), mix(smoothstep(0.0, 0.15, sh), float(1), shown).mul(float(1).sub(smoothstep(0.35, 1.0, sv))), E);
+    E = E.mul(float(1).add(uBreath.mul(0.22).mul(sin(uTime.mul(0.55).add(h1.mul(6.283)).add(tgt.x.mul(0.12))))));   // breathing
     const keep = h3.lessThan(uPts);
     const lin = pow(Ac.rgb, vec3(2.2)), emis = Ac.a.greaterThan(0.1);
-    const colr = lin.mul(select(emis, float(2.5), float(1.0))).mul(select(kd.greaterThan(1.5).and(kd.lessThan(2.5)), float(0.6), float(1.0)));
+    const cool = mix(lin, vec3(dot(lin, vec3(0.3, 0.55, 0.15))).mul(vec3(0.62, 0.78, 1.25)), uCool);   // cold stone, warm windows
+    const colr = select(emis, lin.mul(2.5), cool).mul(select(kd.greaterThan(1.5).and(kd.lessThan(2.5)), float(0.6), float(1.0)));
     const mv = modelViewMatrix.mul(vec4(pos, 1));
     const dist = length(mv.xyz);
     const size = dist.mul(0.0032).mul(float(1).add(q.mul(1.6)));
@@ -232,10 +238,11 @@ export function create(ctx) {
     if (!ready) return;
     const reveal = num(P.reveal, 1), shatter = num(P.shatter, 0) || num(input?.leave, 0);
     uReveal.value = reveal; uShatter.value = shatter; uSil.value = num(P.silhouette, 0); uFog.value = num(P.fog, 1);
-    uPts.value = num(P.points, 1); uGain.value = num(P.pointGain, 0.05);
-    uFade.value = smooth(0.5, 1.0, reveal) * (1 - smooth(0.0, 0.45, shatter));
-    if (plate) plate.visible = uFade.value > 0.002;
+    uPts.value = num(P.points, 1); uGain.value = num(P.pointGain, 0.05); uBreath.value = num(P.breathe, 0); uCool.value = num(P.cool, 0);
+    uFade.value = smooth(0.58, 1.0, reveal) * (1 - smooth(0.0, 0.45, shatter));
     if (points) points.visible = (reveal < 0.999 || shatter > 0) && !(shatter >= 0.999);
+    // the plate also stays (invisible, depth only) while the points are shown: only what the eye sees of the square remains
+    if (plate) plate.visible = uFade.value > 0.002 || (points ? points.visible && shatter < 0.5 : false);
     // a hand lights the nearest standing lamp (T-056): boost, then settle back
     if (P.handLamp !== false && input?.downs?.length) for (const h of input.downs) {
       if (!h.pos && !h.world) continue;

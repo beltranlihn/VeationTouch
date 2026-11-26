@@ -109,5 +109,23 @@
   "max": 0.5,
   "step": 0.005,
   "default": 0.05
+ },
+ {
+  "key": "breathe",
+  "label": "Plaza 3D: points breathe",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.05,
+  "default": 0
+ },
+ {
+  "key": "cool",
+  "label": "Plaza 3D: points cold stone / warm windows",
+  "type": "number",
+  "min": 0,
+  "max": 1,
+  "step": 0.05,
+  "default": 0
  }
 ]
