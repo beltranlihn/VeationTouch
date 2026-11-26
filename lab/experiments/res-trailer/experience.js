@@ -328,7 +328,8 @@ function wanted(b) {
     case 'brasa': return has('brasa3d') ? ['brasa3d', ...(has('plazaDark') ? ['plazaDark'] : []), 'atmos', ...T] : ['atmos', ...T];
     case 'pinya': return has('pinya3d2') ? ['pinya3d2', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the pinya v2
     case 'tronc': return has('torre3d') ? ['torre3d', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the tower (score block 'tronc')
-    case 'festa': case 'crown': return has('festa3d') ? ['festa3d', ...T] : ['plaza', 'castell', 'atmos', ...T];
+    case 'festa': case 'crown': return has('festa3d') ? ['festa3d', 'atmos', ...T] :   // (26-11: the dust stays through the credits)
+                                    ['plaza', 'castell', 'atmos', ...T];
     default: return ['atmos', ...T];
   }
 }
@@ -448,8 +449,8 @@ function startTransition(from, to) {
   tr.on = true; tr.t = 0; tr.at = time; tr.from = from; tr.to = to; tr.mv = MOVES[to] || MOVES.wait; tr.dur = tr.mv.dur;
   tr.delay = from === 'wait' ? 1.0 : 0.15;                              // T-060: out of the noon the slabs wait 1 s: the dusk falls first, they carry dusk → night
   tr.origin = (Math.random() * 4 | 0) * 0.25 + 0.125;                  // the front starts at the centre of one wall
-  room.setTiles({ on: P.tiles !== false, seed: Math.random() * 100, origin: tr.origin, origins: 1, mix: 0, amount: 1, accentFrom: (PAL[from] || PAL.intro).thread, accentTo: (PAL[to] || PAL.intro).thread });
-  thread.begin(from, to);
+  room.setTiles({ on: P.tiles === true, seed: Math.random() * 100, origin: tr.origin, origins: 1, mix: 0, amount: 1, accentFrom: (PAL[from] || PAL.intro).thread, accentTo: (PAL[to] || PAL.intro).thread });
+  if (P.tiles === true) thread.begin(from, to);   // 26-11 (Beltrán: «transiciones súper orgánicas, con disolución de partículas»): no slabs, no thread — every part comes and goes as particles
 }
 function stepTransition(dt) {
   if (!tr.on) return;
@@ -463,7 +464,7 @@ function stepTransition(dt) {
     else if (e.state === 'on') placeRig(e.rig, 0, tr.mv);
     // a part that has gone ('off') keeps its last pose while hidden: no snap (QA 24-11); it is put back at the next arrival
   }
-  thread.update(dt, k);
+  if (P.tiles === true) thread.update(dt, k);
   if (k >= 1 && m >= 1) { tr.on = false; room.setTiles({ on: false }); for (const e of list) { if (e.state !== 'off') placeRig(e.rig, 0, tr.mv); e.came = false; } thread.end(); }
 }
 function pass(which) {                       // room.render's hook: the outgoing world, then the incoming one (shared parts in both)
@@ -476,7 +477,7 @@ function passIntro(which) { for (const e of list) e.rig.visible = !e.torn && (wh
 function stepIntroBreak() {
   const pl = parts.plaza; if (!pl) return null;
   if (pl.state === 'off' || pl.state === 'in') pl.torn = false;
-  if (tr.on || P.tiles === false || pl.home !== 'intro' || S.block !== 'intro' || pl.torn) return null;
+  if (tr.on || P.tiles !== true || pl.home !== 'intro' || S.block !== 'intro' || pl.torn) return null;
   const k = clamp((S.t - 46.3) / 11.5, 0, 1);
   if (k <= 0) return null;
   if (k >= 1) { pl.torn = true; room.setTiles({ on: false }); return null; }
@@ -605,7 +606,7 @@ function frame(dt) {
 
   // who comes, who goes
   const W = wanted(S.block);
-  const tk = tr.on && P.tiles !== false ? room.tiles.mix.value : -1;
+  const tk = tr.on && P.tiles === true ? room.tiles.mix.value : -1;
   for (const e of list) {
     if (W.includes(e.name)) {
       if (e.home !== S.block) { e.home = S.block; e.fallK = 0; if ((e.name === 'pinya3d2' && S.block === 'pinya') || (e.name === 'torre3d' && S.block === 'tronc') || (e.name === 'brasa3d' && S.block === 'brasa')) { e.part.reset?.(); if (e.name === 'brasa3d') link.stormFull = false; } }   // (26-11: every pass starts an empty room)
@@ -620,7 +621,7 @@ function frame(dt) {
   }
 
   if (changed) {
-    if ((P.tiles !== false || P.eye !== false) && list.some((e) => e.state === 'out')) startTransition(fromBlock, S.block);
+    if ((P.tiles === true || P.eye !== false) && list.some((e) => e.state === 'out')) startTransition(fromBlock, S.block);
     else if (!tr.on) for (const e of list) e.came = false;
   }
   stepTransition(dt);
@@ -656,7 +657,7 @@ function frame(dt) {
       p.lineColor = pal.line; p.lineHalo = pal.halo; p.line *= pal.lineK; if (early || (e.home === 'intro' && has('plaza3d') && P.plaza3d !== false)) p.line = 0;   // (26-11: the new intro has no horizon line)
       p.lvlFloor = e.carry ? 1 : 0;   // hands still stir it, less: the warm swirls were the bright cloud by the targets
     } else if (e.name === 'plaza') {
-      if (e.home === 'intro') { t = S.block === 'intro' ? S.t : 70; p.noBreak = P.tiles !== false; p.skyTint = INTRO_SKY; p.silhouette = 0; p.shatter = 0; p.reveal = 0; p.lamps = e.base.lamps ?? 1; p.sky = e.base.sky ?? 1; p.windows = Math.max(0.55, e.base.windows ?? 0.45); p.pool = 1.5; p.moonKey = 1.0; p.night = 1; p.reach = 0.4; p.glow = e.base.glow ?? 0.3; p.haze = e.base.haze ?? 1; p.moon = e.base.moon ?? 1; e.mood = 1; }
+      if (e.home === 'intro') { t = S.block === 'intro' ? S.t : 70; p.noBreak = P.tiles === true; p.skyTint = INTRO_SKY; p.silhouette = 0; p.shatter = 0; p.reveal = 0; p.lamps = e.base.lamps ?? 1; p.sky = e.base.sky ?? 1; p.windows = Math.max(0.55, e.base.windows ?? 0.45); p.pool = 1.5; p.moonKey = 1.0; p.night = 1; p.reach = 0.4; p.glow = e.base.glow ?? 0.3; p.haze = e.base.haze ?? 1; p.moon = e.base.moon ?? 1; e.mood = 1; }
       else {
         t = 30; p.noBreak = false; p.skyTint = pal.sky; p.silhouette = e.home === 'baixada' || e.home === 'fall' ? 1 : 0; p.silDrop = 13.5;   // director 24-11: rooftops at ~30–40 % of the wall, the dawn sky dominates p.pool = 1; p.moonKey = 1; p.night = 0; p.reach = 1;
         let sh = e.state === 'in' ? 1 - smooth(e.arrive) : e.state === 'out' ? 1 - (1 - e.leave) * (1 - e.leave) : 0;   // leaving: it starts breaking at once
