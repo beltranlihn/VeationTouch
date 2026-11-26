@@ -1092,12 +1092,13 @@ export function create(ctx) {
   // terraces far away, a few vaults of sand stone in the haze (ref 04 / 03). Low contrast, high value: it never competes with the mosaic.
   // (No stars, no embers: the old glints / ember thread are gone.)
   const SKY_GAIN = 0.88;   // (the bloom adds a little to what is this bright)
+  const uSkyK = uniform(1);   // (26-11 QA) the flat night fades with the leave: no flat blue band under the incoming square
   const skyMesh = (() => {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
     m.colorNode = Fn(() => {
       const d = normalize(positionLocal), y = d.y;
       // studio 25-11 (Beltrán: «detrás del portal, un azul plano con unas motas de polvo»): one flat night blue, nothing else
-      return vec3(0.012, 0.022, 0.066);   // studio 26-11 (Beltrán: «que sean iguales, el oscuro me gusta más»): the joints' night (groutMesh) is this same blue
+      return vec3(0.012, 0.022, 0.066).mul(uSkyK);   // studio 26-11 (Beltrán: «que sean iguales, el oscuro me gusta más»): the joints' night (groutMesh) is this same blue
     })();
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(150, 48, 24), m); mesh.renderOrder = -900; mesh.frustumCulled = false; return mesh;
   })();
@@ -1766,7 +1767,7 @@ export function create(ctx) {
 
     // ---- the far world and the light come and go with the part
     const farK = arrive * (1 - leave);
-    for (const h of hazes) h.visible = false; skyMesh.visible = true;   // studio 25-11: no dunes, vaults or haze; the flat night always (the room's sand background never shows)
+    for (const h of hazes) h.visible = false; skyMesh.visible = true; uSkyK.value = 1 - smooth(0.3, 1, leave);   // studio 25-11: no dunes, vaults or haze; the flat night always (the room's sand background never shows)
     floorMesh.visible = false; uHeroRot.value = heroRot; uDustT.value = time; uDustK.value = farK * (clearT0 >= 0 ? 1 - smooth(clearT0 + 0.5, clearT0 + 2.5, time) : 1);   // (26-11: at CLEAR the square's own dust — atmos — takes over)
     hemi.intensity = KEYS.fill * farK; key.intensity = KEYS.key * farK; beam.intensity = 0; beam2.intensity = KEYS.spot * farK;   // T-058: no lighthouse (kept as lights at 0: the set of lights must not change)
     for (const l of rims) { l.position.set(Math.cos(l.userData.a) * 12.5, 1.2, Math.sin(l.userData.a) * 12.5); l.intensity = 0; }

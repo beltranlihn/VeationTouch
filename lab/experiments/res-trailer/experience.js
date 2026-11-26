@@ -185,7 +185,10 @@ function stepDusk(dt) {
   // else atmos'), DUSK_LIFT[0] → [1] of it (≈ +1.0 … +2.8 s at TR 4 s); `far` stays, so the noon's sky never comes back
   { const I = parts.plaza3d && parts.plaza3d.state !== 'off' ? parts.plaza3d : parts.atmos;
     const k = Math.max(smooth(((U.leave || 0) - 0.75) / 0.25), I && I.state !== 'off' && I.state !== 'out' ? smooth(((I.arrive ?? 0) - DUSK_LIFT[0]) / (DUSK_LIFT[1] - DUSK_LIFT[0])) : 0);
-    if (k > 0) g.set(g.x + (1 - g.x) * k, g.y + (1 - g.y) * k, g.z + (1 - g.z) * k); }
+    if (k > 0) g.set(g.x + (1 - g.x) * k, g.y + (1 - g.y) * k, g.z + (1 - g.z) * k);
+    // `far` too (26-11 QA): beyond 11.5 m the threshold keeps only its flat night sky now, which fades with its own leave (umbral3d's
+    // uSkyK) — there is no noon sky left to hide, and `far` held the intro's square dark until umbral3d went off (+3.9 s)
+    if (k > 0) f.set(f.x + (1 - f.x) * k, f.y + (1 - f.y) * k, f.z + (1 - f.z) * k); }
   dusk.far.mesh.visible = t > 0; dusk.all.mesh.visible = t > 0;
   const gl = geo(1, 0.5, a) * (1 - smooth((t - 0.9) / 1.1));      // the sun and the fill: ×0.5 at the dusk, out by 2.0 s (the ground darkens with the sky, not after it)
   for (const d of dusk.lights) {
