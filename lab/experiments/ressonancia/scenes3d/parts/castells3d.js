@@ -37,19 +37,22 @@ const POSES = [
     hf: [{ fd: [0, 0.2, 1], pn: [0, -1, 0.2] }, { fd: [0, 0.2, 1], pn: [0, -1, 0.2] }], elbow: V(0, -1, -0.1) },
   { lean: 0.38, hunch: 0.3, head: -0.1, feet: [V(0.13, 0.07, -0.16), V(-0.12, 0.07, 0.06)], hands: [V(0.16, 2.02, 0.1), V(-0.2, 1.02, 0.4)],
     hf: [{ fd: [0, 1, 0], pn: [0, 0, 1] }, { fd: [0, 0.2, 1], pn: [0, -1, 0.2] }], elbow: V(0, -1, -0.2) }];
-const LODS = [1900, 800, 320];   // points per body: near (< 5 m) · mid (< 14 m) · far
+const LODS = [3200, 1900, 900];   // points per body, by how big the castell is seen on its wall (the art's castells are dense)
 const SPREAD = 2.1, SH = 1.4;
 const RINGS_R = [0.82, 1.32, 1.82, 2.32], RINGS_N = [8, 12, 16, 20];
 // the art (P4 | P1 | P2 | P3): x = where it is seen on the wall, m from its centre (+ = the wall's right seen from the room), depth = m behind the wall to the
 // castell's centre (at least its pinya's radius), scale = real size × it
+// Placed from Beltrán's art (the strip montage, 26-11), measured castell by castell: where it stands on the wall, the height of its base on
+// the wall (→ its depth, seen from the eye at 1.6 m) and its pinya's width (→ its scale). The art's castells are nearer than "3–25 m":
+// 1–7 m behind the walls; their sizes follow the picture.
 const CASTELLS = [
-  { wall: 'P4', x: -3.05, depth: 2.2, scale: 1.12, tiers: '4,4,4,3,2,1,1', rings: 2 },          // enormous, very near, cut by the left edge and the top
-  { wall: 'P4', x: 2.2, depth: 24, scale: 1.0, tiers: '3,3,3,2,1,1', rings: 1 },               // small, far
-  { wall: 'P4', x: 0.6, depth: 10.5, scale: 1.0, tiers: '4,4,3,2,1,1', rings: 2 },             // medium, half way
-  { wall: 'P1', x: 0.0, depth: 9.0, scale: 1.0, tiers: '3,3,3,3,2,1,1', rings: 2, fire: true, explain: true },   // standing, its base fire: it explains
-  { wall: 'P2', x: 1.1, depth: 1.75, scale: 1.25, tiers: '4,4,4,4,2,1,1', rings: 1 },          // giant, very near, cut above and below: huge bodies
-  { wall: 'P2', x: -2.5, depth: 25, scale: 1.0, tiers: '3,3,3,2,1,1', rings: 1 },              // small, far
-  { wall: 'P2', x: -0.6, depth: 6.5, scale: 1.08, tiers: '4,4,3,2,1,1', rings: 3 },            // large, a wide pinya
+  { wall: 'P4', x: -2.45, depth: 1.35, scale: 1.15, tiers: '4,4,4,3,2,1,1', rings: 1 },          // enormous, very near, cut by the left edge and the top
+  { wall: 'P4', x: -0.15, depth: 5.2, scale: 0.9, tiers: '3,3,3,2,1,1', rings: 2 },             // the small one, further away
+  { wall: 'P4', x: 2.62, depth: 1.2, scale: 0.85, tiers: '3,3,3,2,1,1', rings: 1 },             // medium, near, cut by the top
+  { wall: 'P1', x: 0.18, depth: 2.2, scale: 0.58, tiers: '3,3,3,3,2,1,1', rings: 2, fire: true, explain: true },   // between the title and the stages' list; its base fire
+  { wall: 'P2', x: -2.36, depth: 1.05, scale: 1.9, tiers: '4,4,4,4,2,1,1', rings: 0 },          // giant, very near, cut above and below: a column of huge bodies (no pinya seen)
+  { wall: 'P2', x: 0.07, depth: 6.7, scale: 1.0, tiers: '3,3,3,2,1,1', rings: 2 },              // the small one, further away
+  { wall: 'P2', x: 2.14, depth: 1.3, scale: 0.9, tiers: '4,4,3,2,1,1', rings: 2 },              // large, a wide pinya against the wall
 ];
 const STAGES = ['correfoc', 'pinya', 'tronc', 'pom', 'aleta'];
 
@@ -135,7 +138,7 @@ export function create({ THREE, TSL, room, params }) {
     const local = i0.xyz.add(rot(p.mul(hs)));
     const pw0 = modelWorldMatrix.mul(vec4(local, 1)).xyz, pw = pw0.add(brush(pw0, r2));
     const pv = cameraViewMatrix.mul(vec4(pw, 1)), c0 = clipOf(pv);
-    const size = float(0.0045).add(co.z.mul(0.0045)).mul(float(1).sub(e).mul(0.8).add(1)).mul(float(1).sub(g0.mul(0.5))).mul(haze.mul(0.6).add(1)).mul(hs);
+    const size = float(0.005).add(co.z.mul(0.005)).mul(float(1).sub(e).mul(0.8).add(1)).mul(float(1).sub(g0.mul(0.5))).mul(haze.mul(0.6).add(1)).mul(hs);
     const d = ndcScale(pv, c0, size), kq = max(float(1), uMinPt.div(d.y));
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
     m.vertexNode = vec4(c0.xy.add(co.xy.mul(d).mul(kq).mul(c0.w)), c0.z, c0.w);
@@ -151,9 +154,9 @@ export function create({ THREE, TSL, room, params }) {
     // depth: near = warm cream and sharp; far = cool, dimmer, sinking into the night's haze
     const hz = vB.z;
     const base = mix(tc(CREAM), tc(COOL), smoothstep(0.15, 0.85, hz)).mul(mix(float(0.78), float(1.15), vCo.z));
-    let col = base.mul(float(0.42).mul(rim.mul(1.9).add(0.34)).mul(ao).mul(low).mul(uLight));
-    const twk = pow(sin(uTime.mul(vCo.z.mul(2.2).add(0.5)).add(vCo.w.mul(60))).mul(0.5).add(0.5), 26);
-    col = col.mul(twk.mul(2.4).mul(float(1).sub(hz.mul(0.6))).add(1));
+    let col = base.mul(float(0.6).mul(rim.mul(1.9).add(0.36)).mul(ao).mul(low).mul(uLight));
+    const twk = pow(sin(uTime.mul(vCo.z.mul(2.2).add(0.5)).add(vCo.w.mul(60))).mul(0.5).add(0.5), 20);
+    col = col.mul(twk.mul(4.0).mul(float(1).sub(hz.mul(0.6))).add(1)).add(vec3(1.0, 0.95, 0.85).mul(smoothstep(0.965, 0.975, vCo.w)).mul(twk.mul(1.2).add(0.15)).mul(float(1).sub(hz.mul(0.7))));   // the art's sparkles
     // a part that explains: it grows in light with a slight pulse (glow), its loose points shine
     const glow = vB.x, pulse = sin(uTime.mul(5.5).sub(vA.w.mul(4))).mul(0.15).add(0.85);
     col = col.mul(glow.mul(2.2).mul(pulse).add(1)).add(tc(GOLD).mul(glow).mul(rim.mul(1.1).add(0.3)).mul(0.5).mul(pulse)).add(tc(GOLD).mul(vC.y).mul(0.9));
@@ -175,14 +178,14 @@ export function create({ THREE, TSL, room, params }) {
   const castells = [];
   function buildCastell(spec, ci) {
     const wi = wallOf(spec.wall), W = walls[wi], sc = spec.scale ?? 1, rings = Math.max(0, Math.min(4, spec.rings ?? 2));
-    const Rout = rings ? RINGS_R[rings - 1] * sc : 0.5;
+    const Rout = rings ? RINGS_R[rings - 1] * sc : 0.42 * sc + 0.25;   // no pinya: the tronc's own ring
     const back = Math.max(spec.depth ?? 6, Rout + 0.1);
     // x is where the castell is SEEN on its wall (m from the wall's centre, from the eye): its place in the square is that ray, `back` deep
     const dW = Math.max(0.5, -((W.centre.x - room.eye.x) * W.normal.x + (W.centre.z - room.eye.z) * W.normal.z));
     const C = new THREE.Vector3().copy(W.centre).addScaledVector(W.right, (spec.x ?? 0) * (dW + back) / dW).addScaledVector(W.normal, -back); C.y = 0;
     const dist = Math.hypot(C.x - room.eye.x, C.z - room.eye.z);
-    const lod = dist < 5 ? 0 : dist < 14 ? 1 : 2;
-    const haze = clamp01((dist - 7) / 20);   // warm and sharp to ~7 m, then cooler, dimmer, hazier to 27 m
+    const seen = sc * 3.4 / Math.max(1, dist), lod = seen > 0.7 ? 0 : seen > 0.38 ? 1 : 2;   // its apparent scale on the wall
+    const haze = clamp01((dist - 5) / 9);   // warm and sharp to ~5 m, then cooler, dimmer, hazier (the art's furthest are ~9–10 m from the eye)
     const r = rng(1000 + ci * 77), bodies = [];
     const aN = Math.atan2(W.normal.z, W.normal.x);
     // the pinya: rings facing the centre, hands on the backs of the ring inside

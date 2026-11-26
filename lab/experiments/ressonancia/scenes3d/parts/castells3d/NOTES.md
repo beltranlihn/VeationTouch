@@ -7,8 +7,8 @@
 
 ## Concept
 We stand in the middle of a square full of castells, some far away, some right on top of us. They are human towers of points
-(the pinya/tower beings: `pinya3d/body.js`, cream and pale gold with sparkles) at real scale and real depth, 3 to 25 m beyond the
-walls, so the four walls see true parallax.
+(the pinya/tower beings: `pinya3d/body.js`, cream and pale gold with sparkles) at real scale and real depth, 1 to 7 m beyond the
+walls (as the art places them), so the four walls see true parallax.
 - Near castells are big, sharp and warm.
 - Far ones are smaller, cooler and dimmer, sinking into a night haze (by distance).
 
@@ -50,13 +50,15 @@ It fades out for castells beyond ~12 m along the ray.
   - `fire` = the ember band;
   - `explain` = the castell that does the stages;
   - `start` overrides its build time.
-- The default list (`CASTELLS`) follows the art:
+- The default list (`CASTELLS`) is measured from Beltrán's art (26-11): each castell's place on the wall, the height of its base on the
+  wall (which gives its depth from the eye at 1.6 m) and its pinya's width (which gives its scale). It covers:
   - P4: enormous near (cut left and top), small far, medium;
   - P1: the explaining castell with fire;
-  - P2: giant near (cut), small far, large with a wide pinya;
+  - P2: giant near (a column of huge bodies, cut, no pinya), small far, large with a wide pinya;
   - P3: none.
 
 ## Cost (designed, not measured — no measurements while the machine is shared)
-- Points per body are chosen by distance: 1900 (< 5 m) · 800 (< 14 m) · 320. In all, about 260 bodies ≈ 200 k points.
+- Points per body are chosen by how big the castell is seen on its wall: 3200 · 1900 · 900, so the near giants are dense, as in the art.
+  In all, about 230 bodies ≈ 450 k points.
 - Each castell is a mesh culled per wall by its sphere.
 - The bake takes ~1.5 s, spread over frames.
