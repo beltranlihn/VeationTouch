@@ -768,7 +768,10 @@ def look_world(sc):
     nt.links.new(lp.outputs['Is Glossy Ray'], ms.inputs[0]); nt.links.new(ms.outputs[0], bg.inputs['Strength'])
     # organic fog: low mist that pools in banks and thins in clearings, its top undulating; a faint high veil for depth
     bm = bmesh.new(); bmesh.ops.create_cube(bm, size=1.0)
-    for v in bm.verts: v.co = Vector((v.co.x * 160, v.co.y * 160, (v.co.z + 0.5) * 40))
+    # its floor sits 1 m UNDER the square's floor: coplanar with it (z = 0) some camera rays crossed the volume's face, skipped the
+    # floor and saw the sky below the horizon (flat light-grey sectors of floor, the P1–P2 corner worst). The density is driven by
+    # object coordinates, so the mist itself does not move.
+    for v in bm.verts: v.co = Vector((v.co.x * 160, v.co.y * 160, (v.co.z + 0.5) * 41 - 1.0))
     me = bpy.data.meshes.new('haze'); bm.to_mesh(me); bm.free()
     hz = bpy.data.objects.new('haze', me); sc.collection.objects.link(hz)
     m = bpy.data.materials.new('haze'); m.use_nodes = True; t = m.node_tree; t.nodes.clear()

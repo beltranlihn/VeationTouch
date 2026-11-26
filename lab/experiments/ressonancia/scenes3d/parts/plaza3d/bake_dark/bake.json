@@ -18,6 +18,7 @@
  "slices": 2,
  "rgbmRange": 8.0,
  "additive": true,
+ "depthB": "base mask",
  "rgbGamma": 2.2,
  "depthMax": 400.0,
  "lightSize": [
@@ -36,57 +37,97 @@
    "kind": "fire",
    "pos": [
     0.0,
-    1.2,
+    1.765,
     -6.5235
    ],
    "side": "P4",
-   "file": "fire_P4.png"
+   "file": "fire_P4.png",
+   "range": 21.0
   },
   {
    "name": "fire_P1",
    "kind": "fire",
    "pos": [
     6.9707,
-    1.2,
-    -0.0
+    0.894,
+    -0.735
    ],
    "side": "P1",
-   "file": "fire_P1.png"
+   "file": "fire_P1.png",
+   "range": 21.0
   },
   {
    "name": "fire_P2",
    "kind": "fire",
    "pos": [
     0.0,
-    1.2,
+    1.34,
     6.5235
    ],
    "side": "P2",
-   "file": "fire_P2.png"
+   "file": "fire_P2.png",
+   "range": 36.0
   },
   {
    "name": "fire_P3",
    "kind": "fire",
    "pos": [
     -6.9707,
-    1.2,
+    0.5433,
     -0.0
    ],
    "side": "P3",
-   "file": "fire_P3.png"
+   "file": "fire_P3.png",
+   "range": 35.0
+  },
+  {
+   "name": "embers_P1",
+   "kind": "embers",
+   "pos": null,
+   "side": "P1",
+   "file": "embers_P1.png",
+   "range": 8.0
+  },
+  {
+   "name": "embers_P2",
+   "kind": "embers",
+   "pos": null,
+   "side": "P2",
+   "file": "embers_P2.png",
+   "range": 8.0
+  },
+  {
+   "name": "embers_P3",
+   "kind": "embers",
+   "pos": null,
+   "side": "P3",
+   "file": "embers_P3.png",
+   "range": 8.0
+  },
+  {
+   "name": "embers_P4",
+   "kind": "embers",
+   "pos": null,
+   "side": "P4",
+   "file": "embers_P4.png",
+   "range": 8.0
   }
  ],
  "files": {
-  "beauty_0.png": 7343252,
-  "beauty_1.png": 7666279,
-  "fire_P4.png": 4517908,
-  "fire_P1.png": 4464647,
-  "fire_P2.png": 4462523,
-  "fire_P3.png": 4496569,
-  "depth.png": 4775310
+  "beauty_0.png": 7419624,
+  "beauty_1.png": 7432456,
+  "fire_P4.png": 4175363,
+  "fire_P1.png": 4023315,
+  "fire_P2.png": 3689313,
+  "fire_P3.png": 3477504,
+  "embers_P1.png": 1220083,
+  "embers_P2.png": 1012309,
+  "embers_P3.png": 687157,
+  "embers_P4.png": 877679,
+  "depth.png": 4637956
  },
  "depthStats": {
-  "p5": 3.493992805480957,
-  "p50": 18.726404190063477
+  "p5": 3.488786458969116,
+  "p50": 18.55597686767578
  }
 }

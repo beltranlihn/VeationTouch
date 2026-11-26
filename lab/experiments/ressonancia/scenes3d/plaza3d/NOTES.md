@@ -57,6 +57,19 @@ None (the intro's sound is `ressonancia-sound`).
 - 2026-11-26: POINT CLOUD for LA TORRE (camera rises by a wall, so the panorama does not apply there):
   `blender/plaza_points.py` → `../parts/plaza3d/points.bin` + `points.json` (≈400 k points, 6.4 MB; format, frame, facades and
   heights in the JSON). Beltrán: «Me gusta». The tower session draws it with its own particle material.
+- 2026-11-26: the four fogueres baked INTO the dark square (`--mode dark`): bases from `../parts/brasa3d/fogueres/`, a fire and an
+  embers RGBM layer per side (`params.fires`, `params.embers`), the dark plate writes its own depth, intro plate steps aside on
+  the base mask.
+- 2026-11-26 (Director's review, Beltrán «se ven flotando»):
+  - Bug: flat light-grey sectors of floor (worst at the P1–P2 corner). The haze box's bottom was coplanar with the floor, so
+    camera rays crossed it, skipped the floor and saw the sky. The box now starts 1 m under the floor.
+  - P3 blown to white:
+    - Each fire/embers layer gets its own RGBM range (`range` in `bake.json`, 8–256); clipping at 8 flattened it.
+    - One light instead of nine against its stones; the stones are sooted (×0.45) and the light runs at ×0.6.
+  - Grounding:
+    - The fire light sits inside the flame body, at least 15 cm above the fuel, with a small radius, so the base and its legs
+      cast shadow.
+    - A matte scorch ring at the contact, and a still puddle around that mirrors the base (both a few mm over the floor).
 
 ## Assets and licences
 - Poly Haven (CC0): monastery_stone_floor, sandstone_blocks_08, old_sandstone_02, yellow_plaster, worn_shutter (2k);

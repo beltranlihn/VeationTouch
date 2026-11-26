@@ -57,13 +57,16 @@ if meta.get('mode') == 'dark':
     m = np.clip(sky.max(-1) / R, 1 / 255, 1); m = np.ceil(m * 255) / 255
     rgbm = np.concatenate([np.clip(sky / (m[..., None] * R), 0, 1) ** (1 / 2.2), m[..., None]], -1)
     for k in range(SLICES): sizes[f'beauty_{k}.png'] = save(f'beauty_{k}.png', rgbm[:, k * sw:(k + 1) * sw])
-    fires = [g for g in groups if g['kind'] == 'fire']
+    fires = [g for g in groups if g['kind'] in ('fire', 'embers')]
     for g in fires:
         f = half(load('lg_' + g['name'])[..., :3])
-        m = np.clip(f.max(-1) / R, 1 / 255, 1); m = np.ceil(m * 255) / 255
-        name = f"{g['name']}.png"; sizes[name] = save(name, np.concatenate([np.clip(f / (m[..., None] * R), 0, 1) ** (1 / 2.2), m[..., None]], -1))
-        g['file'] = name
-    groups = [g for g in groups if g['kind'] in ('sky', 'fire')]
+        # each layer gets its own RGBM range: right by the fuel a fire is far brighter than 8, and clipping at 8 flattened it to
+        # a white blob (the P3 ring). The 99.98th percentile of its peak channel, with headroom, between 8 and 256.
+        Rf = float(np.clip(np.ceil(np.percentile(f.max(-1), 99.98) * 1.25), R, 256.0))
+        m = np.clip(f.max(-1) / Rf, 1 / 255, 1); m = np.ceil(m * 255) / 255
+        name = f"{g['name']}.png"; sizes[name] = save(name, np.concatenate([np.clip(f / (m[..., None] * Rf), 0, 1) ** (1 / 2.2), m[..., None]], -1))
+        g['file'] = name; g['range'] = Rf
+    groups = [g for g in groups if g['kind'] in ('sky', 'fire', 'embers')]
     Ls = None
 else:
     Ls = []
@@ -81,11 +84,13 @@ if Ls is not None:
       for c, g in enumerate(groups[j:j + 4]): g['tex'] = j // 4; g['ch'] = 'rgba'[c]
 # ---- depth + floor mask (half resolution)
 dep = load('depth')[..., 0]; idx = load('index')[..., 0]
-dh = half(np.minimum(dep, DMAX)[..., None])[..., 0]; fh = half((np.abs(idx - 1) < 0.5).astype(np.float32)[..., None])[..., 0]
+dh = half(np.minimum(dep, DMAX)[..., None])[..., 0]
+# B: the floor mask (intro) — in the dark bake, the mask of the modelled fire bases (pass index 2), for the intro plate to step aside
+fh = half((np.abs(idx - (2 if meta.get('mode') == 'dark' else 1)) < 0.5).astype(np.float32)[..., None])[..., 0]
 q = np.round(np.clip(dh / DMAX, 0, 1) * 65535).astype(np.int64)
 sizes['depth.png'] = save('depth.png', np.stack([(q >> 8) / 255.0, (q & 255) / 255.0, fh, np.ones_like(fh)], -1))
 out = {**{k: meta[k] for k in ('latMin', 'latMax', 'eye', 'forward', 'note')}, 'mode': meta.get('mode', 'intro'), 'width': W, 'height': H, 'slices': SLICES,
-       'rgbmRange': R, 'additive': meta.get('mode') == 'dark', 'rgbGamma': 2.2, 'depthMax': DMAX, 'lightSize': [W // 2, H // 2], 'groups': groups,
+       'rgbmRange': R, 'additive': meta.get('mode') == 'dark', 'depthB': 'base mask' if meta.get('mode') == 'dark' else 'floor mask', 'rgbGamma': 2.2, 'depthMax': DMAX, 'lightSize': [W // 2, H // 2], 'groups': groups,
        'files': sizes, 'depthStats': {'p5': float(np.percentile(dep[dep < DMAX], 5)), 'p50': float(np.percentile(dep[dep < DMAX], 50))}}
 json.dump(out, open(os.path.join(DST, 'bake.json'), 'w'), indent=1)
 print('ENCODED', DST, {k: round(v / 1e6, 2) for k, v in sizes.items()}, 'depth p5/p50', out['depthStats'])
