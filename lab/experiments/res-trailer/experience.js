@@ -55,7 +55,7 @@ const QS = { low: 0.6, medium: 0.8, high: 1 }, DENS = { low: 0.4, medium: 0.6, h
 const LT = { start: performance.now() }; const lt = (k) => { LT[k] = Math.round(performance.now() - LT.start); };   // T-057: load phases (ms), window.__obra.load
 // ------------------------------------------------------------------------------------------------ the parts (their files)
 // TRAILER: only the universes the trailer shows, plus its presentation layer (./parts/trailertext.js)
-const NAMES = ['umbral3d', 'atmos', 'plaza', 'castell', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d', 'trailertext'];   // 26-11: + the tower (climb onto the castell)   // studio 26-11: + the pinya v2 (a being for every hand)
+const NAMES = ['umbral3d', 'atmos', 'plaza', 'plaza3d', 'castell', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d', 'trailertext'];   // 26-11: + the tower (climb onto the castell)   // studio 26-11: + the pinya v2 (a being for every hand)
 const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d']);
 const OWN = new Set(['trailertext']);                                           // TRAILER: parts of this folder, not of ../ressonancia
 const only = LAB ? q.get('parts') : null;                                       // lab: ?parts=plaza,castell loads only those
@@ -319,7 +319,7 @@ function wanted(b) {
   const T = has('trailertext') ? ['trailertext'] : [];
   switch (b) {
     case 'wait': return has('umbral3d') ? (parts.umbral3d?.part?.charge?.().cleared ? ['umbral3d', 'atmos'] : ['umbral3d']) : ['atmos'];   // studio 26-11 (Beltrán): once the mosaic falls, the square's air is already there behind it
-    case 'intro': return ['plaza', 'atmos', 'castell', ...T];
+    case 'intro': return [has('plaza3d') && P.plaza3d !== false ? 'plaza3d' : 'plaza', 'atmos', 'castell', ...T];   // 26-11: the new baked square (plaza3d); params.plaza3d = false: the old one
     case 'brasa': return has('brasa3d') ? ['brasa3d', 'atmos', ...T] : ['atmos', ...T];
     case 'pinya': return has('pinya3d2') ? ['pinya3d2', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the pinya v2
     case 'tronc': return has('torre3d') ? ['torre3d', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the tower (score block 'tronc')
@@ -648,7 +648,7 @@ function frame(dt) {
       e.stirK = ease(e.stirK ?? 1, e.home === 'pinya' ? 0 : e.home === 'tronc' ? 0.3 : e.home === 'baixada' ? 0.5 : 1, dt, 1.2);   // where figures stand behind the buttons, the hands' warm dust is softer
       p.stir = (e.base.stir ?? 1) * e.stirK;
       p.warm = pal.warm; p.cool = pal.cool; p.air = pal.air;   // the colour script
-      p.lineColor = pal.line; p.lineHalo = pal.halo; p.line *= pal.lineK; if (early) p.line = 0;
+      p.lineColor = pal.line; p.lineHalo = pal.halo; p.line *= pal.lineK; if (early || (e.home === 'intro' && has('plaza3d') && P.plaza3d !== false)) p.line = 0;   // (26-11: the new intro has no horizon line)
       p.lvlFloor = e.carry ? 1 : 0;   // hands still stir it, less: the warm swirls were the bright cloud by the targets
     } else if (e.name === 'plaza') {
       if (e.home === 'intro') { t = S.block === 'intro' ? S.t : 70; p.noBreak = P.tiles !== false; p.skyTint = INTRO_SKY; p.silhouette = 0; p.shatter = 0; p.reveal = 0; p.lamps = e.base.lamps ?? 1; p.sky = e.base.sky ?? 1; p.windows = Math.max(0.55, e.base.windows ?? 0.45); p.pool = 1.5; p.moonKey = 1.0; p.night = 1; p.reach = 0.4; p.glow = e.base.glow ?? 0.3; p.haze = e.base.haze ?? 1; p.moon = e.base.moon ?? 1; e.mood = 1; }
@@ -663,6 +663,14 @@ function frame(dt) {
         p.lamps = (e.base.lamps ?? 1) * dim * e.mood; p.sky = (e.base.sky ?? 1) * dim * (0.15 + 0.85 * night); p.windows = (e.base.windows ?? 0.45) * dim * (0.15 + 0.85 * night); p.moon = (e.base.moon ?? 1) * (0.12 + 0.88 * night);
         p.glow = (e.base.glow ?? 0.3) * e.mood; p.haze = (e.base.haze ?? 1) * (0.2 + 0.8 * night);
       }
+    } else if (e.name === 'plaza3d') {
+      // studio 26-11 (Beltrán's intro): the square condenses out of the dust with the first lines (1.5–14 s), becomes points again on
+      // «Welcome to Ressonància» (17–19 s) and stays a square of particles behind the castells and the titles, then lifts away (50.5–55 s)
+      t = S.block === 'intro' && serving ? S.t : 60;
+      const sm = (a, b, x) => smooth((x - a) / (b - a)), back = sm(17, 19, t);
+      p.reveal = sm(1.5, 14, t) * (1 - 0.45 * back);
+      p.pointGain = 0.05 + ((P['intro.pointGain'] ?? 0.4) - 0.05) * back; p.breathe = back; p.cool = 0.5 * back;
+      p.shatter = Math.max(sm(50.5, 55, t), e.leave || 0);
     } else if (e.name === 'actatext') t = serving ? S.t : 40;
     else if (e.name === 'trailertext') { t = TRL.tt; input.segments = segments(); input.lang = P.lang; }   // TRAILER: its own clock
     else if (e.name === 'introtext') t = S.block === 'intro' && serving ? S.t : 76 + 3 * Math.min(1, e.leave * 8);   // the title goes in ~1.5 s: it must not sit under Brasa's card
