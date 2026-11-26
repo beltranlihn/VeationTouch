@@ -378,10 +378,11 @@ export function create({ THREE, TSL, room, params }) {
     return null;
   }
   // the pace (director 26-11, from the room: «una sola persona dando vueltas por la sala activó la etapa en unos 30 segundos»): the beings
-  // that come by themselves (a held hand's, the help, the opening's companions) never run ahead of a ramp — params.minTime (default 80 s)
+  // that come by themselves (a held hand's, the help, the opening's companions) never run ahead of a ramp — params.minTime (default 55 s; 80 until 26-11)
   // from the first being to a full room. A new hand always calls its own being (it is never refused); so one person needs ~80 s of
-  // work, several people fill it sooner, with their own hands.
-  const allowance = () => 10 + fillCount() * (prm().fullAt ?? 0.92) * Math.max(0, time - firstT) / Math.max(10, prm().minTime ?? 80);
+  // work, several people fill it sooner, with their own hands. 26-11 (the room: «que termine un poco antes, tuve que interactuar mucho rato»):
+  // ~30 % less work — the ramp is 55 s, and a new hand often calls a companion beside its own being (params.tapPair 0.45), as the opening does
+  const allowance = () => 10 + fillCount() * (prm().fullAt ?? 0.92) * Math.max(0, time - firstT) / Math.max(10, prm().minTime ?? 55);
   function spawn(w, x, y, opt = {}) {
     if (ended || fullT >= 0 && opt.auto) return null;
     if (opt.auto && firstT >= 0 && beings.length >= allowance()) return null;
@@ -473,7 +474,10 @@ export function create({ THREE, TSL, room, params }) {
       if (!s) {
         s = { wall: h.wall, x, y, being: null, t0: time, last: time, seen: time, n: 0 };
         slotsH.set(h.stroke, s);
-        if (!knownStrokes.has(h.stroke) && uLeave.value < 0.5) { s.being = spawn(h.wall, x, Math.max(0.55, Math.min(2.05, y)), {}); }
+        if (!knownStrokes.has(h.stroke) && uLeave.value < 0.5) {
+          s.being = spawn(h.wall, x, Math.max(0.55, Math.min(2.05, y)), {});
+          if (s.being && rr() < (p.tapPair ?? 0.45)) introQ.push({ t: time + 0.9, wall: h.wall, x: x + (rr() < 0.5 ? -1 : 1) * COL, y: 1.0 + rr() * 0.6 });   // a companion beside it (its threads join them)
+        }
         // for the sound: a palm that lands and makes nobody (the room full, the end, the dust) still lands: its light answers it
         if (!s.being) events.push(`touch:${h.wall}:${Math.max(0, Math.min(1, x / W.width + 0.5)).toFixed(3)}:${y.toFixed(2)}`);
         const g = glows.find((q) => q.stroke === null && q.a < 0.05) || glows.find((q) => q.stroke === null) || glows[0];

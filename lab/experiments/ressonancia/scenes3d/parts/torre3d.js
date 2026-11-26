@@ -66,7 +66,7 @@ export function create({ THREE, TSL, room, params }) {
   const walls = room.walls, NW = walls.length;
   const H = room.strip?.height || 912;
   const uTime = uniform(0), uLeave = uniform(0), uArrive = uniform(1), uWarm = uniform(0.5), uLight = uniform(1), uGlow = uniform(1), uRise = uniform(0), uBreath = uniform(1);
-  const uPlaza = uniform(1), uPlazaSize = uniform(1), uMinPt = uniform(1.0 * 2 / H), uEyeL = uniform(new THREE.Vector3(0, 1.6, 0)), uFaixa = uniform(1), uWave = uniform(new THREE.Vector4(0, 0, 0, -1));   // wave: centre xyz (room), radius
+  const uPlaza = uniform(1), uPlazaSize = uniform(1), uMinPt = uniform(1.0 * 2 / H), uEyeL = uniform(new THREE.Vector3(0, 1.6, 0)), uFaixa = uniform(1), uWave = uniform(new THREE.Vector4(0, 0, 0, -1)), uWave2 = uniform(-1);   // uWave.y: the gold left behind (1 → fades with the end) · uWave2: the second ring's radius   // wave: centre xyz (room), radius
   const clipOf = (pv) => cameraProjectionMatrix.mul(pv);
   const ndcScale = (pv, c0, size) => { const c1 = clipOf(vec4(pv.xy.add(vec2(size, size)), pv.z, 1)); return abs(c1.xy.div(c1.w).sub(c0.xy.div(c0.w))).add(1e-7); };
   const tc = (c) => vec3(c[0], c[1], c[2]);
@@ -316,7 +316,7 @@ export function create({ THREE, TSL, room, params }) {
     // the surfaces cool and dim (the tower leads), lit windows and lamps warm
     const surf = mix(vRgb, vec3(0.55, 0.62, 0.8), 0.6), litC = mix(vRgb, vec3(1.0, 0.72, 0.42), 0.3);
     const col = mix(surf.mul(0.075), litC.mul(0.9), vC.w);   // fine, cold and dim: the tower leads
-    const wv = uWave.w.greaterThan(0).select(exp(abs(length(vP.xz.sub(uWave.xz)).sub(uWave.w)).mul(-1.6)), float(0));
+    const dwB = length(vP.xz.sub(uWave.xz)), wv = uWave.w.greaterThan(0).select(exp(abs(dwB.sub(uWave.w)).mul(-1.6)).add(uWave2.greaterThan(0).select(exp(abs(dwB.sub(uWave2)).mul(-1.6)).mul(0.7), float(0))).add(smoothstep(uWave.w.add(0.5), uWave.w.sub(1.5), dwB).mul(0.45).mul(uWave.y)), float(0));   // 26-11: two rings, the gold stays behind
     m.colorNode = col.mul(float(1).sub(smoothstep(0.55, 0.8, r2))).mul(twk.mul(0.6).add(0.75)).mul(vK.mul(0.6).add(0.4)).mul(uLight).mul(uPlaza)
       .add(tc(GOLD).mul(wv).mul(0.6)).mul(uArrive).mul(float(1).sub(vG));
     m.fog = false;
@@ -407,8 +407,9 @@ export function create({ THREE, TSL, room, params }) {
     m.vertexNode = vec4(c0.xy.add(co.xy.mul(d).mul(kq).mul(c0.w)), c0.z, c0.w);
     const vC = varying(co), vK = varying(float(1).div(kq.mul(kq))), vD = varying(back), vP = varying(pw);
     const r2 = dot(vC.xy, vC.xy), twk = pow(sin(uTime.mul(vC.z.mul(0.8).add(0.2)).add(vC.z.mul(90))).mul(0.5).add(0.5), 10);
-    const dw = length(vP.xz.sub(uWave.xz)), wv = uWave.w.greaterThan(0).select(exp(abs(dw.sub(uWave.w)).mul(-1.4)).add(smoothstep(uWave.w.add(0.5), uWave.w.sub(1.5), dw).mul(0.4)), float(0));   // the front, and the gold it leaves
-    const c = mix(uCoolC, uWarmC, uWarm.mul(0.5)).mul(float(1).sub(smoothstep(0.2, 1.0, r2))).mul(twk.mul(1.6).add(0.25)).mul(exp(vD.mul(-0.12)).mul(0.85).add(0.15)).mul(0.07).mul(vK.mul(0.6).add(0.4))
+    const dw = length(vP.xz.sub(uWave.xz)), gT = uWave.w.greaterThan(0).select(smoothstep(uWave.w.add(0.5), uWave.w.sub(1.5), dw).mul(uWave.y), float(0));
+    const wv = uWave.w.greaterThan(0).select(exp(abs(dw.sub(uWave.w)).mul(-1.4)).add(uWave2.greaterThan(0).select(exp(abs(dw.sub(uWave2)).mul(-1.4)).mul(0.7), float(0))).add(gT.mul(0.75)), float(0));   // 26-11: two rings, and every mote gold behind them
+    const c = mix(uCoolC, uWarmC, uWarm.mul(0.5)).mul(float(1).sub(gT.mul(0.6))).mul(float(1).sub(smoothstep(0.2, 1.0, r2))).mul(twk.mul(1.6).add(0.25)).mul(exp(vD.mul(-0.12)).mul(0.85).add(0.15)).mul(0.07).mul(vK.mul(0.6).add(0.4))
       .add(tc(GOLD).mul(wv).mul(twk.mul(2).add(0.6)).mul(0.5));
     m.colorNode = c.mul(uArrive).mul(float(1).sub(uLeave)).mul(uLight);
     m.fog = false;
@@ -632,7 +633,7 @@ export function create({ THREE, TSL, room, params }) {
   const climbers = [];
   const charges = [];         // { stroke, wall, pos (room), t0, done, auto }
   const events = [];
-  let beatPh = 0, pomT0 = -1, readyT = -1, chargedT = -1, charge = 0, lastHold = 0, autoW = -1, lastHandT = -99;
+  let waveFar = -1, waveIn = -1, beatPh = 0, pomT0 = -1, readyT = -1, chargedT = -1, charge = 0, lastHold = 0, autoW = -1, lastHandT = -99;
   const pomP = new THREE.Vector3(0, -50, 0), handL = new THREE.Vector3(0, 6.5, 0);
   let time = 0, rise = 0, riseV = 0, slide = 2.5, completed = 0, topT = -1, aletaT = -1, endT = -1, doneSent = false, lastClimb = -99, firstT = -1, rondaBorn = 0;
   let reactiveOn = false, dustTaken = false, dustClk = 0, dustSent = false; const tmpL = new THREE.Vector3();
@@ -682,6 +683,7 @@ export function create({ THREE, TSL, room, params }) {
     events.push(`ghost:${evAt(wi, h)}`);
     return b;
   }
+  const waveR = (t, p) => t > 0 ? t * (p.waveRun ?? 2.2) + 0.5 * (p.waveAcc ?? 1.2) * t * t : -1;   // the gold rings' radius t s after l'aleta
   function dropBody(b) { const M = b.M, i = M.list.indexOf(b); if (i < 0) return; M.list.splice(i, 1); M.list.forEach((q, k) => { q.k = k; }); M.mesh.geometry.instanceCount = M.list.length; }
   // the landing: on the ronda's shoulders, on the near side (towards the eye), a little to one side
   // the landing (Beltrán 26-11: nobody lands and then slides or jumps to its place): the stream lands WHERE the climber will climb from —
@@ -790,18 +792,22 @@ const landing = (b, out) => {
     if (hands.length) lastHandT = time;
     for (const h of hands) {
       nowStrokes.add(h.stroke);
-      if (h.wall === TW) {
+      // 26-11 (Beltrán: «en los seres que creamos para la torre, si sostenemos o movemos sostenido, se turbulenten las partículas del ser»):
+      // every hand stamps the velocity field, not only on the front wall — on the other walls it stirs the being forming in it (or the being
+      // that stays in the hand once the tower is full): held, a slow rise and curl; moving, they are dragged along and curl round; let go, they
+      // settle home on the field's spring (~1.8 s)
+      {
         let ls = lastStamp.get(h.stroke);
         if (!ls) { ls = { t: time, p: h.pos.clone(), v: new THREE.Vector3(), q: h.pos.clone() }; lastStamp.set(h.stroke, ls); }
         // the hand's velocity, smoothed (m/s, room frame)
         tmpV.subVectors(h.pos, ls.q).multiplyScalar(1 / Math.max(dt, 1e-3)); ls.v.lerp(tmpV, Math.min(1, dt * 10)); ls.q.copy(h.pos);
         if (time - ls.t > 0.07) {   // a stamp every 70 ms: a still hand stirs a little, a moving one drags
-          const sp = ls.v.length(), amt = Math.min(1, 0.25 + sp / 0.7);
+          const sp = ls.v.length(), amt = Math.min(1, (h.wall === TW ? 0.25 : 0.45) + sp / 0.7);
           STAMPS[stampI].set(h.pos.x, h.pos.y, h.pos.z, amt); SVEL[stampI].set(ls.v.x, ls.v.y, ls.v.z, time); stampT[stampI].t = time;
           if (sp < 0.05) SVEL[stampI].set(0, 0.08, 0, time);   // still: a slow rise and curl
           stampI = (stampI + 1) % NSTAMP; ls.t = time;
         }
-        continue;
+        if (h.wall === TW) continue;
       }
       let ch = charges.find((q) => q.stroke === h.stroke);
       // Beltrán 26-11 (after the room): «en vez de tener que sostener para activarlo, que simplemente sea apretar» — a hand that lands
@@ -942,11 +948,9 @@ const landing = (b, out) => {
         if (touched) beams[i].until = time + (p.tapCharge ?? 2.2);   // 26-11: a tap or a short touch charges (no long hold)
         let held = touched || time < (beams[i].until ?? -1);
         if (held !== !!beams[i].byHand) { beams[i].byHand = held; events.push(`gold:${held ? 'on' : 'off'}:${wi}`); }
-        if (held) { lastHold = time; autoW = -1; }
-        if (!held && autoW === i) held = true;
+        if (held) lastHold = time;   // 26-11 (the room: «se activó automático, no cuando toqué»): only taps on the golden points charge her light
         beams[i].on = held; beams[i].wall = wi; beams[i].from.copy(tmpV).addScaledVector(W.normal, -0.01);
       }
-      if (!playing) autoW = -1; else if (autoW < 0 && time - lastHold > (p.chargeAssist ?? 10)) autoW = Math.floor(rr() * NB);
       for (const B of beams) { B.k += ((B.on ? 1 : 0) - B.k) * Math.min(1, dt * (B.on ? 6 : 2.5)); B.reach = B.on ? Math.min(1, B.reach + dt / 0.9) : B.k < 0.02 ? 0 : B.reach; rate += B.k * smooth01(B.reach * 1.4 - 0.3); }
       const solo = p.chargeTime ?? 4.5;
       if (rate > 0.02) charge = Math.min(1, charge + dt * Math.min(2.4, rate) / solo); else charge = Math.max(0, charge - dt * 0.06);
@@ -954,7 +958,19 @@ const landing = (b, out) => {
     } else for (const B of beams) { B.k = Math.max(0, B.k - dt * 1.5); }
     if (chargedT >= 0 && aletaT < 0) { aletaT = time; events.push('aleta'); }
     if (aletaT >= 0) uBurst.value.set(pomP.x, pomP.y, pomP.z, time - aletaT); else uBurst.value.w = -1;
-    if (aletaT >= 0) { const tw = time - aletaT; const top = tmpV.copy(C).setY(0); top.applyMatrix4(world.matrixWorld); uWave.value.set(top.x, 0, top.z, tw * (p.waveSpeed ?? 5)); if (tw > (p.goldHold ?? 3.2) && endT < 0) { endT = time; events.push('end'); } }   // the room stands golden a moment, then lets go
+    // 26-11 (the room: «al terminar la torre, debe suceder una animación por ondas que vuelve doradas las partículas y luego se disuelven»):
+    // after the «pum» two rings of gold run out from under her (waveR: params.waveRun 2.2 m/s, gathering pace by params.waveAcc 1.2 m/s² so
+    // they cross the room slowly enough to be seen and still reach the square's far façades; the second params.waveGap 1.3 s behind) and every
+    // particle they pass turns gold (the bodies, the motes, the square through progress().wave); once the second ring has crossed the room and
+    // the square (params.waveReach 18 m) it all stands gold for params.goldStay (2.5 s), then lets go, slowly (endTime × params.endK), into the dust
+    if (aletaT >= 0) {
+      const tw = time - aletaT, gT = p.waveGap ?? 1.3, endDurW = (p.endTime ?? 6) * (p.endK ?? 1.4);
+      const top = tmpV.copy(C).setY(0); top.applyMatrix4(world.matrixWorld);
+      if (waveFar < 0) { waveFar = p.waveReach ?? 18; for (const W of walls) for (const sx of [-0.5, 0.5]) waveFar = Math.max(waveFar, Math.hypot(W.centre.x + W.right.x * W.width * sx - top.x, W.centre.z + W.right.z * W.width * sx - top.z)); }
+      const R = waveR(tw, p), R2 = waveR(tw - gT, p), tint = endT < 0 ? 1 : 1 - 0.7 * smooth01((time - endT) / endDurW);
+      uWave.value.set(top.x, tint, top.z, R); uWave2.value = R2 > 0.01 ? R2 : -1;
+      if (endT < 0 && R2 > waveFar) { if (waveIn < 0) waveIn = time; if (time - waveIn > (p.goldStay ?? 2.5)) { endT = time; events.push('end'); } }
+    }
     // the light in her hand: it beats, waiting; it grows and brightens with the charge; at l'aleta it flares and goes with the wave
     {
       const on = pomT0 >= 0 && time > pomT0 && endT < 0 ? 1 : endT >= 0 ? Math.max(0, 1 - (time - endT) / 2) : 0;
@@ -969,7 +985,7 @@ const landing = (b, out) => {
       world.updateMatrixWorld(); tmpW.copy(pomP).applyMatrix4(world.matrix);   // the part's frame (the beams hang from `object`)
       for (let i = 0; i < NB; i++) { const B = beams[i]; BA[i].set(B.from.x, B.from.y, B.from.z, B.k * (chargedT >= 0 ? Math.max(0, 1 - (time - chargedT) * 2) : 1)); BB[i].set(tmpW.x, tmpW.y, tmpW.z, B.reach); }
     }
-    const endDur = p.endTime ?? 6;
+    const endDur = (p.endTime ?? 6) * (p.endK ?? 1.4);   // 26-11: a slow dissolve
     const dustMode = (p.leaveTo ?? 'dust') === 'dust';
     uDust.value = dustMode ? 1 : 0; uDustK.value = clamp01((p.dust ?? 1) * (1 - uLeave.value));
     const goneAll = endT >= 0 ? clamp01((time - endT) / endDur) : 0;
@@ -987,13 +1003,13 @@ const landing = (b, out) => {
       b.gold += (g - b.gold) * Math.min(1, dt * 6);
       if (b.type === 4 && aletaT >= 0) b.gold = Math.max(b.gold, 1.2 * Math.exp(-(time - aletaT) / 3));
       // the wave (from her hand, in 3D) dyes every body gold as it passes: its front flashes, then the body stays golden
-      if (aletaT >= 0) { const dd = Math.hypot(b.pos.x - pomP.x, yb - pomP.y, b.pos.z - pomP.z), fr = (time - aletaT) * (p.waveSpeed ?? 5) - dd;
-        b.gold = Math.max(b.gold, 0.85 * smooth01(fr / 0.8) + 0.9 * Math.exp(-((fr / 0.45) ** 2))); }
+      if (aletaT >= 0) { const dd = Math.hypot(b.pos.x - pomP.x, yb - pomP.y, b.pos.z - pomP.z), fr = waveR(time - aletaT, p) - dd, fr2 = waveR(time - aletaT - (p.waveGap ?? 1.3), p) - dd;
+        b.gold = Math.max(b.gold, 0.9 * smooth01(fr / 0.8) + 0.9 * Math.exp(-((fr / 0.5) ** 2)) + 0.6 * Math.exp(-((fr2 / 0.5) ** 2))); }   // both rings flash it; it stays gold, into the dust
       b.gone = clamp01((goneAll * 1.4 - (b.pos.y / (topY + 1)) * 0.4));
       writeInst(b);
     }
     for (const M of meshes) if (M && M.list.length) M.buf.needsUpdate = true;
-    if (aletaT < 0) uWave.value.w = -1;
+    if (aletaT < 0) { uWave.value.w = -1; uWave2.value = -1; }
     // the gold dust is in the air: publish where it hangs (room frame) for the outro's castells
     if (dustMode && endT >= 0 && !dustSent && goneAll >= 0.75) {
       dustSent = true; const all = [...ronda, ...climbers], pos = new Float32Array(all.length * 3); world.updateMatrixWorld();
@@ -1019,7 +1035,7 @@ const landing = (b, out) => {
       const W = walls[TW], eye = room.eye;
       const dW = Math.max(0.5, -(W.centre.x - eye.x) * W.normal.x - (W.centre.z - eye.z) * W.normal.z);
       const dT = Math.max(dW + 0.5, -(C.x - eye.x) * N1.x - (C.z - eye.z) * N1.z + slide), sc = dW / dT;
-      const want = completed >= 1 && endT < 0 && (p.ruler ?? true) ? 1 : 0;
+      const want = completed >= 1 && aletaT < 0 && (p.ruler ?? true) ? 1 : 0;   // 26-11: it fades with l'aleta (the golden room alone)
       rulE += (want - rulE) * Math.min(1, dt * (want ? 0.8 : 1.6)); rulK.value = rulE * uArrive.value;
       const vis0 = rulE > 0.003;
       const toWall = (y) => eye.y + (y - rise - eye.y) * sc;
@@ -1068,7 +1084,7 @@ const landing = (b, out) => {
     pomT0 = -1; readyT = -1; chargedT = -1; charge = 0; autoW = -1; for (const B of beams) { B.k = 0; B.reach = 0; B.on = false; }
     completed = 0; topT = -1; aletaT = -1; endT = -1; doneSent = false; lastClimb = time; firstT = -1; rondaBorn = 0; riseV = 0;
     // (26-11, 3rd loop: «la torre avanza sola») every charge, hold, help and the rise of the last pass: gone
-    rise = 0; slide = 2.5; lastHandT = -99; lastHold = time; beatPh = 0; rulE = 0; introKey = ''; uWave.value.w = -1; uBurst.value.w = -1;
+    rise = 0; slide = 2.5; lastHandT = -99; lastHold = time; beatPh = 0; rulE = 0; introKey = ''; uWave.value.w = -1; uWave2.value = -1; waveFar = -1; waveIn = -1; uBurst.value.w = -1;
     for (const B of beams) { B.byHand = false; B.until = -1; } knownStrokes.clear(); nowStrokes.clear(); lastStamp.clear();
     for (let i = 0; i < NSTAMP; i++) { STAMPS[i].w = 0; stampT[i].t = -99; }
     pomP.set(0, -50, 0); pomU.value.w = 0;
@@ -1077,11 +1093,11 @@ const landing = (b, out) => {
   function progress() {
     const needed = slots.length, seated = climbers.filter((b) => b.slot.tier >= 0 && (b.state === 'seated' || b.state === 'settle')).length;
     return { worldY: +world.position.y.toFixed(3), worldSlide: +slide.toFixed(3), plazaSink: P.plazaSink ?? 0.35, dust: ronda.filter((b) => b.dustMode).length, tier: completed, tiers: tiers.length, climbers: seated, inFlight: climbers.filter((b) => b.slot.tier >= 0).length - seated, pinya: climbers.filter((b) => b.slot.tier < 0).length, needed, height: +rise.toFixed(2),
-      ending: endT >= 0 ? clamp01((time - endT) / (P.endTime ?? 6)) : 0, done: doneSent, charge: +charge.toFixed(3), ready: readyT >= 0,
+      ending: endT >= 0 ? clamp01((time - endT) / ((P.endTime ?? 6) * (P.endK ?? 1.4))) : 0, done: doneSent, charge: +charge.toFixed(3), ready: readyT >= 0,
       wave: uWave.value.w > 0 ? [uWave.value.x, uWave.value.z, uWave.value.w] : null };   // 26-11: l'aleta's golden wave (room frame) for the trailer's square
   }
   function setParams(p) { if (p && p.tiers != null && String(p.tiers) !== String(P.__tiersBuilt ?? '')) { /* tiers change on reset */ } }
   function dispose() { beingMat.dispose(); jobs.length = 0; for (const M of meshes) if (M) M.mesh.geometry.dispose(); if (backdrop) { for (const m of backdrop.children) m.geometry.dispose(); backdropMat?.dispose(); } }
-  if (typeof window !== 'undefined') window.__torre3d = { progress, reset, climbers, ronda, slots, tiers, events, get readyMs() { return readyMs; }, make: (wi, x, y) => { const W = walls[wi]; const h = new THREE.Vector3().copy(W.centre).addScaledVector(W.right, x); h.y = y; return !!makeClimber(wi, h, false); }, TW: () => TW, ghosts, gold: () => goldPts.map((g) => ({ id: walls[g.wi].id, x: +g.x.toFixed(2), y: +g.y.toFixed(2), w: walls[g.wi].width })) };
+  if (typeof window !== 'undefined') window.__torre3d = { progress, reset, climbers, ronda, slots, tiers, events, get readyMs() { return readyMs; }, make: (wi, x, y) => { const W = walls[wi]; const h = new THREE.Vector3().copy(W.centre).addScaledVector(W.right, x); h.y = y; return !!makeClimber(wi, h, false); }, TW: () => TW, ghosts, gold: () => goldPts.map((g) => ({ wall: g.wi, id: walls[g.wi].id, x: +g.x.toFixed(2), u: +(g.x / walls[g.wi].width + 0.5).toFixed(4), y: +g.y.toFixed(2), w: walls[g.wi].width })) };
   return { object, update, setParams, dispose, progress, reset, events, setBackdrop, finish };
 }
