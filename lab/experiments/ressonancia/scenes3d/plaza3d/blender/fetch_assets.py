@@ -13,9 +13,11 @@ TEXTURES = {  # id: resolution
     'old_sandstone_02': '2k',        # rough old sandstone (ground floors, the church)
     'yellow_plaster': '2k',          # old stucco houses
     'worn_shutter': '2k',            # louvred shutters (persianes)
+    'pine_bark': '1k',               # the fogueres' logs (fire_bases.py)
+    'burned_ground_01': '1k',        # charcoal, ash and embers (fire_bases.py)
 }
 MAPS = {'Diffuse': 'diff', 'nor_gl': 'nor_gl', 'Rough': 'rough', 'Displacement': 'disp'}
-MODELS = ['street_lamp_01', 'street_lamp_02', 'large_castle_door', 'lantern_chandelier_01']
+MODELS = ['street_lamp_01', 'street_lamp_02', 'large_castle_door', 'lantern_chandelier_01', 'stone_fire_pit', 'dry_branches_medium_01']
 HDRIS = {'qwantani_night_puresky': '2k'}
 
 def get(url):

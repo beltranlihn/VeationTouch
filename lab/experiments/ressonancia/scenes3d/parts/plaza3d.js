@@ -19,7 +19,10 @@
 //   THE SQUARE OF PARTICLES (intro 17–55 s): reveal back to 0.55 (the plate goes, its depth stays so only what the eye sees of the
 //   square remains, settled), with pointGain ≈ 0.09, breathe 1 (a slow breathing), cool ≈ 0.5 (cold stone, warm windows);
 //   then shatter 0 → 1 lifts them away from there without a jump.
-//   dark (at creation: the CORREFOC's square, ./plaza3d/bake_dark/: lights off, a low moon) with fires [f0..f3] (0..1+, one foguera
+//   occlude (0/1, default 1): with the plate off, keep its depth as an occluder; 0 for points only when the host moves `object`
+//   (the tower). ease (s, default 0.6): every look parameter (dark, lit, fires, night, pointGain, cool, breathe, lamps, windows,
+//   sky, calm, stained, fog, silhouette) follows its target with this spring, so the host may jump between values.
+//   dark (0..1, live: crossfades to the CORREFOC's square, ./plaza3d/bake_dark/: lights off, a low moon) with fires [f0..f3] (0..1+, one foguera
 //   per wall in strip order P4 P1 P2 P3: its warm light on the wet floor and the low facades), lit (0..1, the boom: lamps and
 //   windows of the intro's bake come on) and night (the dark sky's level).
 // Cost: plate = one draw per wall, ~11 texture reads per pixel; points = one instanced draw per wall, hidden when reveal = 1 and
@@ -43,10 +46,10 @@ export function create(ctx) {
   const uPts = uniform(1), uEye = uniform(eye.clone()), uGain = uniform(0.05), uBreath = uniform(0), uCool = uniform(0);
   const G = Array.from({ length: 8 }, () => new THREE.Vector4());      // group intensities, four per light texture (the intro's bake)
   const uG = uniformArray(G, 'vec4');
-  const uNight = uniform(1), uFires = uniform(new THREE.Vector4());     // the dark bake (correfoc): sky level, the four fires
+  const uNight = uniform(1), uFires = uniform(new THREE.Vector4()), uDark = uniform(0);   // the dark bake (correfoc): sky, fires, its weight
   let darkMesh = null;
   let bake = null, dark = null, plate = null, points = null, ready = false;
-  const DARK = !!P.dark;                                                // the correfoc's square: decided when the part is created
+  const LOAD_DARK = P.loadDark !== false;                               // both bakes live in ONE part: `dark` crossfades them (26-11)
   const groupK = [];                                                    // per group: current intensity
   const lampBoost = [];                                                 // per standing lamp: a hand's boost, decays
 
@@ -72,7 +75,8 @@ export function create(ctx) {
     ]);
     bake.groups.forEach((g, i) => { groupK[i] = 1; if (g.kind === 'fanal') lampBoost[i] = 0; });
     plate = makePlate({ meta: bake, beauty, lights }, dimg); object.add(plate);
-    if (DARK) {
+    if (LOAD_DARK) {
+      try {
       dark = await (await fetch(new URL('bake_dark/bake.json', base))).json();
       const fires = dark.groups.filter((g) => g.kind === 'fire');
       const [db, ft] = await Promise.all([
@@ -81,6 +85,7 @@ export function create(ctx) {
       ]);
       darkMesh = makeDarkPlate(plate.geometry, { meta: dark, beauty: db, fires: fires.map((g, i) => ({ side: g.side, tex: ft[i] })) });
       object.add(darkMesh);
+      } catch (e) { console.warn('plaza3d: no dark bake', e); }
     }
     try { points = await makePoints(); if (points) object.add(points); } catch (e) { console.warn('plaza3d: no points', e); }
     ready = true;
@@ -170,7 +175,7 @@ export function create(ctx) {
     let col = pow(rgbm.rgb, vec3(set.meta.rgbGamma)).mul(rgbm.a.mul(set.meta.rgbmRange)).mul(uNight);
     const order = ['P4', 'P1', 'P2', 'P3'];
     for (const f of set.fires) col = col.add(dec(f.tex).mul([uFires.x, uFires.y, uFires.z, uFires.w][order.indexOf(f.side)]));
-    m.colorNode = col.mul(float(1).sub(uSil.mul(0.96))); m.opacityNode = uFade; m.fog = false;
+    m.colorNode = col.mul(uDark).mul(float(1).sub(uSil.mul(0.96))); m.opacityNode = uFade; m.fog = false;
     const mesh = new THREE.Mesh(geom, m); mesh.name = 'plaza3d:dark'; mesh.frustumCulled = false; mesh.renderOrder = -9; mesh.visible = false;
     return mesh;
   }
@@ -233,46 +238,59 @@ export function create(ctx) {
   // ------------------------------------------------------------------------------------------------ per frame
   const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
   const _v = new THREE.Vector3();
+  // every look parameter follows its target with a soft spring (τ = params.ease, s): the host may jump, the square glides
+  const S = {};
+  const ease = (key, target, dt, tau) => {
+    if (!(key in S) || !isFinite(S[key])) S[key] = target;
+    S[key] += (target - S[key]) * (1 - Math.exp(-dt / Math.max(0.001, tau)));
+    return S[key];
+  };
   function update(dt, input) {
     uTime.value += dt;
     if (!ready) return;
+    const tau = num(P.ease, 0.6), E_ = (k, v) => ease(k, v, dt, tau);
     const reveal = num(P.reveal, 1), shatter = num(P.shatter, 0) || num(input?.leave, 0);
-    uReveal.value = reveal; uShatter.value = shatter; uSil.value = num(P.silhouette, 0); uFog.value = num(P.fog, 1);
-    uPts.value = num(P.points, 1); uGain.value = num(P.pointGain, 0.05); uBreath.value = num(P.breathe, 0); uCool.value = num(P.cool, 0);
+    const d = E_('dark', P.dark === true ? 1 : P.dark === false ? 0 : num(P.dark, 0));
+    uReveal.value = reveal; uShatter.value = shatter; uSil.value = E_('sil', num(P.silhouette, 0)); uFog.value = E_('fog', num(P.fog, 1));
+    uPts.value = num(P.points, 1); uGain.value = E_('gain', num(P.pointGain, 0.05)); uBreath.value = E_('breathe', num(P.breathe, 0)); uCool.value = E_('cool', num(P.cool, 0));
+    uDark.value = dark ? d : 0;
     uFade.value = smooth(0.58, 1.0, reveal) * (1 - smooth(0.0, 0.45, shatter));
     if (points) points.visible = (reveal < 0.999 || shatter > 0) && !(shatter >= 0.999);
-    // the plate also stays (invisible, depth only) while the points are shown: only what the eye sees of the square remains
-    if (plate) plate.visible = uFade.value > 0.002 || (points ? points.visible && shatter < 0.5 : false);
+    // the plate also stays (invisible, depth only) while the points are shown — only what the eye sees of the square remains —
+    // unless occlude = 0 (points only, e.g. the tower, where the host moves the square: object.position)
+    const occ = num(P.occlude, 1) > 0.5;
+    if (plate) plate.visible = uFade.value > 0.002 || (points ? points.visible && shatter < 0.5 && occ : false);
     // a hand lights the nearest standing lamp (T-056): boost, then settle back
     if (P.handLamp !== false && input?.downs?.length) for (const h of input.downs) {
       if (!h.pos && !h.world) continue;
       const hp = h.world || h.pos; let best = -1, bd = 1e9;
-      bake.groups.forEach((g, i) => { if (g.kind === 'fanal' && g.pos) { _v.set(...g.pos); const d = _v.distanceToSquared(hp); if (d < bd) { bd = d; best = i; } } });
+      bake.groups.forEach((g, i) => { if (g.kind === 'fanal' && g.pos) { _v.set(...g.pos); const dd = _v.distanceToSquared(hp); if (dd < bd) { bd = dd; best = i; } } });
       if (best >= 0) lampBoost[best] = 1;
     }
-    const lamps = num(P.lamps, 1), win = num(P.windows, 1), sky = num(P.sky, 1), calm = num(P.calm, 0.45), st = num(P.stained, 1);
+    const lamps = E_('lamps', num(P.lamps, 1)), win = E_('win', num(P.windows, 1)), sky = E_('sky', num(P.sky, 1));
+    const calm = E_('calm', num(P.calm, 0.45)), st = E_('stained', num(P.stained, 1)), lit = E_('lit', num(P.lit, 0));
     const t = uTime.value;
     for (const v of G) v.set(0, 0, 0, 0);
-    const lit = DARK ? num(P.lit, 0) : 1;                                // correfoc: the square's own lights come on with the boom
+    const on = (1 - d) + d * lit;                                        // the intro's lights: full, or the correfoc's boom
     bake.groups.forEach((g, i) => {
       let k = 1;
       const c = g.side === 'P1' ? 1 - calm : 1;
-      if (g.kind === 'sky') k = DARK ? 0 : sky;
+      if (g.kind === 'sky') k = sky * (1 - d);                           // the dark bake brings its own sky
       else if (g.kind === 'fanal') { lampBoost[i] = Math.max(0, (lampBoost[i] || 0) - dt / 3); k = lamps * (1 + 0.6 * (lampBoost[i] || 0)) * (g.side === 'P1' ? 1 - calm * 0.4 : 1); }
       else if (g.kind === 'wall' || g.kind === 'lampglass') k = lamps * c;
       else if (g.kind === 'arcade') k = lamps * c;
       else if (g.kind === 'windows') k = win * c * (0.9 + 0.1 * Math.sin(t * 0.21 + i * 1.7));      // rooms breathe a little
       else if (g.kind === 'stained') k = st;
-      if (DARK && g.kind !== 'sky') k *= lit;
+      if (g.kind !== 'sky') k *= on;
       groupK[i] = k;
       G[g.tex].setComponent('rgba'.indexOf(g.ch), k);
     });
-    if (DARK && dark) {
+    if (dark) {
       const fires = Array.isArray(P.fires) ? P.fires : [];
-      uNight.value = num(P.night, 1);
-      for (let i = 0; i < 4; i++) uFires.value.setComponent(i, num(fires[i], 0) * (1 + 0.12 * Math.sin(t * 7.3 + i * 2.1) * Math.sin(t * 3.1 + i)));
+      uNight.value = E_('night', num(P.night, 1));
+      for (let i = 0; i < 4; i++) uFires.value.setComponent(i, E_('fire' + i, num(fires[i], 0)) * (1 + 0.12 * Math.sin(t * 7.3 + i * 2.1) * Math.sin(t * 3.1 + i)));
     }
-    if (darkMesh) darkMesh.visible = plate.visible;
+    if (darkMesh) darkMesh.visible = !!plate?.visible && uDark.value > 0.002;
   }
   const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   function setParams(p) { if (p) Object.assign(P, p); }
