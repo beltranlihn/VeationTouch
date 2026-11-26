@@ -55,7 +55,7 @@ const QS = { low: 0.6, medium: 0.8, high: 1 }, DENS = { low: 0.4, medium: 0.6, h
 const LT = { start: performance.now() }; const lt = (k) => { LT[k] = Math.round(performance.now() - LT.start); };   // T-057: load phases (ms), window.__obra.load
 // ------------------------------------------------------------------------------------------------ the parts (their files)
 // TRAILER: only the universes the trailer shows, plus its presentation layer (./parts/trailertext.js)
-const NAMES = ['umbral3d', 'atmos', 'plaza', 'plaza3d', 'castell', 'castells3d', 'introp1', 'plazaDark', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d', 'trailertext'];   // 26-11: + the tower (climb onto the castell)   // studio 26-11: + the pinya v2 (a being for every hand)
+const NAMES = ['umbral3d', 'atmos', 'plaza', 'plaza3d', 'castell', 'castells3d', 'introp1', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d', 'trailertext'];   // 26-11: + the tower (climb onto the castell)   // studio 26-11: + the pinya v2 (a being for every hand)
 const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d']);
 const OWN = new Set(['trailertext']);
 const ALIAS = { plazaDark: 'plaza3d' };                                          // 26-11: a second square, the correfoc's dark bake (params.dark)                                           // TRAILER: parts of this folder, not of ../ressonancia
@@ -96,8 +96,7 @@ for (const [name, pr] of loads) {
     const params = {};
     for (const d of Array.isArray(defs) ? defs : []) params[d.key] = d.default;
     if (name === 'umbral3d') { params.mosaic = P.mosaic || 'image'; params.resetAfter = P['trailer.resetAfter'] ?? 60; params.restSat = P.restSat ?? 0.15; }   // studio 25-11: the entrance's stones — one colour each, or his picture printed on them
-    if (name === 'plazaDark') params.dark = true;
-    if (name === 'brasa3d') { params.devil2 = P.devil2 !== false; params.fons = !parts.plazaDark; }   // the baked dark square replaces brasa v2's stand-in (fons)   // studio 26-11: the correfoc devil v3 (reload to change)
+    if (name === 'brasa3d') { params.devil2 = P.devil2 !== false; params.fons = !parts.plaza3d || P.plaza3d === false; }   // the baked dark square replaces brasa v2's stand-in (fons)   // studio 26-11: the correfoc devil v3 (reload to change)
     if (name === 'atmos') params.demoLamps = false;                // the square's own lamps light the dust
     if (name === 'plaza') params.glow = 0.3;                       // atmos draws the lamps' glow in the air too
     if (name === 'castell') params.density = DENS[P.quality] ?? 1;
@@ -320,13 +319,14 @@ function readHands() {
 // ------------------------------------------------------------------------------------------------ which parts, block by block
 let fallSet = ['atmos'];
 // TRAILER: the trailer's blocks; the presentation layer stays on from the square to the resonance (it never crosses a tile pass)
+const SQ = () => has('plaza3d') && P.plaza3d !== false;   // the one square of the trailer (intro → correfoc → pinya)
 function wanted(b) {
   const T = has('trailertext') ? ['trailertext'] : [];
   switch (b) {
     case 'wait': return has('umbral3d') ? (parts.umbral3d?.part?.charge?.().cleared ? ['umbral3d', 'atmos'] : ['umbral3d']) : ['atmos'];   // studio 26-11 (Beltrán): once the mosaic falls, the square's air is already there behind it
-    case 'intro': return [has('plaza3d') && P.plaza3d !== false ? 'plaza3d' : 'plaza', 'atmos', has('castells3d') && P.castells3d !== false ? 'castells3d' : 'castell', ...(has('introp1') ? ['introp1'] : []), ...T];   // 26-11: the new baked square (plaza3d) and the castells of particles at many depths (castells3d); = false: the old ones
-    case 'brasa': return has('brasa3d') ? ['brasa3d', ...(has('plazaDark') ? ['plazaDark'] : []), 'atmos', ...T] : ['atmos', ...T];
-    case 'pinya': return has('pinya3d2') ? ['pinya3d2', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the pinya v2
+    case 'intro': return [SQ() ? 'plaza3d' : 'plaza', 'atmos', has('castells3d') && P.castells3d !== false ? 'castells3d' : 'castell', ...(has('introp1') ? ['introp1'] : []), ...T];   // 26-11: the new baked square (plaza3d) and the castells of particles at many depths (castells3d); = false: the old ones
+    case 'brasa': return has('brasa3d') ? ['brasa3d', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];   // 26-11: the SAME square goes on (Beltrán: «dentro del mismo mundo»)
+    case 'pinya': return has('pinya3d2') ? ['pinya3d2', ...(SQ() ? ['plaza3d'] : []), 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the pinya v2
     case 'tronc': return has('torre3d') ? ['torre3d', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the tower (score block 'tronc')
     case 'festa': case 'crown': return has('festa3d') ? ['festa3d', 'atmos', ...T] :   // (26-11: the dust stays through the credits)
                                     ['plaza', 'castell', 'atmos', ...T];
@@ -672,11 +672,18 @@ function frame(dt) {
     } else if (e.name === 'plaza3d') {
       // studio 26-11 (Beltrán's intro): the square condenses out of the dust with the first lines (1.5–14 s), becomes points again on
       // «Welcome to Ressonància» (17–19 s) and stays a square of particles behind the castells and the titles, then lifts away (50.5–55 s)
-      t = S.block === 'intro' && serving ? S.t : 60;
-      const sm = (a, b, x) => smooth((x - a) / (b - a)), back = sm(17, 19, t);
-      p.reveal = sm(1.5, 14, t) * (1 - 0.45 * back);
-      p.pointGain = 0.05 + ((P['intro.pointGain'] ?? 0.4) - 0.05) * back; p.breathe = back; p.cool = 0.5 * back;
-      p.shatter = Math.max(sm(50.5, 55, t), e.leave || 0);
+      // … and it stays the SAME square after the intro (26-11): the correfoc darkens it (dark, its fires light it), the pinya keeps it as
+      // faint points; its parameters ease inside the part (params.ease), so a block may set them at once; reveal / shatter are the clock
+      const sm = (a, b, x) => smooth((x - a) / (b - a));
+      if (e.home === 'intro') {
+        t = serving ? S.t : 60; const back = sm(17, 19, t);
+        p.reveal = sm(1.5, 14, t) * (1 - 0.45 * back); p.dark = 0; p.occlude = 1;
+        p.pointGain = 0.05 + ((P['intro.pointGain'] ?? 0.4) - 0.05) * back; p.breathe = back; p.cool = 0.5 * back;
+      } else if (e.home === 'brasa') {
+        const k = sm(0.5, 5.5, serving ? S.t : 9);                    // the particles of the intro turn into the dark square of the fires
+        p.dark = 1; p.reveal = 0.55 + 0.45 * k; p.pointGain = 0.4 * (1 - k) + 0.05 * k; p.breathe = 1 - k; p.cool = 0.5;
+      } else if (e.home === 'pinya') { p.dark = 1; p.reveal = 0.55; p.pointGain = 0.1; p.breathe = 1; p.cool = 0.6; p.fires = [0, 0, 0, 0]; p.lit = 0; }
+      p.shatter = e.leave || 0;
     } else if (e.name === 'castells3d' || e.name === 'introp1') t = S.block === 'intro' && serving ? S.t : 60;   // its build, stages and end ride the intro's clock
     else if (e.name === 'actatext') t = serving ? S.t : 40;
     else if (e.name === 'trailertext') { t = TRL.tt; input.segments = segments(); input.lang = P.lang; }   // TRAILER: its own clock
@@ -701,7 +708,7 @@ function frame(dt) {
     if (bp?.progress) { const g = bp.progress(), ev = bp.events || [];
       if (ev.includes('storm:full')) link.stormFull = true;
       score.setFill(g.total ?? 0); if (Math.abs((g.total ?? 0) - (link.fiSent ?? -1)) > 0.01 || time - (link.fiAt ?? -9) > 1) { link.fiSent = g.total ?? 0; link.fiAt = time; tell({ fill: g.total ?? 0 }); }
-      const pd = parts.plazaDark; if (pd) { const k = 1 - (g.storm || 0); pd.params.fires = (g.fires || [0, 0, 0, 0]).map((f) => f * k); pd.params.lit = (g.boom || 0) * k; }
+      const pd = parts.plaza3d; if (pd && pd.home === 'brasa') { const k = 1 - (g.storm || 0); pd.params.fires = (g.fires || [0, 0, 0, 0]).map((f) => f * k); pd.params.lit = (g.boom || 0) * k; }
       if (bp.sound) try { bc?.postMessage({ type: 'brasa', s: bp.sound() }); } catch { /* alone */ } }
     const tp = S.block === 'tronc' ? parts.torre3d?.part : null;
     if (tp?.progress) { const g = tp.progress(), v = Math.min(1, 0.9 * (g.needed ? g.climbers / g.needed : 0) + 0.1 * (g.charge || 0));
