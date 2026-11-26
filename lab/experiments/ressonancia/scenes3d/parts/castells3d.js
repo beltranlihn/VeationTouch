@@ -361,7 +361,7 @@ export function create({ THREE, TSL, room, params }) {
     const dimAt = outro ? 1e9 : p.dimAt ?? 43.5, endAt = outro ? oD - 5 : p.endAt ?? 50.5, endDur = outro ? 3.5 : p.endTime ?? 4.5;
     object.updateMatrixWorld(); invM4.copy(object.matrixWorld).invert(); uEyeL.value.copy(room.eye).applyMatrix4(invM4);
     if (outro && !outroTaken && (p.arriveFrom ?? 'dust') === 'dust' && uArrive.value > 0.001 && castells.some((c) => c.meshes.length)) {
-      const d = handoff.take('torre');   // claimed: the tower hides itself in this same frame
+      const d = handoff.take('torre');   // claimed: the tower's dust fades out with its leave over the same points (a cross-fade)
       const src = []; if (d) for (let j = 0; j < d.count; j++) if (d.positions[j * 3 + 1] > -10) src.push(j);
       if (src.length) {
         outroTaken = true; let i = 0;

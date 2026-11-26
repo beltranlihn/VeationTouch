@@ -982,7 +982,8 @@ const landing = (b, out) => {
       }
     }
     knownStrokes.clear(); for (const k of nowStrokes) knownStrokes.add(k);
-    if (dustSent && handoff.claimed('torre')) { object.visible = false; return; }   // the castells took it: they start from it in this frame
+    // (26-11 QA) the castells take the dust while they still arrive (uArrive ~0): the tower's dust stays and fades with the leave, a
+    // cross-fade over the same points; hiding it in the claim frame left the room dark for ~1.5 s
     object.visible = uArrive.value > 0.001 && uLeave.value < 0.999;
   }
   const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
