@@ -80,7 +80,7 @@ export function createHints({ THREE, TSL, room }) {
   img.src = new URL('../ressonancia/scenes3d/parts/umbral3d/hand.png', import.meta.url).href;
 
   const up = new THREE.Vector3(0, 1, 0), NW = room.walls.length, PER = 3;   // up to PER hints on a wall (26-11: the correfoc asks for 2–3, smaller)
-  const W = room.walls.map((w) => ({ w, last: -1e9, holdFrom: new Map(), fill: 0, done: 0 }));
+  const W = room.walls.map((w) => ({ w, last: -1e9, holdFrom: new Map(), fill: 0, done: 0, recent: [] }));   // recent: [dx, time] of the hands seen on the wall (zones being played)
   const SL = [];
   room.walls.forEach((w, i) => { for (let k = 0; k < PER; k++) {
     const group = new THREE.Group(); group.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, up, w.normal)); group.visible = false;
@@ -97,7 +97,8 @@ export function createHints({ THREE, TSL, room }) {
   function place(s, cfg, n, avoid = null) {
     const half = Math.max(0.5, s.w.width / 2 - 1.0);
     let dx = n > 1 ? -half + ((s.k + 0.5) / n) * 2 * half : (cfg.dx ?? 0);
-    if (avoid != null) for (let tries = 0; tries < 12; tries++) { const c = -half + rndM() * 2 * half; if (Math.abs(c - avoid) > 1.4 && SL.every((o) => o === s || o.wi !== s.wi || o.phase === 'off' || Math.abs(o.dx - c) > 1.0)) { dx = c; break; } }
+    const busy = (c) => s.wall.recent.some((r) => Math.abs(r[0] - c) < 2.0);
+    if (avoid != null || busy(dx)) for (let tries = 0; tries < 16; tries++) { const c = -half + rndM() * 2 * half; if ((avoid == null || Math.abs(c - avoid) > 1.4) && !busy(c) && SL.every((o) => o === s || o.wi !== s.wi || o.phase === 'off' || Math.abs(o.dx - c) > 1.0)) { dx = c; break; } }
     s.dx = dx; s.y = (cfg.y ?? 1.25) + (n > 1 ? (s.k % 2 ? 0.12 : -0.08) : 0); s.placed = true;
   }
   function draw(s, text) {
@@ -128,14 +129,19 @@ export function createHints({ THREE, TSL, room }) {
         }
       }
       const n = cfg ? Math.max(1, Math.min(PER, cfg.per || 1)) : 1, sc = cfg?.scale ?? 1, alpha = cfg?.alpha ?? 1;
+      for (const Wl of W) { const r = Wl.recent; for (let j = r.length - 1; j >= 0; j--) if (time - r[j][1] > 6) r.splice(j, 1); }
+      for (const h of hands || []) { const Wl = W[h.wall]; if (!Wl) continue; const hx = (h.u - 0.5) * Wl.w.width; const r = Wl.recent; if (!r.length || Math.abs(r[r.length - 1][0] - hx) > 0.3 || time - r[r.length - 1][1] > 0.5) { r.push([hx, time]); if (r.length > 40) r.shift(); } }
       for (const s of SL) {
         const Wl = s.wall, i = s.wi;
         // a moving hint (cfg.move): a hand near it makes it leave and come back elsewhere on its wall a little later
+        if (cfg?.move && (s.phase === 'in' || s.phase === 'on') && s.wall.recent.some((r) => Math.abs(r[0] - s.dx) < 1.6 && time - r[1] < 0.3)) { s.away = time; s.avoid = s.dx; s.phase = 'out'; s.p = 0; }
         if (cfg?.move && (s.phase === 'in' || s.phase === 'on')) for (const h of hands || []) {
           if (h.wall !== i) continue; const hx = (h.u - 0.5) * s.w.width, hy = h.pos.y;
           if (Math.abs(hx - s.dx) < 0.8 && Math.abs(hy - s.y) < 0.8) { s.away = time; s.avoid = hx; s.phase = 'out'; s.p = 0; break; }
         }
-        const quiet = cfg?.move ? time - s.away > OUT_S + 2.5 : time - Wl.last > (cfg?.idle ?? 15);
+        // 26-11 (Beltrán: «sólo en lugares donde no se está tocando»): a moving hint stays away from the zones played in the last 6 s
+        const zoneBusy = cfg?.move && s.placed && Wl.recent.some((r) => Math.abs(r[0] - s.dx) < 2.0);
+        const quiet = cfg?.always ? true : cfg?.move ? time - s.away > OUT_S + 2.5 && !zoneBusy : time - Wl.last > (cfg?.idle ?? 15);
         const on = !!cfg && cfg.walls.includes(i) && s.k < n && t >= (cfg.from ?? 0) && quiet;
         const want = on && fontReady ? cfg.text : null;
         // phases: off → in (resolving) → on → out (leaving) → off; new words while shown: out, then in with them

@@ -37,6 +37,7 @@ import { createScore, TIMES } from '../ressonancia/score.js';
 import { createGuide } from '../ressonancia/scenes3d/guide3d.js';
 import { createSubtitles } from './subtitles.js';
 import { createHints } from './hints.js';
+import { createProgressLine } from './progressline.js';
 import { overrides as tuneOverrides, applyTimes } from '../ressonancia/tuning.js';   // T-052: the score's thresholds as live params
 
 const vt = await connectExperience();
@@ -77,6 +78,24 @@ for (const name of NAMES) {
 }
 const room = await createRoom3D(vt, canvas, { forceWebGL: P.renderer === 'webgl2', bloom: { strength: P.bloom }, exposure: P.exposure, renderScale: (+P.renderScale > 0 ? +P.renderScale : null) ?? QS[P.quality] ?? 1,   /* 26-11: renderScale > 0 overrides Quality's (0.85–0.9 keep High's look on the projectors) */ samples: P.quality === 'high' ? 2 : 0, aa: P.aa === 'auto' ? (P.quality === 'high' ? 'taa' : 'msaa') : P.aa });   // aa 'auto': TAA at high (RND-F's variance-clipped TAA), MSAA below — switch the default after QA's fps window   // MSAA 2 at high (T-011, DECISIONES 23:26; was 4)
 lt('room'); const NW = room.walls.length;
+// 26-11 (Beltrán: «cuando se inicia por primera vez, y cuando se resetea, que aparezca el logo, así no queda negro»): a black veil over
+// every wall (in the room's overlay, over everything) with the work's title and logos on it — up while the work loads and while it
+// resets; it opens when the entrance's stones are in place
+const veil = (() => {
+  const up = new THREE.Vector3(0, 1, 0), black = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 1, depthTest: false, depthWrite: false });
+  const tex = new THREE.TextureLoader().load(new URL('../ressonancia/scenes3d/parts/introp1/title-stacked.png', import.meta.url).href); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  const logo = new THREE.MeshBasicMaterial({ map: tex, color: 0xd8d8d8, transparent: true, opacity: 1, depthTest: false, depthWrite: false });
+  const LW = 2.0, LH = LW * 290 / 527;
+  for (const w of room.walls) {
+    const g = new THREE.Group(); g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(w.right, up, w.normal));
+    g.position.copy(w.centre).addScaledVector(w.normal, 0.06).setY(0);
+    const b = new THREE.Mesh(new THREE.PlaneGeometry(w.width + 0.6, (w.height || 3.75) + 1.2), black); b.position.y = (w.height || 3.75) / 2; b.renderOrder = 1000; b.frustumCulled = false;
+    const l = new THREE.Mesh(new THREE.PlaneGeometry(LW, LH), logo); l.position.set(0, 1.65, 0.01); l.renderOrder = 1001; l.frustumCulled = false;
+    g.add(b, l); room.overlay.add(g);
+  }
+  return { black, logo, cover: 1, logoK: 1 };
+})();
+try { room.render(1 / 60); vt.frame(canvas); } catch { /* the first loop frame shows it */ }
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const smooth = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 const ease = (cur, to, dt, rate) => cur + (to - cur) * (1 - Math.exp(-dt * rate));
@@ -205,7 +224,8 @@ function stepBloom(dt) {
   room.setBloom(bloomNow);
 }
 room.setBloom(bloomNow);
-const hints = createHints({ THREE, TSL, room });   // 26-11: a hand and a few words per wall, until someone does it there
+const hints = createHints({ THREE, TSL, room });
+const progLine = createProgressLine({ THREE, room });   // 26-11 (Beltrán): how far the interactive stage has gone, at the foot of every wall   // 26-11: a hand and a few words per wall, until someone does it there
 const subs = createSubtitles({ THREE, TSL, room }); try { window.__subs = subs; } catch { /* no window */ }                     // studio 26-11: English subtitles over every wall (subtitles.js)
 const TITLE_WALL = 1;                                                // studio 25-11 (Beltrán): P1 opens a window for the title — no start ring there
 // studio 26-11 (Beltrán: «subí los círculos donde se tendrá que apretar»): the start button sits in the picture's round windows, at
@@ -258,8 +278,8 @@ doJump();
 // (preroll) → the square: title and written trailer → the correfoc: the work's data → the resonance: closing line, credits, logos →
 // back to the entrance, and again. The score is held in the segment's block: if it moves on by itself (a group finishing a chapter's
 // play early), a move into the NEXT segment's block jumps the clock there; any other move is put back.
-const TRL = { tt: 0, seg: -1, jumpedAt: -9, loops: 0, shown: true, readyAt: null };
-let curtain = 1;
+const TRL = { tt: 0, seg: -1, jumpedAt: -9, loops: 0, shown: false, readyAt: null };
+let curtain = 0;
 const segments = () => {
   const pre = P['trailer.preroll'] ?? 12, title = 55, fire = parts.brasa3d?.part?.sound ? (P['trailer.brasaMax'] ?? 150) : 53, res = 62;   // 26-11: the correfoc v2 lasts until its storm (at most trailer.brasaMax s)   // 26-11: the new intro script ends at ~52.6 s   // title 50: the intro's 4th line (41 s, ~5.4 s) ends before the correfoc
   // studio 26-11 (Beltrán): the PINYA after the correfoc — not timed: it lasts until the room is full and the beings have let go (the
@@ -736,8 +756,9 @@ function frame(dt) {
       if (e.home === 'tronc') {   // the tower: points only, no occluder, moved down with the tower's world (its plazaSink parallax)
         const g = parts.torre3d?.part?.progress?.() || {};
         p.dark = 1; p.reveal = 0.55; p.occlude = 0; p.pointGain = 0.1 + 0.14 * sm(0.5, 5, serving ? S.t : 9); p.breathe = 1; p.cool = 0.8;   /* 26-11 (Beltrán: «todo se ve muy blanco») fainter and greyer */ p.fires = [0, 0, 0, 0]; p.lit = 0; p.embers = [0, 0, 0, 0];
-        e.part.object.position.y = (g.worldY || 0) * (1 + (g.plazaSink ?? 0.35)); p.wave = g.wave || null; p.waveK = 1; if (g.wave) e.lastWave = g.wave;   // l'aleta's golden wave runs through the square (the tower's own backdrop had it)
-      } else { e.part.object.position.y = 0; const ta = S.t || 0; if (e.home === 'acta' && e.lastWave && ta < 4) { p.wave = e.lastWave; p.waveK = 1 - smooth(ta / 4); } else { p.wave = null; e.lastWave = null; } }   // the square's gold fades into the closing
+        e.sinkY = (g.worldY || 0) * (1 + (g.plazaSink ?? 0.35)); e.part.object.position.y = e.sinkY; p.wave = g.wave || null; p.waveK = 1; if (g.wave) e.lastWave = g.wave;   // l'aleta's golden wave runs through the square (the tower's own backdrop had it)
+      } else { e.sinkY = (e.sinkY || 0) * Math.exp(-dt / 1.6); if (Math.abs(e.sinkY) < 1e-3) e.sinkY = 0; e.part.object.position.y = e.sinkY; const ta = S.t || 0;   // (26-11, Beltrán: «muy de corte») the square comes back to its height over ~4 s, not in one frame
+ if (e.home === 'acta' && e.lastWave && ta < 4) { p.wave = e.lastWave; p.waveK = 1 - smooth(ta / 4); } else { p.wave = null; e.lastWave = null; } }   // the square's gold fades into the closing
       const D = P['trailer.outro'] ?? 18;
       if (e.home === 'acta') { const ta = serving ? S.t : 0; p.dark = 0; p.reveal = 0.55; p.occlude = parts.torre3d && parts.torre3d.state !== 'off' ? 0 : 1;   /* (QA) no occluder while the tower's gold dust still leaves */ p.pointGain = 0.24 + 0.16 * sm(0, 3, ta); p.breathe = 1; p.cool = 0.5; p.fires = [0, 0, 0, 0]; p.lit = 0; p.embers = [0, 0, 0, 0]; p.shatter = Math.max(e.leave || 0, sm(D - 5, D - 1.5, ta)); }
       else p.shatter = e.leave || 0;
@@ -795,13 +816,22 @@ function frame(dt) {
     if (P['trailer.hints'] !== false) {
       // 26-11 (Beltrán in the room): the entrance's circles say it before the room opens; the correfoc and the pinya: two or three
       // smaller, softer hints per wall that leave when a hand comes near and come back elsewhere; the pinya's go once it is complete
-      if (S.block === 'wait' && has('umbral3d')) { const pt = parts.umbral3d.part?.paint?.(); if (pt && pt.share < (P.paintOpen ?? 0.2)) cfg = { text: 'Touch the wall', walls: [0, 2, 3], from: 2, idle: 10, y: BUTTON.y[0], dx: 0, scale: 0.8, alpha: 0.75 }; }
-      else if (S.block === 'brasa') cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 12, idle: 15, y: 1.3, per: 3, scale: 0.7, alpha: 0.6, move: true };
-      else if (S.block === 'pinya') { const pf = parts.pinya3d2?.part?.fill?.(); if (!pf || !(pf.done || pf.total >= 0.98)) cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 11, idle: 15, y: 1.35, per: 2, scale: 0.75, alpha: 0.65, move: true }; }
+      if (S.block === 'wait' && has('umbral3d')) { const pt = parts.umbral3d.part?.paint?.(); if (pt && pt.share < (P.paintOpen ?? 0.2)) cfg = { text: 'Touch the wall', walls: [0, 2, 3], from: 2, y: BUTTON.y[0], dx: 0, scale: 0.8, alpha: 0.75, always: true }; }   // in all three circles until the room opens
+      else if (S.block === 'brasa') cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 12, idle: 15, y: 1.3, per: 2, scale: 0.7, alpha: 0.42, move: true };
+      else if (S.block === 'pinya') { const pf = parts.pinya3d2?.part?.fill?.(); if (!pf || !(pf.done || pf.total >= 0.98)) cfg = { text: 'Touch the wall', walls: [0, 1, 2, 3], from: 11, idle: 15, y: 1.35, per: 2, scale: 0.72, alpha: 0.42, move: true }; }
       else if (S.block === 'tronc') { const g = parts.torre3d?.part?.progress?.() || {};
-        cfg = g.ending > 0 ? null : g.ready ? { text: 'Touch the light', walls: [0, 2, 3], from: 0, idle: 10, y: 1.85, per: 2, scale: 0.75, alpha: 0.7, move: true } : { text: 'Touch the wall', walls: [0, 2, 3], from: 9.5, idle: 15, y: 1.85, per: 2, scale: 0.75, alpha: 0.65, move: true }; }   // 26-11 (Beltrán: «que simplemente sea apretar») a touch, no hold ring
+        cfg = g.ending > 0 ? null : g.ready ? { text: 'Touch the light', walls: [0, 2, 3], from: 0, idle: 10, y: 1.85, per: 2, scale: 0.72, alpha: 0.5, move: true } : { text: 'Touch the wall', walls: [0, 2, 3], from: 9.5, idle: 15, y: 1.85, per: 2, scale: 0.72, alpha: 0.42, move: true }; }   // 26-11 (Beltrán: «que simplemente sea apretar») a touch, no hold ring
     }
-    hints.update(dt, time, { block: S.block, t: S.t || 0, hands: hs, downs, cfg }); }
+    hints.update(dt, time, { block: S.block, t: S.t || 0, hands: hs, downs, cfg });
+    let pv = null;
+    try {
+      if (S.block === 'wait' && has('umbral3d') && !(parts.umbral3d.part.cleared?.())) { const pt = parts.umbral3d.part.paint?.(), ch = parts.umbral3d.part.charge?.(); pv = 0.5 * Math.min(1, (pt?.share || 0) / (P.paintOpen ?? 0.2)) + 0.5 * Math.min(1, ch?.cover || 0); }
+      else if (S.block === 'brasa' && parts.brasa3d?.part?.progress) pv = parts.brasa3d.part.progress().total ?? 0;
+      else if (S.block === 'pinya' && parts.pinya3d2?.part?.fill) { const f = parts.pinya3d2.part.fill(); pv = f.done ? null : f.total; }
+      else if (S.block === 'tronc' && parts.torre3d?.part?.progress) { const g = parts.torre3d.part.progress(); pv = g.ending > 0 ? null : (g.needed ? 0.85 * Math.min(1, g.climbers / g.needed) : 0) + 0.15 * (g.charge || 0); }
+    } catch { pv = null; }
+    if (S.block !== 'wait' && TRL.shown === false) pv = null;
+    progLine.update(dt, pv); }
   subs.update(dt);
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);
   p1 = performance.now(); const ib = stepIntroBreak();
@@ -812,13 +842,16 @@ function frame(dt) {
   // have arrived and settled (1.2 s after its arrive is whole), over ~2.5 s
   { let ct = 1;
     if (S.block === 'acta') { const D = P['trailer.outro'] ?? 18; ct = 1 - smooth(((S.t || 0) - (D - 2.6)) / 2.3); }
-    else if (S.block === 'wait' && TRL.loops > 0 && !TRL.shown) {
+    else if (S.block === 'wait' && !TRL.shown) {
       const U = parts.umbral3d, ok = !U || (U.state === 'on' && (U.arrive ?? 1) >= 1);
       if (ok) { if (TRL.readyAt == null) TRL.readyAt = time; if (time - TRL.readyAt > 1.2) TRL.shown = true; } else TRL.readyAt = null;
       ct = TRL.shown ? 1 : 0;
     }
     curtain += (ct - curtain) * (1 - Math.exp(-dt * (ct < curtain ? 3 : 1.4)));
-    room.renderer.toneMappingExposure = (P.exposure ?? 1) * Math.max(0, curtain); }
+    const lk = (S.block === 'wait' && !TRL.shown) || (S.block === 'acta' && ct < 0.05) ? 1 : 0;   // the title on the black (the load, the reset), not over the closing
+    veil.logoK += (lk - veil.logoK) * (1 - Math.exp(-dt * (lk ? 1.2 : 2.2)));
+    veil.black.opacity = Math.max(0, 1 - curtain); veil.logo.opacity = Math.max(0, 1 - curtain) * veil.logoK;
+    room.renderer.toneMappingExposure = P.exposure ?? 1; }
   room.render(dt, tr.on ? pass : ib); if (tr.on || ib) for (const e of list) e.rig.visible = !e.torn; prof.max('render', performance.now() - p1);
   frames++; const n = performance.now(); if (n - f0 > 1000) { fps = (frames * 1000) / (n - f0); frames = 0; f0 = n; }
 }
@@ -851,7 +884,7 @@ async function warmUp() {
     hideRest();
     if (noSquare && parts.plaza) parts.plaza.part.object.visible = false;
     try { await toStrip(() => room.renderer.compileAsync(room.scene, room.walls[0].camera)); } catch { /* render below compiles too */ }
-    for (let k = 0; k < 6; k++) { room.render(1 / 60); await new Promise((r) => requestAnimationFrame(r)); }
+    for (let k = 0; k < 6; k++) { room.render(1 / 60); try { vt.frame(canvas); } catch { /* */ } await new Promise((r) => requestAnimationFrame(r)); }   // (the veil and the logo on top: the room sees the title while it loads)
     for (let i = 0; i < saved.length; i += 2) saved[i].visible = saved[i + 1];
   }
   lt('warm:states');
