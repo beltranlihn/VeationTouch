@@ -265,132 +265,37 @@ export function create({ THREE, TSL, room, params }) {
   }
   const setV = (L, l, j, p, tg, a, b) => { for (let sd = 0; sd < 2; sd++) { const o = ((l * L.nSamp + j) * 2 + sd) * L.F; L.A[o] = p.x; L.A[o + 1] = p.y; L.A[o + 2] = p.z; L.A[o + 3] = tg.x; L.A[o + 4] = tg.y; L.A[o + 5] = tg.z; L.A[o + 8] = a; L.A[o + 9] = b; } };
 
-  // ---- the strip: palm to palm between neighbours of the first row (pale, on the wall plane); across a corner it bends at the corner
-  const NSTRIP = 64, SS = 14, STRANDS = 2;
-  const strip = lineBuffer(NSTRIP * STRANDS, SS);
+  // ---- THE RED NETWORK (Beltrán 26-11: «los cables deben ir uniendo las manos entre los personajes cercanos, y ése es el hilo»):
+  // every being, once formed, stretches fine red threads (Vicente's ribbons) from its palms to the palms of its near neighbours —
+  // beside it in its row, and in front or behind when close. Palm to palm, never loose. Few beings: a few threads; as the room fills the
+  // net thickens, joins the groups and closes round the room (360°, P3 → P4 too: distances are 3D, a thread bends behind the corner).
+  // A new thread grows from the newborn's palm and a pulse runs along it when it hooks; the hand that called a being drags its threads.
+  const NE = 420, ES = 14;
+  const net = lineBuffer(NE, ES);
   {
     const pos = attribute('position', 'vec3'), tg = attribute('aT', 'vec3'), aF = attribute('aF', 'vec4');
-    const t = aF.x, side = aF.y, grow = aF.z, rnd = aF.w;
-    const pv = modelViewMatrix.mul(vec4(pos, 1)), tv = modelViewMatrix.mul(vec4(tg, 0)).xyz;
-    const rb = ribbon(pv, tv, float(0.0022), side, uMinFb);
-    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    m.vertexNode = rb.pos;
-    // it grows from both palms towards the middle
-    const fromEnd = float(1).sub(abs(t.mul(2).sub(1))), vis = float(1).sub(smoothstep(grow.sub(0.04), grow, fromEnd));
-    const vT = varying(t), vS = varying(side), vA = varying(vis.div(rb.k)), vR = varying(rnd), vNdc = varying(rb.pos.xy.div(rb.pos.w));
-    const flow = pow(sin(vT.mul(11).sub(uTime.mul(0.9)).add(vR.mul(17))).mul(0.5).add(0.5), 4);
-    const c = mix(tc(BONE), tc(WARM), uWarm.mul(0.6)).mul(flow.mul(0.3).add(0.22));
-    m.colorNode = c.mul(float(1).sub(vS.mul(vS))).mul(vA).mul(uLight).mul(float(1).sub(uLeave)).mul(float(1).sub(calmOf(vNdc).mul(0.6)));
-    m.fog = false;
-    const mesh = new THREE.Mesh(strip.g, m); mesh.frustumCulled = false; mesh.renderOrder = 4; object.add(mesh);
-  }
-
-  // ---- the red thread: three fine strands twisted round a line just in front of the first row (0.1 m behind the walls, at the chests),
-  // round the whole room; per vertex `cov` = how much of it exists there (it grows from the dense stretches outwards)
-  const NS = 384;                                  // samples of the perimeter (≈ 7 cm)
-  const dens = new Float32Array(NS), cov = new Float32Array(NS), target = new Uint8Array(NS), seed = new Uint8Array(NS);   // seed: where a hand's red fibres were braided in
-  const TH_STR = 3, TH_N = NS + 1;
-  const thread = lineBuffer(TH_STR, TH_N);
-  const thPos = [];                                // centre line point per sample (world), and tangent
-  {
-    const DEPTH = 0.1;
-    for (let i = 0; i <= NS; i++) {
-      const s = (i / NS) * PER;
-      let w = 0; while (w < NW - 1 && s >= offs[w + 1]) w++;
-      const x = s - offs[w] - walls[w].width / 2;
-      // near a corner the line rounds it (behind the corner, the walls' offset lines meet beyond it): blend the two walls' offsets
-      const p = wallAt(w, x, 0, DEPTH, new THREE.Vector3());
-      const toEnd = walls[w].width / 2 - x, toStart = x + walls[w].width / 2, R = 0.8;
-      if (toEnd < R) { const wn = (w + 1) % NW, q = wallAt(wn, -walls[wn].width / 2 + (R - toEnd) * 0, 0, DEPTH, tmpA); const k = smooth01((R - toEnd) / R) * 0.5; p.lerp(q, k); }
-      else if (toStart < R) { const wp = (w + NW - 1) % NW, q = wallAt(wp, walls[wp].width / 2, 0, DEPTH, tmpA); const k = smooth01((R - toStart) / R) * 0.5; p.lerp(q, k); }
-      thPos.push(p);
-    }
-    const r = rng(616);
-    const tw = [r() * 6, r() * 6, r() * 6];
-    for (let l = 0; l < TH_STR; l++) for (let i = 0; i <= NS; i++) {
-      const s = (i / NS) * PER, a = thPos[i], b = thPos[Math.min(NS, i + 1)], c = thPos[Math.max(0, i - 1)];
-      const tg = tmpB.subVectors(b, c).normalize();
-      const y = 1.42 + 0.07 * Math.sin(s * 0.9 + 1.3) + 0.04 * Math.sin(s * 2.3);
-      const ph = (l / TH_STR) * Math.PI * 2 + s * 4.2 + tw[l] * 0.1, rad = 0.012;
-      const p = tmpA.set(a.x - tg.z * Math.cos(ph) * rad, y + Math.sin(ph) * rad, a.z + tg.x * Math.cos(ph) * rad);
-      setV(thread, l, i, p, tg, 0, l);
-    }
-    thread.ib.needsUpdate = true;
-    const pos = attribute('position', 'vec3'), tg = attribute('aT', 'vec3'), aF = attribute('aF', 'vec4');
-    const t = aF.x, side = aF.y, cv = aF.z, strand = aF.w;
-    const sway = sin(uTime.mul(0.35).add(t.mul(60)).add(strand.mul(2))).mul(0.01);
-    const p = pos.add(vec3(0, sway, 0)).add(vec3(0, float(1).sub(cv).mul(-0.25), 0)).add(vec3(0, uLeave.mul(uLeave).mul(1.5), 0));
+    const t = aF.x, side = aF.y, grow = aF.z, t0 = aF.w;
+    const sway = sin(uTime.mul(0.6).add(t0.mul(13.7)).add(t.mul(3))).mul(0.006).mul(sin(t.mul(Math.PI)));
+    const p = pos.add(vec3(0, sway, 0)).add(vec3(0, uLeave.mul(uLeave).mul(1.2), 0));
     const pv = modelViewMatrix.mul(vec4(p, 1)), tv = modelViewMatrix.mul(vec4(tg, 0)).xyz;
-    const rb = ribbon(pv, tv, float(0.0018), side, uMinFb);
+    const rb = ribbon(pv, tv, float(0.0021), side, uMinFb);
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    m.vertexNode = TSL.select(cv.greaterThan(0.002), rb.pos, vec4(0, 0, 2, 1));
-    const vT = varying(t), vS = varying(side), vC = varying(cv), vK = varying(float(1).div(rb.k)), vSt = varying(strand);
-    // a slow pulse of light travels along it (one way round the room, 40 s a turn), the growing tip a little brighter
-    const pulse = pow(sin(vT.mul(Math.PI * 2 * 3).sub(uTime.mul(0.47)).add(vSt.mul(0.6))).mul(0.5).add(0.5), 14);
-    const tip = smoothstep(0.35, 0.9, vC).mul(float(1).sub(smoothstep(0.9, 1.0, vC)));
-    const core = redMatter(pulse.mul(0.6).add(tip.mul(0.5)));
-    m.colorNode = core.mul(pulse.mul(0.9).add(0.42).add(tip.mul(0.8))).mul(smoothstep(0.0, 0.35, vC)).mul(float(1).sub(vS.mul(vS))).mul(vK)
-      .mul(uGlow).mul(float(1).sub(uLeave)).mul(0.7);
+    m.vertexNode = TSL.select(grow.greaterThan(0.001), rb.pos, vec4(0, 0, 2, 1));
+    // it grows from the newborn's palm (t = 0) to the other palm; a pulse runs along as it hooks, then now and then a slow one
+    const vis = float(1).sub(smoothstep(grow.sub(0.03), grow, t));
+    const vT = varying(t), vS = varying(side), vA = varying(vis.div(rb.k)), vT0 = varying(t0);
+    const age = uTime.sub(vT0), run = age.mul(1.4);
+    const hook = exp(vT.sub(run).mul(vT.sub(run)).mul(-60)).mul(smoothstep(2.2, 0.6, age)).add(exp(age.sub(0.75).mul(age.sub(0.75)).mul(-8)).mul(0.6).mul(exp(vT.sub(1).mul(vT.sub(1)).mul(-30)).add(exp(vT.mul(vT).mul(-30)))));
+    const slow = pow(sin(vT.mul(5).sub(uTime.mul(0.8)).add(vT0.mul(7.3))).mul(0.5).add(0.5), 12).mul(0.5);
+    const ends = exp(vT.mul(vT).mul(-200)).add(exp(vT.sub(1).mul(vT.sub(1)).mul(-200))).mul(0.6);   // a small knot of light at each palm
+    const k = hook.add(slow).add(ends);
+    m.colorNode = redMatter(k).mul(k.mul(1.3).add(0.42)).mul(float(1).sub(vS.mul(vS))).mul(vA).mul(uGlow).mul(float(1).sub(uLeave)).mul(1.25);
     m.fog = false;
-    const mesh = new THREE.Mesh(thread.g, m); mesh.frustumCulled = false; mesh.renderOrder = 3; object.add(mesh);
+    const mesh = new THREE.Mesh(net.g, m); mesh.frustumCulled = false; mesh.renderOrder = 4; object.add(mesh);
   }
-
-  // ================================================================================================== the hand's red fibres (Vicente's bundles)
-  // At once a bundle of fine red fibres sprouts from the palm and hooks into the beings round the hand (their chests) and into the
-  // thread's line; held, it tightens (straightens, a pulse runs to the palm); dragged, it follows the hand and re-hooks as it goes.
-  // Where there are beings enough, a held or dragged hand BRAIDS its fibres into the thread there (the thread's seed); let go, the
-  // fibres fold into the thread's line and fade. The same red matter as the thread.
-  const NH = 10, NHF = 24, NHS = 18;
-  const HA = [], HB = [], HC = [], HK = [];
-  for (let i = 0; i < NH; i++) { HA.push(new THREE.Vector4(0, -50, 0, 0)); HB.push(new THREE.Vector4(0, -50, 0, 0)); HC.push(new THREE.Vector4(0, 0, 1, 0)); }
-  for (let i = 0; i < NH * 5; i++) HK.push(new THREE.Vector4(0, -50, 0, 0));
-  const uHA = uniformArray(HA, 'vec4'), uHB = uniformArray(HB, 'vec4'), uHC = uniformArray(HC, 'vec4'), uHK = uniformArray(HK, 'vec4');   // A: palm xyz, grow · B: thread anchor xyz, taut · C: normal xyz, presence · K: 5 chests
-  {
-    const F = 8, nv = NH * NHF * NHS * 2, A = new Float32Array(nv * F), idx = [], r = rng(77);
-    for (let sl = 0; sl < NH; sl++) for (let f = 0; f < NHF; f++) {
-      const rs = [r(), r(), r(), r(), r()];
-      for (let j = 0; j < NHS; j++) for (let sd = 0; sd < 2; sd++) A.set([sl, j / (NHS - 1), sd ? 1 : -1, rs[0], rs[1], rs[2], rs[3], rs[4]], (((sl * NHF + f) * NHS + j) * 2 + sd) * F);
-      for (let j = 0; j < NHS - 1; j++) { const a = ((sl * NHF + f) * NHS + j) * 2; idx.push(a, a + 1, a + 3, a, a + 3, a + 2); }
-    }
-    const ib = new THREE.InterleavedBuffer(A, F), g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.InterleavedBufferAttribute(ib, 4, 0)); g.setAttribute('aH2', new THREE.InterleavedBufferAttribute(ib, 4, 4));
-    g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
-    const aH = attribute('position', 'vec4'), a2 = attribute('aH2', 'vec4');
-    const si = int(aH.x), t = aH.y, side = aH.z, r1 = aH.w, r2 = a2.x, r3 = a2.y, r4 = a2.z, r5 = a2.w;
-    const qA = uHA.element(si), qB = uHB.element(si), qC = uHC.element(si);
-    const nrm = qC.xyz, right = vec3(nrm.z, 0, nrm.x.negate()), up = vec3(0, 1, 0), grow = qA.w, taut = qB.w, pres = qC.w;
-    const hk = uHK.element(si.mul(5).add(int(r4.mul(4.999))));
-    const onThread = r2.lessThan(0.34);
-    const P0chest = hk.xyz.add(right.mul(r1.sub(0.5).mul(0.3))).add(up.mul(r5.sub(0.5).mul(0.45)));
-    const P0thread = qB.xyz.add(right.mul(r1.sub(0.5).mul(1.1))).add(up.mul(r5.sub(0.5).mul(0.03)));
-    const P0 = select(onThread, P0thread, P0chest);
-    // let go: the palm end folds into the thread's line (fold = 1 − presence)
-    const fold = smoothstep(0.0, 1.0, float(1).sub(pres));
-    const P3 = mix(qA.xyz.add(right.mul(r1.sub(0.5).mul(0.07))).add(up.mul(r2.sub(0.5).mul(0.07))), qB.xyz.add(right.mul(r1.sub(0.5).mul(0.5))), fold);
-    const sag = r3.mul(0.35).add(0.18).mul(float(1).sub(taut)).add(0.015);
-    const trem = sin(uTime.mul(8).add(r1.mul(40))).mul(0.008).mul(taut);
-    // a fan of curved strands in the wall's plane (seen from the room the depth collapses: the curve must be lateral and vertical)
-    const P1 = P0.add(nrm.mul(r3.mul(0.06).add(0.03))).add(up.mul(r5.sub(0.5).mul(0.9).mul(float(1).sub(taut.mul(0.6))))).add(right.mul(r2.sub(0.5).mul(0.25)));
-    const P2 = P3.sub(nrm.mul(r5.mul(0.12).add(0.05))).add(up.mul(r3.sub(0.5).mul(0.55).mul(float(1).sub(taut.mul(0.5))).sub(sag))).add(right.mul(trem.add(r1.sub(0.5).mul(0.35).mul(float(1).sub(taut.mul(0.5))))));
-    const sT = float(1).sub(t);
-    const Bz = P0.mul(sT.mul(sT).mul(sT)).add(P1.mul(sT.mul(sT).mul(t).mul(3))).add(P2.mul(sT.mul(t).mul(t).mul(3))).add(P3.mul(t.mul(t).mul(t)));
-    const dB = P1.sub(P0).mul(sT.mul(sT).mul(3)).add(P2.sub(P1).mul(sT.mul(t).mul(6))).add(P3.sub(P2).mul(t.mul(t).mul(3)));
-    const pv = modelViewMatrix.mul(vec4(Bz, 1)), tv = modelViewMatrix.mul(vec4(normalize(dB.add(vec3(0, 1e-4, 0))), 0)).xyz;
-    const rb = ribbon(pv, tv, float(0.0016).add(t.mul(0.0012)), side, uMinFb);
-    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    m.vertexNode = select(pres.greaterThan(0.001), rb.pos, vec4(0, 0, 2, 1));
-    // it grows from the palm into the crowd (t = 1 at the palm)
-    const reach = float(1).sub(t), lim = grow.mul(r4.mul(0.3).add(0.7));
-    const vis = float(1).sub(smoothstep(lim.sub(0.05), lim, reach));
-    const vT = varying(t), vS = varying(side), vA = varying(vis.mul(pres).div(rb.k)), vTaut = varying(taut), vR = varying(r1);
-    const pulse = pow(sin(vT.mul(16).sub(uTime.mul(6)).add(vR.mul(6))).mul(0.5).add(0.5), 10).mul(vTaut);
-    const tipK = pow(vT, 3);
-    m.colorNode = redMatter(pulse.add(tipK.mul(0.6))).mul(tipK.mul(1.2).add(0.35).add(pulse.mul(1.4))).mul(float(1).sub(vS.mul(vS))).mul(vA).mul(uGlow).mul(float(1).sub(uLeave)).mul(0.7);
-    m.fog = false;
-    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 5; object.add(mesh);
-  }
-  const fib = []; for (let i = 0; i < NH; i++) fib.push({ stroke: null, grow: 0, taut: 0, pres: 0, t0: 0, s: 0, hookT: -9, hooks: [], pos: new THREE.Vector3(), nrm: new THREE.Vector3(0, 0, 1), anc: new THREE.Vector3() });
-  const thAt = (sv, out) => { const f = (wrapS(sv) / PER) * NS, i = Math.floor(f) % NS, k = f - Math.floor(f); return out.copy(thPos[i]).lerp(thPos[(i + 1) % (NS + 1)], k).setY(1.42 + 0.07 * Math.sin(sv * 0.9 + 1.3) + 0.04 * Math.sin(sv * 2.3)); };
+  const NS = 384, cov = new Uint8Array(NS);                    // threadCover: the share of the perimeter the connected net spans
+  const edges = new Map();                                     // key → { a, b, sa, sb (palm sides), t0, from, len }
+  let netT = -9, netN = -1, joins = 0;
 
   // ================================================================================================== the dust (the dark the beings come out of)
   {
@@ -434,7 +339,7 @@ export function create({ THREE, TSL, room, params }) {
   const events = [];
   let time = 0, total = 0, warmS = 0, threadCover = 0, fullT = -1, endT = -1, ended = false, doneSent = false, assistAcc = 0, firstT = -1, joinedSent = 0;
   const fillW = new Float32Array(NW);
-  let endFrom = 0;   // the end starts where the last being was called and travels both ways round the room
+  let endFrom = 0, beingId = 0;   // the end starts where the last being was called and travels both ways round the room
   const rr = rng(4242);
   const prm = () => P;
 
@@ -468,7 +373,7 @@ export function create({ THREE, TSL, room, params }) {
     const type = pool[Math.floor(rr() * pool.length)];
     const xr = c.row === 0 ? (c.j === claimNearest(w, x) && Math.abs(x - cols[w][c.j]) < COL * 0.7 ? x : cols[w][c.j] + (rr() - 0.5) * 0.08) : cols[w][c.j] + (rr() - 0.5) * 0.1;
     const front = c.row === 0 ? null : grid[w][c.j][0];
-    const b = { wall: w, j: c.j, row: c.row, x: c.row && front ? front.x + (rr() - 0.5) * 0.1 : xr, y: c.row === 0 ? (opt.y ?? (1.05 + rr() * 0.55)) : 1.25, yT: 0, type, seed: rr(), phase: rr() * 9,
+    const b = { id: ++beingId, wall: w, j: c.j, row: c.row, x: c.row && front ? front.x + (rr() - 0.5) * 0.1 : xr, y: c.row === 0 ? (opt.y ?? (1.05 + rr() * 0.55)) : 1.25, yT: 0, type, seed: rr(), phase: rr() * 9,
       h: 0.93 + rr() * 0.12, ws: 0.95 + rr() * 0.1, born: 0, flash: 1, glow: 0, lean: 0, lv: 0, gone: 0, contact: 0, held: null, t0: time, dead: false, M: null, k: -1, yaw: 0, ox: 0 };
     b.yT = b.y; b.s = wrapS(offs[w] + walls[w].width / 2 + b.x);
     grid[w][c.j][c.row] = b; beings.push(b);
@@ -501,12 +406,17 @@ export function create({ THREE, TSL, room, params }) {
     A[o + 12] = b.gone; A[o + 13] = ws; A[o + 14] = b.flash; A[o + 15] = b.contact;
     b.palmY = py + oy; b.palmLx = b.x + (b.row ? 0 : ((pl[0].L[0] - pl[0].R[0]) + ((pl[1].L[0] - pl[1].R[0]) - (pl[0].L[0] - pl[0].R[0])) * hp) * ws * hs);
     b.palmLy = b.row ? 0 : (pl[0].L[1] + (pl[1].L[1] - pl[0].L[1]) * hp) * hs + oy;
-    b.cx = A[o] + W.normal.x * 0.12; b.cy = oy + 1.28 * hs; b.cz = A[o + 2] + W.normal.z * 0.12;   // the chest (where a hand's red fibres hook)
+    // both palms in the part's space (the threads' ends): front row from its push poses, the rows behind from their posture
+    const palmAt = (q, out) => out.set(A[o] + Xx * q[0] * ws * hs + W.normal.x * q[2] * ws * hs, oy + q[1] * hs, A[o + 2] + Xz * q[0] * ws * hs + W.normal.z * q[2] * ws * hs);
+    const lerp3 = (u, v, k) => [u[0] + (v[0] - u[0]) * k, u[1] + (v[1] - u[1]) * k, u[2] + (v[2] - u[2]) * k];
+    if (!b.pR) { b.pR = new THREE.Vector3(); b.pL = new THREE.Vector3(); b.dragP = new THREE.Vector3(); b.dragK = 0; }
+    if (b.row === 0) { palmAt(lerp3(pl[0].R, pl[1].R, hp), b.pR); palmAt(lerp3(pl[0].L, pl[1].L, hp), b.pL); } else { palmAt(pl[2].R, b.pR); palmAt(pl[2].L, b.pL); }
+    if (b.dragK > 0.001) b.pR.lerp(b.dragP, b.dragK);   // the hand that called it drags its threads
   }
 
   // ================================================================================================== update
   const invM = new THREE.Matrix4();
-  const knownStrokes = new Set(), nowStrokes = new Set(), front = [], bySS = (a, b) => a.s - b.s;
+  const knownStrokes = new Set(), nowStrokes = new Set();
   function update(dt, input) {
     dt = Math.min(0.1, dt || 0.016);
     if (jobs.length) {
@@ -545,6 +455,7 @@ export function create({ THREE, TSL, room, params }) {
       // the being that answered this hand keeps its palm on it: it follows the height slowly, and glows where they meet
       const b = s.being;
       if (b && !b.dead && b.row === 0 && b.wall === h.wall && Math.abs(b.x - x) < 0.45) { b.yT = Math.max(0.55, Math.min(2.05, y)); b.held = time; }
+      if (b && !b.dead) { b.dragHeld = time; if (b.dragP) b.dragP.copy(h.pos).applyMatrix4(invM).addScaledVector(W.normal, -0.012); }
       // held: one more being every holdEvery s (the group grows from the hand)
       const every = p.holdEvery ?? 1.2;
       if (every > 0 && time - s.t0 > 1.0 && time - s.last > every && s.n < (p.holdMax ?? 8) && uLeave.value < 0.5) {
@@ -555,36 +466,6 @@ export function create({ THREE, TSL, room, params }) {
     }
     for (const [k, s] of slotsH) if (!nowStrokes.has(k) && time - s.seen > 0.35) slotsH.delete(k);
 
-    // ---- the hand's red fibres: a slot per stroke (held 0.35 s through a dropped reading), hooks re-taken as the hand moves
-    for (const h of hands) {
-      const W = walls[h.wall]; if (!W) continue;
-      let q = fib.find((f) => f.stroke === h.stroke);
-      if (!q) { q = fib.find((f) => f.stroke === null && f.pres < 0.02) || fib.find((f) => f.stroke === null); if (!q) continue; q.stroke = h.stroke; q.t0 = time; q.grow = 0.06; q.taut = 0; q.hookT = -9; q.pres = 1; }
-      q.seen = time;
-      q.pos.copy(h.pos).applyMatrix4(invM).addScaledVector(W.normal, -0.012); q.nrm.copy(W.normal);
-      const x = (h.pos.x - W.centre.x) * W.right.x + (h.pos.z - W.centre.z) * W.right.z; q.s = wrapS(offs[h.wall] + W.width / 2 + x);
-      if (time - q.hookT > 0.4) {   // the five beings nearest along the perimeter (the first row first)
-        q.hookT = time; q.hooks.length = 0;
-        for (const b of beings) { if (b.gone > 0.5 || b.born < 0.15) continue; const d = Math.abs(dS(b.s, q.s)) + b.row * 0.45; if (d > 2.2) continue; q.hooks.push([d, b]); }
-        q.hooks.sort((u, v) => u[0] - v[0]); if (q.hooks.length > 5) q.hooks.length = 5;
-      }
-      // held where there are beings: the fibres braid into the thread here (and along a drag)
-      if (time - q.t0 > 0.4) { const i0 = Math.round((q.s / PER) * NS), sp = Math.ceil((0.35 / PER) * NS); for (let di = -sp; di <= sp; di++) seed[(i0 + di + NS) % NS] = 1; }
-    }
-    fib.forEach((q, i) => {
-      if (q.stroke !== null && !nowStrokes.has(q.stroke) && time - (q.seen ?? 0) > 0.35) q.stroke = null;
-      const on = q.stroke !== null;
-      q.grow = on ? Math.min(1, q.grow + dt / 0.7) : q.grow;
-      q.taut = on && q.grow > 0.7 ? Math.min(1, q.taut + dt / 2.0) : Math.max(0, q.taut - dt * 1.5);
-      q.pres = on ? 1 : Math.max(0, q.pres - dt / 1.6);
-      thAt(q.s, q.anc);   // object space, as the thread
-      for (let k = 0; k < 5; k++) {
-        const hb = q.hooks[k]?.[1] || q.hooks[0]?.[1];
-        if (hb) HK[i * 5 + k].set(hb.cx, hb.cy, hb.cz, 0); else HK[i * 5 + k].set(q.pos.x - q.nrm.x * 0.5, 1.3, q.pos.z - q.nrm.z * 0.5, 0);
-      }
-      HA[i].set(q.pos.x, q.pos.y, q.pos.z, q.grow); HB[i].set(q.anc.x, q.anc.y, q.anc.z, q.taut); HC[i].set(q.nrm.x, q.nrm.y, q.nrm.z, q.pres);
-      if (q.pres <= 0) q.grow = 0;
-    });
     knownStrokes.clear(); for (const k of nowStrokes) knownStrokes.add(k);
 
     // ---- solo help: once the room has started, beings come out of the dark by themselves next to the groups
@@ -611,40 +492,9 @@ export function create({ THREE, TSL, room, params }) {
     for (const b of beings) { alive++; fillW[b.wall]++; }
     for (let w = 0; w < NW; w++) fillW[w] = clamp01(fillW[w] / (fc * walls[w].width / PER));
     { let t = 0; for (let w = 0; w < NW; w++) t += Math.min(fillW[w], 1) * walls[w].width; total = clamp01(t / PER); }   // a crowded wall does not count for an empty one
-    const thr = p.threadAt ?? 0.45, sig = 0.7;
-    dens.fill(0);
-    for (const b of beings) {
-      const wgt = b.row === 0 ? 1 : 0.8, i0 = Math.round((b.s / PER) * NS), span = Math.ceil((sig * 2.5 / PER) * NS);
-      for (let di = -span; di <= span; di++) { const i = (i0 + di + NS) % NS, d = (di / NS) * PER; dens[i] += wgt * Math.exp(-(d * d) / (2 * sig * sig)) * smooth01(b.born * 2); }
-    }
-    const dNorm = 1 / (2.5 * (sig * Math.sqrt(2 * Math.PI)) / COL);   // ≈ 1 for 2.5 rows packed
-    for (let i = 0; i < NS; i++) dens[i] *= dNorm;
-    // target: dense stretches, and gaps between two dense stretches no longer than the bridge (it grows with the fill: at full, the ring)
-    const bridge = 1.2 + (PER / 2) * smooth01((total - 0.25) / 0.7);
-    let anyDense = false; for (let i = 0; i < NS; i++) { target[i] = dens[i] >= thr || (seed[i] && dens[i] >= thr * 0.6) ? 1 : 0; if (target[i]) anyDense = true; }
-    if (anyDense) {
-      let start = 0; while (target[start]) { start++; if (start >= NS) break; }
-      if (start < NS) {
-        for (let k = 0, i = start, gapStart = -1; k <= NS; k++, i = (i + 1) % NS) {
-          if (!target[i] && gapStart < 0) gapStart = k;
-          if (target[i] && gapStart >= 0) { const len = ((k - gapStart) / NS) * PER; if (len <= bridge) for (let q = gapStart; q < k; q++) target[(start + q) % NS] = 2; gapStart = -1; }
-        }
-      }
-    }
-    const grow = (p.threadSpeed ?? 0.7) * dt * NS / PER;   // samples per frame at the growing front
-    let covSum = 0, joins = 0;
-    for (let i = 0; i < NS; i++) {
-      const L = cov[(i + NS - 1) % NS], R = cov[(i + 1) % NS];
-      if (target[i] === 1) cov[i] = Math.min(1, cov[i] + dt / 1.2);
-      else if (target[i] === 2 && Math.max(L, R) > 0.98) cov[i] = Math.min(1, cov[i] + grow * 1.0);
-      else if (!target[i]) cov[i] = Math.max(0, cov[i] - dt * 0.15);
-      covSum += cov[i];
-      if (target[i] === 2 && cov[i] > 0.99) joins++;
-    }
-    threadCover = covSum / NS;
-    if (joins > 0 && joinedSent === 0) { events.push('thread:join'); joinedSent = 1; }
-    for (let l = 0; l < TH_STR; l++) for (let i = 0; i <= NS; i++) { const c = cov[i % NS]; for (let sd = 0; sd < 2; sd++) thread.A[((l * TH_N + i) * 2 + sd) * thread.F + 8] = c; }
-    thread.ib.needsUpdate = true;
+    // ---- the red network: rebuilt when beings come (or every 0.5 s while a hand drags); each pair of near beings joined palm to palm
+    if (beings.length !== netN || time - netT > 0.25) { netN = beings.length; netT = time; rebuildNet(p); }
+    writeNet(dt);
 
     // ---- colour: from cold to warm with the fill (smooth, no step)
     const warmT = Math.min(1, (p.warm ?? 1) * smooth01(total * 1.05)) + (fullT >= 0 ? 0.1 : 0);
@@ -665,6 +515,7 @@ export function create({ THREE, TSL, room, params }) {
       const near = b.held != null && time - b.held < 0.3;
       b.contact += ((near ? 1 : 0) - b.contact) * Math.min(1, dt * (near ? 12 : 1.5));
       if (b.row === 0) b.y += (b.yT - b.y) * Math.min(1, dt * 1.6);
+      const dragging = b.dragHeld != null && time - b.dragHeld < 0.35; b.dragK += ((dragging ? 1 : 0) - b.dragK) * Math.min(1, dt * (dragging ? 10 : 2.2));
       // the push: a damped spring; the rows behind lean into the back in front, and the whole room sways a little when it is full
       const sway = (0.04 + 0.08 * total) * Math.sin(time * 0.7 + b.s * 0.6);
       const lT = b.row ? 0.16 + sway : 0.04 + sway * 0.3;
@@ -678,30 +529,6 @@ export function create({ THREE, TSL, room, params }) {
     for (const T of meshes) if (T) for (const W of T) for (const M of W) if (M.list.length) M.buf.needsUpdate = true;
     if (ended && !doneSent && time - endT > endDur + 0.5) { doneSent = true; events.push('done'); }
 
-    // ---- the strip: neighbours side by side in the first row (≤ 0.95 m apart along the perimeter, across corners too)
-    front.length = 0; for (const b of beings) if (b.row === 0) front.push(b);
-    front.sort(bySS);
-    let nl = 0;
-    for (let k = 0; k < front.length && nl < NSTRIP; k++) {
-      const a = front[k], b = front[(k + 1) % front.length]; if (a === b || front.length < 2) break;
-      const gap = wrapS(b.s - a.s); if (gap > 0.95 || gap < 0.2) continue;
-      const g0 = smooth01(Math.min(a.born, b.born) * 1.6 - 0.6) * (1 - Math.max(a.gone, b.gone));
-      for (let st = 0; st < STRANDS; st++) {
-        const l = nl * STRANDS + st;
-        // from a's left palm to b's right palm; across a corner through the corner point on the wall planes
-        const aL = TYPES[a.type][3], ax = aL ? a.palmLx - a.x : 0, ya = (aL ? a.palmLy : a.palmY) + st * 0.012, yb = b.palmY + st * 0.012;
-        for (let j = 0; j < SS; j++) {
-          const t = j / (SS - 1), sAt = wrapS(a.s + ax + t * (gap - ax)), y = ya + (yb - ya) * t - Math.sin(t * Math.PI) * (0.025 + st * 0.012);
-          let w = 0; while (w < NW - 1 && sAt >= offs[w + 1]) w++;
-          const pp = wallAt(w, sAt - offs[w] - walls[w].width / 2, y, D0 + 0.004, tmpA), tg = tmpB.copy(walls[w].right);
-          setV(strip, l, j, pp, tg, g0 * 1.02, (k * 7 + st) % 13 / 13);
-        }
-      }
-      nl++;
-    }
-    for (let l = nl * STRANDS; l < NSTRIP * STRANDS; l++) for (let j = 0; j < SS; j++) { const o = ((l * SS + j) * 2) * strip.F; if (strip.A[o + 8] === 0 && strip.A[o + 1] === -50) break; for (let sd = 0; sd < 2; sd++) { strip.A[o + sd * strip.F + 8] = 0; strip.A[o + sd * strip.F + 1] = -50; } }
-    strip.ib.needsUpdate = true;
-
     // ---- the palm flashes
     const ga = gA.array;
     glows.forEach((g, i) => {
@@ -713,16 +540,72 @@ export function create({ THREE, TSL, room, params }) {
     object.visible = uArrive.value > 0.001 && uLeave.value < 0.999;
   }
 
+  // which pairs of beings hold hands: candidates = pairs whose nearest palms are ≤ netReach apart (3D, so across a corner too);
+  // shortest first, each palm in at most 2 threads, each being in at most 4 (a net, not a web of everything to everything)
+  const cand = [], deg = new Map(), parent = new Map(), csize = new Map();
+  const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+  function rebuildNet(p) {
+    const reach = p.netReach ?? 1.3, R2 = reach * reach, list = beings.filter((b) => b.pR && b.born > 0.35 && !b.dead);
+    cand.length = 0;
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+      const a = list[i], b = list[j];
+      if (Math.abs(dS(a.s, b.s)) > reach + 0.8) continue;
+      let best = 1e9, sa = 0, sb = 0;
+      for (const [u, pu] of [[0, a.pR], [1, a.pL]]) for (const [v, pv] of [[0, b.pR], [1, b.pL]]) { const d = pu.distanceToSquared(pv); if (d < best) { best = d; sa = u; sb = v; } }
+      if (best <= R2) cand.push([best, a, b, sa, sb]);
+    }
+    cand.sort((u, v) => u[0] - v[0]);
+    deg.clear(); parent.clear(); csize.clear();
+    for (const b of list) { parent.set(b, b); csize.set(b, 1); }
+    const keep = new Set();
+    for (const [d2, a, b, sa, sb] of cand) {
+      const da = deg.get(a) || [0, 0, 0], db = deg.get(b) || [0, 0, 0];
+      if (da[2] >= 5 || db[2] >= 5 || da[sa] >= 3 || db[sb] >= 3) continue;
+      da[sa]++; da[2]++; db[sb]++; db[2]++; deg.set(a, da); deg.set(b, db);
+      const key = a.id < b.id ? a.id + ':' + b.id : b.id + ':' + a.id; keep.add(key);
+      if (!edges.has(key)) edges.set(key, { a, b, sa, sb, t0: time, from: a.t0 > b.t0 ? a : b, len: Math.sqrt(d2) });
+      else Object.assign(edges.get(key), { a, b, sa, sb, len: Math.sqrt(d2) });
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) { const big = csize.get(ra) >= 3 && csize.get(rb) >= 3; parent.set(ra, rb); csize.set(rb, csize.get(ra) + csize.get(rb)); if (big && time - (edges.get(key).t0) < 0.6 && joins < 64) { joins++; events.push('thread:join'); } }
+    }
+    for (const k of [...edges.keys()]) if (!keep.has(k)) edges.delete(k);
+  }
+  const eA = new THREE.Vector3(), eB = new THREE.Vector3(), eM = new THREE.Vector3(), eP = new THREE.Vector3(), eT = new THREE.Vector3();
+  function writeNet() {
+    let l = 0; cov.fill(0);
+    for (const E of edges.values()) {
+      if (l >= NE) break;
+      const { a, b } = E, from = E.from === b ? b : a, to = from === a ? b : a, sf = from === a ? E.sa : E.sb, st = from === a ? E.sb : E.sa;
+      eA.copy(sf ? from.pL : from.pR); eB.copy(st ? to.pL : to.pR);
+      const grow = clamp01((time - E.t0) / (0.5 + E.len * 0.5)) * (1 - Math.max(a.gone, b.gone)) * smooth01(Math.min(a.born, b.born) * 2 - 0.6);
+      // a light curve: it sags a little, and bends behind the walls (never into the room): the control point goes back along both normals
+      const na = walls[a.wall].normal, nb = walls[b.wall].normal, len = eA.distanceTo(eB);
+      eM.addVectors(eA, eB).multiplyScalar(0.5); eM.y -= 0.02 + 0.05 * len; eM.x -= (na.x + nb.x) * (0.03 + 0.06 * len); eM.z -= (na.z + nb.z) * (0.03 + 0.06 * len);
+      for (let j = 0; j < ES; j++) {
+        const t = j / (ES - 1), u = 1 - t;
+        eP.set(u * u * eA.x + 2 * u * t * eM.x + t * t * eB.x, u * u * eA.y + 2 * u * t * eM.y + t * t * eB.y, u * u * eA.z + 2 * u * t * eM.z + t * t * eB.z);
+        eT.set(2 * u * (eM.x - eA.x) + 2 * t * (eB.x - eM.x), 2 * u * (eM.y - eA.y) + 2 * t * (eB.y - eM.y), 2 * u * (eM.z - eA.z) + 2 * t * (eB.z - eM.z)).normalize();
+        setV(net, l, j, eP, eT, grow * 1.03, E.t0);
+      }
+      // the connected span of the perimeter (the short way between the two beings)
+      if (grow > 0.5) { let s0 = a.s, d = dS(a.s, b.s); if (d < 0) { s0 = b.s; d = -d; } const i0 = Math.floor((s0 / PER) * NS), n = Math.ceil((d / PER) * NS); for (let k = 0; k <= n; k++) cov[(i0 + k) % NS] = 1; }
+      l++;
+    }
+    for (; l < NE; l++) { const o = l * ES * 2 * net.F; if (net.A[o + 8] === 0) break; for (let j = 0; j < ES * 2; j++) net.A[o + j * net.F + 8] = 0; }
+    net.ib.needsUpdate = true;
+    let c = 0; for (let i = 0; i < NS; i++) c += cov[i]; threadCover = c / NS;
+  }
+
   function reset() {
     for (const b of beings) { b.dead = true; }
     beings.length = 0; for (const G of grid) for (const c of G) c.fill(null);
     for (const T of meshes) if (T) for (const W of T) for (const M of W) { M.list.length = 0; M.mesh.geometry.instanceCount = 0; }
-    cov.fill(0); seed.fill(0); fullT = -1; endT = -1; ended = false; doneSent = false; firstT = -1; assistAcc = 0; joinedSent = 0; warmS = 0; total = 0; threadCover = 0;
+    edges.clear(); netN = -1; joins = 0; cov.fill(0); fullT = -1; endT = -1; ended = false; doneSent = false; firstT = -1; assistAcc = 0; joinedSent = 0; warmS = 0; total = 0; threadCover = 0;
   }
   function fill() { return { total: +total.toFixed(3), walls: Array.from(fillW, (v) => +v.toFixed(3)), full: fullT >= 0, threadCover: +threadCover.toFixed(3), beings: beings.length, ending: ended ? clamp01((time - endT) / ((P.endTime ?? 7))) : 0, done: doneSent }; }
   function setParams() {}
-  function dispose() { ptMat.dispose(); gGeo.dispose(); strip.g.dispose(); thread.g.dispose(); for (const T of meshes) if (T) for (const W of T) for (const M of W) M.mesh.geometry.dispose(); jobs.length = 0; }
+  function dispose() { ptMat.dispose(); gGeo.dispose(); net.g.dispose(); for (const T of meshes) if (T) for (const W of T) for (const M of W) M.mesh.geometry.dispose(); jobs.length = 0; }
   const api = { object, update, setParams, dispose, fill, reset, events };
-  if (typeof window !== 'undefined') window.__pinya3d2 = { beings, fill, reset, cov, dens, get readyMs() { return readyMs; }, spawn: (w, x, y) => spawn(w, x, y, {}), events, cols, PER };
+  if (typeof window !== 'undefined') window.__pinya3d2 = { beings, fill, reset, edges, get readyMs() { return readyMs; }, spawn: (w, x, y) => spawn(w, x, y, {}), events, cols, PER };
   return api;
 }
