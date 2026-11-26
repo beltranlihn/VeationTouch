@@ -204,6 +204,8 @@ for dt in ('OPTIX', 'CUDA'):
 for d in pr.devices: d.use = d.type != 'CPU'
 sc.cycles.device = 'GPU'; sc.cycles.samples = SAMPLES; sc.cycles.use_denoising = True; sc.cycles.volume_step_rate = 3.0
 sc.cycles.use_auto_tile = True; sc.cycles.tile_size = 1024
+try: sc.render.compositor_device = 'CPU'     # 22 light groups denoised at 8k: on a shared 8 GB GPU the compositor ran out (crash)
+except Exception as e: print('compositor device?', e)
 sc.render.resolution_x = WIDTH; sc.render.resolution_y = HEIGHT; sc.render.resolution_percentage = 100
 sc.view_settings.view_transform = 'Standard'; sc.view_settings.look = 'None'; sc.view_settings.exposure = 0.0
 vl.use_pass_z = True; vl.use_pass_object_index = True; vl.cycles.denoising_store_passes = True
