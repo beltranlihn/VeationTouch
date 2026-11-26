@@ -14,10 +14,10 @@
   {"key": "introp1.titleX", "label": "Intro: horizontal title x on P3 (from its left)", "type": "number", "min": 0, "max": 7, "step": 0.01, "default": 3.272, "unit": "m"},
   {"key": "introp1.titleY", "label": "Intro: horizontal title y (centre)", "type": "number", "min": 0.5, "max": 3.2, "step": 0.01, "default": 1.865, "unit": "m"},
   {"key": "introp1.listX", "label": "Intro: stages' lines start x on P1 (castell side)", "type": "number", "min": 0, "max": 6, "step": 0.01, "default": 4.471, "unit": "m"},
-  {"key": "introp1.y1", "label": "Intro: correfoc line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 0.382, "unit": "m"},
-  {"key": "introp1.y2", "label": "Intro: pinya line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 0.687, "unit": "m"},
-  {"key": "introp1.y3", "label": "Intro: tronc line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 1.303, "unit": "m"},
-  {"key": "introp1.y4", "label": "Intro: pom de dalt line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 2.541, "unit": "m"},
-  {"key": "introp1.y5", "label": "Intro: l'aleta line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 2.998, "unit": "m"},
-  {"key": "introp1.frameAlpha", "label": "Intro: trailer frame opacity", "type": "number", "min": 0, "max": 0.3, "step": 0.005, "default": 0.07}
+  {"key": "introp1.y1", "label": "Intro: correfoc line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 0.55, "unit": "m"},
+  {"key": "introp1.y2", "label": "Intro: pinya line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 1, "unit": "m"},
+  {"key": "introp1.y3", "label": "Intro: tronc line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 1.95, "unit": "m"},
+  {"key": "introp1.y4", "label": "Intro: pom de dalt line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 2.85, "unit": "m"},
+  {"key": "introp1.y5", "label": "Intro: l'aleta line height", "type": "number", "min": 0, "max": 3.4, "step": 0.01, "default": 3.15, "unit": "m"},
+  {"key": "introp1.frameAlpha", "label": "Intro: trailer frame opacity", "type": "number", "min": 0, "max": 0.3, "step": 0.005, "default": 0.035}
 ]

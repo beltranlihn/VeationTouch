@@ -10,7 +10,7 @@
 // piece drawn once (the words when the font is in), the motion in uniforms only. Unlit white at ~0.8, under the bloom's threshold.
 //
 // Clock: input.t (the intro block's seconds; the recorded English voice). Positions are metres ON each wall: x from the wall's LEFT
-// edge, y from the floor (defaults measured on his art, the strip at 261 px/m across and 912 px = 3.75 m up).
+// edge, y from the floor (x measured on his art, the strip at 261 px/m across and 912 px = 3.75 m up; the stages' heights on the trailer's castell).
 //   params.introp1 = { beats: { title, list, stages: [5], preview, close }, reach, stack: { wall, x, y }, title: { wall, x, y },
 //                      list: { wall, x, ys: [5, bottom → top], size }, frame: { alpha } }
 //   or the study's flat keys 'introp1.title' … (see res-3d-study/parts/introp1.json).
@@ -28,7 +28,10 @@ const NAMES = ['CORREFOC', 'PINYA', 'TRONC', 'POM DE DALT', 'L’ALETA'];   // b
 const DEF = {
   title: 17, list: 28.5, stages: [29.4, 32.2, 34.8, 37.0, 39.4], preview: 43.5, close: 50.5, reach: 3,
   stack: { wall: 'P1', x: 1.32, y: 1.896 }, horiz: { wall: 'P3', x: 3.272, y: 1.865 },
-  listWall: 'P1', listX: 4.471, listW: 1.04, ys: [0.382, 0.687, 1.303, 2.541, 2.998], size: 0.1, frameAlpha: 0.07,   // the frame: his ~25 % grey in Illustrator is ~7 % white in the room's linear light
+  // the lines' heights: the middle of each part of the trailer's explaining castell (castells3d 146219a: embers 0.36–0.87 m, pinya 0.9–1.24,
+  // tronc 1.25–2.65, pom de dalt 2.65–3.1, enxaneta 3.1–3.72); l'aleta capped at 3.15 so its name stays under the subtitles (from 3.245 m)
+  listWall: 'P1', listX: 4.471, listW: 1.04, ys: [0.55, 1.0, 1.95, 2.85, 3.15], size: 0.1,
+  frameAlpha: 0.035,   // the frame: his ~25 % grey over the dark; in the trailer's exposure 0.07 read as a light grey box (director 26-11)
 };
 
 export function create({ THREE, TSL, room, params = {} }) {
