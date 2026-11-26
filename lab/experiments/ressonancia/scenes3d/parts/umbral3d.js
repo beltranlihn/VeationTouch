@@ -508,6 +508,9 @@ export function create(ctx) {
   // round the room from the last stone painted, painting what was left. A new pass of the entrance starts desaturated again.
   const PERSIST = true, WAVE_V = 2.6, UP_FROM = 1.7, UP_K = 5;                         // UP: above 1.7 m a hand paints upward much farther (×6 at 2.1 m)
   let paintedN = 0, lastPaint = -1, waveT0 = -1, waveS = 0, lastHandT = 0;
+  // studio 26-11 (Beltrán: «el anillo que recorre la sala cuando se activa, que suceda una vez más»): WAVE_PASSES fronts, one after the
+  // other; the first paints what was left, the next ones only turn every stone as they pass (all is painted by then)
+  const WAVE_PASSES = 2, WAVE_GAP = 0.8, wavePass = new Uint8Array(NC);
   // studio 26-11 (Beltrán: «si se empieza a pintar y pasa más de 1 minuto sin que nadie pinte, vuelve todo a 0»): no hand on the walls for
   // RESET_AFTER s → every painted stone goes back to rest, staggered over ~3 s (not one flash), and the buttons close again
   const RESET_AFTER = Math.max(5, Number(params?.resetAfter) || 60);
@@ -750,7 +753,7 @@ export function create(ctx) {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });   // unlit: the joint is in the pieces' shade anyway (and it is cheap)
     m.positionNode = positionLocal.add(normalize(vec3(positionLocal.x, 0, positionLocal.z)).mul(uPush.negate()));
     const pw = positionWorld, hsh = fract(sin(dot(floor(pw.xz.mul(3.0)).add(floor(pw.y.mul(3.0))), vec3(12.9898, 78.233, 37.719).xy)).mul(43758.5453));
-    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return mix(vec3(0.014, 0.026, 0.080), vec3(0.765, 0.606, 0.418), GROUT_BONE.mul(float(1).sub(max(TSL.texture(maskTex, TSL.uv()).r.mul(1.6).min(1), smoothstep(0.98, 0.6, uBed))))); })();   // studio 25-11: while the mosaic assembles (or goes) the bed is night, never sand   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
+    m.colorNode = Fn(() => { TSL.If(doorK(pw).mul(step(hsh, uBed.mul(1.02))).lessThan(0.5), () => { TSL.Discard(); }); return mix(vec3(0.012, 0.022, 0.066), vec3(0.765, 0.606, 0.418), GROUT_BONE.mul(float(1).sub(max(TSL.texture(maskTex, TSL.uv()).r.mul(1.6).min(1), smoothstep(0.98, 0.6, uBed))))); })();   // studio 25-11: while the mosaic assembles (or goes) the bed is night, never sand   // #D9CFBE on screen (ACES-inverted; unlit) — T-066: exact (×0.8 gave #CFC3B0)   // (no alphaTest: its MSAA path breaks the WGSL at scale 1)
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; return mesh;
   })();
   hero.add(groutMesh);
@@ -778,8 +781,8 @@ export function create(ctx) {
   const pa = new Int32Array(PULSES), paR = new Float32Array(PULSES), paMax = new Float32Array(PULSES), paMin2 = new Float32Array(PULSES), paAmp = new Float32Array(PULSES);
   const visN = Math.max(1, cells.reduce((a, c) => a + (c.vis && !c.loose ? 1 : 0), 0));
   function paintCell(i) { if (colT[i] === Infinity) return; colT[i] = Infinity; if (cells[i].vis && !cells[i].loose) paintedN++; lastPaint = i; }
-  function resetPaint() { colT.fill(-1); paintedN = 0; lastPaint = -1; waveT0 = -1; lastHandT = time; }
-  function unpaint() { for (let i = 0; i < NC; i++) if (colT[i] === Infinity) colT[i] = time + rnd() * 3; paintedN = 0; lastPaint = -1; waveT0 = -1; }
+  function resetPaint() { colT.fill(-1); paintedN = 0; lastPaint = -1; waveT0 = -1; lastHandT = time; wavePass.fill(0); }
+  function unpaint() { for (let i = 0; i < NC; i++) if (colT[i] === Infinity) colT[i] = time + rnd() * 3; paintedN = 0; lastPaint = -1; waveT0 = -1; wavePass.fill(0); }
   function launch(s, y, amp, speed, reach, hold, ros = -1) { const p = pulses[pulseNext]; p.ros = ros; pulseNext = (pulseNext + 1) % PULSES; p.on = true; p.s = s; p.y = y; p.t0 = time; p.amp = amp; p.speed = speed; p.reach = reach; p.hold = hold; }
   // a point on a wall → the piece of the serpentine drawn there (the ray from the eye through the hand)
   const hit = { cu: 0, cy: 0, p: new THREE.Vector3() };
@@ -1030,22 +1033,37 @@ export function create(ctx) {
     m.colorNode = Fn(() => {
       const d = normalize(positionLocal), y = d.y;
       // studio 25-11 (Beltrán: «detrás del portal, un azul plano con unas motas de polvo»): one flat night blue, nothing else
-      return vec3(0.012, 0.022, 0.066);
+      return vec3(0.012, 0.022, 0.066);   // studio 26-11 (Beltrán: «que sean iguales, el oscuro me gusta más»): the joints' night (groutMesh) is this same blue
     })();
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(150, 48, 24), m); mesh.renderOrder = -900; mesh.frustumCulled = false; return mesh;
   })();
   world.add(skyMesh);
   // studio 25-11: a few motes of dust in the night behind the portals, drifting slowly (one draw, no compute)
-  const uDustT = uniform(0), uDustK = uniform(0), DUST_N = 900, dustP = new Float32Array(DUST_N * 4);
-  for (let i = 0; i < DUST_N; i++) { const a = rr(0, Math.PI * 2), r = rr(6.5, 16), y = rr(-0.6, 5.5); dustP.set([Math.cos(a) * r, y, Math.sin(a) * r, rnd()], i * 4); }
-  {
-    const dAttr = new THREE.InstancedBufferAttribute(dustP, 4), ip = TSL.instancedBufferAttribute(dAttr);
+  // studio 26-11 (Beltrán: «más partículas detrás del título» · «que no giren, que sólo existan partículas detrás de cada ventana»): the motes
+  // live ONLY in the night seen through each opening — points of the window carried back 6.5–16 m along the eye's ray — and are fixed (they
+  // drift a little in place, they do not turn round the room). The title's wide window gets most of them; each round one, DUST_ROUND.
+  const DUST_WIDE = 900, DUST_ROUND = 160, uDustT = uniform(0), uDustK = uniform(0);
+  const dustOpen = OPEN.length ? OPEN : [{ wi: 1 % NW, cx: walls[1 % NW].width / 2, cy: 1.9, hw: 2.2, hh: 0.6 }];
+  const DUST_N = dustOpen.reduce((a, o) => a + (o.hw / o.hh >= 1.4 ? DUST_WIDE : DUST_ROUND), 0), dustP = new Float32Array(DUST_N * 4);
+  { let i = 0;
+    for (const o of dustOpen) {
+      const w = walls[o.wi], d = Math.abs((w.centre.x - eye.x) * w.normal.x + (w.centre.z - eye.z) * w.normal.z) || 3.2;   // the eye → the wall
+      const cx = o.cx - w.width / 2, n = o.hw / o.hh >= 1.4 ? DUST_WIDE : DUST_ROUND;
+      for (let j = 0; j < n; j++, i++) {
+        const r = rr(6.5, 16), k = r / d, u = cx + rr(-1.1, 1.1) * o.hw, v = o.cy + rr(-1.15, 1.15) * o.hh;   // a point of the window, carried back to r
+        const x = eye.x + (w.centre.x + w.right.x * u - eye.x) * k, z = eye.z + (w.centre.z + w.right.z * u - eye.z) * k, y = eye.y + (v - eye.y) * k;
+        dustP.set([x, y, z, rnd()], i * 4);
+      }
+    } }
+  function dustSprite(arr, n, parent) {
+    const dAttr = new THREE.InstancedBufferAttribute(arr, 4), ip = TSL.instancedBufferAttribute(dAttr);
     const dm = new THREE.SpriteNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, fog: false });
     dm.positionNode = ip.xyz.add(vec3(sin(uDustT.mul(0.11).add(ip.w.mul(40))).mul(0.6), sin(uDustT.mul(0.07).add(ip.w.mul(17))).mul(0.45), cos(uDustT.mul(0.09).add(ip.w.mul(29))).mul(0.6)));
     dm.scaleNode = TSL.vec2(0.035, 0.035).mul(ip.w.mul(0.9).add(0.5));   // studio 26-11 (Beltrán: «las partículas de atrás más pequeñas»): half (was 0.07)
     dm.colorNode = Fn(() => { const r = TSL.length(TSL.uv().sub(0.5)).mul(2), gs = exp(r.mul(r).mul(-4.5)); return vec4(vec3(0.62, 0.66, 0.82).mul(gs).mul(ip.w.mul(0.5).add(0.25)).mul(uDustK), 1); })();
-    const dust = new THREE.Sprite(dm); dust.count = DUST_N; dust.frustumCulled = false; dust.renderOrder = -800; world.add(dust);
+    const dust = new THREE.Sprite(dm); dust.count = n; dust.frustumCulled = false; dust.renderOrder = -800; parent.add(dust); return dust;
   }
+  dustSprite(dustP, DUST_N, object);                                               // fixed (not in the turning far world)
   const HAZE = vec3(0.022, 0.030, 0.070);   // studio 25-11: a night haze (was the sand noon's #EFDCC3)
   // dunes and terraces: rings of soft ridges, lit on their crests, hazier with distance
   function ridgeRing(R, h0, amp, seedK, hazeK) {
@@ -1466,9 +1484,13 @@ export function create(ctx) {
             if (PERSIST) paintCell(i); else if (!c.keep) colT[i] = time + hold * (0.75 + 0.5 * c.r2); if (hfresh[k]) { vphi[i] += 5; }   /* studio 25-11: no glow under a landing hand (was glow 1.0), motion only */
           }
         }
-        if (waveT0 >= 0 && colT[i] <= time && !gone[i]) {                                // the wave that opens the buttons paints what was left
-          let dw = cu_ - waveS; if (dw > HL2) dw -= LL; else if (dw < -HL2) dw += LL;
-          if (Math.abs(dw) < (time - waveT0) * WAVE_V) { paintCell(i); vphi[i] += 5 * (c.r2 < 0.5 ? -1 : 1); glow[i] = Math.max(glow[i], 0.35); }
+        if (waveT0 >= 0 && !gone[i]) {                                                   // the wave that opens the buttons: it paints what was left, then passes again
+          let dw = cu_ - waveS; if (dw > HL2) dw -= LL; else if (dw < -HL2) dw += LL; dw = Math.abs(dw);
+          if (colT[i] <= time && dw < (time - waveT0) * WAVE_V) { paintCell(i); wavePass[i] = 1; vphi[i] += 5 * (c.r2 < 0.5 ? -1 : 1); glow[i] = Math.max(glow[i], 0.35); }
+          for (let p = Math.max(1, wavePass[i]); p < WAVE_PASSES; p++) {
+            const tp = time - waveT0 - p * (HL2 / WAVE_V + WAVE_GAP);
+            if (tp > 0 && dw < tp * WAVE_V) { wavePass[i] = p + 1; vphi[i] += 5 * (c.r2 < 0.5 ? -1 : 1); glow[i] = Math.max(glow[i], 0.35); }
+          }
         }
         if (n >= 2 && time - resT[i] > 3) { resT[i] = time; glow[i] = 1.1; vphi[i] += 6 * (c.r2 < 0.5 ? -1 : 1); crossings++; }   // two fronts meet here
         let col = colT[i] > time ? 1 : 0, g = startGlow * (0.4 + 0.6 * c.r1);
@@ -1631,7 +1653,8 @@ export function create(ctx) {
     object,
     update,
     setParams() { /* read live from params */ },
-    paint: () => ({ share: paintedN / visN, painted: paintedN, of: visN, wave: waveT0 >= 0 }),   // studio 26-11: how much of the picture is uncovered
+    paint: () => ({ share: paintedN / visN, painted: paintedN, of: visN, wave: waveT0 >= 0 }),
+    wavePasses: () => { const n = [0, 0, 0]; for (const v of wavePass) n[Math.min(2, v)]++; return n; },   // lab: stones by passes received   // studio 26-11: how much of the picture is uncovered
     touch(wall, x, y) { const w = walls[wall]; surfHit(_v2.copy(w.centre).addScaledVector(w.right, x).setY(y)); land(_v2, nearest(hit.cu, hit.cy), 40); },   // lab checks only: a landing at a point of a wall (x from its centre, y from the floor, m)
     debug: () => ({ arches: arches ? (arches.info || true) : arcErr ? 'error' : 'none', env: envRT ? 'own' : room.envMap ? 'room' : 'none', pieces: NC, verts: heroGeo.attributes.position.count, mothers: cells.filter((c) => c.mother).length, loose: cells.filter((c) => c.loose).length, band: band.length, mid: mid.length, gone: gone.reduce((a, b) => a + b, 0), falling: bodies.filter((s) => s.state === 1).length + band.filter((s) => s.state === 1).length, resting: bodies.filter((s) => s.state >= 2).length, chips: chips.filter((c) => c.on).length, pulses: pulses.filter((p) => p.on).length, coloured: colT.reduce((a, t) => a + (t > time ? 1 : 0), 0), glazed: phi.reduce((a, v) => a + (v > 1.5708 ? 1 : 0), 0), asleep: sleep.reduce((a, v) => a + v, 0), cascades, crossings, figure: figT0 >= 0, fxSent, reveal: revealV, start: startV }),
     dispose() {
