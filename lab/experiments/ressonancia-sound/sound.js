@@ -49,7 +49,7 @@ const INTRO_VOICE_ES = [[8.5, 'v-intro-1'], [17, 'v-intro-2'], [29, 'v-intro-3']
 // studio 26-11 (Beltrán's approved script): the TRAILER's intro — what castells are, welcome, what the work is, its stages, how far the
 // trailer climbs, hands on the wall. EN / ES / CA recorded 26-11 (audio/voice-lines-trailer-intro2.json; Lily · Mía Evans · Gabriel,
 // eleven_v4): 7.5 · 2.5 · 5.9 · 13.5 · 5.4 · 2.1 s (ES and CA within ±0.4 s, the same cues). The trailer asks for it (ctl intro: 'trailer').
-const INTRO_TRAILER = [[1.5, 'v-intro-1'], [8.6, 'v-trl-2'], [17, 'v-trl-welcome'], [21, 'v-trl-what'], [28.5, 'v-trl-stages'], [43.5, 'v-trl-preview'], [50.5, 'v-trl-close']];
+const INTRO_TRAILER = [[1.5, 'v-intro-1'], [8.6, 'v-trl-2'], [17, 'v-trl-welcome'], [21, 'v-trl-what'], [28.5, 'v-trl-stages'], [43.5, 'v-trl-preview']];   // 26-11 (Beltrán approved): no «Put your hands on the wall» at 50.5 s — the correfoc asks for them, 5 s later
 // studio 26-11 (Beltrán): the trailer's correfoc opens by teaching — a strip of light, a first correfoc lights every bonfire — while
 // the voice says it: 4.3 · 2.7 · 4.3 s (ES / CA within 0.5 s); from the block's start (brasa v2's opening times: strip 0.5, boom 4.2, run 5–12)
 const BRASA_TRAILER = [[0.5, 'v-brasa2-1'], [5.0, 'v-brasa2-2'], [9.0, 'v-brasa2-3']];
@@ -78,6 +78,10 @@ const INVITE_IDLE = 12, INVITE_GAP = 20, INVITE_MAX = 3;
 const KEYS = {
   wait: [62, [0, 2, 4, 7, 9]], intro: [62, [0, 5, 7, 9, 10]], brasa: [62, [0, 2, 7]], pinya: [57, [0, 2, 4, 7, 9]],
   tronc: [62, [0, 2, 4, 7, 9]], crown: [62, [0, 2, 4, 7, 9]], acta: [62, [0, 2, 5, 7, 9]],
+};
+const KEYS_MT = {   // the mt set's keys (measured by its session): pinya in A MINOR, the tower on D E G A C, brasa on D with an F#
+  wait: [62, [0, 2, 4, 7, 9]], intro: [62, [0, 2, 4, 7, 9]], brasa: [62, [0, 4, 7]], pinya: [57, [0, 3, 5, 7, 10]],
+  tronc: [62, [0, 2, 5, 7, 10]], crown: [62, [0, 2, 4, 7, 9]], acta: [62, [0, 2, 4, 7, 9]],
 };
 const ACTA_AT = { outcome: 4.5, final: 24.5 };   // acta.js: the castell appears at 4 s, the last sentence at 24 s
 // 24-11 (plan de interacción): the voice invites (≤ 7 words where it can), never counts, never repeats a line in a pass. Silenced, kept:
@@ -129,13 +133,24 @@ const TRAILER_SETS = {
   crown: { layers: { m: 'tm-crown' }, once: true, lift: 2, rate: 1.1225, impact: 6.05 },
   acta: { layers: { m: 'tm-acta' }, once: true, lift: 3 },
 };
+// …and a second set to compare by ear (26-11, the session «Música del tráiler», audio/music-prompts-trailer.json; keys / tempo / loops
+// measured there): param musicSet 'mt' (default 'tm', the one above). It adds music for the entrance (wait).
+const SETS_MT = {
+  wait: { layers: { bed: 'mt-wait' }, a: 10.68, b: 75.56, xf: 4, first: 0, lift: 2 },                       // D pentatonic, no pulse
+  intro: { layers: { m: 'mt-intro' }, once: true, lift: 2 },                                                // D major; beat opens 16.1 s, quiets 48-58 s
+  brasa: { layers: { bed: 'mt-brasa' }, a: 6, b: 70, xf: 0.25, first: 0, grid: true, grid0: 0, lift: 4 },  // D centre (F# present), 120 BPM, 32 bars
+  pinya: { layers: { bed: 'mt-pinya' }, a: 5.06, b: 59.92, xf: 1, first: 0, lift: 4 },                     // A minor, 70 BPM, 16 bars
+  tronc: { layers: { bass: 'mt-tronc-bass', other: 'mt-tronc-other' }, a: 21.0, b: 69.0, xf: 0.25, first: 0, grid: true, grid0: 0, lift: 4 },   // D (D E G A C), 100 BPM, 20 bars; 'other' = arps, with the floors
+  crown: { layers: { m: 'mt-crown' }, once: true, impact: 4.0 },                                            // D open chord, the bloom at ~4.0 s
+  acta: { layers: { m: 'mt-acta' }, once: true },                                                           // D major, black by ~16.5 s
+};
 const CROWN_IMPACT = 4.0;                    // m-crown: the reverse swell ends and the release hits at 4.0 s (measured)
 const AMBIENCE = ['s-embers-loop', 's-fire-loop', 's-breath-loop', 's-wind-loop', 's-rain-loop', 's-crowd-loop'];
 const SHOTS = ['s-bells', 's-tabals', 's-ember-burst', 's-clay', 's-ceramic', 's-impact', 's-crack', 's-gralla', 's-timbal', 'sfx-crown', 'sfx-fall', 'sfx-tile'];
 const VOICES = [...new Set([...(WAIT_VOICES ? ['v-wait-invite', 'v-wait-start'] : []), ...new Set([...INTRO_VOICE, ...INTRO_TRAILER, ...Object.values(TRAILER_CUES).flat()].map((c) => c[1])), ...TRAILER_SAY, ...TRAILER_LINES, ...Object.values(TITLE_LINE), 'v-brasa-2', 'v-brasa-3', 'v-pinya-3', 'v-tronc-2',
   'v-pom-2', 'v-pom-3', 'v-aleta-2', ...Object.values(OUTCOME_LINE), 'v-cierre-final', 'v-tronc-wobble', 'v-aleta-raise', 'v-aleta-yours', 'v-aleta-crowned', 'v-baixada-gently', 'v-pinya-closein', 'v-pinya-wait'])];
 const FILES = [...new Set([...Object.values(SETS).flatMap((s) => Object.values(s.layers)), ...AMBIENCE, ...SHOTS, ...VOICES])];
-const TRAILER_FILES = [...new Set(Object.values(TRAILER_SETS).flatMap((s) => Object.values(s.layers)))];   // loaded once the trailer asks
+const filesOf = (sets) => [...new Set(Object.values(sets).flatMap((s) => Object.values(s.layers)))];   // a trailer set's files: loaded once the trailer asks for it
 const VOICE_SET = new Set(VOICES);
 // 25-11 (studio, for res-trailer): the Catalan voice (Gabriel - Clear Catalan, eleven_v4; audio/ca/voice-lines-ca.json) has only these lines
 const VOICE_CA = new Set(['v-wait-invite', 'v-wait-start', 'v-intro-1', 'v-intro-2', 'v-intro-3', 'v-intro-4', 'v-intro-5', 'v-brasa-1', 'v-brasa-2', 'v-brasa-3', 'v-aleta-2', 'v-cierre-final', ...INTRO_TRAILER.map((c) => c[1]), ...Object.values(TRAILER_CUES).flat().map((c) => c[1]), ...TRAILER_SAY, ...TRAILER_LINES, 'v-aleta-crowned', 'v-pinya-wait']);
@@ -179,7 +194,7 @@ export default async function start(host) {
   let block = S.block, introSet = null;
   const trailer = () => introSet === 'trailer';
   // THE KEY (see KEYS): in the trailer a pitched sound snaps to the nearest note of its block's scale
-  const keyOf = () => (introSet === 'trailer' ? KEYS[block] || null : null);
+  const keyOf = () => (introSet === 'trailer' ? (P.musicSet === 'mt' ? KEYS_MT : KEYS)[block] || null : null);
   function snapM(m) {
     const k = keyOf(); if (!k) return m;
     const r = Math.round(m), pc = (((r - k[0]) % 12) + 12) % 12; let best = 0, bd = 99;
@@ -299,11 +314,13 @@ export default async function start(host) {
     sets[name] = { name, def, out, lp, lg, cycles: [], want: false, wantAt: 0, from: 0, nextB: 0, gridT0: null, startedAt: 0 };
   }
   for (const [name, def] of Object.entries(SETS)) defineSet(name, def);
-  let trlSets = false;
-  function useTrailerSets() {   // the trailer's own music (TRAILER_SETS), loaded the first time the trailer speaks
-    if (trlSets) return; trlSets = true;
-    for (const [name, def] of Object.entries(TRAILER_SETS)) { const was = sets[name]?.want; defineSet(name, def); if (was) musicOn(name, { fade: 2 }); }
-    Promise.all(TRAILER_FILES.map(load)).then(() => { if (running()) musicKeep(); });
+  let trlSets = null;
+  function useTrailerSets() {   // the trailer's own music (TRAILER_SETS, or SETS_MT with musicSet 'mt'), loaded the first time it is asked for
+    const which = P.musicSet === 'mt' ? 'mt' : 'tm'; if (trlSets === which) return; trlSets = which;
+    const TS = which === 'mt' ? SETS_MT : TRAILER_SETS;
+    for (const name of Object.keys(sets)) if (!TS[name] && sets[name].def !== SETS[name]) { if (SETS[name]) defineSet(name, SETS[name]); else { musicOff(name, 2); delete sets[name]; } }   // (a set only the other one had)
+    for (const [name, def] of Object.entries(TS)) { const was = sets[name]?.want; defineSet(name, def); if (was || (name === 'wait' && block === 'wait')) musicOn(name, { fade: 3 }); }
+    Promise.all(filesOf(TS).map(load)).then(() => { if (running()) musicKeep(); });
   }
   function cycle(s, at, offset, fadeIn) {   // start every layer of a set at `at` from `offset` (sample-locked)
     const c = { srcs: [], g: [] };
@@ -985,6 +1002,7 @@ export default async function start(host) {
     musicBus.gain.setTargetAtTime(P.music, t, 0.3);   // a tronc's wobble may have left the music down
     const pk = prev !== b && !hushIn ? tileSweep(b) : t;   // (into the entrance after the closing: no hit, a silence — see quietUntil)
     if (hushIn) quietUntil = t + 2.5;
+    if (b === 'wait' && sets.wait) musicOn('wait', { at: Math.max(t + 0.05, quietUntil), fade: 4 });   // (the mt set has music for the entrance)
     // what leaves: each set as its world closes (the festa lets its drums go first, the rest under the baixada)
     for (const name of Object.keys(sets)) {
       if (!sets[name].want) continue;
@@ -1317,7 +1335,7 @@ export default async function start(host) {
     }
     lastPhrase = S.phrase;
     // the pinya's call: when the figures start to lead the hands to the centre (and the group has not packed yet)
-    if (b === 'pinya' && ph === 'play' && S.pinyaStage === 'pack' && lastStage === 'palm' && !(S.learned && S.learned.pinya)) say('v-pinya-closein', { polite: true, delay: 0.2 });
+    if (b === 'pinya' && ph === 'play' && !trailer() && S.pinyaStage === 'pack' && lastStage === 'palm' && !(S.learned && S.learned.pinya)) say('v-pinya-closein', { polite: true, delay: 0.2 });
     lastStage = S.pinyaStage;
     // ---- the room movements
     {
@@ -1452,7 +1470,8 @@ export default async function start(host) {
 
   return {
     setParams(p) {
-      const lang = P.lang; Object.assign(P, p); const t = now();
+      const lang = P.lang, ms = P.musicSet; Object.assign(P, p); const t = now();
+      if (P.musicSet !== ms && trlSets) useTrailerSets();   // compare the trailer's two music sets live
       if (P.lang !== lang) { for (const n of VOICE_SET) { buffers.delete(n); peaks.delete(n); failed.delete(n); } Promise.all([...VOICE_SET].map(load)); }   // the other language's voice
       musicBus.gain.setTargetAtTime(P.music, t, 0.1); drumBus.gain.setTargetAtTime(P.drums, t, 0.1); fxBus.gain.setTargetAtTime(P.effects, t, 0.1); for (const g of fxGains) g.gain.setTargetAtTime(P.effects, t, 0.1); voiceBus.gain.setTargetAtTime(P.voice, t, 0.1); for (const g of voiceWall) g.gain.setTargetAtTime(P.voice, t, 0.1);
     },
