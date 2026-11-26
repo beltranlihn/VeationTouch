@@ -55,7 +55,7 @@ const QS = { low: 0.6, medium: 0.8, high: 1 }, DENS = { low: 0.4, medium: 0.6, h
 const LT = { start: performance.now() }; const lt = (k) => { LT[k] = Math.round(performance.now() - LT.start); };   // T-057: load phases (ms), window.__obra.load
 // ------------------------------------------------------------------------------------------------ the parts (their files)
 // TRAILER: only the universes the trailer shows, plus its presentation layer (./parts/trailertext.js)
-const NAMES = ['umbral3d', 'atmos', 'plaza', 'plaza3d', 'castell', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d', 'trailertext'];   // 26-11: + the tower (climb onto the castell)   // studio 26-11: + the pinya v2 (a being for every hand)
+const NAMES = ['umbral3d', 'atmos', 'plaza', 'plaza3d', 'castell', 'castells3d', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d', 'trailertext'];   // 26-11: + the tower (climb onto the castell)   // studio 26-11: + the pinya v2 (a being for every hand)
 const CHAPTERS = new Set(['umbral3d', 'brasa3d', 'pinya3d2', 'torre3d', 'festa3d']);
 const OWN = new Set(['trailertext']);                                           // TRAILER: parts of this folder, not of ../ressonancia
 const only = LAB ? q.get('parts') : null;                                       // lab: ?parts=plaza,castell loads only those
@@ -319,7 +319,7 @@ function wanted(b) {
   const T = has('trailertext') ? ['trailertext'] : [];
   switch (b) {
     case 'wait': return has('umbral3d') ? (parts.umbral3d?.part?.charge?.().cleared ? ['umbral3d', 'atmos'] : ['umbral3d']) : ['atmos'];   // studio 26-11 (Beltrán): once the mosaic falls, the square's air is already there behind it
-    case 'intro': return [has('plaza3d') && P.plaza3d !== false ? 'plaza3d' : 'plaza', 'atmos', 'castell', ...T];   // 26-11: the new baked square (plaza3d); params.plaza3d = false: the old one
+    case 'intro': return [has('plaza3d') && P.plaza3d !== false ? 'plaza3d' : 'plaza', 'atmos', has('castells3d') && P.castells3d !== false ? 'castells3d' : 'castell', ...T];   // 26-11: the new baked square (plaza3d) and the castells of particles at many depths (castells3d); = false: the old ones
     case 'brasa': return has('brasa3d') ? ['brasa3d', 'atmos', ...T] : ['atmos', ...T];
     case 'pinya': return has('pinya3d2') ? ['pinya3d2', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the pinya v2
     case 'tronc': return has('torre3d') ? ['torre3d', 'atmos', ...T] : ['atmos', ...T];   // studio 26-11: the tower (score block 'tronc')
@@ -671,7 +671,8 @@ function frame(dt) {
       p.reveal = sm(1.5, 14, t) * (1 - 0.45 * back);
       p.pointGain = 0.05 + ((P['intro.pointGain'] ?? 0.4) - 0.05) * back; p.breathe = back; p.cool = 0.5 * back;
       p.shatter = Math.max(sm(50.5, 55, t), e.leave || 0);
-    } else if (e.name === 'actatext') t = serving ? S.t : 40;
+    } else if (e.name === 'castells3d') t = S.block === 'intro' && serving ? S.t : 60;   // its build, stages and end ride the intro's clock
+    else if (e.name === 'actatext') t = serving ? S.t : 40;
     else if (e.name === 'trailertext') { t = TRL.tt; input.segments = segments(); input.lang = P.lang; }   // TRAILER: its own clock
     else if (e.name === 'introtext') t = S.block === 'intro' && serving ? S.t : 76 + 3 * Math.min(1, e.leave * 8);   // the title goes in ~1.5 s: it must not sit under Brasa's card
     else if (e.name === 'castell') { p.tint = pal.tint; if (e.home === 'intro') t = S.block === 'intro' ? S.t : 70; driveCastell(e, dt, time, frameEvents); }
