@@ -177,7 +177,15 @@ const XIN = Float32Array.from({ length: 64 }, (_, i) => Math.sin((Math.PI / 2) *
 const XOUT = Float32Array.from({ length: 64 }, (_, i) => Math.cos((Math.PI / 2) * (i / 63)));
 
 export default async function start(host) {
-  const { audio, vt } = host;
+  const { audio } = host;
+  // 26-11: the trailer's simulated visitors (its param sim.visitors) reach the sound too, over the shared channel: their hands join
+  // vt.hands() and their landings call the 'touch' listeners as 'down' events (a test tool; nothing changes without them)
+  const vt = Object.create(host.vt), simTouch = []; let simH = [], simAt = -1e9, simBc = null;
+  try { simBc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ressonancia') : null; } catch { simBc = null; }
+  if (simBc) simBc.onmessage = (ev) => { const m = ev.data; if (m?.type !== 'sim' || !Array.isArray(m.h)) return; simH = m.h; simAt = performance.now();
+    for (const d of m.d || []) for (const fn of simTouch) { try { fn({ type: 'down', id: d.stroke, trackerId: d.stroke, ...d }); } catch (e) { console.error('ressonancia-sound: sim', e); } } };
+  vt.hands = () => { const r = host.vt.hands(); return simH.length && performance.now() - simAt < 1000 ? r.concat(simH) : r; };
+  vt.on = (type, fn) => { if (type !== 'touch') return host.vt.on(type, fn); simTouch.push(fn); const off = host.vt.on(type, fn); return () => { const i = simTouch.indexOf(fn); if (i >= 0) simTouch.splice(i, 1); off?.(); }; };
   const ctx = audio.ctx, P = { voice: 1, music: 1, drums: 1, effects: 1, touch: 1, lang: 'es', ...host.params };   // Spanish by default (Vicente, 24-11); English stays in the selector
   const walls = vt.walls || [], NW = Math.max(1, walls.length), wallIdx = new Map(walls.map((w, i) => [w.id, i]));
   const score = createScore(NW, { lengths: walls.map((w) => w.width || 4) }), S = score.state, T = score.times;   // T-055: the walls' lengths (the relay runs along the perimeter)
@@ -1476,6 +1484,7 @@ export default async function start(host) {
       musicBus.gain.setTargetAtTime(P.music, t, 0.1); drumBus.gain.setTargetAtTime(P.drums, t, 0.1); fxBus.gain.setTargetAtTime(P.effects, t, 0.1); for (const g of fxGains) g.gain.setTargetAtTime(P.effects, t, 0.1); voiceBus.gain.setTargetAtTime(P.voice, t, 0.1); for (const g of voiceWall) g.gain.setTargetAtTime(P.voice, t, 0.1);
     },
     async stop() {
+      try { simBc?.close(); } catch { /* gone */ }
       clearInterval(timer); off?.(); try { bc?.close(); } catch { /* closed */ }
       const t = now();
       for (const h of [...live]) h.stop(0.3);

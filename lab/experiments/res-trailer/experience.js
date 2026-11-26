@@ -32,6 +32,7 @@ import { connectExperience } from '/experiences/runtime.js';
 import * as THREE from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { createRoom3D } from '../ressonancia/scenes3d/room3d.js';
+import { createSimVisitors } from './simvisitors.js';
 import { createScore, TIMES } from '../ressonancia/score.js';
 import { createGuide } from '../ressonancia/scenes3d/guide3d.js';
 import { createSubtitles } from './subtitles.js';
@@ -39,6 +40,9 @@ import { createHints } from './hints.js';
 import { overrides as tuneOverrides, applyTimes } from '../ressonancia/tuning.js';   // T-052: the score's thresholds as live params
 
 const vt = await connectExperience();
+// 26-11: simulated visitors for the room test without people (param sim.visitors, 0 = off): their hands join the real ones
+const SIM = createSimVisitors(vt);
+{ const real = vt.hands.bind(vt); vt.hands = () => { const r = real(); return SIM.out.length ? r.concat(SIM.out) : r; }; }
 const canvas = document.getElementById('c');
 canvas.width = vt.size.width; canvas.height = vt.size.height;
 const q = new URLSearchParams(location.search);
@@ -582,8 +586,17 @@ let time = 0, frames = 0, f0 = performance.now(), fps = 0, lastBlock = '', actaA
 const frameEvents = [];
 const prof = { m: {}, max(k, v) { if (!(this.m[k] >= v)) this.m[k] = v; }, reset() { this.m = {}; } };   // lab: the slowest CPU time per step since reset
 const input = { time: 0, t: 0, dt: 0, progress: 0, hands: [], downs, ups, params: null, state: S, events: frameEvents, arrive: 1, leave: 0, acta };
+// the simulated visitors' targets: what a visitor who follows the hint would hold (the entrance's buttons once the walls are painted,
+// the tower's places on the other walls, her golden point at 1.2 m); elsewhere they just touch, drag and hold where they stand
+function simTarget() {
+  if (S.block === 'wait') { const pt = parts.umbral3d?.part?.paint?.(); return { walls: [0, 1, 2, 3], dx: 0, y: 1.5, hold: 3.5, p: pt && pt.share >= (P.paintOpen ?? 0.25) ? 0.55 : 0.04 }; }
+  if (S.block === 'tronc') { const g = parts.torre3d?.part?.progress?.() || {}; if (g.ending > 0) return null; return g.ready ? { walls: [0, 2, 3], dx: 0, y: 1.2, hold: 2.5, p: 0.6 } : { walls: [0, 2, 3], dx: null, y: null, hold: 2, p: 0.6 }; }
+  return null;
+}
 function frame(dt) {
   time += dt;
+  { const n = +P['sim.visitors'] || 0;
+    if (n || SIM.count) { SIM.update(time, dt, { n, target: simTarget() }); try { bc?.postMessage({ type: 'sim', ...SIM.sound() }); } catch { /* alone */ } } }
   const hs = readHands();
   frameEvents.length = 0;
   trailerStep(dt);                                                  // TRAILER
