@@ -4,7 +4,7 @@
 // overlay (over the picture). It fades in with an interactive stage and out when it ends; the dot eases (never jumps).
 //   const line = createProgressLine({ THREE, room }); every frame: line.update(dt, progress)   (progress 0..1, or null = hidden)
 export function createProgressLine({ THREE, room }) {
-  const up = new THREE.Vector3(0, 1, 0), Y = 0.22, TH = 0.006, DOT = 0.026, INK = 0xdcdcdc;
+  const up = new THREE.Vector3(0, 1, 0), Y = 0.22, TH = 0.011, DOT = 0.042, INK = 0xdcdcdc;
   const mat = (o) => new THREE.MeshBasicMaterial({ color: INK, transparent: true, opacity: o, depthTest: false, depthWrite: false });
   const mTrack = mat(0), mDone = mat(0), mDot = mat(0);
   const W = room.walls.map((w) => {
@@ -24,7 +24,7 @@ export function createProgressLine({ THREE, room }) {
       const on = p != null && isFinite(p);
       a += ((on ? 1 : 0) - a) * (1 - Math.exp(-dt * (on ? 1.2 : 2)));
       if (on) v += (Math.max(0, Math.min(1, p)) - v) * (1 - Math.exp(-dt * 2.5)); else if (a < 0.01) v = 0;
-      mTrack.opacity = 0.18 * a; mDone.opacity = 0.5 * a; mDot.opacity = 0.85 * a;
+      mTrack.opacity = 0.3 * a; mDone.opacity = 0.65 * a; mDot.opacity = 0.85 * a;
       for (const s of W) {
         s.g.visible = a > 0.004;
         const x0 = -s.L / 2, len = Math.max(1e-4, v * s.L);

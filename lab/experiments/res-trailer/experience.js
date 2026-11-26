@@ -633,7 +633,7 @@ const input = { time: 0, t: 0, dt: 0, progress: 0, hands: [], downs, ups, params
 // the tower's places on the other walls, her golden point at 1.2 m); elsewhere they just touch, drag and hold where they stand
 function simTarget() {
   if (S.block === 'wait') { const pt = parts.umbral3d?.part?.paint?.(); return { walls: [0, 1, 2, 3], dx: 0, y: 1.5, hold: 3.5, p: pt && pt.share >= (P.paintOpen ?? 0.2) ? 0.55 : 0.04 }; }
-  if (S.block === 'tronc') { const g = parts.torre3d?.part?.progress?.() || {}; if (g.ending > 0) return null; return g.ready ? { walls: [0, 2, 3], dx: 0, y: 1.2, hold: 2.5, p: 0.6 } : { walls: [0, 2, 3], dx: null, y: null, hold: 2, p: 0.6 }; }
+  if (S.block === 'tronc') { const g = parts.torre3d?.part?.progress?.() || {}; if (g.ending > 0) return null; const gp = g.ready ? (globalThis.__torre3d?.gold?.() || []).map((q) => ({ wi: room.walls.findIndex((w) => w.id === q.id), dx: q.x, y: q.y })).filter((q) => q.wi >= 0) : []; return g.ready ? (gp.length ? { points: gp, p: 0.7 } : { walls: [0, 2, 3], dx: 0, y: 1.2, hold: 2.5, p: 0.6 }) : { walls: [0, 2, 3], dx: null, y: null, hold: 2, p: 0.6 }; }
   return null;
 }
 function frame(dt) {
@@ -830,7 +830,6 @@ function frame(dt) {
       else if (S.block === 'pinya' && parts.pinya3d2?.part?.fill) { const f = parts.pinya3d2.part.fill(); pv = f.done ? null : f.total; }
       else if (S.block === 'tronc' && parts.torre3d?.part?.progress) { const g = parts.torre3d.part.progress(); pv = g.ending > 0 ? null : (g.needed ? 0.85 * Math.min(1, g.climbers / g.needed) : 0) + 0.15 * (g.charge || 0); }
     } catch { pv = null; }
-    if (S.block !== 'wait' && TRL.shown === false) pv = null;
     progLine.update(dt, pv); }
   subs.update(dt);
   let p1 = performance.now(); guide.update(dt, { state: S, hands: hs, events: frameEvents, time, on: P.guide !== false, acta, pace: following() ? link.pace : (P.pace || 1), hold: !!parts.introtext && parts.introtext.state !== 'off' && S.block !== 'intro' && parts.introtext.leave < 0.15 }); prof.max('guide', performance.now() - p1);

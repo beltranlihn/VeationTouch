@@ -24,7 +24,10 @@ export function createSimVisitors(vt, { seed = 7 } = {}) {
   function plan(v, t, tg) {
     const hy = () => (v.kid ? R(0.7, 1.3) : R(0.9, 1.75));
     let a;
-    if (tg && tg.walls?.length && rnd() < (tg.p ?? 0.5)) {
+    if (tg && tg.points?.length && rnd() < (tg.p ?? 0.5)) {   // a list of exact places (the tower's golden points): tap one
+      const q = tg.points[Math.floor(rnd() * tg.points.length)], W0 = W[q.wi];
+      a = { kind: 'tap', s: start[q.wi] + W0.width / 2 + q.dx + R(-0.06, 0.06), y: q.y + R(-0.06, 0.06), dur: R(0.3, 0.8) };
+    } else if (tg && tg.walls?.length && rnd() < (tg.p ?? 0.5)) {
       const wi = tg.walls[Math.floor(rnd() * tg.walls.length)] % NW;
       const dx = tg.dx == null ? R(-W[wi].width / 2 + 0.6, W[wi].width / 2 - 0.6) : tg.dx + R(-0.1, 0.1);
       const y = tg.y == null ? hy() : tg.y + R(-0.08, 0.08);

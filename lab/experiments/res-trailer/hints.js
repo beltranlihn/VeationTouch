@@ -129,7 +129,7 @@ export function createHints({ THREE, TSL, room }) {
         }
       }
       const n = cfg ? Math.max(1, Math.min(PER, cfg.per || 1)) : 1, sc = cfg?.scale ?? 1, alpha = cfg?.alpha ?? 1;
-      for (const Wl of W) { const r = Wl.recent; for (let j = r.length - 1; j >= 0; j--) if (time - r[j][1] > 6) r.splice(j, 1); }
+      for (const Wl of W) { const r = Wl.recent; for (let j = r.length - 1; j >= 0; j--) if (time - r[j][1] > 3) r.splice(j, 1); }   // 26-11 (Beltrán): free = nobody there for 3 s
       for (const h of hands || []) { const Wl = W[h.wall]; if (!Wl) continue; const hx = (h.u - 0.5) * Wl.w.width; const r = Wl.recent; if (!r.length || Math.abs(r[r.length - 1][0] - hx) > 0.3 || time - r[r.length - 1][1] > 0.5) { r.push([hx, time]); if (r.length > 40) r.shift(); } }
       for (const s of SL) {
         const Wl = s.wall, i = s.wi;
@@ -139,7 +139,7 @@ export function createHints({ THREE, TSL, room }) {
           if (h.wall !== i) continue; const hx = (h.u - 0.5) * s.w.width, hy = h.pos.y;
           if (Math.abs(hx - s.dx) < 0.8 && Math.abs(hy - s.y) < 0.8) { s.away = time; s.avoid = hx; s.phase = 'out'; s.p = 0; break; }
         }
-        // 26-11 (Beltrán: «sólo en lugares donde no se está tocando»): a moving hint stays away from the zones played in the last 6 s
+        // 26-11 (Beltrán: «sólo en lugares donde no se está tocando»): a moving hint stays away from the zones played in the last 3 s
         const zoneBusy = cfg?.move && s.placed && Wl.recent.some((r) => Math.abs(r[0] - s.dx) < 2.0);
         const quiet = cfg?.always ? true : cfg?.move ? time - s.away > OUT_S + 2.5 && !zoneBusy : time - Wl.last > (cfg?.idle ?? 15);
         const on = !!cfg && cfg.walls.includes(i) && s.k < n && t >= (cfg.from ?? 0) && quiet;
