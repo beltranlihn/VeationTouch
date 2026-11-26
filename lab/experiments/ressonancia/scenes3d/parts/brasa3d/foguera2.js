@@ -172,14 +172,14 @@ export function createFogueres(ctx) {
       const T = sites[f].type, sty = VSTY[T], st = sites[f];
       const right = { x: st.face.z, z: -st.face.x };
       for (const b of sty.boxes) {
-        const F = createVolumeFire({ THREE, TSL, fireTex, iterations: it, octaves: 3, time: U.time, noiseScale: sty.noise, magnitude: sty.mag, seed: f * 3.7 + VOL.length * 1.3 });
+        const F = createVolumeFire({ THREE, TSL, fireTex, iterations: it, octaves: 3, time: U.time, noiseScale: sty.noise, magnitude: sty.mag, seed: f * 3.7 + VOL.length * 1.3, rootFade: T === 2 ? 0.2 : 0.12 });
         F.mesh.renderOrder = 4; add(F.mesh, 4);
         const ox = T === 3 ? b[0] : right.x * b[0] - st.face.x * b[1], oz = T === 3 ? b[1] : right.z * b[0] - st.face.z * b[1];
         VOL.push({ f, F, ox, oz, wk: b[2], hk: b[3], ph: (b[4] ?? 0) * 0.78 });
       }
     }
   }
-  const Y0 = [0.2, -0.02, 0.8, -0.02];                          // the flame's root per type: in the tower, on the ground, in the bowl
+  const Y0 = [0.2, -0.04, 0.7, -0.04];                          // the flame's root per type: in the tower, on the ground, in the bowl
 
   // ------------------------------------------------------------------------------------------------ 2. the bases (logs, bowl, stones)
   const baseGeos = [];

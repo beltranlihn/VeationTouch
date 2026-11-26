@@ -45,8 +45,8 @@ export function makeFireTexture(THREE, N = 128) {
   return tex;
 }
 
-export function createVolumeFire({ THREE, TSL, fireTex, iterations = 16, octaves = 3, time, color = 0xffffff, magnitude = 1.3, noiseScale = [1, 2, 1, 0.3], lacunarity = 2.0, gain = 0.5, seed = Math.random() * 19.19 }) {
-  const { Fn, vec4, uniform, vec3, positionWorld, normalize, cameraPosition, float, length, Loop, sqrt, dot, vec2, texture, select, abs, mx_noise_float } = TSL;
+export function createVolumeFire({ THREE, TSL, fireTex, iterations = 16, octaves = 3, time, color = 0xffffff, magnitude = 1.3, noiseScale = [1, 2, 1, 0.3], lacunarity = 2.0, gain = 0.5, seed = Math.random() * 19.19, rootFade = 0.1 }) {
+  const { Fn, vec4, uniform, vec3, positionWorld, normalize, cameraPosition, float, length, Loop, sqrt, dot, vec2, texture, select, abs, mx_noise_float, smoothstep } = TSL;
   const u = {
     color: uniform(new THREE.Color(color)),
     seed: uniform(seed),
@@ -57,6 +57,7 @@ export function createVolumeFire({ THREE, TSL, fireTex, iterations = 16, octaves
     lacunarity: uniform(lacunarity),
     gain: uniform(gain),
     bright: uniform(1),
+    root: uniform(rootFade),                                 // (brasa v2) the root dissolves over this share of the box's height: no hard cut
   };
   const T = time || uniform(0);
   // turbulence: fbm of |Perlin|
@@ -73,7 +74,7 @@ export function createVolumeFire({ THREE, TSL, fireTex, iterations = 16, octaves
     animP.assign(animP.mul(vec3(s.x, s.y, s.z)));
     st.y.addAssign(sqrt(st.y).mul(u.magnitude).mul(turbulence(animP)));
     const out = st.x.lessThanEqual(0.0).or(st.x.greaterThanEqual(1.0)).or(st.y.lessThanEqual(0.0)).or(st.y.greaterThanEqual(1.0));
-    return select(out, vec4(0.0), texture(fireTex, st));
+    return select(out, vec4(0.0), texture(fireTex, st).mul(smoothstep(0.0, u.root, p.y)));   // (the root fades in: the box's floor never shows)
   });
   const frag = Fn(() => {
     const rayPos = vec3(positionWorld).toVar(), rayDir = normalize(rayPos.sub(cameraPosition)).toVar();
