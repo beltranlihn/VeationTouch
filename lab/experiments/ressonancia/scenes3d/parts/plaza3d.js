@@ -88,7 +88,7 @@ export function create(ctx) {
           hasBases ? loadImageData('depth.png', 'bake_dark/') : Promise.resolve(null),
           hasBases ? loadTex('depth.png', 'bake_dark/') : Promise.resolve(null),
         ]);
-        darkSet = { meta: dark, beauty: db, layers: layers.map((g, i) => ({ kind: g.kind, side: g.side, tex: lt[i] })), ddimg, mask: dtex };
+        darkSet = { meta: dark, beauty: db, layers: layers.map((g, i) => ({ kind: g.kind, side: g.side, tex: lt[i], range: g.range || dark.rgbmRange })), ddimg, mask: dtex };
       } catch (e) { console.warn('plaza3d: no dark bake', e); darkSet = null; dark = null; }
     }
     plate = makePlate({ meta: bake, beauty, lights }, dimg, darkSet?.mask || null); object.add(plate);
@@ -185,14 +185,14 @@ export function create(ctx) {
     const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, transparent: true, depthWrite: ownDepth, depthTest: !ownDepth,
       depthFunc: THREE.LessEqualDepth, blending: THREE.AdditiveBlending });
     const dir = normalize(positionWorld.sub(uEye)), uvp = panoUV(dir);
-    const dec = (t) => { const c = texture(t, uvp); return pow(c.rgb, vec3(set.meta.rgbGamma)).mul(c.a.mul(set.meta.rgbmRange)); };
+    const dec = (t, r) => { const c = texture(t, uvp); return pow(c.rgb, vec3(set.meta.rgbGamma)).mul(c.a.mul(r)); };   // r: the layer's own RGBM range (a fire is far brighter than the sky)
     const S = set.meta.slices, su = uvp.x.mul(S), ks = floor(su), lu = su.sub(ks);
     let rgbm = texture(set.beauty[0], vec2(lu, uvp.y));
     for (let s_ = 1; s_ < S; s_++) rgbm = select(ks.greaterThanEqual(s_), texture(set.beauty[s_], vec2(lu, uvp.y)), rgbm);
     let col = pow(rgbm.rgb, vec3(set.meta.rgbGamma)).mul(rgbm.a.mul(set.meta.rgbmRange)).mul(uNight);
     const order = ['P4', 'P1', 'P2', 'P3'];
     const fv = [uFires.x, uFires.y, uFires.z, uFires.w], ev = [uEmbers.x, uEmbers.y, uEmbers.z, uEmbers.w];
-    for (const f of set.layers) col = col.add(dec(f.tex).mul((f.kind === 'embers' ? ev : fv)[order.indexOf(f.side)]));
+    for (const f of set.layers) col = col.add(dec(f.tex, f.range).mul((f.kind === 'embers' ? ev : fv)[order.indexOf(f.side)]));
     m.colorNode = col.mul(uDark).mul(float(1).sub(uSil.mul(0.96))); m.opacityNode = uFade; m.fog = false;
     const mesh = new THREE.Mesh(geom, m); mesh.name = 'plaza3d:dark'; mesh.frustumCulled = false; mesh.renderOrder = -9; mesh.visible = false;
     return mesh;

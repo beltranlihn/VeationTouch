@@ -60,9 +60,12 @@ if meta.get('mode') == 'dark':
     fires = [g for g in groups if g['kind'] in ('fire', 'embers')]
     for g in fires:
         f = half(load('lg_' + g['name'])[..., :3])
-        m = np.clip(f.max(-1) / R, 1 / 255, 1); m = np.ceil(m * 255) / 255
-        name = f"{g['name']}.png"; sizes[name] = save(name, np.concatenate([np.clip(f / (m[..., None] * R), 0, 1) ** (1 / 2.2), m[..., None]], -1))
-        g['file'] = name
+        # each layer gets its own RGBM range: right by the fuel a fire is far brighter than 8, and clipping at 8 flattened it to
+        # a white blob (the P3 ring). The 99.98th percentile of its peak channel, with headroom, between 8 and 256.
+        Rf = float(np.clip(np.ceil(np.percentile(f.max(-1), 99.98) * 1.25), R, 256.0))
+        m = np.clip(f.max(-1) / Rf, 1 / 255, 1); m = np.ceil(m * 255) / 255
+        name = f"{g['name']}.png"; sizes[name] = save(name, np.concatenate([np.clip(f / (m[..., None] * Rf), 0, 1) ** (1 / 2.2), m[..., None]], -1))
+        g['file'] = name; g['range'] = Rf
     groups = [g for g in groups if g['kind'] in ('sky', 'fire', 'embers')]
     Ls = None
 else:
