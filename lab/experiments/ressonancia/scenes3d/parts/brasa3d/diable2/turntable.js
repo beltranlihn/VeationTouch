@@ -10,7 +10,7 @@ const Q = new URLSearchParams(location.search);
 const mode = Q.get('mode') || 'turn';
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGPURenderer({ canvas, antialias: true, forceWebGL: Q.get('gl') === '1' });
-renderer.setPixelRatio(Math.min(2, devicePixelRatio)); renderer.setSize(innerWidth, innerHeight, false);
+renderer.setPixelRatio(Math.min(2, devicePixelRatio)); renderer.setSize(Math.max(2, innerWidth), Math.max(2, innerHeight), false);
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
 await renderer.init();
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x151210);
@@ -29,7 +29,15 @@ else Object.assign(slots[0], { on: true, s: 0, spd: mode === 'run' ? 3.0 : 1.4 }
 camera.position.set(0, 0.95, 9.2); camera.lookAt(0, 0.95, 0);
 const holdK = Q.has('k') ? +Q.get('k') : null, holdDis = Q.has('dis') ? +Q.get('dis') : null;
 let time = 0, last = performance.now();
+let vw = 0, vh = 0;
+const fit = () => {                                                       // follow the window (and wait while it is 0 × 0)
+  const w = innerWidth, h = innerHeight;
+  if (w < 2 || h < 2 || (w === vw && h === vh)) return w >= 2 && h >= 2;
+  vw = w; vh = h; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  return true;
+};
 renderer.setAnimationLoop(() => {
+  if (!fit()) return;
   const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
   for (const sl of slots) if (sl.on) {
     sl.age += dt;
