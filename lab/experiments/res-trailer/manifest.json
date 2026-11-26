@@ -28,6 +28,7 @@
     {"key": "renderer", "label": "Renderer", "type": "select", "default": "auto", "options": [["auto", "Automatic (WebGPU when available)"], ["webgl2", "WebGL2"]]},
     {"key": "mode", "label": "Mode (room ignores lab URL switches; reload)", "type": "select", "default": "auto", "options": [["auto", "Auto (room inside the app)"], ["room", "Room"], ["lab", "Lab"]]},
     {"key": "sim.visitors", "label": "Simulated visitors (test: 0 = off)", "type": "number", "min": 0, "max": 10, "step": 1, "default": 0},
-    {"key": "castells.quality", "label": "Castells quality (intro and closing; reload)", "type": "select", "default": "auto", "options": [["auto", "As Quality"], ["low", "Low"], ["medium", "Medium (half the points)"], ["high", "High"]]}
+    {"key": "castells.quality", "label": "Castells quality (intro and closing; reload)", "type": "select", "default": "auto", "options": [["auto", "As Quality"], ["low", "Low"], ["medium", "Medium (half the points)"], ["high", "High"]]},
+    {"key": "renderScale", "label": "Render scale (0 = as Quality; reload)", "type": "number", "min": 0, "max": 1, "step": 0.05, "default": 0}
   ]
 }

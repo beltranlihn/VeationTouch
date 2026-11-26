@@ -75,7 +75,7 @@ for (const name of NAMES) {
   const defsUrl = new URL(`../res-3d-study/parts/${file}.json`, import.meta.url).href;
   loads.set(name, Promise.all([import(src).then((mod) => ({ mod }), (err) => ({ err })), OWN.has(name) ? Promise.resolve([]) : fetch(defsUrl).then((r) => (r.ok ? r.json() : [])).catch(() => [])]));
 }
-const room = await createRoom3D(vt, canvas, { forceWebGL: P.renderer === 'webgl2', bloom: { strength: P.bloom }, exposure: P.exposure, renderScale: QS[P.quality] ?? 1, samples: P.quality === 'high' ? 2 : 0, aa: P.aa === 'auto' ? (P.quality === 'high' ? 'taa' : 'msaa') : P.aa });   // aa 'auto': TAA at high (RND-F's variance-clipped TAA), MSAA below — switch the default after QA's fps window   // MSAA 2 at high (T-011, DECISIONES 23:26; was 4)
+const room = await createRoom3D(vt, canvas, { forceWebGL: P.renderer === 'webgl2', bloom: { strength: P.bloom }, exposure: P.exposure, renderScale: (+P.renderScale > 0 ? +P.renderScale : null) ?? QS[P.quality] ?? 1,   /* 26-11: renderScale > 0 overrides Quality's (0.85–0.9 keep High's look on the projectors) */ samples: P.quality === 'high' ? 2 : 0, aa: P.aa === 'auto' ? (P.quality === 'high' ? 'taa' : 'msaa') : P.aa });   // aa 'auto': TAA at high (RND-F's variance-clipped TAA), MSAA below — switch the default after QA's fps window   // MSAA 2 at high (T-011, DECISIONES 23:26; was 4)
 lt('room'); const NW = room.walls.length;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const smooth = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
