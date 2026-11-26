@@ -44,6 +44,7 @@ const getJSON = (f) => fetch(new URL(f, import.meta.url)).then((r) => (r.ok ? r.
 const STONES = await getJSON('./umbral3d/story-stones.json');
 const SHARDS = STONES || await getJSON('./umbral3d/story-shards.json');
 
+const NOBACK = (() => { try { return new URLSearchParams(location.search).has('pnoback'); } catch { return false; } })();   // ?pnoback (lab, measuring only)
 const GROUT_H = 0.008, ORGANIC = true, STONE_SCALE = 5.5, ARCH_FRAME = false, WK_DOOR = true, STORY = false, STORY_REST = 0.82, MEDALLIONS = false, HR = 0.78, HR2 = HR * HR;   // HR: studio 25-11 (Beltrán: «el radio de interacción de la mano, bájalo un poco»): every hand reach × 0.78   // studio 25-11: MEDALLIONS = true brings back the round medallions and the missing pieces   // T-066: the grout bed's height over the pieces' foot (m); the pieces' joints are cut to it
 
 export function create(ctx) {
@@ -419,12 +420,12 @@ export function create(ctx) {
           tri(Z, thick, T[i], thick, T[j], thick, 0, false, s.round ? 0.3 : 0.14);          // the face (a medallion is domed)
           tri(T[i], thick, O[i], 0, O[j], 0, 2, true); tri(T[i], thick, O[j], 0, T[j], thick, 2, true);   // the bevel down to the grout
         }
-        if (!s.wp) tri(Z, 0, O[j], 0, O[i], 0, 1, false);                                // the back (the glaze)
+        if (!s.wp && !NOBACK) tri(Z, 0, O[j], 0, O[i], 0, 1, false);                     // the back (the glaze)   (?pnoback: lab, measuring only)
       }
       if (s.wp) {                                                                         // a drawn stone (maybe concave): face and back by ear-cutting
         const ft = THREE.ShapeUtils.triangulateShape(T.map((p) => new THREE.Vector2(p[0], p[1])), []);
         for (const [a, b, c] of ft) tri(T[a], hT[a], T[b], hT[b], T[c], hT[c], 0, false, 0);
-        const bt = THREE.ShapeUtils.triangulateShape(O.map((p) => new THREE.Vector2(p[0], p[1])), []);
+        const bt = NOBACK ? [] : THREE.ShapeUtils.triangulateShape(O.map((p) => new THREE.Vector2(p[0], p[1])), []);
         for (const [a, b, c] of bt) tri(O[a], 0, O[c], 0, O[b], 0, 1, false);
       }
     }
@@ -480,6 +481,11 @@ export function create(ctx) {
     heroGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3)); heroGeo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3));
     heroGeo.setAttribute('aInf', new THREE.BufferAttribute(new Float32Array(inf), 2)); heroGeo.setAttribute('aUV', new THREE.BufferAttribute(new Float32Array(uvs), 2));
     heroGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 3, 0), 16);
+    try { if (new URLSearchParams(location.search).has('pidx')) {   // ?pidx (lab, measuring only): how many vertices are exact duplicates (what an index would save)
+      const P = heroGeo.attributes.position.array, N = heroGeo.attributes.normal.array, I = heroGeo.attributes.aInf.array, U = heroGeo.attributes.aUV.array, seen = new Set();
+      for (let v = 0; v < P.length / 3; v++) seen.add(`${P[v * 3]},${P[v * 3 + 1]},${P[v * 3 + 2]},${N[v * 3]},${N[v * 3 + 1]},${N[v * 3 + 2]},${I[v * 2]},${I[v * 2 + 1]},${U[v * 2]},${U[v * 2 + 1]}`);
+      console.error(`PIDX vertices ${P.length / 3} unique ${seen.size} cells ${cells.length}`);
+    } } catch { /* no location */ }
   }
   const NC = cells.length, TW = 128, TH = Math.max(1, Math.ceil(NC / TW));
   // per piece, live: turn and its speed, colour (until when), light, gone (fallen), last crossing
@@ -596,6 +602,7 @@ export function create(ctx) {
     const aInf_ = attribute('aInf', 'vec2'), id = aInf_.x, ix = int(mod(id, TW)), iy = int(floor(id.div(TW)));
     const ld = (k) => textureLoad(pieceTex, ivec2(ix, iy.mul(PT).add(k)));
     const st = textureLoad(stTex, ivec2(ix, iy));      // turn, lift, light (+8 = the glaze shows), scale
+    if (PQ.has('pvtx0')) m.positionNode = positionLocal; else   // ?pvtx0 (lab, measuring only): no per-piece vertex work — the ceiling of item 1
     m.positionNode = Fn(() => {
       const d0 = ld(0), aC_ = d0.xyz, aAx_ = ld(1).xyz, aN_ = ld(2).xyz;
       const th_ = normalize(vec3(aN_.z, 0, aN_.x.negate()).add(vec3(1e-5, 0, 0))), tv_ = cross(aN_, th_);
@@ -613,7 +620,7 @@ export function create(ctx) {
       }
       const ang = st.x.add(idleA), c = cos(ang), s = sin(ang);
       const wc = modelWorldMatrix.mul(vec4(aC_, 1)).xyz;
-      const local = positionLocal.sub(aC_).mul(st.w).mul(doorK(wc));
+      const local = positionLocal.sub(aC_).mul(st.w).mul(PQ.has('pnodoor') ? float(1) : doorK(wc));   // ?pnodoor (lab, measuring only)
       normalLocal.assign(rotA(normalLocal, aAx_, c, s));
       const inward = normalize(vec3(aC_.x, 0, aC_.z)).mul(uPush.negate());          // 'start': the world closes in round the eye
       const ow = textureLoad(offTex, ivec2(ix, iy));
@@ -658,7 +665,7 @@ export function create(ctx) {
     const glazed = UNPAINTED ? top.mul(kc) : top.mul(kc).add(back.mul(float(1).sub(kc)));                          // the side showing the glaze
     // the light of a crossing: the bevels light up (thin, warm-white — no neon); the glaze holds a breath of its own light (≤ 0.15)
     let pool = float(0);                                                                    // studio 25-11: where a hand is, the mosaic warms at once
-    for (const u of uHandP) { const d = positionWorld.sub(u.xyz); pool = pool.add(exp(dot(d, d).mul(-1 / (2 * 0.32 * 0.32))).mul(u.w)); }
+    if (!PQ.has('pnopool')) for (const u of uHandP) { const d = positionWorld.sub(u.xyz); pool = pool.add(exp(dot(d, d).mul(-1 / (2 * 0.32 * 0.32))).mul(u.w)); }   // ?pnopool (lab, measuring only)
     m.emissiveNode = vec3(1.0, 0.92, 0.78).mul(side.mul(0.3).add(top.add(back).mul(0.03))).mul(g).add(vGl.mul(glazed.mul(0.07))).mul(float(1).sub(quiet))
       .add(vec3(1.0, 0.72, 0.42).mul(col).mul(pool.min(1.4).mul(HAND_POOL))).add(fill).add(vec3(1.0, 0.55, 0.22).mul(vEdge).mul(REVEAL_GLOW));   // studio 25-11: the reveal glows warm at the opening (ref «correfoc»)
     return m;
@@ -670,7 +677,7 @@ export function create(ctx) {
   const heroMat = heroMaterial(), heroMesh = new THREE.Group(); hero.add(heroMesh); if (PQ.has('pnohero')) heroMesh.visible = false;
   const heroParts = [];
   {
-    const SECT = 48, MARGIN = 0.16, TAU = Math.PI * 2;                                   // 7.5° sectors; 0.16 rad ≈ 0.7 m at 4.6 m: wind, lift, a falling piece's first moment
+    const SECT = Number(PQ.get('psect')) || 48, MARGIN = 0.16, TAU = Math.PI * 2;        // ?psect=N (lab, measuring only)                                   // 7.5° sectors; 0.16 rad ≈ 0.7 m at 4.6 m: wind, lift, a falling piece's first moment
     const P = heroGeo.attributes.position.array, N = heroGeo.attributes.normal.array, I = heroGeo.attributes.aInf.array, UVa = heroGeo.attributes.aUV.array;
     const azOf = (x, z) => Math.atan2(z - eye.z, x - eye.x);
     const secOfCell = new Int16Array(cells.length);
