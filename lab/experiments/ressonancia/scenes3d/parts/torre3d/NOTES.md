@@ -49,6 +49,15 @@ Until her light appears, every held hand makes its climber: the ring, the being 
 It grows 1× → 2.5× in size and light with the charge. A halo widens round it (≤ 0.28 m) and the beat quickens. Above 82 % it
 trembles, and at 100 % it bursts into l'aleta.
 
+## The ruler on every wall (Beltrán 26-11)
+The metres ruler stands on all four walls:
+- on P1, beside the column;
+- on P4 and P2, ~0.75 m from their corner with P1, with the labels reaching into the wall (on P4 they are mirrored, to the left of the line);
+- on P3, by its left edge.
+
+They are all on P1's scale (an altimeter of the room). They light together, the marks slide down as we rise, and each carries the
+live reading at eye level. They appear with the first tier and go out with the end.
+
 ## P1: a fluid stir (Beltrán 26-11: «como optical flow, un poco más nomás»)
 Every 70 ms a moving hand leaves a stamp of its velocity. Points near the ray eye → stamp are dragged along it, with a curl.
 - The field widens as it ages: it diffuses.

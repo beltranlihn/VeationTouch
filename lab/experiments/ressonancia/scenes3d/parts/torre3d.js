@@ -442,23 +442,30 @@ export function create({ THREE, TSL, room, params }) {
   const fmtM = (v) => v.toFixed(1).replace('.', ',') + ' m';
   const RUL_X = 0.78, LAB_H = 0.075, LAB_W = 0.75;
   const NLAB = 8, cvL = typeof document !== 'undefined' ? document.createElement('canvas') : null, cvR = cvL ? document.createElement('canvas') : null;
-  let labTex = null, liveTex = null, fontFam = 'ui-monospace, Menlo, Consolas, monospace', liveStr = '';
+  let labTex = null, liveTex = null, labTexR = null, liveTexR = null, fontFam = 'ui-monospace, Menlo, Consolas, monospace', liveStr = '';
+  const cvL2 = cvL ? document.createElement('canvas') : null, cvR2 = cvL ? document.createElement('canvas') : null;
   function drawLabels() {
-    if (!cvL) return; const g = cvL.getContext('2d');
-    g.clearRect(0, 0, cvL.width, cvL.height); g.fillStyle = '#fff'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = `400 40px ${fontFam}`;
+    if (!cvL) return;
     const thin = String.fromCharCode(8201);
-    for (let k = 0; k < Math.min(NLAB, tiers.length); k++) g.fillText(`${tierName(k).split('').join(thin)}   ${fmtM(markY(k))}`, 8, k * 64 + 33);
-    if (labTex) labTex.needsUpdate = true;
+    for (const [cv, right] of [[cvL, false], [cvL2, true]]) {
+      const g = cv.getContext('2d');
+      g.clearRect(0, 0, cv.width, cv.height); g.fillStyle = '#fff'; g.textAlign = right ? 'right' : 'left'; g.textBaseline = 'middle'; g.font = `400 40px ${fontFam}`;
+      for (let k = 0; k < Math.min(NLAB, tiers.length); k++) { const name = tierName(k).split('').join(thin), m = fmtM(markY(k)); g.fillText(right ? `${m}   ${name}` : `${name}   ${m}`, right ? cv.width - 8 : 8, k * 64 + 33); }
+    }
+    if (labTex) { labTex.needsUpdate = true; labTexR.needsUpdate = true; }
   }
   function drawLive(v) {
     if (!cvR) return; const str = fmtM(v); if (str === liveStr) return; liveStr = str;
-    const g = cvR.getContext('2d'); g.clearRect(0, 0, cvR.width, cvR.height); g.fillStyle = '#fff'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = `400 44px ${fontFam}`;
-    g.fillText(str, 8, 33); if (liveTex) liveTex.needsUpdate = true;
+    for (const [cv, right] of [[cvR, false], [cvR2, true]]) {
+      const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.fillStyle = '#fff'; g.textAlign = right ? 'right' : 'left'; g.textBaseline = 'middle'; g.font = `400 44px ${fontFam}`;
+      g.fillText(str, right ? cv.width - 8 : 8, 33);
+    }
+    if (liveTex) { liveTex.needsUpdate = true; liveTexR.needsUpdate = true; }
   }
   if (cvL) {
-    cvL.width = 1024; cvL.height = 64 * NLAB; cvR.width = 512; cvR.height = 64;
-    labTex = new THREE.CanvasTexture(cvL); labTex.colorSpace = THREE.SRGBColorSpace; labTex.flipY = false;
-    liveTex = new THREE.CanvasTexture(cvR); liveTex.colorSpace = THREE.SRGBColorSpace; liveTex.flipY = false;
+    cvL.width = cvL2.width = 1024; cvL.height = cvL2.height = 64 * NLAB; cvR.width = cvR2.width = 512; cvR.height = cvR2.height = 64;
+    const tex = (cv) => { const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; return t; };
+    labTex = tex(cvL); liveTex = tex(cvR); labTexR = tex(cvL2); liveTexR = tex(cvR2);
     drawLabels(); drawLive(1.6);
     try {   // Geist Mono (OFL, scenes3d/fonts), as the guide's labels
       const ff = new FontFace('TorreMono', `url(${new URL('../fonts/geistmono-400.woff2', import.meta.url).href})`);
@@ -468,23 +475,43 @@ export function create({ THREE, TSL, room, params }) {
   const rulK = uniform(0), labK = Array.from({ length: NLAB }, () => uniform(0)), labE = new Float32Array(NLAB);
   const addMat = () => new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
   const INK = vec3(0.78, 0.82, 0.9);
-  const ruler = new THREE.Group(); object.add(ruler);
-  const rLine = new THREE.Mesh(new THREE.PlaneGeometry(0.0035, 1).translate(0, 0.5, 0), addMat()); rLine.material.colorNode = INK.mul(0.32).mul(rulK);
-  ruler.add(rLine);
-  const rTicks = [], rLabs = [];
-  for (let i = 0; i < NLAB; i++) {
-    const tm = addMat(); tm.colorNode = INK.mul(labK[i]).mul(rulK).mul(0.8);
-    const T = new THREE.Mesh(new THREE.PlaneGeometry(0.09, 0.0035), tm); ruler.add(T); rTicks.push(T);
-    const lm = addMat(); const a = labTex ? TSL.texture(labTex, vec2(TSL.uv().x, float(i).add(float(1).sub(TSL.uv().y)).div(NLAB))).a : float(0);
-    lm.colorNode = INK.mul(a).mul(labK[i]).mul(rulK).mul(0.75);
-    const L = new THREE.Mesh(new THREE.PlaneGeometry(LAB_W * 2, LAB_H), lm); L.position.x = LAB_W + 0.07; ruler.add(L); rLabs.push(L);
+  // Beltrán 26-11: «la regla también debiera aparecer en los otros muros… quizás más al costado». One ruler per wall: on P1 beside the
+  // column; on the others ~0.75 m from the corner towards P1 (their labels reaching into the wall, away from the corner), away from the
+  // invitation rings and golden points. All on the same scale as P1's (an altimeter of the room): marks slide down as we rise.
+  function makeRuler(mirror) {
+    const g = new THREE.Group(); object.add(g);
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.006, 1).translate(0, 0.5, 0), lineMat);   // ≥ 1 px at any render scale g.add(line);
+    const ticks = [], labs = [];
+    for (let i = 0; i < NLAB; i++) {
+      const T = new THREE.Mesh(tickGeo, tickMats[i]); g.add(T); ticks.push(T);
+      const L = new THREE.Mesh(labGeo, (mirror ? labMatsR : labMats)[i]); L.position.x = (mirror ? -1 : 1) * (LAB_W + 0.07); g.add(L); labs.push(L);
+    }
+    const lt = new THREE.Mesh(liveTickGeo, liveTickMat); g.add(lt);
+    const ll = new THREE.Mesh(liveLabGeo, mirror ? liveLabMatR : liveLabMat); ll.position.set((mirror ? -1 : 1) * (LAB_W / 2 + 0.16), 0, 0); g.add(ll);
+    for (const o of [line, ...ticks, ...labs, lt, ll]) { o.renderOrder = 6; o.frustumCulled = false; }
+    return { g, line, ticks, labs, lt, ll };
   }
-  // the live reading: a slightly longer mark at eye level and our height
-  const liveTick = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.004), addMat()); liveTick.material.colorNode = INK.mul(rulK).mul(0.9); ruler.add(liveTick);
-  const liveLab = new THREE.Mesh(new THREE.PlaneGeometry(LAB_W, LAB_H * 1.1), addMat());
-  liveLab.material.colorNode = INK.mul(liveTex ? TSL.texture(liveTex, vec2(TSL.uv().x, float(1).sub(TSL.uv().y))).a : float(0)).mul(rulK).mul(0.95);
-  liveLab.position.set(LAB_W / 2 + 0.16, 0, 0); ruler.add(liveLab);
-  for (const o of [rLine, ...rTicks, ...rLabs, liveTick, liveLab]) { o.renderOrder = 6; o.frustumCulled = false; }
+  const lineMat = addMat(); lineMat.colorNode = INK.mul(0.3).mul(rulK);
+  const tickGeo = new THREE.PlaneGeometry(0.09, 0.0055), labGeo = new THREE.PlaneGeometry(LAB_W * 2, LAB_H), liveTickGeo = new THREE.PlaneGeometry(0.16, 0.004), liveLabGeo = new THREE.PlaneGeometry(LAB_W, LAB_H * 1.1);
+  const tickMats = [], labMats = [], labMatsR = [];
+  for (let i = 0; i < NLAB; i++) {
+    const tm = addMat(); tm.colorNode = INK.mul(labK[i]).mul(rulK).mul(0.8); tickMats.push(tm);
+    for (const [arr, tx] of [[labMats, labTex], [labMatsR, labTexR]]) {
+      const lm = addMat(); const a = tx ? TSL.texture(tx, vec2(TSL.uv().x, float(i).add(float(1).sub(TSL.uv().y)).div(NLAB))).a : float(0);
+      lm.colorNode = INK.mul(a).mul(labK[i]).mul(rulK).mul(0.75); arr.push(lm);
+    }
+  }
+  const liveTickMat = addMat(); liveTickMat.colorNode = INK.mul(rulK).mul(0.9);
+  const liveLabMat = addMat(), liveLabMatR = addMat();
+  liveLabMat.colorNode = INK.mul(liveTex ? TSL.texture(liveTex, vec2(TSL.uv().x, float(1).sub(TSL.uv().y))).a : float(0)).mul(rulK).mul(0.95);
+  liveLabMatR.colorNode = INK.mul(liveTexR ? TSL.texture(liveTexR, vec2(TSL.uv().x, float(1).sub(TSL.uv().y))).a : float(0)).mul(rulK).mul(0.95);
+  // where each wall's ruler stands (x from the wall's centre) and which way its labels go
+  const rulers = walls.map((W, wi) => {
+    if (wi === TW) return { wi, x: RUL_X, mirror: false, ...makeRuler(false) };
+    const leftOfTower = (wi + 1) % NW === TW, rightOfTower = (wi + NW - 1) % NW === TW;
+    const x = leftOfTower ? W.width / 2 - 0.75 : -W.width / 2 + 0.75;   // its corner with P1 (or, facing P1, its left edge)
+    return { wi, x, mirror: leftOfTower && !rightOfTower, ...makeRuler(leftOfTower && !rightOfTower) };
+  });
   let rulE = 0;
 
   // ================================================================================================== the light in her hand · the golden beams
@@ -868,23 +895,31 @@ const landing = (b, out) => {
       const dT = Math.max(dW + 0.5, -(C.x - eye.x) * N1.x - (C.z - eye.z) * N1.z + slide), sc = dW / dT;
       const want = completed >= 1 && endT < 0 && (p.ruler ?? true) ? 1 : 0;
       rulE += (want - rulE) * Math.min(1, dt * (want ? 0.8 : 1.6)); rulK.value = rulE * uArrive.value;
-      ruler.visible = rulE > 0.003;
-      if (ruler.visible) {
-        ruler.position.copy(W.centre).addScaledVector(W.right, RUL_X).addScaledVector(W.normal, -0.02); ruler.position.y = 0;
-        ruler.rotation.set(0, Math.atan2(W.normal.x, W.normal.z), 0);
-        rLine.position.y = 0.2; rLine.scale.y = Math.min(3.4, W.height - 0.35);
-        const toWall = (y) => eye.y + (y - rise - eye.y) * sc;
+      const vis0 = rulE > 0.003;
+      const toWall = (y) => eye.y + (y - rise - eye.y) * sc;
+      // the marks' light (shared by the four)
+      for (let k = 0; k < NLAB; k++) {
+        if (k >= tiers.length) continue;
+        const T = tiers[k], closed = T.seated >= T.n, forming = !closed && k === completed;
+        const wantK = closed ? 0.95 : forming ? 0.42 + 0.12 * Math.sin(time * 2.4) : 0.22;
+        labE[k] += (wantK - labE[k]) * Math.min(1, dt * 4); labK[k].value = labE[k];
+      }
+      for (const R of rulers) {
+        R.g.visible = vis0; if (!vis0) continue;
+        const Wr = walls[R.wi];
+        R.g.position.copy(Wr.centre).addScaledVector(Wr.right, R.x).addScaledVector(Wr.normal, -0.02); R.g.position.y = 0;
+        R.g.rotation.set(0, Math.atan2(Wr.normal.x, Wr.normal.z), 0);
+        R.line.position.y = 0.2; R.line.scale.y = Math.min(3.4, Wr.height - 0.35);
         let lastY = 1e9;   // names ≥ 0.13 m apart on the wall: from the top down, a crowded lower name is left out (its mark stays)
         for (let k = NLAB - 1; k >= 0; k--) {
-          const on = k < tiers.length; const y = on ? toWall(markY(k)) : -9, vis = on && y > 0.25 && y < W.height - 0.3;
-          rTicks[k].visible = rLabs[k].visible = vis; if (!vis) continue;
-          rTicks[k].position.set(0, y, 0); rLabs[k].position.y = y;
-          if (lastY - y < 0.13 || Math.abs(y - eye.y) < 0.09) rLabs[k].visible = false; else lastY = y;
-          const T = tiers[k], closed = T.seated >= T.n, forming = !closed && k === completed;
-          const wantK = closed ? 0.95 : forming ? 0.42 + 0.12 * Math.sin(time * 2.4) : 0.22;
-          labE[k] += (wantK - labE[k]) * Math.min(1, dt * 4); labK[k].value = labE[k];
+          const on = k < tiers.length; const y = on ? toWall(markY(k)) : -9, vis = on && y > 0.25 && y < Wr.height - 0.3;
+          R.ticks[k].visible = R.labs[k].visible = vis; if (!vis) continue;
+          R.ticks[k].position.set(0, y, 0); R.labs[k].position.y = y;
+          if (lastY - y < 0.13 || Math.abs(y - eye.y) < 0.09) R.labs[k].visible = false; else lastY = y;
         }
-        liveTick.position.set(0, eye.y, 0); liveLab.position.y = eye.y;
+        R.lt.position.set(0, eye.y, 0); R.ll.position.y = eye.y;
+      }
+      if (vis0) {
         drawLive(eye.y + rise);
       }
     }
