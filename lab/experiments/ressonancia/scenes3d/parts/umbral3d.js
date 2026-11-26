@@ -501,7 +501,10 @@ export function create(ctx) {
   // PAINT_OPEN of the visible mosaic is painted, the buttons open (the host turns paint() into the score's reveal) and a wave runs
   // round the room from the last stone painted, painting what was left. A new pass of the entrance starts desaturated again.
   const PERSIST = true, WAVE_V = 2.6, UP_FROM = 1.7, UP_K = 5;                         // UP: above 1.7 m a hand paints upward much farther (×6 at 2.1 m)
-  let paintedN = 0, lastPaint = -1, waveT0 = -1, waveS = 0;
+  let paintedN = 0, lastPaint = -1, waveT0 = -1, waveS = 0, lastHandT = 0;
+  // studio 26-11 (Beltrán: «si se empieza a pintar y pasa más de 1 minuto sin que nadie pinte, vuelve todo a 0»): no hand on the walls for
+  // RESET_AFTER s → every painted stone goes back to rest, staggered over ~3 s (not one flash), and the buttons close again
+  const RESET_AFTER = Math.max(5, Number(params?.resetAfter) || 60);
   const phi = new Float32Array(NC), vphi = new Float32Array(NC), colT = new Float32Array(NC).fill(-1), glow = new Float32Array(NC), gone = new Uint8Array(NC), resT = new Float32Array(NC).fill(-9);
   const stData = new Float32Array(TW * TH * 4);
   const stTex = new THREE.DataTexture(stData, TW, TH, THREE.RGBAFormat, THREE.FloatType);
@@ -745,7 +748,8 @@ export function create(ctx) {
   const pa = new Int32Array(PULSES), paR = new Float32Array(PULSES), paMax = new Float32Array(PULSES), paMin2 = new Float32Array(PULSES), paAmp = new Float32Array(PULSES);
   const visN = Math.max(1, cells.reduce((a, c) => a + (c.vis && !c.loose ? 1 : 0), 0));
   function paintCell(i) { if (colT[i] === Infinity) return; colT[i] = Infinity; if (cells[i].vis && !cells[i].loose) paintedN++; lastPaint = i; }
-  function resetPaint() { colT.fill(-1); paintedN = 0; lastPaint = -1; waveT0 = -1; }
+  function resetPaint() { colT.fill(-1); paintedN = 0; lastPaint = -1; waveT0 = -1; lastHandT = time; }
+  function unpaint() { for (let i = 0; i < NC; i++) if (colT[i] === Infinity) colT[i] = time + rnd() * 3; paintedN = 0; lastPaint = -1; waveT0 = -1; }
   function launch(s, y, amp, speed, reach, hold, ros = -1) { const p = pulses[pulseNext]; p.ros = ros; pulseNext = (pulseNext + 1) % PULSES; p.on = true; p.s = s; p.y = y; p.t0 = time; p.amp = amp; p.speed = speed; p.reach = reach; p.hold = hold; }
   // a point on a wall → the piece of the serpentine drawn there (the ray from the eye through the hand)
   const hit = { cu: 0, cy: 0, p: new THREE.Vector3() };
@@ -1377,6 +1381,8 @@ export function create(ctx) {
     let npa = 0; const settled = arrive >= 1 && leave <= 0;
     for (let k = 0; k < PULSES; k++) { const p = pulses[k]; if (!p.on) continue; const age = time - p.t0, r = p.speed * age; pa[npa++] = k; paR[k] = r; paMax[k] = r + 1.43; paMin2[k] = r > 1.43 ? (r - 1.43) * (r - 1.43) : 0; paAmp[k] = p.amp * Math.exp(-age / 7); }
     const kSpring = 30, cSpring = 6.2, glowDecay = Math.exp(-dt * 1.3), startGlow = startV * 0.7 + (exploded >= 0 && exploded < 2 ? Math.sin(exploded * Math.PI / 2) * 0.8 : 0);
+    if (nh > 0) lastHandT = time;
+    if (PERSIST && paintedN > 0 && time - lastHandT > RESET_AFTER && (!S || S.block === 'wait')) unpaint();
     const bedK = smooth(0, 0.45, arrive) * (1 - smooth(0.35, 1, leave));
     uBed.value = bedK;
     if (maskDirty) { maskData.fill(0); maskDirty = false; maskTex.needsUpdate = true; }
