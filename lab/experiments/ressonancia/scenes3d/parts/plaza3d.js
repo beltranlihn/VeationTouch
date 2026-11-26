@@ -17,7 +17,8 @@
 //   (0..1, how much P1's arcades and windows are dimmed: it is the wall that explains), fog (live mist over the baked one),
 //   silhouette (0..1, the square drawn dark), points (0..1 density), handLamp (a hand lights the nearest standing lamp, T-056).
 //   THE SQUARE OF PARTICLES (intro 17–55 s): reveal back to 0.55 (the plate goes, its depth stays so only what the eye sees of the
-//   square remains, settled), with pointGain ≈ 0.09, breathe 1 (a slow breathing), cool ≈ 0.5 (cold stone, warm windows);
+//   square remains, settled), with pointGain ≈ 0.09, breathe 1 (a slow breathing, with a soft curl drift of ≈ 1 cm: curl 0..2+, default 1),
+//   cool ≈ 0.5 (cold stone, warm windows);
 //   then shatter 0 → 1 lifts them away from there without a jump.
 //   occlude (0/1, default 1): with the plate off, keep its depth as an occluder; 0 for points only when the host moves `object`
 //   (the tower). ease (s, default 0.6): every look parameter (dark, lit, fires, night, pointGain, cool, breathe, lamps, windows,
@@ -45,7 +46,7 @@ export function create(ctx) {
   // ------------------------------------------------------------------------------------------------ uniforms
   const uFade = uniform(0), uReveal = uniform(1), uShatter = uniform(0), uTime = uniform(0), uSil = uniform(0), uFog = uniform(1);
   const uWave = uniform(new THREE.Vector4(0, 0, 0, -1));   // 26-11: the tower's golden wave (x, z, -, radius; radius < 0 = none) runs through the square's points
-  const uPts = uniform(1), uEye = uniform(eye.clone()), uGain = uniform(0.05), uBreath = uniform(0), uCool = uniform(0);
+  const uPts = uniform(1), uEye = uniform(eye.clone()), uGain = uniform(0.05), uBreath = uniform(0), uCool = uniform(0), uCurl = uniform(1);
   const G = Array.from({ length: 8 }, () => new THREE.Vector4());      // group intensities, four per light texture (the intro's bake)
   const uG = uniformArray(G, 'vec4');
   const uNight = uniform(1), uFires = uniform(new THREE.Vector4()), uEmbers = uniform(new THREE.Vector4()), uDark = uniform(0);   // the dark bake (correfoc): sky, fires, its weight
@@ -239,7 +240,14 @@ export function create(ctx) {
     const rnd = normalize(vec3(h1.sub(0.5), h2.sub(0.5).mul(0.6), h3.sub(0.5)));
     const sw = vec3(sin(uTime.mul(0.41).add(tgt.y.mul(0.35)).add(h1.mul(6.283))), cos(uTime.mul(0.33).add(tgt.x.mul(0.21)).add(h2.mul(6.283))).mul(0.55),
       sin(uTime.mul(0.37).add(tgt.z.mul(0.27)).add(h3.mul(6.283))));
-    const inPos = tgt.add(rnd.mul(h2.mul(5.0).add(2.5)).add(vec3(0, h3.mul(2.0), 0)).add(sw.mul(1.2)).mul(q.mul(q))).add(sw.mul(uBreath.mul(0.02)));
+    // a very soft, slow curl drift while the points are the square (Beltrán, 26-11): the curl of a sine potential, so it is
+    // divergence-free and neighbours drift together (a breath through the stone, not a jitter). Two octaves (≈ 18 m and 6 m swirls),
+    // periods of 1–2 min; ≈ 1 cm at the facades, a few mm near the eye (scaled by distance: the same angle everywhere). Vertex only.
+    const ca = tgt.mul(0.35), cb = tgt.mul(1.1);
+    const curl = vec3(cos(ca.y.add(uTime.mul(0.071))), cos(ca.z.add(uTime.mul(0.053))), cos(ca.x.add(uTime.mul(0.062))))
+      .add(vec3(cos(cb.y.add(uTime.mul(0.113)).add(1.7)), cos(cb.z.add(uTime.mul(0.097)).add(4.1)), cos(cb.x.add(uTime.mul(0.089)).add(2.9))).mul(0.5));
+    const cAmp = clamp(length(tgt.xz).mul(0.00026), 0.0008, 0.005).mul(uBreath).mul(uCurl).mul(p);   // |curl| ≤ 2.6 → ≤ ≈ 1.3 cm
+    const inPos = tgt.add(rnd.mul(h2.mul(5.0).add(2.5)).add(vec3(0, h3.mul(2.0), 0)).add(sw.mul(1.2)).mul(q.mul(q))).add(sw.mul(uBreath.mul(0.02))).add(curl.mul(cAmp));
     // shatter: the square breaks back into points that rise, turn and thin out
     const sh = uShatter, sv = clamp(sh.mul(1.4).sub(h1.mul(0.4)), 0, 1);
     const outPos = tgt.add(sw.mul(sv.mul(1.8))).add(vec3(0, sv.mul(sv).mul(h2.mul(6.0).add(3.0)), 0));
@@ -287,7 +295,7 @@ export function create(ctx) {
     const d = E_('dark', P.dark === true ? 1 : P.dark === false ? 0 : num(P.dark, 0));
     uReveal.value = reveal; uShatter.value = shatter; uSil.value = E_('sil', num(P.silhouette, 0)); uFog.value = E_('fog', num(P.fog, 1));
     if (Array.isArray(P.wave) && P.wave[2] > 0) uWave.value.set(P.wave[0], P.wave[1], 0, P.wave[2]); else uWave.value.w = -1;
-    uPts.value = num(P.points, 1); uGain.value = E_('gain', num(P.pointGain, 0.05)); uBreath.value = E_('breathe', num(P.breathe, 0)); uCool.value = E_('cool', num(P.cool, 0));
+    uPts.value = num(P.points, 1); uGain.value = E_('gain', num(P.pointGain, 0.05)); uBreath.value = E_('breathe', num(P.breathe, 0)); uCurl.value = E_('curl', num(P.curl, 1)); uCool.value = E_('cool', num(P.cool, 0));
     uDark.value = dark ? d : 0;
     uFade.value = smooth(0.58, 1.0, reveal) * (1 - smooth(0.0, 0.45, shatter));
     if (points) points.visible = (reveal < 0.999 || shatter > 0) && !(shatter >= 0.999);
