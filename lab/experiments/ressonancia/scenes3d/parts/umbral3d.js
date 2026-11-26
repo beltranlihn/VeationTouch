@@ -1379,7 +1379,9 @@ export function create(ctx) {
     // ---- the mosaic: every piece follows the waves on a spring; colour where the play has been; light where waves cross
     idleC = (idleC + dt * 1.5) % LL; uIdleT.value = time;
     for (const p of pulses) if (p.on) { const age = time - p.t0; if (age > LL / 2 / p.speed + 2.5 || p.amp * Math.exp(-age / 7) < 0.03) p.on = false; }
-    const figOn = figT0 >= 0 && arrive > 0.6, figR = figOn ? (time - figT0) * 4.2 : 0, figPh = time * 0.55;
+    // studio 26-11 (Beltrán: «cuando se activa la sala, el anillo que recorre la sala debe suceder una sola vez»): with the narrative (PERSIST) the
+    // opening is ONE pass — the wave that paints the rest and the four pulses from the buttons — not the figure's endless rings round them
+    const figOn = !PERSIST && figT0 >= 0 && arrive > 0.6, figR = figOn ? (time - figT0) * 4.2 : 0, figPh = time * 0.55;
     if (figOn) for (let k = 0; k < NW; k++) { surfHit(_v.copy(walls[k].centre).setY(RING_Y)); figAt[k].cu = hit.cu; figAt[k].cy = hit.cy; }   // the serpentine turns: the figure stays on the buttons
     figK += ((figOn ? 1 : 0) - figK) * (1 - Math.exp(-dt * 1.5));
     let npa = 0; const settled = arrive >= 1 && leave <= 0;
