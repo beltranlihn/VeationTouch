@@ -407,7 +407,7 @@ export function create({ THREE, TSL, room, params }) {
     m.vertexNode = vec4(c0.xy.add(co.xy.mul(d).mul(kq).mul(c0.w)), c0.z, c0.w);
     const vC = varying(co), vK = varying(float(1).div(kq.mul(kq))), vD = varying(back), vP = varying(pw);
     const r2 = dot(vC.xy, vC.xy), twk = pow(sin(uTime.mul(vC.z.mul(0.8).add(0.2)).add(vC.z.mul(90))).mul(0.5).add(0.5), 10);
-    const wv = uWave.w.greaterThan(0).select(exp(abs(length(vP.xz.sub(uWave.xz)).sub(uWave.w)).mul(-1.4)), float(0));
+    const dw = length(vP.xz.sub(uWave.xz)), wv = uWave.w.greaterThan(0).select(exp(abs(dw.sub(uWave.w)).mul(-1.4)).add(smoothstep(uWave.w.add(0.5), uWave.w.sub(1.5), dw).mul(0.4)), float(0));   // the front, and the gold it leaves
     const c = mix(uCoolC, uWarmC, uWarm.mul(0.5)).mul(float(1).sub(smoothstep(0.2, 1.0, r2))).mul(twk.mul(1.6).add(0.25)).mul(exp(vD.mul(-0.12)).mul(0.85).add(0.15)).mul(0.07).mul(vK.mul(0.6).add(0.4))
       .add(tc(GOLD).mul(wv).mul(twk.mul(2).add(0.6)).mul(0.5));
     m.colorNode = c.mul(uArrive).mul(float(1).sub(uLeave)).mul(uLight);
@@ -416,7 +416,7 @@ export function create({ THREE, TSL, room, params }) {
   }
 
   // ================================================================================================== rings on the other walls: invite · charge
-  const NRING = 16;
+  const NRING = 40;
   const rA = new THREE.InstancedBufferAttribute(new Float32Array(NRING * 8), 8); rA.setUsage(THREE.DynamicDrawUsage);
   {
     const g = new THREE.InstancedBufferGeometry();
@@ -499,12 +499,18 @@ export function create({ THREE, TSL, room, params }) {
       const T = new THREE.Mesh(tickGeo, tickMats[i]); g.add(T); ticks.push(T);
       const L = new THREE.Mesh(labGeo, (mirror ? labMatsR : labMats)[i]); L.position.x = (mirror ? -1 : 1) * (LAB_W + 0.07); g.add(L); labs.push(L);
     }
+    const bg = new THREE.Mesh(rulBgGeo, rulBgMat); bg.position.x = (mirror ? -1 : 1) * RUL_BG_W * 0.4; bg.renderOrder = 5; bg.frustumCulled = false; g.add(bg);
     const lt = new THREE.Mesh(liveTickGeo, liveTickMat); g.add(lt);
     const ll = new THREE.Mesh(liveLabGeo, mirror ? liveLabMatR : liveLabMat); ll.position.set((mirror ? -1 : 1) * (LAB_W / 2 + 0.16), 0, 0); g.add(ll);
     for (const o of [line, ...ticks, ...labs, lt, ll]) { o.renderOrder = 6; o.frustumCulled = false; }
-    return { g, line, ticks, labs, lt, ll };
+    return { g, line, ticks, labs, lt, ll, bg };
   }
   const lineMat = addMat(); lineMat.colorNode = INK.mul(0.3).mul(rulK);
+  // Beltran 26-11: a semi-transparent black panel behind each ruler, so its marks read over the points (soft edges)
+  const RUL_BG_W = 1.15, rulBgGeo = new THREE.PlaneGeometry(1, 1);
+  const rulBgMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false });
+  { const q = TSL.uv(), ex = smoothstep(0.0, 0.07, q.x).mul(smoothstep(1.0, 0.93, q.x)), ey = smoothstep(0.0, 0.03, q.y).mul(smoothstep(1.0, 0.97, q.y));
+    rulBgMat.colorNode = vec3(0, 0, 0); rulBgMat.opacityNode = ex.mul(ey).mul(rulK).mul(0.58); rulBgMat.fog = false; }
   const tickGeo = new THREE.PlaneGeometry(0.09, 0.0055), labGeo = new THREE.PlaneGeometry(LAB_W * 2, LAB_H), liveTickGeo = new THREE.PlaneGeometry(0.16, 0.004), liveLabGeo = new THREE.PlaneGeometry(LAB_W, LAB_H * 1.1);
   const tickMats = [], labMats = [], labMatsR = [];
   for (let i = 0; i < NLAB; i++) {
@@ -541,14 +547,18 @@ export function create({ THREE, TSL, room, params }) {
     m.fog = false;
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 8; world.add(mesh);
   }
-  const goldAt = (wi, out) => out.copy(walls[wi].centre).setY(1.2);
+  // Beltran 26-11: «varios puntos de luz repartidos por los muros, para que varias personas puedan presionar a la vez» — three per other
+  // wall (x 0 and +-1.1 m, clear of the rulers' labels), at 1.25 / 1.05 m (children reach them), each with its own beam
+  const goldPts = [];
+  for (const wi of walls.map((_, i) => i).filter((i) => i !== TW)) for (const [x, y] of [[-1.1, 1.05], [0, 1.25], [1.1, 1.05]]) if (x === 0 || Math.abs(x) < walls[wi].width / 2 - 1.2) goldPts.push({ wi, x, y });
+  const goldAt = (i, out) => { const g = goldPts[i], W = walls[g.wi]; return out.copy(W.centre).addScaledVector(W.right, g.x).setY(g.y); };
   // the hand she holds up (her left palm in l'aleta), in the world's frame
   const enxPalm = (() => { const k = pose(ENX[3], BUILDS[1]); return [k.wL[0] + k.hfL.fd[0] * 0.06, k.wL[1] + k.hfL.fd[1] * 0.06, k.wL[2] + k.hfL.fd[2] * 0.06]; })();
   function handOf(b, out) {
     const q = enxPalm, hs = b.hs, cy = Math.cos(b.yaw), sy = Math.sin(b.yaw);
     return out.set(b.pos.x + (q[0] * cy + q[2] * sy) * hs, b.pos.y + (b.dy || 0) + q[1] * hs + 0.04, b.pos.z + (-q[0] * sy + q[2] * cy) * hs);
   }
-  const NB = 3, NBP = 900, BA = [], BB = [];
+  const NB = goldPts.length, NBP = 600, BA = [], BB = [];
   for (let i = 0; i < NB; i++) { BA.push(new THREE.Vector4(0, -50, 0, 0)); BB.push(new THREE.Vector4(0, -50, 0, 0)); }
   const uBA = uniformArray(BA, 'vec4'), uBB = uniformArray(BB, 'vec4'), uEyeR = uniform(new THREE.Vector3().copy(room.eye));
   const beams = []; for (let i = 0; i < NB; i++) beams.push({ on: false, k: 0, reach: 0, wall: -1, from: new THREE.Vector3() });
@@ -583,11 +593,38 @@ export function create({ THREE, TSL, room, params }) {
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 8; object.add(mesh);
   }
 
+  // ================================================================================================== the burst (the «pum»)
+  // Beltran 26-11: «al completar la luz, el efecto tiene que ser inmediato, como un pum»: in the frame the light is full, a shell of
+  // golden motes bursts out of her hand (world frame) and slows, drifting down, while the wave runs round the room
+  const uBurst = uniform(new THREE.Vector4(0, -50, 0, -1));   // xyz (world frame), seconds since (-1 off)
+  {
+    const n = 1600, F = 6, A = new Float32Array(n * 4 * F), idx = new Uint32Array(n * 6), Cc = [[-1, -1], [1, -1], [1, 1], [-1, 1]], r = rng(4747);
+    for (let k = 0; k < n; k++) { const a = r(), b2 = r(), c = r(), d2 = r(); for (let q = 0; q < 4; q++) A.set([a, b2, c, d2, Cc[q][0], Cc[q][1]], (k * 4 + q) * F); const o = k * 4; idx.set([o, o + 1, o + 2, o, o + 2, o + 3], k * 6); }
+    const ib = new THREE.InterleavedBuffer(A, F), g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.InterleavedBufferAttribute(ib, 4, 0)); g.setAttribute('aQ', new THREE.InterleavedBufferAttribute(ib, 2, 4));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    const a4 = attribute('position', 'vec4'), cq = attribute('aQ', 'vec2'), t = max(uBurst.w, float(0));
+    const th = a4.x.mul(Math.PI * 2), cz = a4.y.mul(2).sub(1), sz = sqrt(max(float(1).sub(cz.mul(cz)), float(0)));
+    const dir = vec3(cos(th).mul(sz), cz.mul(0.8).add(0.15), sin(th).mul(sz));
+    const sp = a4.z.mul(a4.z).mul(3.2).add(0.6), reach = sp.mul(float(1).sub(exp(t.mul(-1.7))));
+    const pw = uBurst.xyz.add(dir.mul(reach)).add(vec3(0, t.mul(t).mul(-0.06), 0));
+    const pv = modelViewMatrix.mul(vec4(pw, 1)), c0 = clipOf(pv);
+    const d = ndcScale(pv, c0, float(0.006).add(a4.w.mul(0.008)).mul(float(1).add(exp(t.mul(-3)).mul(1.2)))), kq = max(float(1), uMinPt.div(d.y));
+    const vis = uBurst.w.greaterThan(0).select(exp(t.mul(-0.75)).mul(smoothstep(0.0, 0.04, t)), float(0));
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    m.vertexNode = TSL.select(vis.greaterThan(0.003), vec4(c0.xy.add(cq.mul(d).mul(kq).mul(c0.w)), c0.z, c0.w), vec4(0, 0, 2, 1));
+    const vQ = varying(cq), vV = varying(vis.div(kq.mul(kq).mul(0.6).add(0.4))), vR = varying(a4.w), vT = varying(t);
+    const r2 = dot(vQ, vQ), twk = pow(sin(uTime.mul(vR.mul(4).add(1.5)).add(vR.mul(70))).mul(0.5).add(0.5), 5);
+    m.colorNode = mix(tc(GOLD), vec3(1, 0.95, 0.85), exp(vT.mul(-2.5))).mul(float(1).sub(smoothstep(0.35, 1.0, r2))).mul(twk.mul(1.1).add(0.7)).mul(vV).mul(1.6).mul(uGlow).mul(float(1).sub(uLeave));
+    m.fog = false;
+    const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 8; world.add(mesh);
+  }
+
   // ================================================================================================== state
   const climbers = [];
   const charges = [];         // { stroke, wall, pos (room), t0, done, auto }
   const events = [];
-  let beatPh = 0, pomT0 = -1, readyT = -1, chargedT = -1, charge = 0, lastHold = 0, autoW = -1;
+  let beatPh = 0, pomT0 = -1, readyT = -1, chargedT = -1, charge = 0, lastHold = 0, autoW = -1, lastHandT = -99;
   const pomP = new THREE.Vector3(0, -50, 0), handL = new THREE.Vector3(0, 6.5, 0);
   let time = 0, rise = 0, riseV = 0, slide = 2.5, completed = 0, topT = -1, aletaT = -1, endT = -1, doneSent = false, lastClimb = -99, firstT = -1, rondaBorn = 0;
   let reactiveOn = false, dustTaken = false, dustClk = 0, dustSent = false; const tmpL = new THREE.Vector3();
@@ -726,6 +763,7 @@ const landing = (b, out) => {
     const hands = input.hands || [];
     nowStrokes.clear();
     const holdT = p.hold ?? 1.7;
+    if (hands.length) lastHandT = time;
     for (const h of hands) {
       nowStrokes.add(h.stroke);
       if (h.wall === TW) {
@@ -767,7 +805,8 @@ const landing = (b, out) => {
     }
     // ---- solo help: after a while with no new climber, the room calls one by itself (a ring charges on a wall without a hand)
     const assist = p.assist ?? 3.5;
-    if (!introOn && assist > 0 && topT < 0 && slots.some((s) => !s.who) && time > (p.assistDelay ?? 5) && time - lastClimb > assist) {
+    const playing = time - lastHandT < (p.assistIdle ?? 12);   // 26-11 («la torre avanza sola»): nobody in the room, the tower waits (its rings still invite)
+    if (!introOn && playing && assist > 0 && topT < 0 && slots.some((s) => !s.who) && time > (p.assistDelay ?? 5) && time - lastClimb > assist) {
       if (!charges.some((q) => q.auto)) {
         const ws = otherWalls(), wi = ws[Math.floor(rr() * ws.length)], W = walls[wi];
         const pos = new THREE.Vector3().copy(W.centre).addScaledVector(W.right, (rr() - 0.5) * W.width * 0.5); pos.y = 1.1 + rr() * 0.4;
@@ -791,7 +830,7 @@ const landing = (b, out) => {
         ronda.forEach((b, i) => {
           const k = src[Math.floor((i + 0.5) * src.length / ronda.length) % src.length];
           b.dustO = new THREE.Vector3(d.positions[k * 3], d.positions[k * 3 + 1] - b.hs * 1.05, d.positions[k * 3 + 2]); b.O = new THREE.Vector3();
-          b.dustT0 = dustClk + (b.delay ?? 0) * 0.9 + (i % 5) * 0.12; b.dustMode = true;
+          b.dustT0 = dustClk + (p.dustDelay ?? 0.9) + (b.delay ?? 0) * 1.2 + (i % 5) * 0.15; b.dustMode = true;   // 26-11: the dust hangs a moment, then gathers
         });
         events.push('dust:taken');
       }
@@ -799,7 +838,7 @@ const landing = (b, out) => {
     // the dust may come a moment after the part starts arriving: the ronda waits for it a little before forming on its own
     const waitDust = fromDust && !dustTaken && dustClk < (p.dustWait ?? 1.2);
     if (!waitDust) rondaBorn = Math.min(1, rondaBorn + dt / 2.6);
-    const flyD = p.dustFly ?? 3.4;
+    const flyD = p.dustFly ?? 4.2;
     for (const b of ronda) {
       if (b.dustMode) {   // born 0 = scattered round where that being's dust hangs; it streams down and forms as it lands
         const tt = (dustClk - b.dustT0) / flyD;
@@ -868,23 +907,24 @@ const landing = (b, out) => {
     const ow = otherWalls();
     let rate = 0;
     if (readyT >= 0 && chargedT < 0) {
-      for (let i = 0; i < ow.length && i < NB; i++) {
-        const W = walls[ow[i]]; goldAt(ow[i], tmpV);
+      for (let i = 0; i < NB; i++) {
+        const wi = goldPts[i].wi, W = walls[wi]; goldAt(i, tmpV);
         let held = false;
-        for (const h of hands) if (h.wall === ow[i] && h.pos.distanceTo(tmpV) < (p.goldReach ?? 0.55)) held = true;
-        if (held !== !!beams[i].byHand) { beams[i].byHand = held; events.push(`gold:${held ? 'on' : 'off'}:${ow[i]}`); }
+        for (const h of hands) if (h.wall === wi && h.pos.distanceTo(tmpV) < (p.goldReach ?? 0.55)) held = true;
+        if (held !== !!beams[i].byHand) { beams[i].byHand = held; events.push(`gold:${held ? 'on' : 'off'}:${wi}`); }
         if (held) { lastHold = time; autoW = -1; }
-        if (!held && autoW === ow[i]) held = true;
-        beams[i].on = held; beams[i].wall = ow[i]; beams[i].from.copy(tmpV).addScaledVector(W.normal, -0.01);
+        if (!held && autoW === i) held = true;
+        beams[i].on = held; beams[i].wall = wi; beams[i].from.copy(tmpV).addScaledVector(W.normal, -0.01);
       }
-      if (autoW < 0 && time - lastHold > (p.chargeAssist ?? 10)) autoW = ow[Math.floor(rr() * ow.length)];
+      if (!playing) autoW = -1; else if (autoW < 0 && time - lastHold > (p.chargeAssist ?? 10)) autoW = Math.floor(rr() * NB);
       for (const B of beams) { B.k += ((B.on ? 1 : 0) - B.k) * Math.min(1, dt * (B.on ? 6 : 2.5)); B.reach = B.on ? Math.min(1, B.reach + dt / 0.9) : B.k < 0.02 ? 0 : B.reach; rate += B.k * smooth01(B.reach * 1.4 - 0.3); }
       const solo = p.chargeTime ?? 4.5;
       if (rate > 0.02) charge = Math.min(1, charge + dt * Math.min(2.4, rate) / solo); else charge = Math.max(0, charge - dt * 0.06);
-      if (charge >= 1) { chargedT = time; events.push('aleta:charged'); }
+      if (charge >= 1) { chargedT = time; aletaT = time; events.push('aleta:charged'); events.push('aleta'); }   // 26-11: the «pum» at once, no wait
     } else for (const B of beams) { B.k = Math.max(0, B.k - dt * 1.5); }
-    if (chargedT >= 0 && aletaT < 0 && time - chargedT > 0.35) { aletaT = time; events.push('aleta'); }
-    if (aletaT >= 0) { const tw = time - aletaT; const top = tmpV.copy(C).setY(0); top.applyMatrix4(world.matrixWorld); uWave.value.set(top.x, 0, top.z, tw * (p.waveSpeed ?? 5)); if (tw > 2.4 && endT < 0) { endT = time; events.push('end'); } }
+    if (chargedT >= 0 && aletaT < 0) { aletaT = time; events.push('aleta'); }
+    if (aletaT >= 0) uBurst.value.set(pomP.x, pomP.y, pomP.z, time - aletaT); else uBurst.value.w = -1;
+    if (aletaT >= 0) { const tw = time - aletaT; const top = tmpV.copy(C).setY(0); top.applyMatrix4(world.matrixWorld); uWave.value.set(top.x, 0, top.z, tw * (p.waveSpeed ?? 5)); if (tw > (p.goldHold ?? 3.2) && endT < 0) { endT = time; events.push('end'); } }   // the room stands golden a moment, then lets go
     // the light in her hand: it beats, waiting; it grows and brightens with the charge; at l'aleta it flares and goes with the wave
     {
       const on = pomT0 >= 0 && time > pomT0 && endT < 0 ? 1 : endT >= 0 ? Math.max(0, 1 - (time - endT) / 2) : 0;
@@ -893,8 +933,8 @@ const landing = (b, out) => {
       const flare = aletaT >= 0 ? Math.exp(-(time - aletaT) * 1.2) : 0, tens = smooth01((charge - 0.82) / 0.18) * (chargedT < 0 ? 1 : 0);
       const k = 1 + 1.5 * smooth01(charge), tr = tens * 0.012;
       pomU.value.set(pomP.x + (Math.random() - 0.5) * tr, pomP.y + (Math.random() - 0.5) * tr, pomP.z + (Math.random() - 0.5) * tr, on);
-      const size = 0.045 * k * (1 + 0.12 * beat * (readyT >= 0 ? 1 : 0.4)) * (1 + 0.15 * tens * Math.sin(time * 37)) + flare * 0.1;
-      pomV.value.set(size, (0.7 + 0.3 * beat) * k * (1 + 0.25 * tens) + flare * 2.2, Math.min(0.28, 0.06 + 0.15 * charge + 0.03 * beat * charge + flare * 0.3), (readyT >= 0 ? 0.08 + 0.32 * charge : 0) * (1 - flare * 0.3) + flare * 0.6);
+      const size = 0.045 * k * (1 + 0.12 * beat * (readyT >= 0 ? 1 : 0.4)) * (1 + 0.15 * tens * Math.sin(time * 37)) + flare * 0.16;
+      pomV.value.set(size, (0.7 + 0.3 * beat) * k * (1 + 0.25 * tens) + flare * 3.2, Math.min(0.5, 0.06 + 0.15 * charge + 0.03 * beat * charge + (aletaT >= 0 ? 0.5 * (1 - Math.exp(-(time - aletaT) * 4)) : 0)), (readyT >= 0 ? 0.08 + 0.32 * charge : 0) * (1 - flare * 0.3) + flare * 0.6);
       // beams in the room's frame: from the wall's point to the hand
       world.updateMatrixWorld(); tmpW.copy(pomP).applyMatrix4(world.matrix);   // the part's frame (the beams hang from `object`)
       for (let i = 0; i < NB; i++) { const B = beams[i]; BA[i].set(B.from.x, B.from.y, B.from.z, B.k * (chargedT >= 0 ? Math.max(0, 1 - (time - chargedT) * 2) : 1)); BB[i].set(tmpW.x, tmpW.y, tmpW.z, B.reach); }
@@ -909,6 +949,9 @@ const landing = (b, out) => {
       const g = pomY > -5 ? Math.exp(-(((yb - pomY) / 0.55) ** 2)) + (yb < pomY ? 0.22 : 0) : 0;
       b.gold += (g - b.gold) * Math.min(1, dt * 6);
       if (b.type === 4 && aletaT >= 0) b.gold = Math.max(b.gold, 1.2 * Math.exp(-(time - aletaT) / 3));
+      // the wave (from her hand, in 3D) dyes every body gold as it passes: its front flashes, then the body stays golden
+      if (aletaT >= 0) { const dd = Math.hypot(b.pos.x - pomP.x, yb - pomP.y, b.pos.z - pomP.z), fr = (time - aletaT) * (p.waveSpeed ?? 5) - dd;
+        b.gold = Math.max(b.gold, 0.85 * smooth01(fr / 0.8) + 0.9 * Math.exp(-((fr / 0.45) ** 2))); }
       b.gone = clamp01((goneAll * 1.4 - (b.pos.y / (topY + 1)) * 0.4));
       writeInst(b);
     }
@@ -929,6 +972,14 @@ const landing = (b, out) => {
       const busy = charges.some((q) => q.wall === wi && !q.done);
       A[o] = W.centre.x + W.normal.x * 0.0; A[o + 1] = 1.2; A[o + 2] = W.centre.z; A[o + 3] = open && !busy ? 1 : 0;
       A[o + 4] = W.right.x; A[o + 5] = W.right.z; A[o + 6] = -1; A[o + 7] = 0.36; ri++;
+      // Beltran 26-11: «varios circulitos repartidos por la sala que inviten a tocar y mantener presionado» (Ø 42 cm, 1.0 / 1.4 m)
+      for (const [x, y] of [[-1.15, 1.0], [1.15, 1.4]]) {
+        if (ri >= NRING || Math.abs(x) > W.width / 2 - 1.2) continue; const o2 = ri * 8;
+        tmpW.copy(W.centre).addScaledVector(W.right, x).setY(y);
+        const near = charges.some((q) => q.wall === wi && !q.done && q.pos.distanceTo(tmpW) < 0.6);
+        A[o2] = tmpW.x; A[o2 + 1] = y; A[o2 + 2] = tmpW.z; A[o2 + 3] = open && !near ? 0.75 : 0;
+        A[o2 + 4] = W.right.x; A[o2 + 5] = W.right.z; A[o2 + 6] = -1; A[o2 + 7] = 0.21; ri++;
+      }
     }
     for (const ch of charges) {
       if (ri >= NRING) break; const W = walls[ch.wall], o = ri * 8;
@@ -938,8 +989,8 @@ const landing = (b, out) => {
       A[o + 4] = W.right.x; A[o + 5] = W.right.z; A[o + 6] = Math.max(0.001, prog); A[o + 7] = 0.24; ri++;
     }
     // the golden points: Ø 40 cm at 1.2 m on each other wall, waiting with her; the ring fills with the charge while held
-    if (readyT >= 0) for (let i = 0; i < ow.length && ri < NRING; i++) {
-      const W = walls[ow[i]], o = ri * 8, B = beams[i]; goldAt(ow[i], tmpV);
+    if (readyT >= 0) for (let i = 0; i < NB && ri < NRING; i++) {
+      const W = walls[goldPts[i].wi], o = ri * 8, B = beams[i]; goldAt(i, tmpV);
       const a = clamp01((time - readyT) / 1.2) * (chargedT >= 0 ? Math.max(0, 1 - (time - chargedT) / 1.5) : 1);
       A[o] = tmpV.x - W.normal.x * 0.005; A[o + 1] = tmpV.y; A[o + 2] = tmpV.z - W.normal.z * 0.005; A[o + 3] = a;
       A[o + 4] = W.right.x; A[o + 5] = W.right.z; A[o + 6] = B && B.k > 0.05 ? Math.max(0.001, charge) : -1; A[o + 7] = -0.2; ri++;
@@ -968,6 +1019,7 @@ const landing = (b, out) => {
         R.g.position.copy(Wr.centre).addScaledVector(Wr.right, R.x).addScaledVector(Wr.normal, -0.02); R.g.position.y = 0;
         R.g.rotation.set(0, Math.atan2(Wr.normal.x, Wr.normal.z), 0);
         R.line.position.y = 0.2; R.line.scale.y = Math.min(3.4, Wr.height - 0.35);
+        R.bg.scale.set(RUL_BG_W, R.line.scale.y + 0.3, 1); R.bg.position.y = 0.05 + (R.line.scale.y + 0.3) / 2;
         let lastY = 1e9;   // names ≥ 0.13 m apart on the wall: from the top down, a crowded lower name is left out (its mark stays)
         for (let k = NLAB - 1; k >= 0; k--) {
           const on = k < tiers.length; const y = on ? toWall(markY(k)) : -9, vis = on && y > 0.25 && y < Wr.height - 0.3;
@@ -997,6 +1049,11 @@ const landing = (b, out) => {
     climbers.length = 0; charges.length = 0; for (const s of slots) s.who = null; for (const s of extras) s.who = null; for (const T of tiers) T.seated = 0;
     pomT0 = -1; readyT = -1; chargedT = -1; charge = 0; autoW = -1; for (const B of beams) { B.k = 0; B.reach = 0; B.on = false; }
     completed = 0; topT = -1; aletaT = -1; endT = -1; doneSent = false; lastClimb = time; firstT = -1; rondaBorn = 0; riseV = 0;
+    // (26-11, 3rd loop: «la torre avanza sola») every charge, hold, help and the rise of the last pass: gone
+    rise = 0; slide = 2.5; lastHandT = -99; lastHold = time; beatPh = 0; rulE = 0; introKey = ''; uWave.value.w = -1; uBurst.value.w = -1;
+    for (const B of beams) B.byHand = false; knownStrokes.clear(); nowStrokes.clear(); lastStamp.clear();
+    for (let i = 0; i < NSTAMP; i++) { STAMPS[i].w = 0; stampT[i].t = -99; }
+    pomP.set(0, -50, 0); pomU.value.w = 0;
   }
   function finish() { P.end = true; }
   function progress() {

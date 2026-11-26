@@ -156,3 +156,12 @@ At its place:
 - Events for the sound (`events`, every frame): `charge:<w>:<u>:<y>` · `uncharge:<w>` · `form:<w>:<u>:<y>` · `land:<tier>` ·
   `gold:on:<w>` / `gold:off:<w>` · `touch:<w>:<u>:<y>` (a hand after the top: a faint ring of light follows it, no climber) — plus
   `joined:*`, `tier:*`, `top`, `aleta:*`, `end`, `done`, `dust:taken`.
+
+## 26-11 room review fixes (Beltrán via the director)
+
+- **Never advances by itself:** the climber help and the golden charge's help run only while someone plays (a hand in the last `assistIdle`, 12 s). `reset()` now also clears the rise (no spring-back from the last pass), the slide, holds, stamps, beams, the wave, the burst, the intro plan.
+- **Several golden points:** three per other wall (x 0, ±1.1 m; 1.25 / 1.05 m), one beam each; several hands charge faster (rate capped 2.4×).
+- **The «pum»:** when the charge is full, l'aleta, the burst (1600 golden motes thrown from her hand) and the wave start in the same frame. The wave (from her hand, 3D) dyes every body gold as it passes and they stay golden; behind the front the square's motes keep a gold tint. After `goldHold` (3.2 s) everything lets go into the gold dust (handoff 'torre' → castells outro).
+- **Invitations:** besides the centre ring, two small rings (Ø 42 cm, 1.0 / 1.4 m, x ±1.15 m) on each other wall while there are places.
+- **Ruler:** a soft semi-transparent black panel behind each wall's ruler.
+- **From the pinya's dust:** the ronda waits `dustDelay` (0.9 s) and gathers over `dustFly` (4.2 s), while the pinya's dust fades.
