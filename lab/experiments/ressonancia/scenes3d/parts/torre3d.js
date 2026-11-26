@@ -1002,7 +1002,8 @@ const landing = (b, out) => {
   function progress() {
     const needed = slots.length, seated = climbers.filter((b) => b.slot.tier >= 0 && (b.state === 'seated' || b.state === 'settle')).length;
     return { worldY: +world.position.y.toFixed(3), worldSlide: +slide.toFixed(3), plazaSink: P.plazaSink ?? 0.35, dust: ronda.filter((b) => b.dustMode).length, tier: completed, tiers: tiers.length, climbers: seated, inFlight: climbers.filter((b) => b.slot.tier >= 0).length - seated, pinya: climbers.filter((b) => b.slot.tier < 0).length, needed, height: +rise.toFixed(2),
-      ending: endT >= 0 ? clamp01((time - endT) / (P.endTime ?? 6)) : 0, done: doneSent, charge: +charge.toFixed(3), ready: readyT >= 0 };
+      ending: endT >= 0 ? clamp01((time - endT) / (P.endTime ?? 6)) : 0, done: doneSent, charge: +charge.toFixed(3), ready: readyT >= 0,
+      wave: uWave.value.w > 0 ? [uWave.value.x, uWave.value.z, uWave.value.w] : null };   // 26-11: l'aleta's golden wave (room frame) for the trailer's square
   }
   function setParams(p) { if (p && p.tiers != null && String(p.tiers) !== String(P.__tiersBuilt ?? '')) { /* tiers change on reset */ } }
   function dispose() { beingMat.dispose(); jobs.length = 0; for (const M of meshes) if (M) M.mesh.geometry.dispose(); if (backdrop) { for (const m of backdrop.children) m.geometry.dispose(); backdropMat?.dispose(); } }

@@ -32,7 +32,7 @@ export function create(ctx) {
   const { THREE, TSL, room } = ctx;
   const P = ctx.params || {};
   const {
-    uniform, uniformArray, attribute, vec2, vec3, vec4, float, positionWorld, positionGeometry, modelViewMatrix, cameraProjectionMatrix,
+    uniform, uniformArray, attribute, vec2, vec3, vec4, float, positionWorld, positionGeometry, modelViewMatrix, modelWorldMatrix, cameraProjectionMatrix,
     mix, smoothstep, clamp, sin, cos, floor, pow, exp, length, normalize, dot, texture, atan, asin, select, varying, uv, hash,
     instanceIndex, mx_noise_float, max,
   } = TSL;
@@ -44,6 +44,7 @@ export function create(ctx) {
 
   // ------------------------------------------------------------------------------------------------ uniforms
   const uFade = uniform(0), uReveal = uniform(1), uShatter = uniform(0), uTime = uniform(0), uSil = uniform(0), uFog = uniform(1);
+  const uWave = uniform(new THREE.Vector4(0, 0, 0, -1));   // 26-11: the tower's golden wave (x, z, -, radius; radius < 0 = none) runs through the square's points
   const uPts = uniform(1), uEye = uniform(eye.clone()), uGain = uniform(0.05), uBreath = uniform(0), uCool = uniform(0);
   const G = Array.from({ length: 8 }, () => new THREE.Vector4());      // group intensities, four per light texture (the intro's bake)
   const uG = uniformArray(G, 'vec4');
@@ -258,7 +259,8 @@ export function create(ctx) {
     const clip = cameraProjectionMatrix.mul(vec4(mv.xy.add(positionGeometry.xy.mul(size)), mv.z, mv.w));
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
     m.vertexNode = select(E.greaterThan(0.003).and(keep), clip, vec4(0, 0, 2, 1));
-    const vCol = varying(colr.mul(E).mul(uGain).mul(uPts.max(0.25).reciprocal().min(2.0)));
+    const pwz = modelWorldMatrix.mul(vec4(pos, 1)).xyz, wv = uWave.w.greaterThan(0).select(exp(length(pwz.xz.sub(uWave.xy)).sub(uWave.w).abs().mul(-1.5)), float(0));
+    const vCol = varying(colr.mul(E).mul(uGain).mul(uPts.max(0.25).reciprocal().min(2.0)).add(vec3(1.0, 0.66, 0.26).mul(wv.mul(E).mul(0.5))));
     const dd = uv().sub(0.5), gs = exp(dot(dd, dd).mul(-14));
     m.colorNode = vCol.mul(gs); m.fog = false;
     const grp = new THREE.Group(); grp.name = 'plaza3d:points'; grp.visible = false;
@@ -284,6 +286,7 @@ export function create(ctx) {
     const reveal = num(P.reveal, 1), shatter = num(P.shatter, 0) || num(input?.leave, 0);
     const d = E_('dark', P.dark === true ? 1 : P.dark === false ? 0 : num(P.dark, 0));
     uReveal.value = reveal; uShatter.value = shatter; uSil.value = E_('sil', num(P.silhouette, 0)); uFog.value = E_('fog', num(P.fog, 1));
+    if (Array.isArray(P.wave) && P.wave[2] > 0) uWave.value.set(P.wave[0], P.wave[1], 0, P.wave[2]); else uWave.value.w = -1;
     uPts.value = num(P.points, 1); uGain.value = E_('gain', num(P.pointGain, 0.05)); uBreath.value = E_('breathe', num(P.breathe, 0)); uCool.value = E_('cool', num(P.cool, 0));
     uDark.value = dark ? d : 0;
     uFade.value = smooth(0.58, 1.0, reveal) * (1 - smooth(0.0, 0.45, shatter));
