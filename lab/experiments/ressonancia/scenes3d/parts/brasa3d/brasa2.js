@@ -90,7 +90,9 @@ export function createBrasa2({ THREE, TSL, room, params }) {
 
   let floorMesh = null, sparkMeshRef = null, lineMesh = null;
   // ------------------------------------------------------------------------------------------------ 1. the floor: black water (lit only by what burns)
-  {
+  // (director 26-11: with the baked plaza behind us — fons off — the floor is the plaza's: ours would paint black over the foot of its
+  //  façades. Then the bed is only light: the fires' and the devils' pools, the embers, the sparks. params.floor forces it either way.)
+  if (P.floor ?? (P.fons !== false)) {
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(90, 90, 1, 1), new THREE.MeshBasicNodeMaterial({ depthWrite: false }));
     floor.rotation.x = -Math.PI / 2;
     const pw = attribute('position', 'vec3');
