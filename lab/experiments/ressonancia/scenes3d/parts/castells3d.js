@@ -76,6 +76,9 @@ export function create({ THREE, TSL, room, params }) {
   // params.mode 'outro' (the trailer's closing block): a soft gold over the bodies (uGoldK) and, while they form, the unborn points
   // are gold motes (uMote) — they condense out of a golden dust
   const uGoldK = uniform(0), uMote = uniform(0), uEyeL = uniform(new THREE.Vector3(0, 1.6, 0));
+  // a very soft curl noise on the formed bodies (Beltrán 26-11: «poca amplitud, poca velocidad… un poco de movimiento sin que sea
+  // intenso»): params.curl = amplitude × (1 = ~4–7 mm on a body, ~1 cm on the giant near ones), params.curlSpeed = its pace × (1 = slow)
+  const uCurl = uniform(1), uCurlT = uniform(0);
 
   // ================================================================================================== points (4 poses per body)
   function pointType(body, seed, n) {
@@ -133,6 +136,11 @@ export function create({ THREE, TSL, room, params }) {
     const n = normalize(nA.mul(wA).add(nB.mul(i2.x)).add(nC.mul(i2.y)).add(nD.mul(i2.z)).add(vec3(0, 1e-4, 0)));
     const bt = fract(uTime.add(seed.mul(3.1)).div(9)), br = smoothstep(0.0, 0.45, bt).mul(float(1).sub(smoothstep(0.45, 1.0, bt)));
     p = p.add(n.mul(aux.y.mul(br).mul(0.012))).add(vec3(0, aux.y.mul(br).mul(0.007), 0));
+    // the curl: a divergence-free field (each component varies only across the other two axes), two octaves (~70 cm and ~30 cm
+    // wavelengths) drifting slowly; per body its own offset, so neighbours never sway together. Body units (× its scale below).
+    const cq = p.add(vec3(seed.mul(7.31), seed.mul(3.17), seed.mul(5.71))), ct = uCurlT;
+    const cf = (k, w) => vec3(cos(cq.y.mul(k).add(cq.z.mul(k * 0.61)).add(ct.mul(w))), cos(cq.z.mul(k).add(cq.x.mul(k * 0.61)).add(ct.mul(w * 1.13)).add(1.7)), cos(cq.x.mul(k).add(cq.y.mul(k * 0.61)).add(ct.mul(w * 0.87)).add(3.1)));
+    p = p.add(cf(9, 0.8).mul(0.0045).add(cf(21, 1.3).mul(0.0022)).mul(uCurl));   // ~5–7 mm × scale, periods ~8 s and ~5 s
     p = p.add(vec3(0, p.y.mul(i2.w).mul(i2.w).mul(-0.03), p.y.mul(i2.w).mul(0.24)));
     const r1 = fract(co.z.mul(17.23).add(seed)), r2 = fract(co.w.mul(41.71).add(seed.mul(0.7))), r3 = fract(co.z.mul(73.13).add(co.w.mul(5.1)));
     // it builds out of the dust (from below: the feet first, the points rise into place) · it lets go upward
@@ -330,6 +338,7 @@ export function create({ THREE, TSL, room, params }) {
     if (lastT > t + 0.5) { fired.clear(); builtSent = dimSent = endSent = doneSent = false; if (dustSent) { handoff.clear('castells'); dustSent = false; } }   // the clock went back: a new pass
     lastT = t; lastMode = p.mode;
     uTime.value = time; uLight.value = p.light ?? 1;
+    uCurl.value = Math.max(0, +(p.curl ?? 1) || 0); uCurlT.value += Math.min(dt, 0.1) * Math.max(0, +(p.curlSpeed ?? 1) || 0);
     uLeave.value = clamp01(input.leave ?? p.leave ?? 0); uArrive.value = clamp01(input.arrive ?? p.arrive ?? 1);
     { const kc = Math.min(1, dt / 1.5); if (Array.isArray(p.warm)) uCream.value.lerp(tmpV.fromArray(p.warm), kc); if (Array.isArray(p.cool)) uCoolC.value.lerp(tmpV.fromArray(p.cool), kc); }
     const dustMode = (p.leaveTo ?? 'dust') === 'dust';

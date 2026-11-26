@@ -15,7 +15,8 @@
 //                      list: { wall, x, ys: [5, bottom → top], size }, frame: { alpha } }
 //   or the study's flat keys 'introp1.title' … (see res-3d-study/parts/introp1.json).
 // The closing (block 'acta'): params.mode = 'outro', params.outroDur (s), input.t from 0; params.introp1.outro = { line, thanks, gone,
-//   lineAt: { wall, x, y }, thanksAt: { wall, x, y } } (flat: 'introp1.outroLine', 'outroThanks', 'outroGone', 'outroX/Y', 'thanksX/Y').
+//   lineAt: { wall, x, y }, thanksAt: { wall, x, y }, logos (s, or false), logosAt: { wall, x, y } } (flat: 'introp1.outroLine',
+//   'outroThanks', 'outroGone', 'outroLogos', 'outroX/Y', 'thanksX/Y', 'logosX/Y'). The logo block sits under the thanks by default.
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const ease = (v) => { v = clamp01(v); return v * v * (3 - 2 * v); };
 
@@ -125,6 +126,9 @@ export function create({ THREE, TSL, room, params = {} }) {
     { text: 'culture is born.', italic: true, size: OUT.size, c: canvasTex(OUT.W, OUT.H) },
     { text: 'Thank you for joining Ressonància', italic: false, size: OUT.thanks, c: canvasTex(OUT.TW, OUT.TH) },
   ].map((o) => ({ ...o, p: piece(o.c.tex, o.c.cv.width / PPM, o.c.cv.height / PPM, { ...OUTRO_P, order: 6 }) }));
+  // the logos come back (Beltrán 26-11, «vuelve a mostrar los logos»): the stacked title's own logo block (its rule, the three logos and
+  // their labels, cropped 1 : 1 from his picture) under the thanks, on the wall that does not carry the line
+  const logos = piece(imageTex('./introp1/logos-stacked.png'), 527 / PXM_X, 122 / PXM_Y, { ...OUTRO_P, soft: 0.7, blur: 0.04, order: 6 });
   function drawOutro() {
     for (const o of outro) {
       const g = o.c.g, W = o.c.cv.width, H = o.c.cv.height; g.clearRect(0, 0, W, H);
@@ -143,7 +147,7 @@ export function create({ THREE, TSL, room, params = {} }) {
 
   // ---- configuration (live): beats, positions
   const C = { title: 0, list: 0, stages: [0, 0, 0, 0, 0], preview: 0, close: 0, reach: 3, stack: {}, horiz: {}, listWall: 'P1', listX: 0, ys: [0, 0, 0, 0, 0], size: DEF.size, frameAlpha: 0,
-    outro: false, outroDur: 18, outroLine: 4, outroThanks: 7, line: {}, thanks: {} };
+    outro: false, outroDur: 18, outroLine: 4, outroThanks: 7, outroLogos: 8.6, line: {}, thanks: {}, logos: {} };
   function readCfg() {
     const o = params.introp1 || {}, b = o.beats || {};
     const q = (k, d) => { const v = params['introp1.' + k]; return v !== undefined && v !== null && v !== '' && Number.isFinite(+v) ? +v : d; };
@@ -161,11 +165,13 @@ export function create({ THREE, TSL, room, params = {} }) {
     C.outro = (params.mode ?? params['introp1.mode']) === 'outro'; C.outroDur = +(params.outroDur ?? q('outroDur', 18)) || 18;
     C.outroLine = ob.line ?? q('outroLine', 4); C.outroThanks = ob.thanks ?? q('outroThanks', 7); C.outroGone = ob.gone ?? q('outroGone', null);
     C.line.wall = ob.lineAt?.wall ?? 'P1'; C.line.x = ob.lineAt?.x ?? q('outroX', NaN); C.line.y = ob.lineAt?.y ?? q('outroY', 1.88);
-    C.thanks.wall = ob.thanksAt?.wall ?? 'P3'; C.thanks.x = ob.thanksAt?.x ?? q('thanksX', NaN); C.thanks.y = ob.thanksAt?.y ?? q('thanksY', 1.87);
+    C.thanks.wall = ob.thanksAt?.wall ?? 'P3'; C.thanks.x = ob.thanksAt?.x ?? q('thanksX', NaN); C.thanks.y = ob.thanksAt?.y ?? q('thanksY', 2.02);   // (1.87 before the logos: raised so the block clears the square's horizon at ~1.25 m)
+    C.outroLogos = ob.logos === false ? null : ob.logos ?? q('outroLogos', C.outroThanks + 1.6);   // false: no logos
+    C.logos.wall = ob.logosAt?.wall ?? C.thanks.wall; C.logos.x = ob.logosAt?.x ?? q('logosX', NaN); C.logos.y = ob.logosAt?.y ?? q('logosY', NaN);
   }
   let layoutKey = '', drawnSize = -1;
   function layout() {                             // only when a position changes (the operator / the director tuning it)
-    const key = `${C.stack.wall}|${C.stack.x}|${C.stack.y}|${C.horiz.wall}|${C.horiz.x}|${C.horiz.y}|${C.listWall}|${C.listX}|${C.ys.join(',')}|${C.reach}|${C.line.wall}|${C.line.x}|${C.line.y}|${C.thanks.wall}|${C.thanks.x}|${C.thanks.y}`;
+    const key = `${C.stack.wall}|${C.stack.x}|${C.stack.y}|${C.horiz.wall}|${C.horiz.x}|${C.horiz.y}|${C.listWall}|${C.listX}|${C.ys.join(',')}|${C.reach}|${C.line.wall}|${C.line.x}|${C.line.y}|${C.thanks.wall}|${C.thanks.x}|${C.thanks.y}|${C.logos.wall}|${C.logos.x}|${C.logos.y}`;
     if (C.size !== drawnSize && fontReady) drawStages();
     if (key === layoutKey) return; layoutKey = key;
     place(stack, wallOf(C.stack.wall, 1), C.stack.x, C.stack.y);
@@ -176,7 +182,10 @@ export function create({ THREE, TSL, room, params = {} }) {
     // the closing: P1's line centred on the mosaic's wide window (3.28 m of 6.48 on the art), P3's thanks on its wall's centre
     const w1 = wallOf(C.line.wall, 1), x1 = Number.isFinite(C.line.x) ? C.line.x : 3.2817 * (w1.width / 6.483);
     place(outro[0].p, w1, x1, C.line.y + OUT.gap / 2); place(outro[1].p, w1, x1, C.line.y - OUT.gap / 2);
-    const w3 = wallOf(C.thanks.wall, 3); place(outro[2].p, w3, Number.isFinite(C.thanks.x) ? C.thanks.x : w3.width / 2, C.thanks.y);
+    const w3 = wallOf(C.thanks.wall, 3), x3 = Number.isFinite(C.thanks.x) ? C.thanks.x : w3.width / 2; place(outro[2].p, w3, x3, C.thanks.y);
+    // the logo block under the thanks: its rule ~0.17 m under the words (its centre 0.25 m under its top)
+    const wl = wallOf(C.logos.wall, 3);
+    place(logos, wl, Number.isFinite(C.logos.x) ? C.logos.x : wl === w3 ? x3 : wl.width / 2, Number.isFinite(C.logos.y) ? C.logos.y : C.thanks.y - 0.2 - logos.hm / 2);
   }
   function drawStages() {
     drawnSize = C.size;
@@ -233,9 +242,10 @@ export function create({ THREE, TSL, room, params = {} }) {
         set(outro[0].p, master, clamp01((t - C.outroLine) / 3.0), end(0));
         set(outro[1].p, master, clamp01((t - C.outroLine - 0.9) / 3.0), end(0.25));
         set(outro[2].p, master * 0.9, clamp01((t - C.outroThanks) / 3.0), end(0.5));
+        if (C.outroLogos != null) set(logos, master * 0.9, clamp01((t - C.outroLogos) / 3.0), end(0.5));
         return;
       }
-      for (const o of outro) set(o.p, 0);
+      for (const o of outro) set(o.p, 0); set(logos, 0);
       const outOf = (d) => clamp01((t - C.close - d) / 2.4);                  // the exit: every piece blurs, drifts up and thins, in turn
       // the two titles resolve at «Welcome» (P1 first, P3 half a second later: the room turns to it)
       set(stack, master, clamp01((t - C.title) / 3.0), outOf(0.6));
