@@ -307,11 +307,12 @@ function trailerStep(dt) {
     const held = want === 'brasa' || want === 'pinya' || want === 'tronc';
     { const pn = want === 'brasa' ? 'brasa3d' : want === 'pinya' ? 'pinya3d2' : want === 'tronc' ? 'torre3d' : null; if (pn && parts[pn]) parts[pn].home = null; }   // (26-11, the server) its part was left 'at home' from the last pass: «who comes» now resets it again (every pass an empty room)
     score.setFill(held ? 0 : null); tell({ fill: held ? 0 : null }); link.fiSent = held ? 0 : -1; link.fiAt = time;
+    if (want === 'wait') { score.setStart(0); score.setReveal(0); link.stSent = 0; link.rvSent = 0; tell({ start: 0, reveal: 0 }); }   // (26-11, Beltrán: «en la vuelta 2 no volvió al mosaico») the last pass's start (1) made the sound's score leave the wait at once, and the trailer followed it
     if (S.block !== want) score.jump(want); return;
   }
   if (S.block !== want && time - TRL.jumpedAt > 1.5) {
     const next = SG[i + 1] && SG[i + 1][0];
-    if (!(want === 'brasa' || want === 'pinya' || want === 'tronc') && S.block === next) { TRL.tt = SG[i + 1][1]; TRL.seg = i + 1; }   // the button, or a timed block's end: the room moved on by itself, the trailer follows (the held blocks end only by the trailer)
+    if (!(want === 'brasa' || want === 'pinya' || want === 'tronc') && S.block === next && (want !== 'wait' || (link.stSent ?? 0) >= 1)) { TRL.tt = SG[i + 1][1]; TRL.seg = i + 1; }   // the button, or a timed block's end: the room moved on by itself, the trailer follows (the held blocks end only by the trailer)
     else { TRL.jumpedAt = time; score.jump(want); }
   }
 }
