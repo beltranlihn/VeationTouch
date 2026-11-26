@@ -18,6 +18,7 @@
  "slices": 2,
  "rgbmRange": 8.0,
  "additive": true,
+ "depthB": "base mask",
  "rgbGamma": 2.2,
  "depthMax": 400.0,
  "lightSize": [
@@ -36,7 +37,7 @@
    "kind": "fire",
    "pos": [
     0.0,
-    1.2,
+    0.8,
     -6.5235
    ],
    "side": "P4",
@@ -47,8 +48,8 @@
    "kind": "fire",
    "pos": [
     6.9707,
-    1.2,
-    -0.0
+    0.78,
+    -1.1
    ],
    "side": "P1",
    "file": "fire_P1.png"
@@ -58,7 +59,7 @@
    "kind": "fire",
    "pos": [
     0.0,
-    1.2,
+    1.26,
     6.5235
    ],
    "side": "P2",
@@ -68,25 +69,57 @@
    "name": "fire_P3",
    "kind": "fire",
    "pos": [
-    -6.9707,
-    1.2,
-    -0.0
+    -7.0927,
+    0.33,
+    -0.296
    ],
    "side": "P3",
    "file": "fire_P3.png"
+  },
+  {
+   "name": "embers_P1",
+   "kind": "embers",
+   "pos": null,
+   "side": "P1",
+   "file": "embers_P1.png"
+  },
+  {
+   "name": "embers_P2",
+   "kind": "embers",
+   "pos": null,
+   "side": "P2",
+   "file": "embers_P2.png"
+  },
+  {
+   "name": "embers_P3",
+   "kind": "embers",
+   "pos": null,
+   "side": "P3",
+   "file": "embers_P3.png"
+  },
+  {
+   "name": "embers_P4",
+   "kind": "embers",
+   "pos": null,
+   "side": "P4",
+   "file": "embers_P4.png"
   }
  ],
  "files": {
-  "beauty_0.png": 7343252,
-  "beauty_1.png": 7666279,
-  "fire_P4.png": 4517908,
-  "fire_P1.png": 4464647,
-  "fire_P2.png": 4462523,
-  "fire_P3.png": 4496569,
-  "depth.png": 4775310
+  "beauty_0.png": 7427642,
+  "beauty_1.png": 7749839,
+  "fire_P4.png": 3331740,
+  "fire_P1.png": 4409653,
+  "fire_P2.png": 4617617,
+  "fire_P3.png": 4390827,
+  "embers_P1.png": 1247970,
+  "embers_P2.png": 976313,
+  "embers_P3.png": 728123,
+  "embers_P4.png": 897712,
+  "depth.png": 4729979
  },
  "depthStats": {
-  "p5": 3.493992805480957,
-  "p50": 18.726404190063477
+  "p5": 3.4939980506896973,
+  "p50": 18.711959838867188
  }
 }
